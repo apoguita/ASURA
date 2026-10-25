@@ -2,6 +2,10 @@
 
 The project, not a program: everything that makes a private Guild Wars server run.
 
+**Language: Rust.** **Database: PostgreSQL.** **Design authority: AzerothCore.** Each of those is a
+recorded decision, not a default: `docs/adr/0007-rust-translation.md`,
+`docs/adr/0008-database-vendor.md`, `docs/adr/0006-azerothcore-is-the-reference.md`.
+
 ASURA is made of a small number of services, each with one job. Naming them explicitly is the point
 of this section, because "ASURA does X" is ambiguous — the project does many things, and no single
 process does them all.

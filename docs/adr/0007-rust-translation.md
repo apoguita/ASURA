@@ -1,8 +1,22 @@
 # ADR 0007 — Rust, translated from AzerothCore's C++
 
-- **Status:** Accepted (owner's direction: Rust, with AzerothCore as the design authority)
+- **Status:** Accepted. Decided on merits under `docs/adr/0006-azerothcore-is-the-reference.md`
+  (the rule governs structure; the language is a non-structural choice). Overriding it is a matter of
+  saying so and writing a replacement ADR -- it is not an open question.
 - **Date:** 2026-10-25
 - Extends `docs/adr/0001-rust.md` from the control plane to the whole stack.
+
+## How this was decided
+
+Asked directly whether the stack is C++ or Rust, the answer is **Rust**, and the reasons are the four
+below that weigh on this project specifically: the bug families Rust eliminates are the ones this
+system invites (session and instance ownership across threads); no AzerothCore code is reused either
+way, so C++ buys familiarity with code we have agreed not to copy; a one-person project benefits from
+`cargo test`/`clippy`/one manifest over CMake + MSVC + vcpkg; and a protocol whose travel path is
+almost entirely refusal branches suits errors-as-values.
+
+C++ would be the right call if we intended to adopt AzerothCore code fragments or to hand work to a
+C++-only contributor. Neither is the plan.
 
 ## Context
 
