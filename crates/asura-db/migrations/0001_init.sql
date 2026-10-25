@@ -91,3 +91,11 @@ CREATE TABLE IF NOT EXISTS map_config (
     map_file_id   bigint  NOT NULL,
     spawn_count   int     NOT NULL DEFAULT 0
 );
+
+-- ---------------------------------------------------------------- bookkeeping
+
+-- Record that this migration ran, so a database can say what state it is in instead of being
+-- guessed at (crates/asura-db/src/migrations.rs). The version is the file's number: 0001 is 1.
+-- ON CONFLICT DO NOTHING keeps it idempotent, like every other statement here.
+INSERT INTO schema_version (version) VALUES (1) ON CONFLICT (version) DO NOTHING;
+

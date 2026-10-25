@@ -104,7 +104,9 @@ function Invoke-PsqlFile {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        $output = & $psql -v ON_ERROR_STOP=1 -X -q -f $Path $url 2>&1 | ForEach-Object { "$_" }
+        # -1: the whole file in one transaction, so a failure part-way leaves neither the change nor
+        # the schema_version row that records it.
+        $output = & $psql -v ON_ERROR_STOP=1 -X -q -1 -f $Path $url 2>&1 | ForEach-Object { "$_" }
         return @{ ExitCode = $LASTEXITCODE; Output = ($output -join "`n") }
     } finally {
         $ErrorActionPreference = $previous

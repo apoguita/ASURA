@@ -107,7 +107,9 @@ if (-not $migrations) { throw "no migrations found under crates\asura-db\migrati
 
 $env:PGPASSWORD = $AsuraPassword
 foreach ($migration in $migrations) {
-    Invoke-Psql -User $Role -DatabaseName $Database -Arguments "-f `"$($migration.FullName)`"" | Out-Null
+    # -1: the whole file in one transaction, so a failure part-way leaves neither the change nor the
+    # schema_version row that records it (crates/asura-db/src/migrations.rs).
+    Invoke-Psql -User $Role -DatabaseName $Database -Arguments "-1 -f `"$($migration.FullName)`"" | Out-Null
     Write-Host "applied $($migration.Name)"
 }
 

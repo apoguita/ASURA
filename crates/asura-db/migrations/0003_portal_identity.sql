@@ -17,3 +17,6 @@
 -- older sessions.
 
 ALTER TABLE session ADD COLUMN IF NOT EXISTS portal_user uuid NOT NULL;
+
+-- Record that this migration ran (crates/asura-db/src/migrations.rs; the version is the file number).
+INSERT INTO schema_version (version) VALUES (3) ON CONFLICT (version) DO NOTHING;

@@ -47,6 +47,9 @@ pub mod placement;
 /// account's characters.
 pub mod login;
 
+/// The migration runner, and the startup check that refuses a database older than the code.
+pub mod migrations;
+
 // Re-exported so the harness and the integration tests (separate crates) can name the pool and the
 // session id without depending on sqlx and uuid themselves.
 pub use sqlx::PgPool;
@@ -152,12 +155,13 @@ mod tests {
 
     #[test]
     fn every_statement_is_idempotent() {
-        // Migrations get applied to development databases repeatedly.
+        // Migrations get applied to development databases repeatedly. `IF NOT EXISTS` covers
+        // creating things; `ON CONFLICT` covers the bookkeeping insert each migration ends with.
         for statement in statements(&all_schema()) {
             let head = statement.to_ascii_uppercase();
             assert!(
-                head.contains("IF NOT EXISTS"),
-                "statement without IF NOT EXISTS: {}",
+                head.contains("IF NOT EXISTS") || head.contains("ON CONFLICT"),
+                "statement is neither guarded nor idempotent: {}",
                 statement.lines().next().unwrap_or("")
             );
         }
@@ -180,9 +184,12 @@ mod tests {
 
         // It must be its own column. Folding it into `id` or `account_id` is the conflation the
         // migration exists to prevent, so the statement must name the new column outright.
-        let statements = statements(SCHEMA_V3);
-        assert_eq!(statements.len(), 1, "one statement, one column");
-        assert!(statements[0].contains("ADD COLUMN IF NOT EXISTS portal_user"));
+        let changes: Vec<String> = statements(SCHEMA_V3)
+            .into_iter()
+            .filter(|statement| !statement.contains("schema_version"))
+            .collect();
+        assert_eq!(changes.len(), 1, "one change, one column");
+        assert!(changes[0].contains("ADD COLUMN IF NOT EXISTS portal_user"));
     }
 
     #[test]

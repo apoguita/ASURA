@@ -26,3 +26,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS lease_one_per_session ON lease (session_id);
 
 -- The reaper's query: every lease of a world that went silent.
 CREATE INDEX IF NOT EXISTS lease_by_world ON lease (world_id, map_id);
+
+-- Record that this migration ran (crates/asura-db/src/migrations.rs; the version is the file number).
+INSERT INTO schema_version (version) VALUES (2) ON CONFLICT (version) DO NOTHING;

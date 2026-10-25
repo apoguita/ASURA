@@ -152,6 +152,7 @@ the one failure mode worth failing loudly for.
 | the refusal rules under test against the live database | `crates/asura-db/tests/login.rs` |
 | the three identity pairs the rig's portal DLL presents, seeded idempotently | `tools/seed-dev.ps1` |
 | one command for the whole login path, client not needed yet | `tools/m3-verify.ps1` |
+| the database's record of its own migrations, and the refusal to run against a stale schema | `crates/asura-db/src/migrations.rs` (+ `tests/migrations.rs`) |
 
 The generated file carries `#[rustfmt::skip]` on its table and is checked by
 `python tools/gen-auth-tables.py --check`; if the table and the reference disagree, that command

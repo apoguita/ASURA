@@ -224,6 +224,11 @@ operational attention (backups, a restore test, later a standby).
 A world that is still prebuilding is not advertised, so a request arriving during startup gets a
 correct "no room" instead of a race.
 
+"Schema current" is a query, not an assumption: each migration records its own version in
+`schema_version`, and `asura_db::migrations::ensure_current` refuses to run against a database that is
+missing one, naming what is missing (`crates/asura-db/src/migrations.rs`). A service that starts
+against a stale schema fails later, on some unrelated query, saying nothing about the cause.
+
 ## Cost model
 
 Measured from GWPS, per map instance, against what this structure changes:
