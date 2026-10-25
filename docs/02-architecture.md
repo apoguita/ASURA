@@ -39,24 +39,26 @@ Ported from AzerothCore, deliberately not cherry-picked:
 ## The registry
 
 ```sql
-CREATE TABLE world (
-    id            int          PRIMARY KEY,     -- world server id, configured per process
-    name          text         NOT NULL,
-    address       text         NOT NULL,        -- what the client is told to connect to
-    port          int          NOT NULL,
-    build         text         NOT NULL,        -- which build runs here; placement prefers the newest
-    draining      bool         NOT NULL,        -- finishes its players, accepts nobody new
-    population    int          NOT NULL,        -- players currently connected
-    heartbeat_at  timestamptz  NOT NULL         -- last time this world said it was alive
-);
+CREATE TABLE world (                                   -- MySQL 8; abridged, see the migration
+    id            INT          PRIMARY KEY,            -- world server id, per process
+    name          VARCHAR(64)  NOT NULL,
+    address       VARCHAR(255) NOT NULL,               -- what the client is told to connect to
+    port          INT          NOT NULL,
+    build         VARCHAR(64)  NOT NULL,               -- placement prefers the newest build
+    draining      TINYINT(1)   NOT NULL DEFAULT 0,     -- finishes its players, accepts nobody new
+    population    INT          NOT NULL DEFAULT 0,
+    heartbeat_at  DATETIME(6)  NOT NULL                -- UTC; MySQL has no tz-aware type
+) ENGINE=InnoDB;
 
 CREATE TABLE world_pool (                       -- capacity, per world, per map
-    world_id   int  REFERENCES world (id),
-    map_id     int  NOT NULL,
-    capacity   int  NOT NULL,                   -- instances prebuilt and ready
-    leased     int  NOT NULL DEFAULT 0,         -- currently assigned to a party
-    PRIMARY KEY (world_id, map_id)
-);
+    world_id   INT  NOT NULL,
+    map_id     INT  NOT NULL,
+    capacity   INT  NOT NULL,                   -- instances prebuilt and ready
+    leased     INT  NOT NULL DEFAULT 0,         -- currently assigned to a party
+    PRIMARY KEY (world_id, map_id),
+    CONSTRAINT world_pool_never_oversold CHECK (leased <= capacity),
+    CONSTRAINT world_pool_world FOREIGN KEY (world_id) REFERENCES world (id)
+) ENGINE=InnoDB;
 ```
 
 A world server inserts or updates its `world` row at startup (flags = online), keeps `population` and
@@ -209,7 +211,7 @@ Measured from GWPS, per map instance, against what this structure changes:
 | OS threads | 1 per instance | bounded pool, constant with instance count |
 | database connections | 1 per instance | a small pool per world server |
 | `Gw.dat` index | private copy per instance (4.7 MB) | one memory-mapped copy per world server |
-| SQLite page cache | 2 MB per instance | gone — pooled PostgreSQL connections |
+| SQLite page cache | 2 MB per instance | gone — pooled MySQL connections |
 
 Sizing: a world server holding 500 instances is roughly 2.5 GB. More worlds, more machines, same
 code — the client is told a real address, so nothing in the protocol changes when a world moves.

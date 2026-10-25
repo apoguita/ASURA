@@ -30,7 +30,7 @@ State of the project as of the last commit, so a new session can begin without r
 | what | why | how |
 |---|---|---|
 | **Rust (rustup)** | nothing builds without it | `winget install Rustlang.Rustup`, or rustup-init from rustup.rs |
-| **PostgreSQL 16+** | the database is the coordination channel | `winget install PostgreSQL.PostgreSQL.16` |
+| **MySQL 8.0.16+** | the database is the coordination channel; same vendor as AzerothCore | `winget install Oracle.MySQL` |
 | The Reforged client + stealth hooks | validation means the real client, instrumented | already present from the PreSearing work |
 
 ## First session tasks, in order
@@ -38,7 +38,7 @@ State of the project as of the last commit, so a new session can begin without r
 1. `cargo test` — the scaffold has never been compiled on this machine. Fix whatever it says.
    Expected: the workspace builds with no dependencies, and tests pass in `asura-protocol`,
    `asura-db`, `asura-auth`, `asura-world`.
-2. **M2**: schema applied to a real PostgreSQL, `world` registration, `world_pool` capacity, and the
+2. **M2**: schema applied to a real MySQL, `world` registration, `world_pool` capacity, and the
    reservation statement under concurrency — N parallel reservations against capacity N-1 must
    succeed exactly N-1 times. This is the milestone that makes placement safe, and it needs no client.
 3. **M3**: the auth endpoint. Handshake, ARC4, DH with the fixed constants, login, character list.

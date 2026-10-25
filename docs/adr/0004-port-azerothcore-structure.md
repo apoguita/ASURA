@@ -54,10 +54,9 @@ This is the only structural difference, and it is dictated by the client's behav
 
 ## Database vendor
 
-**PostgreSQL** for phase 1. The AzerothCore pattern is vendor-neutral — pool, async queue,
-transactions, a registry table — and MySQL/InnoDB would satisfy it equally. PostgreSQL is preferred
-because row locking with `RETURNING` makes the reservation above a single atomic statement, and
-because it is a fractionally better fit for the schema we will port than SQLite was.
+**MySQL 8**, the same vendor as AzerothCore (`docs/adr/0008-database-vendor-mysql.md`). This ADR
+originally said PostgreSQL; that was a decision taken before the "follow AzerothCore" rule existed and
+is corrected there, with the trade-offs written down rather than hidden.
 
 The vendor lives behind one crate (`asura-db`); nothing else in the project writes SQL.
 
@@ -73,8 +72,8 @@ The vendor lives behind one crate (`asura-db`); nothing else in the project writ
 - The database becomes **load-bearing for correctness**, not just storage. It needs backups, a
   restore procedure and, eventually, a standby. That operational cost is accepted as the price of
   concurrent multi-process access.
-- GWPS's SQLite schema is ported to PostgreSQL: three logical databases, UUIDs as native `uuid`,
-  blobs as `bytea`. The write surface is small (11 functions in `Db.c`).
+- GWPS's SQLite schema is ported to MySQL: three logical databases, UUIDs as `CHAR(36)`, blobs as
+  `BLOB`. The write surface is small (11 functions in `Db.c`).
 - Phase 2 (simulation inside ASURA) inherits this structure; the world server is written into it
   once, rather than twice.
 
