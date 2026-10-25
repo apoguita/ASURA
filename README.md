@@ -1,8 +1,20 @@
 # A.S.U.R.A. — Automated Server Utility for Remote Authentication
 
-The control plane for a private Guild Wars server: login, session, directory, and instance
-allocation. It is the program that answers the game client, decides where a player belongs, and
-tells them how to get there — and the program that never simulates a world.
+The project, not a program: everything that makes a private Guild Wars server run.
+
+ASURA is made of a small number of services, each with one job. Naming them explicitly is the point
+of this section, because "ASURA does X" is ambiguous — the project does many things, and no single
+process does them all.
+
+| component | what it is | what it does |
+|---|---|---|
+| **auth service** (`asura-auth`) | one program | answers the client's login: key exchange, session, character list, character select. Owns identity. |
+| **world server** (`asura-world`) | many programs | runs maps for players: simulation, instances, gameplay connections. Disposable. |
+| **database** (`asura-db`) | PostgreSQL | the shared truth: accounts, sessions, characters, the world registry, pool capacity |
+| **protocols** (`asura-protocol`) | a library | the client-facing message definitions and the server-to-server control messages |
+
+There is no single program called "ASURA". When a document means the login side it says **auth
+service**; when it means a map-running process it says **world server**.
 
 - **Status:** design phase. No code yet; this repository currently holds the specification.
 - **Sibling project:** [`PreSearing`/GWPS](https://github.com/apoguita/GWPS) is the existing
@@ -24,9 +36,9 @@ shape that grows to hundreds of instances or multiple machines, because:
 - the process that answers the client is also the process that runs the worlds, so a crash takes
   everything with it and the whole deployment lives on one machine.
 
-ASURA takes the control half out and does it properly. The worlds stay in C and keep simulating.
+The auth service takes the control half out and does it properly. The worlds stay in C and keep simulating.
 
-## What ASURA owns
+## What the auth service owns
 
 | responsibility | detail |
 |---|---|
@@ -37,7 +49,7 @@ ASURA takes the control half out and does it properly. The worlds stay in C and 
 | Persistence | accounts, sessions, characters, bags/items — the databases the worlds read |
 | Web gate | the portal login that hands the client its `user_id`/`session_id` |
 
-## What ASURA does not own *yet*
+## What the auth service does not own *yet*
 
 Map simulation, agents, pathfinding, combat and chat delivery are in this project's long-term scope
 - this repository is meant to hold the whole server stack, not only its control half - but
@@ -48,7 +60,7 @@ simulation is explicitly deferred until the control plane works. See
 
 | document | what it settles |
 |---|---|
-| [`docs/01-scope.md`](docs/01-scope.md) | the boundary: what is ASURA's job and what is explicitly not |
+| [`docs/01-scope.md`](docs/01-scope.md) | the boundary: what is the auth service's job and what is explicitly not |
 | [`docs/02-architecture.md`](docs/02-architecture.md) | the process model, the allocation contract, and the one rule that must not be broken |
 | [`docs/03-protocol.md`](docs/03-protocol.md) | the wire facts: framing, key exchange, login, travel, and the world-link protocol |
 | [`docs/04-from-gwps.md`](docs/04-from-gwps.md) | what is inherited from GWPS, what must be re-proven, and where the reference code is |
@@ -71,7 +83,7 @@ component of this project is a decision deliberately left to the simulation phas
 
 ## Working with the sibling repository
 
-GWPS is not deprecated by this project — it is the oracle. When ASURA disagrees with the client,
+GWPS is not deprecated by this project — it is the oracle. When the auth service disagrees with the client,
 the question "what does GWPS send here, byte for byte?" is answered in
 `PreSearing/code/OpenTyria/`, and the captures and diffing tools live in
 `PreSearing/tools/` and `PreSearing/captures/`.

@@ -5,15 +5,20 @@ explaining it, it is defined here.
 
 ### The programs
 
-**ASURA** — *Automated Server Utility for Remote Authentication.* The program this repository is
-about. It answers the game client, knows who is logged in, and decides where a player's map runs.
-It never runs a map itself.
+**ASURA** — the project. *Automated Server Utility for Remote Authentication.* Not a program: the
+whole server stack, made of the components below.
 
-**World server** — a program that runs maps for players. In phase 1 these are the existing C game
-servers; in phase 2 the simulation becomes part of this project. Either way they are disposable:
-restarting one loses a session, not the database.
+**auth service** (`asura-auth`) — the program that answers the client's login: key exchange,
+session, character list, character select. It owns identity, and it never runs a map.
 
-**GWPS** — the existing single-process project (`PreSearing`). It does the job of ASURA *and* the
+**World server** (`asura-world`) — a program that runs maps for players. In phase 1 these are the
+existing C game servers; in phase 2 the simulation becomes part of this project. Either way they
+are disposable: restarting one loses a session, not the database.
+
+**Control plane** — shorthand for everything that is not simulation: auth, identity, registry,
+placement. It spans the auth service and the registry, not one process.
+
+**GWPS** — the existing single-process project (`PreSearing`). It does the job of the auth service *and* the
 world servers in one program. It stays as the working reference.
 
 ### Maps and players
@@ -43,7 +48,7 @@ a portal. The client disconnects, is told where to go, and reconnects.
 **Redirect** — the message that tells the client where to go: an address, a port, a map, and a key.
 Until the client receives one, it does not move.
 
-**Token** — a value ASURA hands out for one travel, so that when the client reconnects, the new
+**Token** — a value the auth service hands out for one travel, so that when the client reconnects, the new
 connection can be recognised as the one that was expected. A wrong token is refused.
 
 **Allocation** — deciding which world server a travel request goes to, and saying no if none fits.
@@ -73,13 +78,13 @@ into both the server and the patched client.
 
 **Framing** — how messages are delimited on the wire: a header, a size, then a body.
 
-**World link** — our own protocol between ASURA and a world server. It is entirely ours, so it is
+**World link** — our own protocol between the auth service and a world server. It is entirely ours, so it is
 versioned and explicit.
 
-**Heartbeat** — a periodic "still here, this full, this busy" message from a world server, so ASURA
+**Heartbeat** — a periodic "still here, this full, this busy" message from a world server, so the auth service
 can tell a live world from a dead one.
 
-**Directory** — ASURA's in-memory list of which world servers exist, what they host, and how full
+**Directory** — the auth service's in-memory list of which world servers exist, what they host, and how full
 they are.
 
 ### Machinery
@@ -97,4 +102,4 @@ so many copies of the same data can share it.
 client streams the rest from ArenaNet's file servers.
 
 **Manifest** — the list of files the client is told to fetch. Serving it ourselves is what would
-make the server fully independent of ArenaNet; it is a separate service, not part of ASURA.
+make the server fully independent of ArenaNet; it is a separate service, not part of the auth service.

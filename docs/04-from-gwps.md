@@ -20,12 +20,12 @@ maps what to reuse as knowledge, what to port, and what to leave behind.
 
 | GWPS file | what it becomes |
 |---|---|
-| `AuthSrv.c` | **ASURA**: auth endpoint, handshake, login, character list, sessions, allocation decisions. Ported to Rust. |
-| `AuthSrvCtrl.c`, `CtrlConn.c/.h` | **ASURA**: the world link. Redesigned — the current messages carry live socket handles, which cannot cross processes cleanly. |
+| `AuthSrv.c` | **auth service**: auth endpoint, handshake, login, character list, sessions, allocation decisions. Ported to Rust. |
+| `AuthSrvCtrl.c`, `CtrlConn.c/.h` | **auth service**: the world link. Redesigned — the current messages carry live socket handles, which cannot cross processes cleanly. |
 | `main.c` | split: `asura` main and `world` main. Today one binary binds 6112/6113/1337 and runs everything. |
-| `GameSrv.c` | **world server** in phase 1 (stays C): simulation, players, instance lifecycle. It is the seed of ASURA's own simulation phase. |
+| `GameSrv.c` | **world server** in phase 1 (stays C): simulation, players, instance lifecycle. It is the seed of the auth service's own simulation phase. |
 | `GmMapDataImport.c`, `FaArchive.c`, `GmPaths.c`, `GmItem.c`, … | **world server** (stays C), untouched. |
-| `Db.c`, `DbSchema.h` | **ASURA** owns schema and writes; worlds read. Shared definition, one owner. |
+| `Db.c`, `DbSchema.h` | **database**: one schema owner; worlds read what they need. Shared definition, one owner. |
 | `GmCommands.c` | **world server**, plus the map list it carries is the input for outpost prebuild. |
 | `tools/`, `captures/` | test material for the port: packet traces to diff against. |
 
@@ -58,17 +58,17 @@ redirect instead of the auth port. Nothing else changes.
 
 ### Step 2 — Split the programs
 
-`asura` (control) and `world` (data) become separate binaries. The world connects to ASURA over the
-world link and announces itself; ASURA allocates from what the world reports, instead of building
+`asura` (control) and `world` (data) become separate binaries. The world connects to the auth service over the
+world link and announces itself; the auth service allocates from what the world reports, instead of building
 servers in its own process.
 
 - Test: two processes, two terminals, same hops; kill the world mid-session and confirm the client
   fails cleanly rather than hanging.
-- Acceptance: ASURA contains no `GameSrv` code and never reads `Gw.dat`.
+- Acceptance: the auth service contains no `GameSrv` code and never reads `Gw.dat`.
 
 ### Step 3 — Capacity and refusal
 
-ASURA knows how full each world is and can answer "no". The travel request path gains the refusal
+The auth service knows how full each world is and can answer "no". The travel request path gains the refusal
 branch, delivered before the client is redirected.
 
 - Test: configure a world with one explorable slot, travel into it from two characters, confirm the
@@ -84,7 +84,7 @@ Shared index, one database connection per world, reactor instead of a thread per
 ### Step 5 — More machines
 
 Because step 1 made the client-facing address real, this is configuration: run a world on another
-host, point it at ASURA, verify a hop across hosts.
+host, point it at the auth service, verify a hop across hosts.
 
 - Test: one world on the same machine and one on another; travel between them; the client should
   not notice anything except a longer loading screen.

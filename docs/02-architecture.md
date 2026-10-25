@@ -6,11 +6,11 @@ How the pieces fit, what crosses between them, and the rules the design is built
 
 | role | how many | lifetime | state |
 |---|---|---|---|
-| **ASURA** (control) | 1 (+ standby) | long | the only meaningful state: sessions, directory, allocation |
+| **auth service** (control) | 1 (+ standby) | long | the only meaningful state: sessions, directory, allocation |
 | **world server** (data) | many | disposable | map instances in memory; nothing that survives a restart |
 | **content/file server** | 1+ | long | assets; outside this project |
 
-World servers are the only place a player's map runs. ASURA never simulates anything, and it never
+World servers are the only place a player's map runs. The auth service never simulates anything, and it never
 holds a player's gameplay connection. That is the whole point of the split: the part that is hard
 to scale (instances) becomes a set of interchangeable processes, and the part that is hard to
 replicate (identity and placement) stays in one small place.
@@ -31,36 +31,36 @@ whether the far side is Rust or C (`docs/adr/0003-simulation-in-scope.md`).
 
 A process that:
 
-1. connects to ASURA and announces itself: an id, the address the client should be told to use,
+1. connects to the auth service and announces itself: an id, the address the client should be told to use,
    which maps it has loaded, and how much room it has;
 2. keeps a set of ready map instances;
 3. receives allocation requests and either assigns an existing ready instance or refuses;
-4. accepts the player's gameplay connection itself, and verifies the token ASURA gave it;
+4. accepts the player's gameplay connection itself, and verifies the token the auth service gave it;
 5. reports load (instances, players, tick health) on a heartbeat;
 6. exits cleanly when asked, having saved what needs saving.
 
-Everything a world server knows can be rebuilt: the database is the truth, ASURA is the directory.
+Everything a world server knows can be rebuilt: the database is the truth, the auth service is the directory.
 Killing a world server is an expected event, not an incident.
 
 ## The allocation contract
 
-One connection per world server to ASURA. Every message is a small fixed-layout struct, because
+One connection per world server to the auth service. Every message is a small fixed-layout struct, because
 both ends are implemented separately and a schema mismatch must be an immediate, loud failure
 rather than a silent misparse.
 
 | direction | message | meaning |
 |---|---|---|
-| world → ASURA | `WorldHello` | id, client-facing address, capability, capacity |
-| world → ASURA | `MapReady` | "map X is loaded and I have room for N more instances of it" |
-| world → ASURA | `Heartbeat` | instances held, players, tick latency, memory |
-| ASURA → world | `AllocateInstance` | "give me an instance of district D for player P" |
-| world → ASURA | `InstanceGranted` | "instance I belongs to player P, token T" |
-| world → ASURA | `InstanceRefused` | "no room / no such map" — a normal answer, not an error |
-| world → ASURA | `PlayerLeft` | player has left instance I (frees capacity) |
-| world → ASURA | `InstanceReleased` | instance I is empty, cleared and back in the pool |
-| ASURA → world | `Shutdown` | save and exit |
+| world → the auth service | `WorldHello` | id, client-facing address, capability, capacity |
+| world → the auth service | `MapReady` | "map X is loaded and I have room for N more instances of it" |
+| world → the auth service | `Heartbeat` | instances held, players, tick latency, memory |
+| The auth service → world | `AllocateInstance` | "give me an instance of district D for player P" |
+| world → the auth service | `InstanceGranted` | "instance I belongs to player P, token T" |
+| world → the auth service | `InstanceRefused` | "no room / no such map" — a normal answer, not an error |
+| world → the auth service | `PlayerLeft` | player has left instance I (frees capacity) |
+| world → the auth service | `InstanceReleased` | instance I is empty, cleared and back in the pool |
+| The auth service → world | `Shutdown` | save and exit |
 
-ASURA keeps the player-facing half of the same flow: it answers the client's travel request with
+The auth service keeps the player-facing half of the same flow: it answers the client's travel request with
 `World` + address + token (the `0x01A6` redirect, `docs/03-protocol.md`).
 
 ## The one rule: nothing is built during a travel
@@ -92,12 +92,12 @@ server is irrelevant; what matters is never sending a client to an address that 
 - **Explorables**: a prebuilt pool per map, depth = how many parties should be able to be inside
   that map at once. Assigned on entry, cleared and returned on exit. Never freed, never built on
   request.
-- **At capacity**: `InstanceRefused` → ASURA answers the travel request with a refusal. The client
+- **At capacity**: `InstanceRefused` → the auth service answers the travel request with a refusal. The client
   stays where it is. No queueing, no constructing, no "wait a moment".
 
 ## Placement
 
-ASURA chooses the world server for a request with these rules, in order:
+The auth service chooses the world server for a request with these rules, in order:
 
 1. **Capability first.** The world must have the destination map loaded, or be able to serve it
    from a ready pool instance. A world that would have to load the map is not a candidate.
@@ -115,12 +115,12 @@ loaded, and loading is not a per-request operation.
 
 | event | outcome |
 |---|---|
-| world server crashes | its players are dropped; ASURA marks them disconnected; their map state is whatever the database last saved; other worlds are unaffected; the world is restarted and re-registers |
-| ASURA restarts | sessions are lost (players must log in again); the directory rebuilds from world hellos; allocation resumes |
+| world server crashes | its players are dropped; the auth service marks them disconnected; their map state is whatever the database last saved; other worlds are unaffected; the world is restarted and re-registers |
+| The auth service restarts | sessions are lost (players must log in again); the directory rebuilds from world hellos; allocation resumes |
 | no room anywhere | travel is refused before the client moves |
 | duplicate world id | rejected at `WorldHello`; the older connection is closed |
 
-The asymmetry is deliberate: losing ASURA costs a login, losing a world costs a map. Neither can
+The asymmetry is deliberate: losing the auth service costs a login, losing a world costs a map. Neither can
 corrupt the other, and neither can admit a player the other did not authenticate.
 
 ## Cost model
@@ -136,7 +136,7 @@ Measured from GWPS on the same class of hardware, per map instance:
 
 The two big items are duplication, not work: the same read-only index read 500 times, and a
 database cache per map that all serve the same file. Sharing them per world server is the single
-largest lever, and it is local to the world server — ASURA is unaffected by it.
+largest lever, and it is local to the world server — the auth service is unaffected by it.
 
 Sizing rule of thumb: a world server with 500 instances and a shared index is roughly
 500 × 5 MB ≈ 2.5 GB. Ten of them hold ~5000 instances. Growth is "add a world server", including
@@ -145,10 +145,10 @@ on another machine, because the client is told a real address, not a loopback on
 ## Process and startup order
 
 1. Database available; schema current.
-2. ASURA starts, binds the auth endpoint, opens the world link listener.
+2. The auth service starts, binds the auth endpoint, opens the world link listener.
 3. World servers start, load their maps and pools, announce themselves, report `MapReady`.
-4. ASURA accepts players; allocation answers only from worlds that have reported ready.
-5. Shutdown: ASURA stops accepting, asks worlds to save and exit, then exits.
+4. The auth service accepts players; allocation answers only from worlds that have reported ready.
+5. Shutdown: the auth service stops accepting, asks worlds to save and exit, then exits.
 
 A world server that is still loading is simply not a candidate — which means a request arriving two
 seconds after boot gets a correct "no room" instead of a race.
@@ -156,5 +156,5 @@ seconds after boot gets a correct "no room" instead of a race.
 ## Deliberate non-goals
 
 - Autoscaling, orchestration, containers. Adding a world server is a config line and a process.
-- Distributed consensus. There is one authority (ASURA) and everything else defers to it.
+- Distributed consensus. There is one authority (the auth service) and everything else defers to it.
 - Multi-region. One region; districts are capacity, not geography.

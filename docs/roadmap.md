@@ -9,7 +9,7 @@ This repository's documents, and the decisions they depend on.
 
 **Done when:** `docs/01-scope.md`, `docs/02-architecture.md`, `docs/03-protocol.md`,
 `docs/04-from-gwps.md`, the ADRs, and this roadmap are complete enough to answer two questions
-without asking the author: *what does ASURA do?* and *what crosses the world link?*
+without asking the author: *what does the auth service do?* and *what crosses the world link?*
 
 **Test:** a reader who has never seen GWPS can describe the allocation flow and the one rule.
 
@@ -19,7 +19,7 @@ Three crates, no sockets yet:
 
 - `asura` — the binary (config loading, logging, startup order, shutdown).
 - `asura-protocol` — message layouts for the world link, with encode/decode and a protocol version.
-- `asura-db` — schema ownership and the queries ASURA needs.
+- `asura-db` — schema ownership and the queries the auth service needs.
 
 **Done when:** every world-link message round-trips byte-for-byte in a unit test, the protocol
 version mismatch path is tested, and `asura --version` starts and exits cleanly.
@@ -28,7 +28,7 @@ version mismatch path is tested, and `asura --version` starts and exits cleanly.
 
 ## M2 — World link against a fake world
 
-ASURA listens for world servers, maintains the directory, and tracks liveness.
+The auth service listens for world servers, maintains the directory, and tracks liveness.
 
 **Done when:** a test harness (a "fake world" binary in the workspace) can register, report
 `MapReady`, heartbeat, and be marked stale when it goes silent. An allocation request against an
@@ -41,7 +41,7 @@ empty directory returns a refusal, not a panic.
 Port the handshake and login: framing, ARC4, DH with the fixed constants, login against the web
 gate, character list, character select.
 
-**Done when:** the patched `Gw.custom.exe` reaches the character list against ASURA, and the
+**Done when:** the patched `Gw.custom.exe` reaches the character list against the auth service, and the
 handshake produces traffic that diffs clean against the GWPS reference for the same actions.
 
 **Test:** real client, login only — no worlds needed yet. Diff with
@@ -52,13 +52,13 @@ trace and compare every message. This is why the reference implementation stays 
 
 ## M4 — End-to-end travel
 
-ASURA allocates, a world grants an instance, the client is redirected to that world's own address
+The auth service allocates, a world grants an instance, the client is redirected to that world's own address
 and reconnects with the token.
 
 **Depends on:** GWPS step 1 — a world server that accepts and authenticates its own gameplay
 connections (`docs/04-from-gwps.md`, step 1).
 
-**Done when:** one C world server, one ASURA, one client: log in → enter a map → travel to another
+**Done when:** one C world server, one the auth service, one client: log in → enter a map → travel to another
 map, and the client's world rebuilds (the in-client recorder should show a tear-down followed by a
 rebuild, as it does on GWPS: 100–204 ms).
 
@@ -66,7 +66,7 @@ rebuild, as it does on GWPS: 100–204 ms).
 
 ## M5 — Capacity, refusal, and persistence
 
-ASURA sizes the world, refuses when full, and owns player state.
+The auth service sizes the world, refuses when full, and owns player state.
 
 **Done when:** with one explorable slot configured, a second character travelling there is refused
 *while still standing in the outpost* — the client never enters a loading screen. Player state is

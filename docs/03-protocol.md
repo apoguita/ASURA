@@ -1,6 +1,6 @@
 # Protocol
 
-The wire facts ASURA has to reproduce. Everything here is derived from the GWPS implementation and
+The wire facts the auth service has to reproduce. Everything here is derived from the GWPS implementation and
 from captures of a working session; where a shape is only known approximately it is marked
 **unverified**, and the reference code is named so the port can be checked byte for byte instead of
 trusted.
@@ -29,7 +29,7 @@ cheapest way to compare a Rust port against the C reference.
 
 The first message a client sends decides what the connection is. GWPS compares the header against
 the auth, game and ctrl "version" headers (`AuthSrv.c`, connection classification) and routes the
-socket accordingly. ASURA needs the same discrimination on its listener, and must reject anything
+socket accordingly. The auth service needs the same discrimination on its listener, and must reject anything
 it does not recognise instead of guessing.
 
 ## 3. Key exchange
@@ -42,7 +42,7 @@ The client and server perform a Diffie–Hellman exchange with **fixed constants
 - both sides derive the ARC4 key from the shared secret, and everything after that is encrypted.
 
 The patched client (`patch-gw.py`) is what makes this work at all: it carries the matching public
-parameters and disables a mutex check. **The constants must be identical** in ASURA, or the client
+parameters and disables a mutex check. **The constants must be identical** in the auth service, or the client
 will fail the handshake and report an opaque error. This is the highest-risk part of the port and
 the reason the handshake is scheduled last (`docs/roadmap.md`).
 
@@ -50,8 +50,8 @@ the reason the handshake is scheduled last (`docs/roadmap.md`).
 
 1. The client obtains `user_id` and `session_id` (UUIDs) from the portal/web gate, not from us.
 2. It sends them in the login message on the auth connection.
-3. ASURA validates the pair, and answers with the account's character list.
-4. The client selects a character; ASURA records the selection.
+3. The auth service validates the pair, and answers with the account's character list.
+4. The client selects a character; the auth service records the selection.
 
 A login for an account that still holds a session must be resolved deterministically, not by
 crashing: GWPS's rule — an incomplete transfer is cleared, a live one is refused — is the behaviour
@@ -65,15 +65,15 @@ This is the part the whole design exists to protect.
    `{map_id, map_type, region, language, district}` with a request id. In GWPS this arrives as
    `CTRL_CMSG`-shaped `StartPlayerTransfer` from the world, and as a direct request message on the
    auth connection at login; both are allocation requests.
-2. **ASURA allocates.** It answers only from a world that has the map ready (`docs/02-architecture.md`).
-3. **ASURA issues a token.** A fresh player token plus the identity the client's *next* connection
+2. **the auth service allocates.** It answers only from a world that has the map ready (`docs/02-architecture.md`).
+3. **the auth service issues a token.** A fresh player token plus the identity the client's *next* connection
    must present.
 4. **The client is redirected.** The response is `TRANSFER_GAME_SERVER_INFO` (`0x01A6`):
    `{host[24], port, map_token, region, player_token, is_explorable, map_id}` — field order as
    GWPS sends it; the captured live shape is 52 bytes where GWPS sends 46, and GWPS's 46-byte form
    is accepted by the client, so the difference is padding rather than semantics. **Do not
    reorder fields**: GWPS's order deliberately differs from the capture and works.
-   - `host` is a 24-byte string. GWPS always writes `127.0.0.1`; ASURA must write a real address.
+   - `host` is a 24-byte string. GWPS always writes `127.0.0.1`; the auth service must write a real address.
    - `is_explorable` describes the **destination** map type (1 for explorables, 0 for outposts).
      Deriving it from the source map was a bug that produced client error 005.
 5. **A map update follows immediately.** `MAP_UPDATE_CURRENT` (`0x0099`) is sent right after the
@@ -101,12 +101,12 @@ environment variable.
 ## 7. File check
 
 The client also asks a file service whether a file is current: a 21-byte request answered with 32
-bytes. GWPS answers it correctly when it receives it (`AuthSrv_TryHandleFileCheck`). Whether ASURA
+bytes. GWPS answers it correctly when it receives it (`AuthSrv_TryHandleFileCheck`). Whether the auth service
 needs to answer it depends on whether the client is pointed at us for content; today it is not.
 
-## 8. World link (ASURA ↔ world servers)
+## 8. World link (the auth service ↔ world servers)
 
-ASURA's own protocol, entirely ours, so it can be clean:
+The auth service's own protocol, entirely ours, so it can be clean:
 
 ```
 u32 magic          "ASUR"
@@ -119,7 +119,7 @@ u8  body[length]   fixed layout per kind
 Message kinds are listed in `docs/02-architecture.md` ("The allocation contract"). Rules:
 
 - one connection per world, opened by the world;
-- the first message must be `WorldHello`, with a protocol version ASURA accepts;
+- the first message must be `WorldHello`, with a protocol version the auth service accepts;
 - every message is version-checked; unknown kinds are a fatal protocol error, not a warning;
 - a heartbeat that stops has the same consequences as the connection dropping.
 
