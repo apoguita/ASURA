@@ -20,12 +20,18 @@ State of the project as of the last commit, so a new session can begin without r
 |---|---|---|
 | **Rust** | installed, 1.99.1 | `cargo test` → **11 tests, 0 failures**; `cargo clippy --all-targets` → clean |
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
-| **PostgreSQL** | installed, 16.15, service `postgresql-x64-16` **Running** | accepts connections on 5432; **credentials not yet configured** |
+| **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, 7 tables applied; credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
 | client rig (Reforged + stealth hooks) | present from the PreSearing work | not needed until M4 |
 
-**The one thing blocking M2** is a database role and schema. Either run the two commands below, or
-export `PGPASSWORD` and say so, and the setup plus the M2 acceptance test can be done in one pass.
+**Database is ready.** `ASURA_DATABASE_URL` is in `.env` (gitignored, never committed). Verified after
+setup: the role connects, all seven tables exist, and the pool invariants behave -- at capacity the
+reservation `UPDATE ... WHERE leased < capacity` returns `UPDATE 0` (the refusal signal), and an
+over-capacity row is rejected by `world_pool_never_oversold`.
+
+If the superuser password is ever lost again, `tools/pg-recover.ps1` (run elevated) does the standard
+recovery: back up `pg_hba.conf`, temporary `trust`, reset, restore, restart. It restores secure auth
+before it finishes, and it writes the new credentials to `.env`.
 
 Either run the two statements below in `psql`, or use the script that does the whole setup and
 verifies it:
