@@ -5,6 +5,7 @@ members = [
     "crates/asura-world",
     "crates/asura-protocol",
     "crates/asura-db",
+    "crates/asura-fakeworld",
 ]
 
 [workspace.package]
@@ -14,9 +15,8 @@ rust-version = "1.75"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-# Deliberately empty for now. The first dependencies to add, when they are needed:
-#   tokio        - the service runtimes (AzerothCore: Boost.Asio)
-#   sqlx         - pooled database access (AzerothCore: DatabaseWorkerPool)
-#   tracing      - structured logging (AzerothCore: their logging module)
-#   serde        - configuration
-# Add them when the code that needs them exists, not before.
+# Added with the code that needs them (docs/adr/0007-rust-translation.md): M2 needs a database, so
+# the database and runtime dependencies arrive with placement. Networking arrives with the services.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid"] }
+uuid = { version = "1", features = ["v4"] }

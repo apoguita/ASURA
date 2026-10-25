@@ -16,14 +16,24 @@ fn main() {
         return;
     }
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
-        println!("asura-world {} — one ASURA world server (a realm)", env!("CARGO_PKG_VERSION"));
+        println!(
+            "asura-world {} — one ASURA world server (a realm)",
+            env!("CARGO_PKG_VERSION")
+        );
         println!();
-        println!("Next milestone (M2): register in `world`, publish pool capacity, reserve on travel.");
+        println!(
+            "Next milestone (M2): register in `world`, publish pool capacity, reserve on travel."
+        );
         return;
     }
 
     for (step, description) in startup_order().iter().enumerate() {
-        eprintln!("startup {}/{}: {}", step + 1, startup_order().len(), description);
+        eprintln!(
+            "startup {}/{}: {}",
+            step + 1,
+            startup_order().len(),
+            description
+        );
     }
     eprintln!("asura-world: instance pools and networking are milestone M2; exiting cleanly");
 }

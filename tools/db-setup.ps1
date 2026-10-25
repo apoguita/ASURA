@@ -88,12 +88,15 @@ if ($exists -and $exists.Trim() -eq "1") {
 }
 
 # --- schema -----------------------------------------------------------------------------------
-$schema = Join-Path (Split-Path -Parent $PSScriptRoot) "crates\asura-db\migrations\0001_init.sql"
-if (-not (Test-Path $schema)) { throw "schema not found at $schema" }
+$migrations = Get-ChildItem (Join-Path (Split-Path -Parent $PSScriptRoot) "crates\asura-db\migrations") -Filter "*.sql" |
+    Sort-Object Name
+if (-not $migrations) { throw "no migrations found under crates\asura-db\migrations" }
 
 $env:PGPASSWORD = $AsuraPassword
-Invoke-Psql -User $Role -DatabaseName $Database -Arguments "-f `"$schema`"" | Out-Null
-Write-Host "applied $schema"
+foreach ($migration in $migrations) {
+    Invoke-Psql -User $Role -DatabaseName $Database -Arguments "-f `"$($migration.FullName)`"" | Out-Null
+    Write-Host "applied $($migration.Name)"
+}
 
 # --- verification -----------------------------------------------------------------------------
 Write-Host ""
@@ -109,5 +112,5 @@ Write-Host ""
 Write-Host "ready. connection string:"
 Write-Host "  host=$HostName port=$Port user=$Role dbname=$Database password=$AsuraPassword"
 Write-Host ""
-Write-Host "next: the M2 acceptance test (docs/HANDOFF.md) - capacity N-1, N concurrent reservations,"
-Write-Host "      exactly N-1 succeed, the CHECK never fires."
+Write-Host "next: the M2 acceptance test - .\tools\m2-verify.ps1"
+Write-Host "      (capacity N-1, N concurrent reservations, exactly N-1 succeed, the CHECK never fires)"

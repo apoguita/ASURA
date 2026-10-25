@@ -41,6 +41,13 @@ concurrency: with a pool of capacity N-1, N parallel reservations succeed exactl
 **Test:** harness-only, fully automated, no game client involved. The concurrency case runs the
 reservation from many tasks at once.
 
+**Delivered.** `asura-fakeworld` is the harness; `crates/asura-db/src/placement.rs` holds the queries;
+`crates/asura-db/tests/placement.rs` proves the race, the refusal, the reaper and the reconciler
+against the live database; `tools/m2-verify.ps1` runs both in one command. A `lease` ledger sits
+beside `world_pool` so a lease can be identified, reaped and reconciled (`docs/02-architecture.md`).
+The suite runs repeatedly without flakiness — it is the first thing to re-run after any change to
+placement.
+
 ## M3 — The auth endpoint (the hard one)
 
 Port the handshake and login: framing, ARC4, DH with the fixed constants, login against the web

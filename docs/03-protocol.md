@@ -113,6 +113,7 @@ There is no control protocol between the auth service and the world servers for 
 |---|---|---|---|
 | `world` | each world server | auth service | id, address, port, flags, population, heartbeat |
 | `world_pool` | every travel (a reservation), the reaper | travel decisions | per world, per map: capacity and leases |
+| `lease` | every travel (a reservation), the reaper | the reaper, the reconciler | one row per reserved slot: world, map, session |
 | `session` | auth service | world servers | account, character, issued token |
 | `game` schema | world servers | world servers, auth service | characters, items, instance records |
 

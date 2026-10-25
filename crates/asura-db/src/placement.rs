@@ -1,0 +1,362 @@
+//! Placement: registering a world, reserving a slot atomically, and keeping the lease ledger honest.
+//!
+//! Every statement that mutates `world`, `world_pool` or `lease` lives here. Callers (the auth
+//! service, a world server, the fake-world harness) get functions whose names say what happens,
+//! never SQL strings — the rule this crate exists to enforce (`src/lib.rs`).
+//!
+//! AzerothCore parallel: `realmlist` registration, the atomic realm/pool update, and the
+//! `DatabaseWorkerPool`'s asynchronous write discipline. The shape is theirs; the vendor is
+//! PostgreSQL (docs/adr/0008-database-vendor.md).
+//!
+//! The two invariants this module must never break:
+//!
+//! * **No oversell.** A reservation is one `UPDATE ... WHERE leased < capacity RETURNING`, so two
+//!   processes cannot both take the last slot (`docs/02-architecture.md`, "Travel, end to end").
+//! * **The ledger and the counter agree.** A lease row is inserted only after the counter increment
+//!   won, and both are released or reaped in one transaction. `count(lease) <= leased <= capacity`
+//!   therefore holds at every commit, which is what makes the reaper safe.
+
+use sqlx::postgres::PgPoolOptions;
+use sqlx::{PgPool, Postgres, Transaction};
+
+/// How many database connections a service opens by default. Small on purpose: one world server is a
+/// handful of hot statements, and the queue depth is a metric, not a reason for a larger pool.
+pub const DEFAULT_MAX_CONNECTIONS: u32 = 8;
+
+/// Open a pool. The caller owns it; the pool is the unit of "one program talks to the database".
+pub async fn connect(database_url: &str, max_connections: u32) -> sqlx::Result<PgPool> {
+    PgPoolOptions::new()
+        .max_connections(max_connections)
+        .connect(database_url)
+        .await
+}
+
+/// A world server registers itself and publishes its pool capacity: what it hosts and how many
+/// instances it has prebuilt per map.
+///
+/// This is the startup half of the registry (`docs/02-architecture.md`, "The registry"). Registering
+/// is also the reset point after a restart: a world rebuilds its leases by asking the database, so
+/// the previous process's lease rows are cleared and its counter reset — one transaction, so a crash
+/// halfway never leaves the ledger and the counter disagreeing.
+pub async fn register_world(
+    pool: &PgPool,
+    world_id: i32,
+    name: &str,
+    address: &str,
+    port: i32,
+    build: &str,
+    capacities: &[(i32, i32)],
+) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query(
+        "INSERT INTO world (id, name, address, port, build, draining, population, heartbeat_at)
+         VALUES ($1, $2, $3, $4, $5, false, 0, now())
+         ON CONFLICT (id) DO UPDATE SET
+             name        = EXCLUDED.name,
+             address     = EXCLUDED.address,
+             port        = EXCLUDED.port,
+             build       = EXCLUDED.build,
+             draining    = false,
+             population  = 0,
+             heartbeat_at = now()",
+    )
+    .bind(world_id)
+    .bind(name)
+    .bind(address)
+    .bind(port)
+    .bind(build)
+    .execute(&mut *tx)
+    .await?;
+
+    // A restarted world owns nothing yet: clear leftovers from the previous process before the
+    // counter reset below, or the ledger would outlive its count.
+    sqlx::query("DELETE FROM lease WHERE world_id = $1")
+        .bind(world_id)
+        .execute(&mut *tx)
+        .await?;
+
+    for (map_id, capacity) in capacities {
+        sqlx::query(
+            "INSERT INTO world_pool (world_id, map_id, capacity, leased)
+             VALUES ($1, $2, $3, 0)
+             ON CONFLICT (world_id, map_id) DO UPDATE SET
+                 capacity = EXCLUDED.capacity,
+                 leased   = 0",
+        )
+        .bind(world_id)
+        .bind(map_id)
+        .bind(capacity)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await
+}
+
+/// A world says it is alive, and how many players it currently holds.
+pub async fn heartbeat(pool: &PgPool, world_id: i32, population: i32) -> sqlx::Result<bool> {
+    let done = sqlx::query("UPDATE world SET heartbeat_at = now(), population = $2 WHERE id = $1")
+        .bind(world_id)
+        .bind(population)
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// Mark a world draining (finish its players, accept nobody new) or clear the flag.
+pub async fn set_draining(pool: &PgPool, world_id: i32, draining: bool) -> sqlx::Result<bool> {
+    let done = sqlx::query("UPDATE world SET draining = $2 WHERE id = $1")
+        .bind(world_id)
+        .bind(draining)
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// Backdate a world's heartbeat, pretending it stopped saying it was alive `seconds_ago` seconds ago.
+///
+/// Test-harness and reaper-test only. A real world goes silent by not calling [`heartbeat`]; this
+/// exists so the reaper can be tested without sleeping through a heartbeat interval.
+pub async fn backdate_heartbeat(
+    pool: &PgPool,
+    world_id: i32,
+    seconds_ago: f64,
+) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE world SET heartbeat_at = now() - make_interval(secs => $2::float8) WHERE id = $1",
+    )
+    .bind(world_id)
+    .bind(seconds_ago)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// Reserve one slot in `world`/`map` for `session_id`.
+///
+/// Returns `Ok(Some(world_id))` when a slot was won and recorded in the lease ledger, and
+/// `Ok(None)` when the pool is full. `None` is the refusal signal: it is delivered *before* the
+/// client is told to move, which is the one rule (`docs/02-architecture.md`).
+///
+/// The reservation is one atomic statement, so concurrent callers cannot oversell the last slot.
+/// It runs first, before the session's previous lease is superseded: a refused travel must leave the
+/// player's existing lease intact, because the player is still standing where it was.
+pub async fn reserve(
+    pool: &PgPool,
+    world_id: i32,
+    map_id: i32,
+    session_id: uuid::Uuid,
+) -> sqlx::Result<Option<i32>> {
+    let mut tx = pool.begin().await?;
+
+    let won: Option<i32> = sqlx::query_scalar(
+        "UPDATE world_pool SET leased = leased + 1
+          WHERE world_id = $1 AND map_id = $2 AND leased < capacity
+          RETURNING world_id",
+    )
+    .bind(world_id)
+    .bind(map_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some(world_id) = won else {
+        // Nothing was taken, so there is nothing to undo. Commit the empty transaction (one round
+        // trip) and report the refusal.
+        tx.commit().await?;
+        return Ok(None);
+    };
+
+    // The newest reservation is the one that counts: this session's earlier lease, if any, is
+    // released in the same transaction (docs/05-gw2-lessons.md, rule 1).
+    let previous: Vec<(i32, i32)> =
+        sqlx::query_as("DELETE FROM lease WHERE session_id = $1 RETURNING world_id, map_id")
+            .bind(session_id)
+            .fetch_all(&mut *tx)
+            .await?;
+    for (old_world, old_map) in previous {
+        decrement_lease(&mut tx, old_world, old_map).await?;
+    }
+
+    sqlx::query("INSERT INTO lease (world_id, map_id, session_id) VALUES ($1, $2, $3)")
+        .bind(world_id)
+        .bind(map_id)
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(Some(world_id))
+}
+
+/// Release whatever lease `session_id` holds (the player disconnected, left the instance, or was
+/// superseded). Returns whether a lease was found; a release for an unknown session is a harmless
+/// no-op, which is what makes "the older session's release is a no-op" true by construction.
+pub async fn release(pool: &PgPool, session_id: uuid::Uuid) -> sqlx::Result<bool> {
+    let mut tx = pool.begin().await?;
+    let rows: Vec<(i32, i32)> =
+        sqlx::query_as("DELETE FROM lease WHERE session_id = $1 RETURNING world_id, map_id")
+            .bind(session_id)
+            .fetch_all(&mut *tx)
+            .await?;
+    for (world_id, map_id) in &rows {
+        decrement_lease(&mut tx, *world_id, *map_id).await?;
+    }
+    tx.commit().await?;
+    Ok(!rows.is_empty())
+}
+
+/// Release every slot of every world that stopped heartbeating more than `max_age_secs` ago.
+///
+/// A dead world's leases are freed so a crash costs capacity only until the reaper notices, never
+/// permanently (`docs/02-architecture.md`, "Failure behaviour"). One statement, so concurrent reapers
+/// cannot double-free: the first transaction's `DELETE ... RETURNING` is the only one that sees the
+/// rows.
+pub async fn reap_stale(pool: &PgPool, max_age_secs: f64) -> sqlx::Result<ReapReport> {
+    let row: (i64, i64) = sqlx::query_as(
+        "WITH dead AS (
+             DELETE FROM lease l
+             USING world w
+             WHERE l.world_id = w.id
+               AND w.heartbeat_at < now() - make_interval(secs => $1::float8)
+             RETURNING l.world_id, l.map_id
+         ),
+         agg AS (
+             SELECT world_id, map_id, count(*)::bigint AS n
+             FROM dead
+             GROUP BY world_id, map_id
+         ),
+         upd AS (
+             UPDATE world_pool wp
+             SET leased = GREATEST((wp.leased - agg.n)::int, 0)
+             FROM agg
+             WHERE wp.world_id = agg.world_id AND wp.map_id = agg.map_id
+             RETURNING 1
+         )
+         SELECT coalesce((SELECT sum(n) FROM agg), 0)::bigint,
+                (SELECT count(*) FROM upd)::bigint",
+    )
+    .bind(max_age_secs)
+    .fetch_one(pool)
+    .await?;
+    Ok(ReapReport {
+        leases_freed: row.0,
+        pools_touched: row.1,
+    })
+}
+
+/// What a reaper pass did. `leases_freed` counts player leases; `pools_touched` counts
+/// `world_pool` rows whose counter was corrected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReapReport {
+    pub leases_freed: i64,
+    pub pools_touched: i64,
+}
+
+/// Recompute `world_pool.leased` from the lease ledger for one world.
+///
+/// This is the reconciler from `docs/05-gw2-lessons.md`, rule 2: the world server is the truth about
+/// what it has handed out, and the ledger is how it reports it. After a world (or the auth service)
+/// restarts, the counter is rebuilt from the rows instead of being trusted blindly.
+pub async fn reconcile_world(pool: &PgPool, world_id: i32) -> sqlx::Result<u64> {
+    let done = sqlx::query(
+        "UPDATE world_pool wp
+         SET leased = coalesce((
+             SELECT count(*)::int
+             FROM lease l
+             WHERE l.world_id = wp.world_id AND l.map_id = wp.map_id
+         ), 0)
+         WHERE wp.world_id = $1",
+    )
+    .bind(world_id)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected())
+}
+
+/// `(capacity, leased)` for one pool row, or `None` when the world does not publish that map.
+pub async fn pool_counts(
+    pool: &PgPool,
+    world_id: i32,
+    map_id: i32,
+) -> sqlx::Result<Option<(i32, i32)>> {
+    sqlx::query_as("SELECT capacity, leased FROM world_pool WHERE world_id = $1 AND map_id = $2")
+        .bind(world_id)
+        .bind(map_id)
+        .fetch_optional(pool)
+        .await
+}
+
+/// How many leases the ledger holds for one pool row.
+pub async fn lease_count(pool: &PgPool, world_id: i32, map_id: i32) -> sqlx::Result<i64> {
+    sqlx::query_scalar("SELECT count(*) FROM lease WHERE world_id = $1 AND map_id = $2")
+        .bind(world_id)
+        .bind(map_id)
+        .fetch_one(pool)
+        .await
+}
+
+/// Whether a world said it was alive within `max_age_secs`. Placement reads this before offering a
+/// world; the reaper uses the same threshold, so "too old to offer" and "too old to keep leases"
+/// cannot disagree.
+pub async fn world_is_fresh(pool: &PgPool, world_id: i32, max_age_secs: f64) -> sqlx::Result<bool> {
+    let fresh: bool = sqlx::query_scalar(
+        "SELECT heartbeat_at > now() - make_interval(secs => $2::float8)
+         FROM world WHERE id = $1",
+    )
+    .bind(world_id)
+    .bind(max_age_secs)
+    .fetch_one(pool)
+    .await?;
+    Ok(fresh)
+}
+
+/// Test support only: write a pool counter value directly, to simulate the drift a crash can leave
+/// behind (counter and ledger disagree). The reconciler is the code that repairs such drift; this is
+/// how a test creates the fault it repairs. No service calls this.
+pub async fn force_counter(
+    pool: &PgPool,
+    world_id: i32,
+    map_id: i32,
+    leased: i32,
+) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE world_pool SET leased = $3
+          WHERE world_id = $1 AND map_id = $2 AND $3 >= 0 AND $3 <= capacity",
+    )
+    .bind(world_id)
+    .bind(map_id)
+    .bind(leased)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// Remove a world's registry row and everything that hangs off it (`world_pool`, `lease` rows
+/// cascade). Harness and test hygiene: a scenario leaves no row behind that the next run would
+/// mistake for a live world.
+pub async fn remove_world(pool: &PgPool, world_id: i32) -> sqlx::Result<bool> {
+    let done = sqlx::query("DELETE FROM world WHERE id = $1")
+        .bind(world_id)
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// The one counter decrement shared by release and re-reserve, kept in one place so it cannot drift
+/// from the increment above. `leased > 0` guards against a ledger row outliving its count.
+async fn decrement_lease(
+    tx: &mut Transaction<'_, Postgres>,
+    world_id: i32,
+    map_id: i32,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE world_pool SET leased = leased - 1
+          WHERE world_id = $1 AND map_id = $2 AND leased > 0",
+    )
+    .bind(world_id)
+    .bind(map_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}

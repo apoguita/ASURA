@@ -68,6 +68,22 @@ handshake is needed to keep it honest.
 `world_pool` is what makes allocation safe across processes: it is the prebuilt capacity, and only
 one process can win a given row.
 
+### The lease ledger
+
+`world_pool.leased` is a counter, and a counter cannot say *which* lease to free. Beside it sits
+`lease`, one row per reserved slot (`crates/asura-db/migrations/0002_leases.sql`):
+
+- it is what the reaper deletes for a world that stops heartbeating, so the counter drops by exactly
+  the slots that world held;
+- it is what the reconciler counts when it rebuilds `leased` from the worlds after a restart
+  (`docs/05-gw2-lessons.md`, rule 2 — the table is a ledger, not the truth);
+- it is unique per session, so a session's newest reservation supersedes its previous one and the
+  older session's release is a no-op (`docs/05-gw2-lessons.md`, rule 1).
+
+The counter and the ledger are written in one transaction, so `count(lease) <= leased <= capacity`
+holds at every commit: the counter makes the claim, the ledger makes it identifiable, and the CHECK
+constraint still guarantees nobody oversells.
+
 ## Travel, end to end
 
 1. The player asks to travel, either from inside a map (on their current world server) or at login

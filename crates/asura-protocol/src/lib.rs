@@ -148,7 +148,10 @@ mod tests {
         bytes[5] = 0xFF;
         assert_eq!(
             Frame::decode(&bytes),
-            Err(FrameError::VersionMismatch { got: 0xFFFF, expected: INTERNAL_VERSION })
+            Err(FrameError::VersionMismatch {
+                got: 0xFFFF,
+                expected: INTERNAL_VERSION
+            })
         );
     }
 
@@ -156,7 +159,10 @@ mod tests {
     fn frame_rejects_truncated_bodies() {
         let bytes = Frame::new(Kind::Heartbeat, vec![1, 2, 3]).encode();
         let truncated = &bytes[..bytes.len() - 1];
-        assert!(matches!(Frame::decode(truncated), Err(FrameError::LengthMismatch { .. })));
+        assert!(matches!(
+            Frame::decode(truncated),
+            Err(FrameError::LengthMismatch { .. })
+        ));
     }
 
     #[test]

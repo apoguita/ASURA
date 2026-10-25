@@ -20,7 +20,8 @@ process does them all.
 There is no single program called "ASURA". When a document means the login side it says **auth
 service**; when it means a map-running process it says **world server**.
 
-- **Status:** design phase. No code yet; this repository currently holds the specification.
+- **Status:** M2 delivered — placement is safe and proven against the live database
+  (`tools/m2-verify.ps1`). The auth endpoint (M3) is next; `docs/HANDOFF.md` states the current state.
 - **Design authority:** where a structural question arises, the default answer is *what AzerothCore
   does* (`docs/adr/0006-azerothcore-is-the-reference.md`). GWPS is research material, not a target; the
   client rig is Reforged plus the stealth hooks.

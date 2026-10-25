@@ -18,16 +18,28 @@ fn main() {
         return;
     }
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
-        println!("asura-auth {} — the ASURA auth service", env!("CARGO_PKG_VERSION"));
+        println!(
+            "asura-auth {} — the ASURA auth service",
+            env!("CARGO_PKG_VERSION")
+        );
         println!();
-        println!("Next milestone (M2): bind the login endpoint, read the registry, allocate nothing.");
+        println!(
+            "Next milestone (M2): bind the login endpoint, read the registry, allocate nothing."
+        );
         return;
     }
 
     for (step, description) in startup_order().iter().enumerate() {
-        eprintln!("startup {}/{}: {}", step + 1, startup_order().len(), description);
+        eprintln!(
+            "startup {}/{}: {}",
+            step + 1,
+            startup_order().len(),
+            description
+        );
     }
-    eprintln!("asura-auth: reachable configuration and networking are milestone M2; exiting cleanly");
+    eprintln!(
+        "asura-auth: reachable configuration and networking are milestone M2; exiting cleanly"
+    );
 }
 
 /// The steps this service must complete, in order, before it accepts a client.
