@@ -1,0 +1,16 @@
+# Rust build output
+/target/
+**/*.rs.bk
+
+# Local run artifacts: logs, captures, recordings, configs with secrets
+*.log
+/logs/
+/captures/
+*.jsonl
+/config.local.*
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
