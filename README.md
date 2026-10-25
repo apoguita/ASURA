@@ -63,6 +63,7 @@ simulation is explicitly deferred until the control plane works. See
 | [`docs/01-scope.md`](docs/01-scope.md) | the boundary: what is the auth service's job and what is explicitly not |
 | [`docs/02-architecture.md`](docs/02-architecture.md) | the components, the registry and pool tables, travel end to end, and the one rule that must not be broken |
 | [`docs/03-protocol.md`](docs/03-protocol.md) | the wire facts: framing, key exchange, login, travel, and the world-link protocol |
+| [`docs/05-gw2-lessons.md`](docs/05-gw2-lessons.md) | what the GW2 microservices talk changes here — the restartability rules, and what we deliberately do not copy |
 | [`docs/04-from-gwps.md`](docs/04-from-gwps.md) | what is inherited from GWPS, what must be re-proven, and where the reference code is |
 | [`docs/roadmap.md`](docs/roadmap.md) | milestones, in the order they can be tested |
 | [`docs/adr/`](docs/adr/) | why Rust, why a separate project, and later decisions |

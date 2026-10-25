@@ -37,7 +37,8 @@ CREATE TABLE world (
     name          text         NOT NULL,
     address       text         NOT NULL,        -- what the client is told to connect to
     port          int          NOT NULL,
-    flags         int          NOT NULL,        -- online / draining / maintenance
+    build         text         NOT NULL,        -- which build runs here; placement prefers the newest
+    draining      bool         NOT NULL,        -- finishes its players, accepts nobody new
     population    int          NOT NULL,        -- players currently connected
     heartbeat_at  timestamptz  NOT NULL         -- last time this world said it was alive
 );
@@ -84,6 +85,58 @@ one process can win a given row.
 6. **Lease hygiene.** A lease belongs to a player session. When the player disconnects, leaves the
    instance, or the owning world stops heartbeating, a reaper returns the slot (`leased - 1`). A
    stuck lease costs capacity, never correctness, and the reaper bounds it.
+
+## Identity and reconnection
+
+**The newest connection wins, unconditionally.** The client drops its connection and reconnects on
+every travel, and its previous connection may not have been reaped yet, so this is the normal case
+rather than an edge case (`docs/05-gw2-lessons.md`, rule 1). When a player authenticates a new
+connection, any older session for the same account and character is killed — never the reverse. The
+older session's lease release becomes a no-op, so it cannot free a lease the newer session now holds.
+
+**Durable identity is never physical.** Accounts, characters and parties are identified by GUID. A
+server id, a port and a player token are routing hints with a lifetime; no correctness decision may be
+keyed on one. This is what lets a world move to another machine without anything else noticing.
+
+## What is authoritative
+
+Each piece of state is classified, and the classification decides how a restart is recovered — reload
+from disk, or rebuild by asking (`docs/05-gw2-lessons.md`, rule 2):
+
+| state | authoritative home | after a restart |
+|---|---|---|
+| who is in which instance | the **world server**, in memory | ASURA rebuilds from world reports |
+| pool leases | the **world server**'s assignment | `world_pool.leased` is reconciled *from* the worlds, not trusted blindly |
+| characters, items | the `game` database | loaded from the database; durability, not real-time truth |
+| sessions, tokens | the auth service, in memory | lost; the player logs in again |
+| registry rows | each world server, rewritten on startup | stale rows are reaped |
+
+The consequence to hold onto: **no design may require two components to restart together.** That is
+why leases are reconciled from the worlds instead of being treated as the database's own truth — a
+table that is *always* right only stays right if nothing restarts, and things restart.
+
+## Deployment and draining
+
+Builds run side by side: start the new one, advertise it, send it new players, and let the old one
+drain before it exits. Placement prefers the newest healthy build; a draining world keeps the players
+it has and accepts nobody new. Because the registry carries `build` and `draining`, no other component
+needs to know a deployment is happening (`docs/05-gw2-lessons.md`, rule 6).
+
+## Retry policy
+
+- **The travel path retries nothing.** A timeout is a refusal: the client is in an outpost and must
+  not be sent somewhere that may not answer.
+- Idempotent database work may retry on timeout only — 4 to 6 attempts, roughly 30 s apart. Any other
+  error is reported and abandoned; no exponential backoff with jitter.
+- Login may retry a little; the client's own reconnect loop is the outer retry.
+
+## Observability
+
+Each world server and the auth service exposes a small fixed set of counters — instances, leases,
+players, refused travels, database queue depth, tick latency — and a **rate** form for anything
+cumulative, because a counter that resets on restart hides the rate it is supposed to show
+(`docs/05-gw2-lessons.md`, rule 5). Counters are cheap and always on; aggregation is a separate task,
+not something a simulation thread does.
 
 ## Instances
 
