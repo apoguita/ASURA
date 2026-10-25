@@ -10,7 +10,7 @@ process does them all.
 |---|---|---|
 | **auth service** (`asura-auth`) | one program | answers the client's login: key exchange, session, character list, character select. Owns identity. |
 | **world server** (`asura-world`) | many programs | runs maps for players: simulation, instances, gameplay connections. Disposable. |
-| **database** (`asura-db`) | MySQL 8 | the shared truth: accounts, sessions, characters, the world registry, pool capacity |
+| **database** (`asura-db`) | PostgreSQL | the shared truth: accounts, sessions, characters, the world registry, pool capacity |
 | **protocols** (`asura-protocol`) | a library | the client-facing message definitions and the server-to-server control messages |
 
 There is no single program called "ASURA". When a document means the login side it says **auth
@@ -69,7 +69,7 @@ what is missing from this machine, and what the next three tasks are.
 | [`docs/01-scope.md`](docs/01-scope.md) | the boundary: what is the auth service's job and what is explicitly not |
 | [`docs/02-architecture.md`](docs/02-architecture.md) | the components, the registry and pool tables, travel end to end, and the one rule that must not be broken |
 | [`docs/03-protocol.md`](docs/03-protocol.md) | the wire facts: framing, key exchange, login, travel, and the world-link protocol |
-| [`docs/adr/0008-database-vendor-mysql.md`](docs/adr/0008-database-vendor-mysql.md) | **database vendor** — MySQL, matching AzerothCore; PostgreSQL was a drift and is corrected |
+| [`docs/adr/0008-database-vendor.md`](docs/adr/0008-database-vendor.md) | **database vendor** — PostgreSQL, a justified deviation from AzerothCore's MySQL; structure unchanged |
 | [`docs/adr/0006-azerothcore-is-the-reference.md`](docs/adr/0006-azerothcore-is-the-reference.md) | **the design authority** — follow AzerothCore by default, deviate only in writing |
 | [`docs/05-gw2-lessons.md`](docs/05-gw2-lessons.md) | what the GW2 microservices talk changes here — the restartability rules, and what we deliberately do not copy |
 | [`docs/04-from-gwps.md`](docs/04-from-gwps.md) | what is inherited from GWPS, what must be re-proven, and where the reference code is |

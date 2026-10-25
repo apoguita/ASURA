@@ -31,7 +31,7 @@ maps what to reuse as knowledge, what to port, and what to leave behind.
 | `main.c` | split: `asura` main and `world` main. Today one binary binds 6112/6113/1337 and runs everything. |
 | `GameSrv.c` | **world server** in phase 1 (stays C): simulation, players, instance lifecycle. It is the seed of the auth service's own simulation phase. |
 | `GmMapDataImport.c`, `FaArchive.c`, `GmPaths.c`, `GmItem.c`, … | **world server** (stays C), untouched. |
-| `Db.c`, `DbSchema.h` | **database**: ported from SQLite to MySQL and split into `auth` / `game` / `content`, owned by `asura-db`. Character writes move from a connection per instance to a pooled async queue in each world server. |
+| `Db.c`, `DbSchema.h` | **database**: ported from SQLite to PostgreSQL and split into `auth` / `game` / `content`, owned by `asura-db`. Character writes move from a connection per instance to a pooled async queue in each world server. |
 | `GmCommands.c` | **world server**, plus the map list it carries is the input for outpost prebuild. |
 | `tools/`, `captures/` | test material for the port: packet traces to diff against. |
 

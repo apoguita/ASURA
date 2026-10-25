@@ -8,8 +8,9 @@
 //! difference in shape is that their pools live inside each program; here the pool configuration is
 //! ours and the statements are functions whose names say what they do.
 //!
-//! Vendor: MySQL 8.0.16+, the same as AzerothCore
-//! (`docs/adr/0008-database-vendor-mysql.md`).
+//! Vendor: PostgreSQL, a recorded deviation from AzerothCore's MySQL
+//! (`docs/adr/0008-database-vendor.md`). The *structure* stays theirs; only the driver and the DDL
+//! dialect differ, and both live behind this crate.
 
 /// The initial schema, compiled into the binary so a developer can apply it without hunting for files.
 pub const SCHEMA_V1: &str = include_str!("../migrations/0001_init.sql");
@@ -26,7 +27,7 @@ pub const REQUIRED_TABLES: &[&str] = &[
 ];
 
 /// Table names declared in the schema, parsed rather than hard-coded, so the test below cannot pass
-/// by checking a string that the schema does not actually contain.
+/// by checking a string the schema does not actually contain.
 pub fn declared_tables(schema: &str) -> Vec<String> {
     schema
         .lines()
@@ -34,7 +35,7 @@ pub fn declared_tables(schema: &str) -> Vec<String> {
         .filter(|line| line.len() > 13 && line[..13].eq_ignore_ascii_case("CREATE TABLE "))
         .filter_map(|line| {
             let rest = &line[13..];
-            let rest = if rest[..9].eq_ignore_ascii_case("IF NOT EX") {
+            let rest = if rest.len() > 22 && rest[..9].eq_ignore_ascii_case("IF NOT EX") {
                 &rest[21..]
             } else {
                 rest
@@ -78,10 +79,29 @@ mod tests {
     }
 
     #[test]
-    fn vendor_matches_azerothcore() {
-        // The governing rule is to follow AzerothCore; MySQL is their vendor.
-        assert!(SCHEMA_V1.contains("ENGINE=InnoDB"));
-        assert!(!SCHEMA_V1.contains("timestamptz"), "PostgreSQL-only type in a MySQL schema");
-        assert!(!SCHEMA_V1.contains("CREATE INDEX IF NOT EXISTS"), "not MySQL 8 syntax");
+    fn vendor_is_postgres_and_the_deviation_is_recorded() {
+        // The structure follows AzerothCore; the vendor is a recorded deviation, not drift.
+        assert!(SCHEMA_V1.contains("timestamptz"), "expected PostgreSQL timestamp types");
+        assert!(SCHEMA_V1.contains("WHERE ended_at IS NULL"), "expected the partial index");
+        assert!(
+            SCHEMA_V1.contains("docs/adr/0008-database-vendor.md"),
+            "a deviation must cite its decision"
+        );
+    }
+
+    #[test]
+    fn schema_is_idempotent() {
+        // Migrations get applied to development databases repeatedly; every statement must tolerate it.
+        for statement in SCHEMA_V1.split(';') {
+            let head = statement.trim();
+            if head.is_empty() || head.starts_with("--") {
+                continue;
+            }
+            assert!(
+                head.to_ascii_uppercase().contains("IF NOT EXISTS"),
+                "statement without IF NOT EXISTS: {}",
+                head.lines().next().unwrap_or("")
+            );
+        }
     }
 }

@@ -25,7 +25,7 @@ start of the work it belongs to, so that "what does AzerothCore do?" always has 
 |---|---|
 | `authserver`, `worldserver` executables | `asura-auth`, `asura-world` binaries |
 | `boost::asio` networking, `SocketMgr` | `tokio` (or `mio` if a tighter loop is ever needed) |
-| `DatabaseWorkerPool` (sync pool + async queue + worker), MySQL | `sqlx` (MySQL driver) pool plus an explicit writer task; the queue depth is a metric |
+| `DatabaseWorkerPool` (sync pool + async queue + worker) | `sqlx` pool plus an explicit writer task; the queue depth is a metric |
 | `PreparedStatement`, `Transaction`, `QueryHolder` | typed query functions in `asura-db`, `BEGIN/COMMIT` around multi-statement work |
 | `WorldPacket` / `ByteBuffer` (little-endian readers/writers) | explicit `to_le_bytes`/`from_le_bytes` in `asura-protocol`, with size assertions in tests |
 | `ObjectGuid`, `InstanceId` | typed ids (newtypes over `u64`/`Uuid`), never bare integers |
