@@ -66,12 +66,15 @@ trace and compare every message. This is why the reference implementation stays 
 from the first four bytes (`asura-protocol::client::version`), framing with the fixed size per header
 and no length field (`asura-protocol::client::frame`), the full auth message table — 60 client
 headers, 40 server headers, with field layouts — generated out of the GWPS reference by
-`tools/gen-auth-tables.py` and self-checking against it, and the database half of login: the portal
-identity pair (`session.portal_user` beside `session.id`), the lookup that validates both halves,
-closing older sessions, and the account-scoped character list (`asura-db::login`, six tests against
-the live database). That work corrected `docs/03-protocol.md` section 1, which had described a length
-field the protocol does not have. Remaining: the key exchange (ARC4 + DH), the golden GWPS packet
-trace, and the listener that puts them together. `tools/m3-verify.ps1` covers what exists.
+`tools/gen-auth-tables.py` and self-checking against it, the key exchange (`client::handshake`:
+ARC4 from `client::arc4`, the fixed-constant Diffie–Hellman, the protocol's own key derivation, pinned
+against fixtures compiled from the reference's own C — `docs/adr/0009-crypto-primitives.md`), and the
+database half of login: the portal identity pair (`session.portal_user` beside `session.id`), the
+lookup that validates both halves, closing older sessions, and the account-scoped character list
+(`asura-db::login`, six tests against the live database). That work corrected `docs/03-protocol.md`
+sections 1 and 3, which had described a length field the protocol does not have and left the exchange
+approximate. Remaining: the golden GWPS packet trace, and the listener that puts the pieces on a
+socket. `tools/m3-verify.ps1` covers what exists.
 
 ## M4 — End-to-end travel
 
@@ -144,7 +147,7 @@ made knowing what is coming.
 |---|---|---|---|
 | M1 | unit round-trips, version mismatch | — | — |
 | M2 | harness register/heartbeat/stale/refuse | — | — |
-| M3 | message table matches the reference (`gen-auth-tables.py --check`), framing round-trips, identity-pair refusals against the live database | login to character list | packet diff vs GWPS |
+| M3 | message table matches the reference (`gen-auth-tables.py --check`), key exchange matches fixtures compiled from the reference's C, framing round-trips, identity-pair refusals against the live database | login to character list | packet diff vs GWPS |
 | M4 | — | hop, and client state settles | tear-down/rebuilt, memory |
 | M5 | — | refusal while in outpost | saved state round-trip |
 | M6 | — | cross-host hop | latency |

@@ -66,17 +66,33 @@ packet trace.
 
 ## 3. Key exchange
 
-The client and server perform a Diffie–Hellman exchange with **fixed constants**:
+Three messages and one derivation. The sizes and constants below are what
+`crates/asura-protocol/src/client/handshake.rs` implements, and its arithmetic is pinned by fixtures
+generated from GWPS's own C (`tools/gen-handshake-fixtures.py`).
 
-- a 256-bit prime modulus, and a server private exponent — both hardcoded in GWPS `main.c`;
-- the client sends its public value in the client-seed message;
-- the shared secret is `client_public ^ server_private mod prime`;
-- both sides derive the ARC4 key from the shared secret, and everything after that is encrypted.
+| step | who | what |
+|---|---|---|
+| 1 | client → server | `MSG_CLIENT_SEED`, header `0x4200`, then **64 bytes**: the client's public value as a 512-bit integer, little endian. 66 bytes total, plaintext. |
+| 2 | server | `shared = client_public ^ server_private mod prime` — a **512-bit** prime and a 511-bit exponent, both hardcoded in GWPS `main.c` and copied verbatim. |
+| 3 | server | draw **20 random bytes**: the master secret. |
+| 4 | server → client | `MSG_SERVER_SEED`, header `0x1601`, then **20 bytes**: `master[i] XOR shared_le[i]`. 22 bytes total, plaintext — it is how the client recovers the master secret. |
+| 5 | both | `key = arc4_hash(master)` — 20 bytes, from the client's own construction, which is not a standard hash. |
+| 6 | both | ARC4 keyed with those 20 bytes, one instance per direction, both starting at offset zero. Everything from here is scrambled. |
 
-The patched client (`patch-gw.py`) is what makes this work at all: it carries the matching public
-parameters and disables a mutex check. **The constants must be identical** in the auth service, or the client
-will fail the handshake and report an opaque error. This is the highest-risk part of the port and
-the reason the handshake is scheduled last (`docs/roadmap.md`).
+What is **not** on the wire, and matters: no generator, and no server public value. The client's patch
+carries the matching parameters, so the server's only arithmetic is raising the client's number to a
+fixed exponent. That is why the risk here is transcription, not key management: **the constants must be
+identical** or the client fails the handshake and reports nothing but an opaque error.
+
+One deviation, deliberate and recorded (`docs/adr/0009-crypto-primitives.md`): a client public value
+congruent to zero modulo the prime yields a zero shared secret, and ASURA refuses the connection
+instead of using it. GWPS would carry on with a key that had never been exchanged. The real client
+cannot present such a value.
+
+**How this is verified without a client:** the published RC4 vectors, plus fixtures produced by
+compiling the reference's `arc4.c` and its `arc4_hash`, plus the exponentiation checked against
+CPython's `pow()`. What they cannot prove is that the client accepts the result — that is the packet
+trace diff, and it stays M3's acceptance criterion.
 
 ## 4. Login and session
 

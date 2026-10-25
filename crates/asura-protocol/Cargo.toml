@@ -7,3 +7,6 @@ license.workspace = true
 description = "Message layouts and framing for the client protocol and the internal control messages"
 
 [dependencies]
+# Modular exponentiation for the key exchange's fixed-constant Diffie-Hellman
+# (docs/adr/0009-crypto-primitives.md). Everything else in this crate is dependency-free on purpose.
+num-bigint-dig = { workspace = true }

@@ -9,10 +9,11 @@
 //! 1. [`version`] — the first message is not a normal frame. It is a bare `u32` "version" header
 //!    that says what kind of connection this is: auth, game, or control. Get this wrong and every
 //!    later decision is wrong.
-//! 2. Key exchange: the client seed, the server seed, ARC4. Not here yet.
-//! 3. [`frame`] — after that, both directions are `u16 header, u16 length, body`, and every header
-//!    has one fixed size ([`tables`]). A size disagreement is what produces the client's opaque
-//!    `007` error, so it is an error here, not a warning.
+//! 2. [`handshake`] — the key exchange: the client's seed, the server's seed, and the ARC4 key both
+//!    sides derive from them ([`arc4`]). Everything after the server seed is scrambled.
+//! 3. [`frame`] — after that, both directions are a `u16 header` and a body whose size the header
+//!    alone fixes ([`tables`]). A size disagreement is what produces the client's opaque `007`
+//!    error, so it is an error here, not a warning.
 //!
 //! Names are GWPS's, verbatim, so a Rust message can be compared against a C one by name
 //! (`tools/gen-auth-tables.py` generates them from `opcodes.h`).
@@ -21,11 +22,20 @@
 //! server headers) is what M3 needs; the game table is 488 server headers and arrives with the
 //! travel milestone, which is when the client first needs it.
 
+pub mod arc4;
 pub mod frame;
+pub mod handshake;
 pub mod tables;
 pub mod version;
 
+/// Numbers generated from the reference implementation by `tools/gen-handshake-fixtures.py`. Test
+/// data, so it is not compiled into a release build.
+#[cfg(test)]
+mod handshake_fixtures;
+
+pub use arc4::Arc4;
 pub use frame::{Frame, FrameError};
+pub use handshake::{ClientSeed, Established, HandshakeError};
 pub use tables::Entry;
 
 /// Server → client: where to go. `{host[24], port, map_token, region, player_token,

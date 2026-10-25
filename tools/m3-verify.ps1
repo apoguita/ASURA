@@ -113,7 +113,7 @@ function Invoke-PsqlFile {
     }
 }
 
-Write-Host "1/3  migrations"
+Write-Host "1/4  migrations"
 $migrations = Get-ChildItem (Join-Path $repo "crates\asura-db\migrations") -Filter "*.sql" | Sort-Object Name
 if (-not $migrations) { throw "no migrations found under crates\asura-db\migrations" }
 foreach ($migration in $migrations) {
@@ -126,14 +126,26 @@ foreach ($migration in $migrations) {
 }
 
 Write-Host ""
-Write-Host "2/3  login integration tests (identity pair, closed sessions, character scope)"
+Write-Host "2/4  login integration tests (identity pair, closed sessions, character scope)"
 $code = Invoke-Native $cargo @("test", "--offline", "-p", "asura-db", "--test", "login", "--", "--nocapture")
 if ($code -ne 0) { throw "login integration tests failed" }
 
 Write-Host ""
-Write-Host "3/3  protocol tests (the message table matches the reference)"
+Write-Host "3/4  protocol tests (the message table and the key exchange match the reference)"
 $code = Invoke-Native $cargo @("test", "--offline", "-p", "asura-protocol")
 if ($code -ne 0) { throw "protocol tests failed" }
+
+Write-Host ""
+Write-Host "4/4  generated files still match the reference"
+$python = (Get-Command python -ErrorAction SilentlyContinue).Source
+if (-not $python) {
+    Write-Host "     python not found on PATH; skipping the generated-file check"
+} else {
+    $code = Invoke-Native $python @("tools/gen-auth-tables.py", "--check")
+    if ($code -ne 0) { throw "the auth message table is stale; run tools/gen-auth-tables.py" }
+    $code = Invoke-Native $python @("tools/gen-handshake-fixtures.py", "--check")
+    if ($code -ne 0) { throw "the key-exchange fixtures are stale; run tools/gen-handshake-fixtures.py" }
+}
 
 if ($Seed) {
     Write-Host ""
@@ -145,5 +157,9 @@ if ($Seed) {
 Write-Host ""
 Write-Host "login path: OK"
 Write-Host ""
-Write-Host "next: the handshake (ARC4 + Diffie-Hellman). Until it exists, a real client cannot get past"
-Write-Host "      the key exchange, so the game client is not part of this check yet."
+Write-Host "Verified without a client: the message table, the migration record, the identity pair, and the"
+Write-Host "key exchange arithmetic (against fixtures compiled from the reference's own C)."
+Write-Host ""
+Write-Host "next: the listener -- classify the connection, run the handshake, take the login message, serve"
+Write-Host "      the character list. Then the packet trace diff against GWPS with the real client, which is"
+Write-Host "      M3's actual acceptance criterion."

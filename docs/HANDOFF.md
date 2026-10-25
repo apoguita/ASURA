@@ -8,17 +8,20 @@ State of the project as of the last commit, so a new session can begin without r
   crate now owns registration, the atomic reservation, the lease ledger, the reaper and the
   reconciler; `asura-fakeworld` runs the whole sequence as a harness; the acceptance suite passes
   repeatedly (`.\tools\m2-verify.ps1`). No game client was involved — that was the point.
-- **M3 has started, at the layers that need no client: the messages, and the login decision.**
-  `asura-protocol` classifies a connection from its first four bytes, frames messages by the table's
-  fixed size per header, and refuses to build a message at the wrong size. The table (60 client
-  headers, 40 server headers, with field layouts) is generated from the GWPS reference by
-  `tools/gen-auth-tables.py`, so it is a copy of a fact rather than a transcription.
-  `asura-db::login` now decides what a presented identity pair means — validated on both halves, a
-  closed session never resolving, a character list scoped by account — against a `session` table
-  that holds the portal user beside the session id.
-  **43 tests pass** (`cargo test --workspace`), and `.\tools\m3-verify.ps1` proves the login path in
-  one command: migrations, the six login tests against the live database, and the protocol tests.
-  clippy is clean, and `cargo fmt --check` plus `python tools/gen-auth-tables.py --check` both hold.
+- **M3 has started, at the layers that need no client: the messages, the key exchange, and the login
+  decision.** `asura-protocol` classifies a connection from its first four bytes, frames messages by the
+  table's fixed size per header, refuses to build a message at the wrong size, and performs the key
+  exchange: ARC4, the fixed-constant Diffie–Hellman, and the protocol's own key derivation. The message
+  table (60 client headers, 40 server headers, with field layouts) is generated from the GWPS reference
+  by `tools/gen-auth-tables.py`, and the key-exchange arithmetic is pinned by fixtures produced by
+  **compiling the reference's own C** (`tools/gen-handshake-fixtures.py`), so both are copies of a fact
+  rather than transcriptions. `asura-db` decides what a presented identity pair means — validated on
+  both halves, a closed session never resolving, a character list scoped by account — against a
+  `session` table that holds the portal user beside the session id, and records which migrations it has
+  had.
+  **68 tests pass** (`cargo test --workspace`), and `.\tools\m3-verify.ps1` proves the whole login path
+  in one command: migrations, the login tests against the live database, the protocol and handshake
+  tests, and freshness checks on both generated files. clippy is clean, and `cargo fmt --check` holds.
 - **The login identities exist.** The client does not ask a web service who it is — the rig's portal
   DLL hands it a fixed pair (`PreSearing/portal/portal.c`) — so `tools/seed-dev.ps1` writes the rows
   those pairs must resolve to: three accounts with a character each. Idempotent; re-running reopens
@@ -66,7 +69,7 @@ transaction, so `count(lease) <= leased <= capacity` holds at every commit and t
 
 | what | state | evidence |
 |---|---|---|
-| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **43 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean |
+| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **68 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean |
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
 | **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **8 tables** applied (the 7 from 0001 plus `lease`), and 0003 added the `session.portal_user` column; credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
@@ -112,24 +115,24 @@ where a UTF-8 em dash decodes to a smart quote and breaks the parse at a line fa
 | AzerothCore is the design authority (structure); deviations are recorded | `docs/adr/0006-azerothcore-is-the-reference.md` |
 | The one rule: never send a client to something that is not already answering | `docs/02-architecture.md` |
 
-## Next session: M3 continues — the handshake, then the socket
+## Next session: M3 continues — the socket
 
 What is done is the part that needs no client. What remains is the part that needs one.
 
-1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **43 passing** (6 of
+1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **68 passing** (6 of
    them live-database login tests, 4 live-database placement tests). Then `.\tools\m3-verify.ps1`.
    If a count changed, read `git log` before assuming it is broken.
-2. **Key exchange**: `MSG_CLIENT_SEED` / `MSG_SERVER_SEED`, ARC4, Diffie–Hellman with GWPS's fixed
-   constants (`main.c`). This is where a mistake is invisible until the client says `007`, so the
-   per-message trace has to exist first (below).
-3. **The packet trace, before the server.** GWPS logs with `GWPS_TRACE=1`; run it, capture a login to
+2. **The packet trace, before the listener.** GWPS logs with `GWPS_TRACE=1`; run it, capture a login to
    the character list, and keep the capture as the reference side of the diff. This is M3's
    acceptance criterion, and it is cheaper to establish before the Rust code can be wrong.
-4. **The listener**: classify the connection, run the handshake, take
-   `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` (`0x8038`), answer with `AUTH_SMSG_SESSION_INFO` (`0x0001`),
-   `AUTH_SMSG_ACCOUNT_INFO` (`0x0011`), and the character list. The database half of that decision is
-   already written and tested (`asura-db::login`); what is missing is the socket and the handshake in
-   front of it. The identity pairs to log in with come from `tools/seed-dev.ps1`.
+3. **The listener**: bind the socket, classify the connection (`client::version`), run the handshake
+   (`client::handshake::accept` — the caller supplies the 20 random bytes), frame with `client::frame`
+   and unscramble through the two ciphers. Take `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` (`0x8038`), answer
+   with `AUTH_SMSG_SESSION_INFO` (`0x0001`), `AUTH_SMSG_ACCOUNT_INFO` (`0x0011`) and the character list
+   from `asura-db::login`. **The per-message trace (direction, header, size, first bytes, toggled by an
+   environment variable) belongs in this step's first commit**, not its second: the client reports
+   nothing but `007`.
+4. **Point the patched client at it** and diff the trace against the GWPS capture. That is M3 done.
 5. **M4 — end-to-end travel** stays blocked on M3 and on a world server that accepts its own
    gameplay connections (`docs/04-from-gwps.md`, step 1).
 
@@ -153,16 +156,25 @@ the one failure mode worth failing loudly for.
 | the three identity pairs the rig's portal DLL presents, seeded idempotently | `tools/seed-dev.ps1` |
 | one command for the whole login path, client not needed yet | `tools/m3-verify.ps1` |
 | the database's record of its own migrations, and the refusal to run against a stale schema | `crates/asura-db/src/migrations.rs` (+ `tests/migrations.rs`) |
+| ARC4, ported from `arc4.c`, checked against published vectors and the reference's keystream | `crates/asura-protocol/src/client/arc4.rs` |
+| the key exchange: seeds, fixed-constant DH, and the protocol's own key derivation | `crates/asura-protocol/src/client/handshake.rs` |
+| reference outputs for the handshake, compiled out of GWPS's own C | `tools/gen-handshake-fixtures.py` -> `client/handshake_fixtures.rs` |
 
-The generated file carries `#[rustfmt::skip]` on its table and is checked by
-`python tools/gen-auth-tables.py --check`; if the table and the reference disagree, that command
-fails rather than letting the port drift. `--gwps` points it at a checkout other than `..\PreSearing`.
+The generated files carry `#[rustfmt::skip]` and are checked by `python tools/gen-auth-tables.py
+--check` and `python tools/gen-handshake-fixtures.py --check`; if either disagrees with the reference,
+that command fails rather than letting the port drift. `--gwps` points them at a checkout other than
+`..\PreSearing`. The fixture generator needs a C compiler (it looks for `cl.exe` under Visual Studio,
+then gcc) and refuses to write fixtures it could not compile.
 
-Two PowerShell traps are fixed in the scripts and worth not re-introducing: a native program's stderr
-(psql's `NOTICE`, cargo's progress) becomes an error record that `$ErrorActionPreference = "Stop"`
-treats as fatal, so repeated/idempotent runs aborted. Each script now runs native programs with the
-preference relaxed and judges them by exit code alone, and psql takes its options before the database
-URI.
+Two PowerShell traps are fixed in the scripts and worth not re-introducing:
+
+- A native program's stderr (psql's `NOTICE`, cargo's progress) becomes an error record that
+  `$ErrorActionPreference = "Stop"` treats as fatal, so repeated or idempotent runs aborted. Each
+  script runs native programs with the preference relaxed and judges them by exit code alone; psql
+  takes its options before the database URI.
+- **Never rewrite a UTF-8 markdown file with `Get-Content`/`Set-Content`.** Windows PowerShell reads it
+  as ANSI and writes back a different encoding, which turned every em dash in this file into mojibake
+  once already. Use the file tools, or `-Encoding utf8` with `[System.IO.File]::ReadAllText`.
 
 ## Definition of done for the first session (met)
 
@@ -172,8 +184,9 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
 
 ## What is deliberately not here yet
 
-- No networking, no client protocol. `tokio` and `sqlx` arrived with M2 because placement needed a
-  database; the login socket does not exist yet.
+- No sockets. The client protocol exists — classification, framing, the message table, the key
+  exchange — and the login decision exists, but nothing binds a port: `asura-auth` still prints its
+  startup order and exits. That listener is the next step.
 - No CI. Tests run locally first.
 - No simulation. It arrives in phase 2 (`docs/roadmap.md`).
 

@@ -36,6 +36,9 @@ dependencies = [
 [[package]]
 name = "asura-protocol"
 version = "0.1.0"
+dependencies = [
+ "num-bigint-dig",
+]
 
 [[package]]
 name = "asura-world"

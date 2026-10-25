@@ -20,3 +20,12 @@ license = "MIT OR Apache-2.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid"] }
 uuid = { version = "1", features = ["v4"] }
+# M3 needs modular exponentiation for the fixed-constant Diffie-Hellman key exchange
+# (docs/adr/0009-crypto-primitives.md). `num-bigint-dig` is the RustCrypto fork -- the crate the
+# `rsa` crate uses for exactly this operation. It is behind one function
+# (`asura_protocol::client::handshake::modpow`), so swapping it is a one-line change.
+#
+# Deliberately not the `std` feature: that one turns on `rand/std` and `serde/std`, which pulls two
+# crates this project does not otherwise need just to add two numbers. `alloc` comes from our own
+# std, so BigUint is fully usable.
+num-bigint-dig = { version = "0.8", default-features = false, features = ["u64_digit"] }

@@ -21,10 +21,11 @@ There is no single program called "ASURA". When a document means the login side 
 service**; when it means a map-running process it says **world server**.
 
 - **Status:** M2 delivered — placement is safe and proven against the live database
-  (`tools/m2-verify.ps1`). M3 (the auth endpoint) is in progress: the framing and the generated auth
-  message table are in `asura-protocol`, and the login decision — validating the identity pair,
-  closing older sessions, reading the character list — is in `asura-db`; the handshake and the socket
-  are next (`.\tools\m3-verify.ps1`). `docs/HANDOFF.md` states the current state.
+  (`tools/m2-verify.ps1`). M3 (the auth endpoint) is in progress: the client protocol (framing, the
+  generated message table, and the key exchange — ARC4 plus the fixed-constant Diffie–Hellman) is in
+  `asura-protocol`, and the login decision — validating the identity pair, closing older sessions,
+  reading the character list — is in `asura-db`; the socket that puts them together is next
+  (`.\tools\m3-verify.ps1`). `docs/HANDOFF.md` states the current state.
 - **Design authority:** where a structural question arises, the default answer is *what AzerothCore
   does* (`docs/adr/0006-azerothcore-is-the-reference.md`). GWPS is research material, not a target; the
   client rig is Reforged plus the stealth hooks.
