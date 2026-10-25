@@ -122,6 +122,14 @@ older session's lease release becomes a no-op, so it cannot free a lease the new
 server id, a port and a player token are routing hints with a lifetime; no correctness decision may be
 keyed on one. This is what lets a world move to another machine without anything else noticing.
 
+**The login credential is a pair, and both halves are checked.** The client presents a portal user id
+and a session id; the `session` table holds them in separate columns (`portal_user`, `id`) because the
+lookup is on both — GWPS's `Db_GetSession(user_id, session_id)` and the same shape here
+(`crates/asura-db/src/login.rs`). A session that is closed never resolves again, and a session without
+a portal user is not a session: `crates/asura-db/migrations/0003_portal_identity.sql` refuses to
+invent one. Conflating the two ids into one column is the failure this structure exists to prevent —
+it would read fine until the day a stale or forged pair was accepted.
+
 ## What is authoritative
 
 Each piece of state is classified, and the classification decides how a restart is recovered — reload

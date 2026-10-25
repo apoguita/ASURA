@@ -8,16 +8,24 @@ State of the project as of the last commit, so a new session can begin without r
   crate now owns registration, the atomic reservation, the lease ledger, the reaper and the
   reconciler; `asura-fakeworld` runs the whole sequence as a harness; the acceptance suite passes
   repeatedly (`.\tools\m2-verify.ps1`). No game client was involved — that was the point.
-- **M3 has started, at the layer that needs no client: framing and the auth message table.**
-  `asura-protocol` now classifies a connection from its first four bytes, frames messages by the
-  table's fixed size per header, and refuses to build a message at the wrong size. The table
-  (60 client headers, 40 server headers, with field layouts) is generated from the GWPS reference
-  by `tools/gen-auth-tables.py`, so it is a copy of a fact rather than a transcription.
-  **36 tests pass** (`cargo test --workspace`), clippy is clean, and `cargo fmt --check` plus
-  `python tools/gen-auth-tables.py --check` both hold.
-- **M1's scaffold still holds:** the workspace compiles, `cargo test --workspace` is green (16 of
-  those tests are the M1/M2 ones: 12 unit + 4 live-database placement tests that skip cleanly
-  without a database), and `cargo clippy --workspace --all-targets` is clean.
+- **M3 has started, at the layers that need no client: the messages, and the login decision.**
+  `asura-protocol` classifies a connection from its first four bytes, frames messages by the table's
+  fixed size per header, and refuses to build a message at the wrong size. The table (60 client
+  headers, 40 server headers, with field layouts) is generated from the GWPS reference by
+  `tools/gen-auth-tables.py`, so it is a copy of a fact rather than a transcription.
+  `asura-db::login` now decides what a presented identity pair means — validated on both halves, a
+  closed session never resolving, a character list scoped by account — against a `session` table
+  that holds the portal user beside the session id.
+  **43 tests pass** (`cargo test --workspace`), and `.\tools\m3-verify.ps1` proves the login path in
+  one command: migrations, the six login tests against the live database, and the protocol tests.
+  clippy is clean, and `cargo fmt --check` plus `python tools/gen-auth-tables.py --check` both hold.
+- **The login identities exist.** The client does not ask a web service who it is — the rig's portal
+  DLL hands it a fixed pair (`PreSearing/portal/portal.c`) — so `tools/seed-dev.ps1` writes the rows
+  those pairs must resolve to: three accounts with a character each. Idempotent; re-running reopens
+  the sessions.
+- **M1's scaffold still holds:** the workspace compiles, `cargo test --workspace` is green (the M1/M2
+  part of it: 12 unit + 4 live-database placement tests that skip cleanly without a database), and
+  `cargo clippy --workspace --all-targets` is clean.
 - **A protocol document was wrong, and is now corrected.** `docs/03-protocol.md` section 1 claimed a
   `u16 length` after every message header. The reference has no length field at all: `pack_msg`
   writes the format's fields and nothing else, so a message's size is a property of its header.
@@ -58,9 +66,9 @@ transaction, so `count(lease) <= leased <= capacity` holds at every commit and t
 
 | what | state | evidence |
 |---|---|---|
-| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **36 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean |
+| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **43 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean |
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
-| **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **8 tables** applied (the 7 from 0001 plus `lease`); credentials in `.env` (gitignored) |
+| **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **8 tables** applied (the 7 from 0001 plus `lease`), and 0003 added the `session.portal_user` column; credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
 | client rig (Reforged + stealth hooks) | present from the PreSearing work | not needed until M4 |
 
@@ -108,9 +116,9 @@ where a UTF-8 em dash decodes to a smart quote and breaks the parse at a line fa
 
 What is done is the part that needs no client. What remains is the part that needs one.
 
-1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **36 passing** (4 of
-   them live-database placement tests). Also `python tools/gen-auth-tables.py --check` → up to date.
-   If either count changed, read `git log` before assuming it is broken.
+1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **43 passing** (6 of
+   them live-database login tests, 4 live-database placement tests). Then `.\tools\m3-verify.ps1`.
+   If a count changed, read `git log` before assuming it is broken.
 2. **Key exchange**: `MSG_CLIENT_SEED` / `MSG_SERVER_SEED`, ARC4, Diffie–Hellman with GWPS's fixed
    constants (`main.c`). This is where a mistake is invisible until the client says `007`, so the
    per-message trace has to exist first (below).
@@ -118,14 +126,18 @@ What is done is the part that needs no client. What remains is the part that nee
    the character list, and keep the capture as the reference side of the diff. This is M3's
    acceptance criterion, and it is cheaper to establish before the Rust code can be wrong.
 4. **The listener**: classify the connection, run the handshake, take
-   `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` (`0x8038`, 150 bytes: `user_id`, `session_id`, character name,
-   type), answer with `AUTH_SMSG_SESSION_INFO` (`0x0001`), `AUTH_SMSG_ACCOUNT_INFO` (`0x0011`), and a
-   character list. Login needs `session`/`account`/`characters` rows, and nothing issues those yet:
-   the client gets `user_id`/`session_id` from a web gate that does not exist in this project.
-   **That is an open decision** — a dev stub that inserts a session, or a real portal endpoint — and
-   it is the first thing to settle before the login path can be exercised at all.
+   `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` (`0x8038`), answer with `AUTH_SMSG_SESSION_INFO` (`0x0001`),
+   `AUTH_SMSG_ACCOUNT_INFO` (`0x0011`), and the character list. The database half of that decision is
+   already written and tested (`asura-db::login`); what is missing is the socket and the handshake in
+   front of it. The identity pairs to log in with come from `tools/seed-dev.ps1`.
 5. **M4 — end-to-end travel** stays blocked on M3 and on a world server that accepts its own
    gameplay connections (`docs/04-from-gwps.md`, step 1).
+
+**Decided, and not to be re-opened without a reason:** the portal user id and the session id are
+separate columns, not one reused column (`crates/asura-db/migrations/0003_portal_identity.sql`, and
+`docs/02-architecture.md`, "Identity and reconnection"). The migration refuses to invent an identity
+for a pre-existing session row, because a login path that silently accepts a pair nobody issued is
+the one failure mode worth failing loudly for.
 
 ## The pieces M3 added
 
@@ -135,10 +147,21 @@ What is done is the part that needs no client. What remains is the part that nee
 | framing: header plus table-sized body, no length field, with encode-side size validation | `crates/asura-protocol/src/client/frame.rs` |
 | the auth message table: 100 rows with names, sizes and field layouts | `crates/asura-protocol/src/client/tables.rs` (generated) |
 | the generator that reads it out of the reference, and checks its own output | `tools/gen-auth-tables.py` |
+| the portal identity column, and why it is not the account id | `crates/asura-db/migrations/0003_portal_identity.sql` |
+| the login decision: find the session, close the others, read the characters | `crates/asura-db/src/login.rs` |
+| the refusal rules under test against the live database | `crates/asura-db/tests/login.rs` |
+| the three identity pairs the rig's portal DLL presents, seeded idempotently | `tools/seed-dev.ps1` |
+| one command for the whole login path, client not needed yet | `tools/m3-verify.ps1` |
 
 The generated file carries `#[rustfmt::skip]` on its table and is checked by
 `python tools/gen-auth-tables.py --check`; if the table and the reference disagree, that command
 fails rather than letting the port drift. `--gwps` points it at a checkout other than `..\PreSearing`.
+
+Two PowerShell traps are fixed in the scripts and worth not re-introducing: a native program's stderr
+(psql's `NOTICE`, cargo's progress) becomes an error record that `$ErrorActionPreference = "Stop"`
+treats as fatal, so repeated/idempotent runs aborted. Each script now runs native programs with the
+preference relaxed and judges them by exit code alone, and psql takes its options before the database
+URI.
 
 ## Definition of done for the first session (met)
 

@@ -81,13 +81,29 @@ the reason the handshake is scheduled last (`docs/roadmap.md`).
 ## 4. Login and session
 
 1. The client obtains `user_id` and `session_id` (UUIDs) from the portal/web gate, not from us.
-2. It sends them in the login message on the auth connection.
+2. It sends them in the login message on the auth connection: `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN`
+   (`0x8038`, 150 bytes on the wire) carrying `user_id`, `session_id`, a character name and a type.
 3. The auth service validates the pair, and answers with the account's character list.
 4. The client selects a character; the auth service records the selection.
 
 A login for an account that still holds a session must be resolved deterministically, not by
 crashing: GWPS's rule — an incomplete transfer is cleared, a live one is refused — is the behaviour
 to keep.
+
+**The portal is not a service here.** In the rig, `user_id` and `session_id` come from a client-side
+DLL (`PreSearing/portal/portal.c`) that replaces the client's portal functions and hands it a fixed
+pair per test account — there is no HTTP and nothing for this project to serve. What the pair needs
+is a matching row, so the database is seeded, not the wire:
+
+| GWPS (`DbSchema.h`, `DbSessionColumnsDef`) | ASURA (`crates/asura-db/migrations/0003_portal_identity.sql`) |
+|---|---|
+| `session.user_id` | `session.portal_user` |
+| `session.session_id` | `session.id` |
+| `session.account_id` | `session.account_id` |
+| a row must match **both** ids; no row is an auth error, never a crash | `login::find_session(portal_user, session)` returns `None`, and `None` is a refusal |
+
+`tools/seed-dev.ps1` writes the three pairs the DLL knows, and re-running it reopens them; `login` is
+`crates/asura-db/src/login.rs`, with the refusal rules under test in `crates/asura-db/tests/login.rs`.
 
 ## 5. Travel: the request/redirect cycle
 

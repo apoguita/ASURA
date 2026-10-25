@@ -56,14 +56,30 @@ if (-not $env:ASURA_DATABASE_URL) {
 Write-Host "database: $env:ASURA_DATABASE_URL"
 Write-Host ""
 
+# cargo writes progress to stderr, and PowerShell turns native stderr into error records that
+# $ErrorActionPreference = "Stop" treats as fatal -- so a clean build (or a first build after a
+# change) would abort this script before the tests ran. Run native programs with the preference
+# relaxed and judge them by exit code alone.
+function Invoke-Native {
+    param([string] $Exe, [string[]] $Arguments)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Exe @Arguments 2>&1 | ForEach-Object { "$_" } | ForEach-Object { Write-Host $_ }
+        return $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 Write-Host "1/2  integration tests (concurrency, refusal, reaper, reconcile)"
-& $cargo test --offline -p asura-db --test placement -- --nocapture
-if ($LASTEXITCODE -ne 0) { throw "placement integration tests failed" }
+$code = Invoke-Native $cargo @("test", "--offline", "-p", "asura-db", "--test", "placement", "--", "--nocapture")
+if ($code -ne 0) { throw "placement integration tests failed" }
 
 Write-Host ""
 Write-Host "2/2  fake-world scenario"
-& $cargo run --offline -q -p asura-fakeworld -- scenario
-if ($LASTEXITCODE -ne 0) { throw "fake-world scenario failed" }
+$code = Invoke-Native $cargo @("run", "--offline", "-q", "-p", "asura-fakeworld", "--", "scenario")
+if ($code -ne 0) { throw "fake-world scenario failed" }
 
 Write-Host ""
 Write-Host "M2 acceptance: OK"

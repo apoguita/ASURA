@@ -55,10 +55,23 @@ function Invoke-Psql {
     $target = @("-U", $User, "-h", $HostName, "-p", "$Port", "-v", "ON_ERROR_STOP=1", "-X", "-A", "-t")
     if ($DatabaseName) { $target += @("-d", $DatabaseName) }
     $target += $Arguments.Split(" ")
-    & $script:Psql @target 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "psql failed (exit $LASTEXITCODE): $Arguments"
+
+    # psql writes NOTICEs ("relation already exists, skipping") to stderr, and PowerShell turns native
+    # stderr into error records that $ErrorActionPreference = "Stop" treats as fatal. Re-running this
+    # script against an existing schema always produces those notices, so they must not abort it:
+    # run psql with the preference relaxed and judge it by its exit code alone.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & $script:Psql @target 2>&1 | ForEach-Object { "$_" }
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
     }
+    if ($exitCode -ne 0) {
+        throw "psql failed (exit $exitCode): $Arguments`n$($output -join "`n")"
+    }
+    return $output
 }
 
 $script:Psql = Find-Psql

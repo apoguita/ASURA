@@ -19,9 +19,13 @@ pub const SCHEMA_V1: &str = include_str!("../migrations/0001_init.sql");
 /// reaped. See the migration for why the counter and the ledger coexist.
 pub const SCHEMA_V2: &str = include_str!("../migrations/0002_leases.sql");
 
+/// The portal identity (M3): the "who you are" UUID the client presents, stored beside the session id
+/// because the login lookup matches both. See the migration for why it is NOT NULL.
+pub const SCHEMA_V3: &str = include_str!("../migrations/0003_portal_identity.sql");
+
 /// Every migration, in application order. A developer applying the schema gets one string per
 /// migration file, so a new file is picked up without editing the tooling.
-pub const SCHEMA: &[&str] = &[SCHEMA_V1, SCHEMA_V2];
+pub const SCHEMA: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
 
 /// The tables the coordination model depends on. Used by the startup check: a service refuses to run
 /// against a database that is older than the code, loudly, rather than failing on the first query.
@@ -38,6 +42,10 @@ pub const REQUIRED_TABLES: &[&str] = &[
 /// The queries placement needs: the atomic reservation, the lease ledger, and the reaper. Every
 /// statement that mutates a pool lives in this module, behind a function whose name says what it does.
 pub mod placement;
+
+/// The queries login needs: resolving the presented identity pair to an account, and reading that
+/// account's characters.
+pub mod login;
 
 // Re-exported so the harness and the integration tests (separate crates) can name the pool and the
 // session id without depending on sqlx and uuid themselves.
@@ -161,6 +169,20 @@ mod tests {
         // before M2 upgrades instead of being recreated.
         assert!(declared_tables(SCHEMA_V1).iter().all(|t| t != "lease"));
         assert!(declared_tables(SCHEMA_V2).iter().any(|t| t == "lease"));
+    }
+
+    #[test]
+    fn the_portal_identity_is_required_and_separate_from_the_session_id() {
+        // 0001 has a session id and no portal user; 0003 adds the second half of the credential.
+        assert!(!SCHEMA_V1.contains("portal_user"));
+        assert!(!SCHEMA_V2.contains("portal_user"));
+        assert!(SCHEMA_V3.contains("portal_user uuid NOT NULL"));
+
+        // It must be its own column. Folding it into `id` or `account_id` is the conflation the
+        // migration exists to prevent, so the statement must name the new column outright.
+        let statements = statements(SCHEMA_V3);
+        assert_eq!(statements.len(), 1, "one statement, one column");
+        assert!(statements[0].contains("ADD COLUMN IF NOT EXISTS portal_user"));
     }
 
     #[test]
