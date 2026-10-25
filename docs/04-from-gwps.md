@@ -21,11 +21,11 @@ maps what to reuse as knowledge, what to port, and what to leave behind.
 | GWPS file | what it becomes |
 |---|---|
 | `AuthSrv.c` | **auth service**: auth endpoint, handshake, login, character list, sessions, allocation decisions. Ported to Rust. |
-| `AuthSrvCtrl.c`, `CtrlConn.c/.h` | **auth service**: the world link. Redesigned — the current messages carry live socket handles, which cannot cross processes cleanly. |
+| `AuthSrvCtrl.c`, `CtrlConn.c/.h` | **database**: retired. Placement and state coordination move into tables (`world`, `world_pool`, `session`), so the live control messages have nothing left to carry. |
 | `main.c` | split: `asura` main and `world` main. Today one binary binds 6112/6113/1337 and runs everything. |
 | `GameSrv.c` | **world server** in phase 1 (stays C): simulation, players, instance lifecycle. It is the seed of the auth service's own simulation phase. |
 | `GmMapDataImport.c`, `FaArchive.c`, `GmPaths.c`, `GmItem.c`, … | **world server** (stays C), untouched. |
-| `Db.c`, `DbSchema.h` | **database**: one schema owner; worlds read what they need. Shared definition, one owner. |
+| `Db.c`, `DbSchema.h` | **database**: ported from SQLite to PostgreSQL and split into `auth` / `game` / `content`, owned by `asura-db`. Character writes move from a connection per instance to a pooled async queue in each world server. |
 | `GmCommands.c` | **world server**, plus the map list it carries is the input for outpost prebuild. |
 | `tools/`, `captures/` | test material for the port: packet traces to diff against. |
 
@@ -58,9 +58,9 @@ redirect instead of the auth port. Nothing else changes.
 
 ### Step 2 — Split the programs
 
-`asura` (control) and `world` (data) become separate binaries. The world connects to the auth service over the
-world link and announces itself; the auth service allocates from what the world reports, instead of building
-servers in its own process.
+`asura-auth` and `asura-world` become separate binaries. The world server registers itself in the
+`world` table and publishes pool capacity; placement moves into the world server, arbitrated by the
+database, instead of being decided inside the login process.
 
 - Test: two processes, two terminals, same hops; kill the world mid-session and confirm the client
   fails cleanly rather than hanging.

@@ -104,24 +104,32 @@ The client also asks a file service whether a file is current: a 21-byte request
 bytes. GWPS answers it correctly when it receives it (`AuthSrv_TryHandleFileCheck`). Whether the auth service
 needs to answer it depends on whether the client is pointed at us for content; today it is not.
 
-## 8. World link (the auth service ↔ world servers)
+## 8. Coordination between programs: the database, not a protocol
 
-The auth service's own protocol, entirely ours, so it can be clean:
+There is no control protocol between the auth service and the world servers for state or placement
+(`docs/adr/0004-port-azerothcore-structure.md`). They coordinate through tables:
 
-```
-u32 magic          "ASUR"
-u16 version        protocol version; mismatched worlds are rejected loudly
-u16 kind           message kind
-u32 length         body length
-u8  body[length]   fixed layout per kind
-```
+| table | written by | read by | carries |
+|---|---|---|---|
+| `world` | each world server | auth service | id, address, port, flags, population, heartbeat |
+| `world_pool` | every travel (a reservation), the reaper | travel decisions | per world, per map: capacity and leases |
+| `session` | auth service | world servers | account, character, issued token |
+| `game` schema | world servers | world servers, auth service | characters, items, instance records |
 
-Message kinds are listed in `docs/02-architecture.md` ("The allocation contract"). Rules:
+Rules that make this safe rather than hopeful:
 
-- one connection per world, opened by the world;
-- the first message must be `WorldHello`, with a protocol version the auth service accepts;
-- every message is version-checked; unknown kinds are a fatal protocol error, not a warning;
-- a heartbeat that stops has the same consequences as the connection dropping.
+- **A reservation is one atomic statement.** `UPDATE world_pool SET leased = leased + 1 WHERE
+  world_id = $1 AND map_id = $2 AND leased < capacity RETURNING world_id` either wins a slot or
+  matches no row. Two processes cannot both take the last one.
+- **A lease is time-bounded.** The reaper expires leases whose owner stopped heartbeating, so a crash
+  costs capacity temporarily, never permanently.
+- **Every program may fail and re-register.** No state is negotiated live, so there is nothing to
+  resynchronise after a restart.
+- **The protocol version lives in the schema.** A world server checks the schema version on startup
+  and refuses to run against a mismatched database, loudly.
+
+What remains a protocol is the client-facing half: framing, handshake, login and the redirect, all in
+the sections above.
 
 ## 9. What must be re-proven in Rust
 

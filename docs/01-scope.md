@@ -1,89 +1,103 @@
 # Scope
 
-What the auth service is responsible for, and what it deliberately hands to someone else.
+Which component owns what, in an ASURA stack built on AzerothCore's structure
+(`docs/adr/0004-port-azerothcore-structure.md`).
 
-## The split
+## The components
 
-Two kinds of program make up a running server:
+| component | responsiblity |
+|---|---|
+| **auth service** | answers the client's login and tells it which world to join |
+| **world server** | everything a player experiences: maps, instances, placement, character state |
+| **database** | the shared truth and the coordination channel between the other two |
 
-- **auth service** — one program, one instance, or a primary and a standby. It answers the client, owns identity and
-  the directory, and allocates.
-- **World servers** — many. Each hosts some map instances and simulates them. They are disposable:
-  a world server holds no information that cannot be recreated from the database and the
-  directory.
-
-The boundary is a small one: a handful of fixed-layout messages over one TCP connection per world
-(`docs/03-protocol.md`, "world link"). Nothing else crosses.
+These are the only three kinds of component that matter. The auth service is small and long-lived;
+world servers are interchangeable and disposable; the database is what they both agree on. There is
+no live control connection between the auth service and world servers for state or placement — the
+database is the handoff.
 
 ## The auth service owns
 
-### The auth endpoint
+### The login endpoint
 
-The client's first connection. The auth service terminates it: key exchange, login against the web gate,
-character list, character selection. This is the connection the client only uses for
-authentication and re-negotiation; the gameplay connection is a different one.
+The client's first connection. Key exchange, login against the web gate, character list, character
+selection. The client uses this connection only for authentication; the gameplay connection is a
+different one, to a world server.
 
-### Identity and sessions
+### Sessions and login tokens
 
-For every logged-in player the auth service knows: account id, session id, selected character, and the token
-that the player's *next* connection must present. The last one matters: the game client drops its
-connection and reconnects on every travel, and that reconnect is accepted only if it matches what
-The auth service recorded. Getting this wrong is visible as a client error, not a crash.
-
-### The directory
-
-Which world servers exist, where they are reachable, which maps each one has loaded and how much
-room each one has. The directory is the only place that knows the whole picture, and it is small
-enough to keep in memory and rebuild from world heartbeats after a restart.
-
-### Allocation
-
-Every travel request is an allocation question: *this player, this destination district — where do
-they go?* the auth service answers with a world, an address and a token, or refuses. The rules are in
-`docs/02-architecture.md`.
-
-### Persistence
-
-The accounts, sessions, characters, bags and items. The auth service owns the schema and the writes; worlds
-read what they need for the maps they run. Player state is written on the way out of an instance,
-not held as a world's private truth.
+For every logged-in player: account id, session id, selected character, and the token the player's
+*next* connection must present. The client drops its connection and reconnects on every travel, and
+that reconnect is only accepted when it matches what was issued. Getting this wrong is a visible
+client error, not a crash.
 
 ### The web gate
 
-The portal the client talks to before it talks to us, which hands it a `user_id` and `session_id`.
+The portal the client talks to before it talks to us, which hands it a `user_id` and a `session_id`.
 The auth service authenticates those.
 
-## Phase 1 boundary: what the auth service does not do *yet*
+### Reading the registry — not owning it
 
-Simulation - agents, movement, pathfinding, combat, skills, drops - is part of this project's
-long-term scope, deferred until the control plane is correct
-(`docs/adr/0003-simulation-in-scope.md`). In phase 1 it lives where it already does, in a world
-server:
+The auth service reads the `world` table to answer "where should this client connect?" It does not
+decide placement, and it does not keep the directory's truth in memory: the table is the truth, and
+a restart loses nothing.
 
-- **Simulation.** A world server. Not the auth service, not yet.
-- **The gameplay connection**, once accepted. If the world owns its own listener (the target
-  design), the client's gameplay socket is between the client and that world; the auth service is not in the
-  data path.
-- **Map data.** the auth service stores no map blobs and reads no `Gw.dat`. Loading and caching map data is a
-  world concern.
-- **Content delivery.** The client also talks to a file server for game assets; that is a separate
-  service, not part of this project.
+## The world servers own
 
-## Two things that must not be quietly moved
+### Placement and capacity
 
-1. **Identity validation must stay in the auth service.** A world server may be trusted to *present* an
-   identity, but not to decide that an unauthenticated connection is allowed in. A compromised or
-   buggy world must not be able to admit a player who never logged in.
-2. **Capacity must be able to say no.** If there is no room for a travel request, the auth service refuses it
-   while the client is still standing in its current map. Any design where "no room" is discovered
-   after the client has been told to move is a re-introduction of the original hang.
+A travel is decided by the world server the player is on, not by a central allocator. It picks a
+destination world with the map loaded and room available, and **reserves** a slot atomically in
+`world_pool` (`docs/02-architecture.md`, "Travel, end to end"). No slot means the travel is refused
+while the client is still standing in its current map.
+
+### Character state
+
+Characters, bags, items and instance records in the `game` database — read when entering an instance,
+written when leaving and on a timer, never per frame. The world server is the owner; the auth service
+never writes character data.
+
+### Instances
+
+Outposts prebuilt per map and district; explorables prebuilt into pools per map. Created ahead of
+need, cleared and recycled; never constructed because a player asked to travel.
+
+### The gameplay connection
+
+The client connects to the world server directly and the world server authenticates that connection
+against the token the auth service issued. The auth service is not in the data path.
+
+## The database owns
+
+The schema, and therefore the contract between the two programs. Three logical databases: `auth`,
+`game`, `content`. One owner of the schema definition (`asura-db`), migrations in version control,
+and nothing in the project writes SQL outside that crate.
+
+## Rules that must not be quietly broken
+
+1. **Identity validation stays out of the world servers' *discretion*.** A world may verify a token
+   the auth service issued; it may not admit a player who never logged in, and it may not mint
+   tokens.
+2. **Capacity must be able to say no.** A refusal happens before the client is told to move. Any
+   design where "no room" is discovered after the client has been redirected is a re-introduction of
+   the original hang.
+3. **The database is the only coordination point.** No side channel that carries state between the
+   auth service and a world server; the moment one exists, restarts become ambiguous.
+
+## Phase 1 boundary: what does not exist *yet*
+
+Simulation — agents, movement, pathfinding, combat, skills, drops — is in this project's long-term
+scope, deferred until the base structure works (`docs/adr/0003-simulation-in-scope.md`). In phase 1 it
+lives in the existing C world server.
+
+- **Simulation.** A world server. Not written yet in this project.
+- **Map data.** No component of ASURA stores map blobs; `Gw.dat` reading is a world-server concern.
+- **Content delivery.** The client also talks to a file server for game assets: a separate service,
+  not scheduled.
 
 ## Explicitly out of scope for now
 
-- **Simulation.** In scope for the project, out of scope until the control plane works. "Deferred"
-  is doing real work in that sentence: it is not cancelled, and no phase-1 decision may preclude it.
-- Multiple regions or languages. One region, one language, and districts only as a capacity
-  concept.
-- Server-to-server chat between worlds: chat is delivered through the world server the player is
-  on, and cross-world chat is a later problem.
-- Anything about game balance or content.
+- **Simulation's own design.** Deferred, not cancelled; no phase-1 decision may preclude it.
+- Multiple regions or languages. One region, one language; districts are a capacity concept only.
+- Cross-world chat. Chat is delivered by the world the player is on.
+- Game balance and content.

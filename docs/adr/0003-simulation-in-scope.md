@@ -15,17 +15,17 @@ Those have to be right before simulation is anything but premature optimisation.
 
 ASURA owns simulation as part of its long-term scope, and implements it in a later phase:
 
-- **Phase 1 (now):** control plane. Auth, sessions, directory, allocation, persistence, world link.
-  Simulation stays in the existing C world server, which is an external process reached over the
-  world link.
+- **Phase 1 (now):** the base structure. Auth service, schema, registry and pools, placement, and
+  a world server that owns its own connections. Simulation stays in the existing C world server,
+  reached through the database rather than a private protocol.
 - **Phase 2 (later):** simulation becomes part of this project. Whether it is a Rust port or the C
   implementation adopted as an owned component is decided at S1 of the roadmap, on its merits, with
   no assumption inherited from phase 1.
 
 Two constraints make the deferral safe rather than merely postponed:
 
-1. **The boundary is a protocol, not a library.** The world link is versioned, explicit and
-   message-based, so the simulation can be replaced or moved without the control plane changing.
+1. **The boundary is a schema, not a library.** The database contract is explicit and versioned,
+   so the simulation can be replaced or moved without the rest of the stack changing.
    No shared headers, no in-process calls, no "just link it in for now".
 2. **No phase-1 decision may foreclose phase 2.** In particular, the control plane must not assume
    that maps, players or state live in its own address space, and must not grow logic that only

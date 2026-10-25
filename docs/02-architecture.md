@@ -1,160 +1,161 @@
 # Architecture
 
-How the pieces fit, what crosses between them, and the rules the design is built around.
+The structure is AzerothCore's, ported as a whole (`docs/adr/0004-port-azerothcore-structure.md`),
+with one deviation forced by our client. This document describes what that means concretely.
 
-## Three roles
+## Components
 
-| role | how many | lifetime | state |
+| component | how many | what it does | state |
 |---|---|---|---|
-| **auth service** (control) | 1 (+ standby) | long | the only meaningful state: sessions, directory, allocation |
-| **world server** (data) | many | disposable | map instances in memory; nothing that survives a restart |
-| **content/file server** | 1+ | long | assets; outside this project |
+| **auth service** (`asura-auth`) | 1 (+ standby) | login, key exchange, sessions, character list/select; tells the client which world to join | sessions in memory, accounts in `auth` |
+| **world server** (`asura-world`) | many | maps, players, instances, placement, character persistence | instances in memory; nothing that survives a restart |
+| **database** (`asura-db`) | 1 (+ standby) | the shared truth and the coordination channel | everything |
+| **content service** | 1+ | game assets (`Gw.dat` streaming) | outside ASURA |
 
-World servers are the only place a player's map runs. The auth service never simulates anything, and it never
-holds a player's gameplay connection. That is the whole point of the split: the part that is hard
-to scale (instances) becomes a set of interchangeable processes, and the part that is hard to
-replicate (identity and placement) stays in one small place.
+The auth service never runs a map and is not in the gameplay data path. World servers are
+interchangeable and disposable. The database is the only thing both kinds of program agree on.
 
-## Phases
+## The five structural elements
 
-| phase | what is being built | where simulation lives |
+Ported from AzerothCore, deliberately not cherry-picked:
+
+1. **Two program types**, with no live state channel between them for placement or character state.
+2. **Three databases**, each with its own connection pool:
+   - `auth` — accounts, sessions, login tokens
+   - `game` — characters, items, bags, instance records
+   - `content` — map configuration and spawns, effectively read-only
+3. **A registry table** that world servers write themselves into, exactly as `realmlist` works.
+4. **Character state owned and written by world servers**, through a pool with an asynchronous
+   write queue.
+5. **Instance management and pooled map-update threads inside the world server.**
+
+## The registry
+
+```sql
+CREATE TABLE world (
+    id            int          PRIMARY KEY,     -- world server id, configured per process
+    name          text         NOT NULL,
+    address       text         NOT NULL,        -- what the client is told to connect to
+    port          int          NOT NULL,
+    flags         int          NOT NULL,        -- online / draining / maintenance
+    population    int          NOT NULL,        -- players currently connected
+    heartbeat_at  timestamptz  NOT NULL         -- last time this world said it was alive
+);
+
+CREATE TABLE world_pool (                       -- capacity, per world, per map
+    world_id   int  REFERENCES world (id),
+    map_id     int  NOT NULL,
+    capacity   int  NOT NULL,                   -- instances prebuilt and ready
+    leased     int  NOT NULL DEFAULT 0,         -- currently assigned to a party
+    PRIMARY KEY (world_id, map_id)
+);
+```
+
+A world server inserts or updates its `world` row at startup (flags = online), keeps `population` and
+`heartbeat_at` current, and marks itself draining or offline on exit. The auth service reads `world`
+to answer "where is this player's map?" — the registry is data, so it survives restarts, and no
+handshake is needed to keep it honest.
+
+`world_pool` is what makes allocation safe across processes: it is the prebuilt capacity, and only
+one process can win a given row.
+
+## Travel, end to end
+
+1. The player asks to travel, either from inside a map (on their current world server) or at login
+   (on the auth connection).
+2. The deciding process looks for a destination world that has the map and a free slot, then
+   **reserves** it atomically:
+
+   ```sql
+   UPDATE world_pool SET leased = leased + 1
+    WHERE world_id = $1 AND map_id = $2 AND leased < capacity
+    RETURNING world_id;
+   ```
+
+   Choosing the world is a `SELECT` (same world preferred, then least loaded); the `UPDATE` is what
+   makes the choice binding. Two simultaneous hops cannot both take the last slot.
+3. **No row returned means no room** — the travel is refused *now*, while the client is still in its
+   current map. Nothing is constructed, and the client is never told to move.
+4. On success the client is redirected: the destination world's `address` and `port` from the
+   registry, a map token, and a player token the destination will validate
+   (`docs/03-protocol.md`, "the redirect").
+5. The player leaves the old world and connects to the new one. The old world records the departure;
+   the new world clears the instance it assigned and marks it leased to that session.
+6. **Lease hygiene.** A lease belongs to a player session. When the player disconnects, leaves the
+   instance, or the owning world stops heartbeating, a reaper returns the slot (`leased - 1`). A
+   stuck lease costs capacity, never correctness, and the reaper bounds it.
+
+## Instances
+
+| map type | lifecycle | count |
 |---|---|---|
-| 1 | control plane: auth, sessions, directory, allocation, persistence, world link | the existing C world server, unchanged |
-| 2 | simulation: the world server becomes part of this project | decided then - port it to Rust, or adopt the C implementation |
+| outpost / town | prebuilt at world startup, one per map per district, never destroyed | bounded by content |
+| explorable | prebuilt **pool** per map; capacity is how many parties may be inside at once | configured |
 
-Phase 1 exists so that phase 2 can be judged on its own merits instead of being tangled up with
-identity, allocation and the process model. Nothing in phase 1 may assume the simulation stays in C
-forever: the world link is a *protocol*, not a linked library, and the interface is identical
-whether the far side is Rust or C (`docs/adr/0003-simulation-in-scope.md`).
+- Assignment takes an instance from the pool, clears it (agents, pending messages, party and item
+  state) and hands it to the party. Release clears it and returns it.
+- The world server creates instances **ahead of need**, into its pool, and destroys them only when
+  the pool is deliberately shrunk. This is the deviation from AzerothCore, which creates on demand:
+  our client hangs when the destination is not ready, so on-demand creation is not available to us.
+- Instance records persist in `game`, so a restart rebuilds the same pools and "who is where"
+  survives an auth-service restart.
 
-## What a world server is
+## Inside a world server
 
-A process that:
+- **One IO reactor** accepts and serves gameplay connections. The client connects here directly; the
+  auth service is not in the data path.
+- **A bounded pool of update threads with map affinity.** A hot map is always updated by the same
+  thread, so simulation state needs no locking, and the pool size is configuration rather than a
+  function of map count. Idle maps cost nothing.
+- **Database access through a pool per database**, with writes enqueued to an asynchronous worker so
+  the simulation loop never waits on the disk. Multi-statement changes are transactions. Queue depth
+  is a metric, because a growing queue is the first sign of trouble.
+- **Character state** is loaded on entering an instance, saved on leaving it and on a timer, never
+  per frame. Position and inventory need to survive a crash within a minute, not every tick.
 
-1. connects to the auth service and announces itself: an id, the address the client should be told to use,
-   which maps it has loaded, and how much room it has;
-2. keeps a set of ready map instances;
-3. receives allocation requests and either assigns an existing ready instance or refuses;
-4. accepts the player's gameplay connection itself, and verifies the token the auth service gave it;
-5. reports load (instances, players, tick health) on a heartbeat;
-6. exits cleanly when asked, having saved what needs saving.
+## Failure behaviour
 
-Everything a world server knows can be rebuilt: the database is the truth, the auth service is the directory.
-Killing a world server is an expected event, not an incident.
-
-## The allocation contract
-
-One connection per world server to the auth service. Every message is a small fixed-layout struct, because
-both ends are implemented separately and a schema mismatch must be an immediate, loud failure
-rather than a silent misparse.
-
-| direction | message | meaning |
-|---|---|---|
-| world → the auth service | `WorldHello` | id, client-facing address, capability, capacity |
-| world → the auth service | `MapReady` | "map X is loaded and I have room for N more instances of it" |
-| world → the auth service | `Heartbeat` | instances held, players, tick latency, memory |
-| The auth service → world | `AllocateInstance` | "give me an instance of district D for player P" |
-| world → the auth service | `InstanceGranted` | "instance I belongs to player P, token T" |
-| world → the auth service | `InstanceRefused` | "no room / no such map" — a normal answer, not an error |
-| world → the auth service | `PlayerLeft` | player has left instance I (frees capacity) |
-| world → the auth service | `InstanceReleased` | instance I is empty, cleared and back in the pool |
-| The auth service → world | `Shutdown` | save and exit |
-
-The auth service keeps the player-facing half of the same flow: it answers the client's travel request with
-`World` + address + token (the `0x01A6` redirect, `docs/03-protocol.md`).
-
-## The one rule: nothing is built during a travel
-
-**A travel request is answered only with an instance that is already running, loaded and ready.**
-If none exists, the request is refused *before the client is told anything*, while it is still
-standing in its current map.
-
-This is not a style preference. GWPS learned it the hard way:
-
-- In the single-process build, a travel to a map that had no server yet constructed that server
-  *inside* the hop. 7 of 53 hops (13 %) then hung on the loading screen, and no other signal
-  separated the failures: not the destination, not the time between hops (failures 1735–8778 ms,
-  successes 1775 ms and up), not whether the destination had been visited (3/27 vs 3/23).
-- The client recorder showed what a hang *is*: on a good hop the client tears its world down
-  (`map_context = 0`, `instance_type = 2`, `terrain_count = 0`) and rebuilds it 100–204 ms later.
-  On the hung hop it tears down and **never** rebuilds, and the network goes silent: zero packets
-  for the rest of the session.
-- After every destination was created at startup instead, 12 hops in one session, zero hangs,
-  including six first visits and hops at 2.8 s spacing (inside the old failure band).
-
-So the rule is: **prebuild, pool, assign, refuse — never construct.** The extra 25 ms of building a
-server is irrelevant; what matters is never sending a client to an address that is not answering.
-
-### What this means concretely
-
-- **Outposts and towns**: created at world-server startup, one per map per district, kept forever.
-  A bounded set.
-- **Explorables**: a prebuilt pool per map, depth = how many parties should be able to be inside
-  that map at once. Assigned on entry, cleared and returned on exit. Never freed, never built on
-  request.
-- **At capacity**: `InstanceRefused` → the auth service answers the travel request with a refusal. The client
-  stays where it is. No queueing, no constructing, no "wait a moment".
-
-## Placement
-
-The auth service chooses the world server for a request with these rules, in order:
-
-1. **Capability first.** The world must have the destination map loaded, or be able to serve it
-   from a ready pool instance. A world that would have to load the map is not a candidate.
-2. **Same world preferred.** If the player's current world can serve the destination, use it. It
-   avoids a cross-world hop for the client and keeps a party together.
-3. **Least loaded among equals.** Fewest players per instance, then fewest instances, then lowest
-   tick latency from the heartbeat.
-4. **Refuse when nothing fits.** And say why, in the logs, with enough detail to know whether the
-   fix is capacity or configuration.
-
-Map affinity is a real constraint, not an optimisation: a world server can only offer what it has
-loaded, and loading is not a per-request operation.
-
-## Failure and recovery
-
-| event | outcome |
+| event | consequence |
 |---|---|
-| world server crashes | its players are dropped; the auth service marks them disconnected; their map state is whatever the database last saved; other worlds are unaffected; the world is restarted and re-registers |
-| The auth service restarts | sessions are lost (players must log in again); the directory rebuilds from world hellos; allocation resumes |
-| no room anywhere | travel is refused before the client moves |
-| duplicate world id | rejected at `WorldHello`; the older connection is closed |
+| world server crashes | heartbeat stops; the auth service stops sending players to it; leases held by its players expire and are reaped; players log in again; the database is not corrupted, because saves are transactional |
+| world server restarts | re-registers, rebuilds its pools from the database, becomes a candidate again once ready |
+| auth service restarts | players keep playing (it is not in the data path); new logins wait; in-memory sessions are lost, so a travelling player must re-authenticate |
+| database unavailable | fail closed: no logins, no travels. Players already in a map stay there, and the world server keeps what it can in memory until it must stop |
+| stale registry row | the reaper marks the world offline and frees its leases; the auth service skips it |
 
-The asymmetry is deliberate: losing the auth service costs a login, losing a world costs a map. Neither can
-corrupt the other, and neither can admit a player the other did not authenticate.
+The asymmetry is deliberate: losing the auth service interrupts *entry*, losing a world interrupts
+*one map*, losing the database interrupts *everything* — which is why the database gets the
+operational attention (backups, a restore test, later a standby).
+
+## Startup order
+
+1. Database reachable, schema current.
+2. World servers start: connect, prebuild outposts and pools, register in `world`.
+3. Auth service starts: binds the login endpoint, reads the registry.
+4. Players log in; the auth service answers with a world that is registered, online and has capacity.
+5. Shutdown: worlds flush character state, mark themselves draining, exit; the auth service stops
+   accepting, then exits.
+
+A world that is still prebuilding is not advertised, so a request arriving during startup gets a
+correct "no room" instead of a race.
 
 ## Cost model
 
-Measured from GWPS on the same class of hardware, per map instance:
+Measured from GWPS, per map instance, against what this structure changes:
 
-| item | cost | after the fixes below |
+| item | GWPS today | ASURA target |
 |---|---|---|
-| private memory | 11.9 MB | ~5 MB |
-| OS thread | 1 | shared reactor, ~0 |
-| SQLite connection | 1 (2 MB cache) | 1 per world, not per instance |
-| `Gw.dat` index | 4.7 MB private copy | 1 per world, memory-mapped |
+| private memory per instance | 11.9 MB | ~5 MB (shared `Gw.dat` index, database pool per world not per instance) |
+| OS threads | 1 per instance | bounded pool, constant with instance count |
+| database connections | 1 per instance | a small pool per world server |
+| `Gw.dat` index | private copy per instance (4.7 MB) | one memory-mapped copy per world server |
+| SQLite page cache | 2 MB per instance | gone — pooled PostgreSQL connections |
 
-The two big items are duplication, not work: the same read-only index read 500 times, and a
-database cache per map that all serve the same file. Sharing them per world server is the single
-largest lever, and it is local to the world server — the auth service is unaffected by it.
-
-Sizing rule of thumb: a world server with 500 instances and a shared index is roughly
-500 × 5 MB ≈ 2.5 GB. Ten of them hold ~5000 instances. Growth is "add a world server", including
-on another machine, because the client is told a real address, not a loopback one.
-
-## Process and startup order
-
-1. Database available; schema current.
-2. The auth service starts, binds the auth endpoint, opens the world link listener.
-3. World servers start, load their maps and pools, announce themselves, report `MapReady`.
-4. The auth service accepts players; allocation answers only from worlds that have reported ready.
-5. Shutdown: the auth service stops accepting, asks worlds to save and exit, then exits.
-
-A world server that is still loading is simply not a candidate — which means a request arriving two
-seconds after boot gets a correct "no room" instead of a race.
+Sizing: a world server holding 500 instances is roughly 2.5 GB. More worlds, more machines, same
+code — the client is told a real address, so nothing in the protocol changes when a world moves.
 
 ## Deliberate non-goals
 
-- Autoscaling, orchestration, containers. Adding a world server is a config line and a process.
-- Distributed consensus. There is one authority (the auth service) and everything else defers to it.
+- Orchestration and autoscaling. Adding a world is a config entry and a process.
+- Distributed consensus. The database is the arbiter; there is no second source of truth.
 - Multi-region. One region; districts are capacity, not geography.

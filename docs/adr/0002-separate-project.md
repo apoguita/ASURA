@@ -32,7 +32,8 @@ keep GWPS as the reference implementation and the home of the world servers.
   `docs/02-architecture.md`).
 - Duplicate knowledge: the protocol facts live in one repo and the implementation in the other.
   Mitigated by `docs/03-protocol.md` naming the exact GWPS files it derives from.
-- Any change to the world link requires a matching change in C. Accepted: that is the point.
+- Any change to the schema or to a client-facing protocol requires a matching change in C.
+  Accepted: that is the point.
 
 ## Consequences
 

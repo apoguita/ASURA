@@ -9,7 +9,7 @@ This repository's documents, and the decisions they depend on.
 
 **Done when:** `docs/01-scope.md`, `docs/02-architecture.md`, `docs/03-protocol.md`,
 `docs/04-from-gwps.md`, the ADRs, and this roadmap are complete enough to answer two questions
-without asking the author: *what does the auth service do?* and *what crosses the world link?*
+without asking the author: *what does the auth service do?* and *what does a world server decide?*
 
 **Test:** a reader who has never seen GWPS can describe the allocation flow and the one rule.
 
@@ -18,7 +18,7 @@ without asking the author: *what does the auth service do?* and *what crosses th
 Three crates, no sockets yet:
 
 - `asura` — the binary (config loading, logging, startup order, shutdown).
-- `asura-protocol` — message layouts for the world link, with encode/decode and a protocol version.
+- `asura-db` — the schema, migrations, and the queries both programs need.
 - `asura-db` — schema ownership and the queries the auth service needs.
 
 **Done when:** every world-link message round-trips byte-for-byte in a unit test, the protocol
@@ -26,15 +26,17 @@ version mismatch path is tested, and `asura --version` starts and exits cleanly.
 
 **Test:** `cargo test`. Nothing depends on a client.
 
-## M2 — World link against a fake world
+## M2 — Schema, registry, and reservations against a fake world
 
-The auth service listens for world servers, maintains the directory, and tracks liveness.
+Schema first, then coordination through it: world servers register in `world`, publish pool capacity
+in `world_pool`, and travel decisions reserve slots atomically.
 
-**Done when:** a test harness (a "fake world" binary in the workspace) can register, report
-`MapReady`, heartbeat, and be marked stale when it goes silent. An allocation request against an
-empty directory returns a refusal, not a panic.
+**Done when:** a test harness (a "fake world" binary in the workspace) can register, heartbeat, be
+marked stale when it goes silent, and have its leases reaped. Reservation is proven atomic under
+concurrency: with a pool of capacity N-1, N parallel reservations succeed exactly N-1 times.
 
-**Test:** harness-only, fully automated. No game client involved.
+**Test:** harness-only, fully automated, no game client involved. The concurrency case runs the
+reservation from many tasks at once.
 
 ## M3 — The auth endpoint (the hard one)
 
@@ -92,7 +94,7 @@ made knowing what is coming.
 |---|---|
 | S1 | decide the simulation's language and structure: port the C world server to Rust, or adopt it as a C component owned by this project. This is a decision, not an accident |
 | S2 | the world server builds and runs from this repository, with its own maps and player load/save |
-| S3 | the world link carries everything the simulation needs from the control plane, with no shortcuts and no shared headers |
+| S3 | the simulation reads what it needs from the database through `asura-db`, with no shortcuts and no private SQL |
 | S4 | instance teardown: an empty explorable is cleared and returned to its pool, and memory does not grow across a session |
 
 ## After M6

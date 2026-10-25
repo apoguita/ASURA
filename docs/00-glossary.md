@@ -16,7 +16,24 @@ existing C game servers; in phase 2 the simulation becomes part of this project.
 are disposable: restarting one loses a session, not the database.
 
 **Control plane** — shorthand for everything that is not simulation: auth, identity, registry,
-placement. It spans the auth service and the registry, not one process.
+placement. It spans the auth service and the registry tables, not one process.
+
+**Registry** — the `world` table: one row per world server with its address, port, flags, population
+and last heartbeat. Worlds write their own row; the auth service reads it. Modelled on AzerothCore's
+`realmlist`.
+
+**Pool capacity** — `world_pool`: for each world and map, how many instances are prebuilt (`capacity`)
+and how many are currently handed out (`leased`).
+
+**Reservation / lease** — taking a pool slot for one party. It is a single atomic `UPDATE ... WHERE
+leased < capacity`, released when the party leaves, when the player disconnects, or when a reaper
+decides the owning world is gone.
+
+**Connection pool** — a small set of open database connections reused by a program, instead of one
+connection per map instance. This is what replaces GWPS's per-instance SQLite handle.
+
+**Map updater** — the bounded pool of threads that advances map simulation, with each hot map always
+handled by the same thread. Not one thread per map.
 
 **GWPS** — the existing single-process project (`PreSearing`). It does the job of the auth service *and* the
 world servers in one program. It stays as the working reference.
@@ -78,8 +95,9 @@ into both the server and the patched client.
 
 **Framing** — how messages are delimited on the wire: a header, a size, then a body.
 
-**World link** — our own protocol between the auth service and a world server. It is entirely ours, so it is
-versioned and explicit.
+**No world link** — there is deliberately no control protocol between the auth service and the world
+servers. They coordinate through the registry and pool tables. The only protocols left are the
+client-facing ones.
 
 **Heartbeat** — a periodic "still here, this full, this busy" message from a world server, so the auth service
 can tell a live world from a dead one.
