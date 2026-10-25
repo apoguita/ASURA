@@ -113,7 +113,7 @@ function Invoke-PsqlFile {
     }
 }
 
-Write-Host "1/4  migrations"
+Write-Host "1/5  migrations"
 $migrations = Get-ChildItem (Join-Path $repo "crates\asura-db\migrations") -Filter "*.sql" | Sort-Object Name
 if (-not $migrations) { throw "no migrations found under crates\asura-db\migrations" }
 foreach ($migration in $migrations) {
@@ -126,17 +126,22 @@ foreach ($migration in $migrations) {
 }
 
 Write-Host ""
-Write-Host "2/4  login integration tests (identity pair, closed sessions, character scope)"
+Write-Host "2/5  login integration tests (identity pair, character scope)"
 $code = Invoke-Native $cargo @("test", "--offline", "-p", "asura-db", "--test", "login", "--", "--nocapture")
 if ($code -ne 0) { throw "login integration tests failed" }
 
 Write-Host ""
-Write-Host "3/4  protocol tests (the message table and the key exchange match the reference)"
+Write-Host "3/5  protocol tests (the message table and the key exchange match the reference)"
 $code = Invoke-Native $cargo @("test", "--offline", "-p", "asura-protocol")
 if ($code -ne 0) { throw "protocol tests failed" }
 
 Write-Host ""
-Write-Host "4/4  generated files still match the reference"
+Write-Host "4/5  end-to-end: a client logs in to the real listener over a socket"
+$code = Invoke-Native $cargo @("test", "--offline", "-p", "asura-auth", "--test", "login", "--", "--nocapture")
+if ($code -ne 0) { throw "the end-to-end login test failed" }
+
+Write-Host ""
+Write-Host "5/5  generated files still match the reference"
 $python = (Get-Command python -ErrorAction SilentlyContinue).Source
 if (-not $python) {
     Write-Host "     python not found on PATH; skipping the generated-file check"
@@ -157,9 +162,13 @@ if ($Seed) {
 Write-Host ""
 Write-Host "login path: OK"
 Write-Host ""
-Write-Host "Verified without a client: the message table, the migration record, the identity pair, and the"
-Write-Host "key exchange arithmetic (against fixtures compiled from the reference's own C)."
+Write-Host "Verified: the message table, the migration record, the identity pair, the key exchange, and a"
+Write-Host "real client logging in over a socket to get its character list."
 Write-Host ""
-Write-Host "next: the listener -- classify the connection, run the handshake, take the login message, serve"
-Write-Host "      the character list. Then the packet trace diff against GWPS with the real client, which is"
-Write-Host "      M3's actual acceptance criterion."
+Write-Host "To see it by hand (two terminals):"
+Write-Host "  .\tools\seed-dev.ps1"
+Write-Host "  cargo run -p asura-auth                       # the service, on 127.0.0.1:6112"
+Write-Host "  cargo run -p asura-auth --example login -- 127.0.0.1:6112 fa520ee2-4419-4eb4-ae49-6e9abe6ef24f d8b9bf5d-90b1-4cbd-9b76-88da7be763b6"
+Write-Host ""
+Write-Host "next: the packet trace diff against GWPS with the real game client, which is M3's actual"
+Write-Host "      acceptance criterion. Set ASURA_TRACE=1 on the service first."

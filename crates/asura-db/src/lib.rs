@@ -50,10 +50,17 @@ pub mod login;
 /// The migration runner, and the startup check that refuses a database older than the code.
 pub mod migrations;
 
+/// Where the programs find their settings: the environment, then the repository's `.env`.
+pub mod config;
+
 // Re-exported so the harness and the integration tests (separate crates) can name the pool and the
 // session id without depending on sqlx and uuid themselves.
 pub use sqlx::PgPool;
 pub use uuid::Uuid;
+
+/// The database error type, re-exported for the same reason: a service should be able to say "the
+/// database failed" without taking sqlx as its own dependency.
+pub use sqlx::Error as DatabaseError;
 
 /// Table names declared by `CREATE TABLE` statements in a schema.
 ///

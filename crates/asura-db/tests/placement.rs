@@ -8,56 +8,16 @@
 //! one-command way to run them for real.
 
 use asura_db::{placement as db, PgPool, Uuid};
-use std::path::{Path, PathBuf};
 
 const MAP: i32 = 15; // a placeholder map id; the reservations do not care which map it is
 const STALE_AFTER_SECS: f64 = 60.0;
 
-/// The database URL: the environment first, then the repo's `.env` (walking up from the crate).
-fn database_url() -> Option<String> {
-    if let Ok(url) = std::env::var("ASURA_DATABASE_URL") {
-        let trimmed = url.trim().to_string();
-        if !trimmed.is_empty() {
-            return Some(trimmed);
-        }
-    }
-    let candidates = [
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.env"),
-        PathBuf::from(".env"),
-    ];
-    for path in candidates {
-        if let Some(url) = read_url_from(&path) {
-            return Some(url);
-        }
-    }
-    None
-}
-
-fn read_url_from(path: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let (key, value) = match line.split_once('=') {
-            Some(pair) => pair,
-            None => continue,
-        };
-        if key.trim() == "ASURA_DATABASE_URL" {
-            let value = value.trim().trim_matches('"').trim_matches('\'');
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
-}
-
 /// Two pools over the same database: the reservation race is between what SQL sees as two
 /// separate clients, which is the case the design must survive between processes.
 async fn pools() -> Option<(PgPool, PgPool)> {
-    let url = database_url()?;
+    // The URL rule lives in one place (`asura_db::config`), so a test cannot disagree with a service
+    // about where the settings come from.
+    let url = asura_db::config::database_url()?;
     let a = db::connect(&url, 4).await.expect("connect pool a");
     let b = db::connect(&url, 4).await.expect("connect pool b");
     Some((a, b))

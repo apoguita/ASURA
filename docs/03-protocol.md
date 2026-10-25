@@ -121,6 +121,32 @@ is a matching row, so the database is seeded, not the wire:
 `tools/seed-dev.ps1` writes the three pairs the DLL knows, and re-running it reopens them; `login` is
 `crates/asura-db/src/login.rs`, with the refusal rules under test in `crates/asura-db/tests/login.rs`.
 
+**A login does not spend the session.** GWPS's login path calls `Db_GetSession` and writes nothing,
+and the rig presents the same fixed pair on every login — so a service that closed the row on
+disconnect or on login would refuse the client's very next attempt. "The newest wins"
+(`docs/05-gw2-lessons.md`, rule 1) is a rule about live *connections* and about leases; it is not
+licence to consume a row. `login::close_session` and `login::close_other_sessions` exist for the
+paths that do end a session deliberately (an explicit logout, a stale sweep) and are deliberately not
+called from the login path.
+
+**The reply, in the order GWPS sends it** (`AuthSrv_HandlePortalAccountLogin`):
+
+| # | message | contents |
+|---|---|---|
+| 1 | `AUTH_SMSG_CHARACTER_INFO` `0x0007`, once per character | request id, character id, name (counted UTF-16, 20 slots), a 64-byte settings block |
+| 2 | `AUTH_SMSG_ACCOUNT_SETTINGS` `0x0016` | request id, then a fixed ~500-byte settings blob — **not sent yet** |
+| 3 | `AUTH_SMSG_FRIEND_STREAM_END` `0x0014` | the request id, twice |
+| 4 | `AUTH_SMSG_ACCOUNT_INFO` `0x0011` | request id, account and character ids, an 8-byte feature list — **not sent yet** |
+| 5 | `AUTH_SMSG_REQUEST_RESPONSE` `0x0003` | the request id and the status: `0` accepted, `11` (`GM_ERROR_AUTH_ERROR`) refused |
+
+Rows 2 and 4 are the remaining work for the real-client diff; the service currently sends 1, 3 and 5,
+which is what `crates/asura-auth/tests/login.rs` asserts over a socket. A refusal sends only row 5.
+
+**UUIDs on the wire are the RFC 4122 little-endian variant** — the first three fields little endian,
+the clock sequence and node not (`uuid_enc_le`, GWPS `GmUuid.h`). `uuid::Uuid::to_bytes_le` and
+`from_bytes_le` are the conversions; reading them in canonical order swaps the halves of every id, and
+the only symptom would be a login that never resolves.
+
 ## 5. Travel: the request/redirect cycle
 
 This is the part the whole design exists to protect.

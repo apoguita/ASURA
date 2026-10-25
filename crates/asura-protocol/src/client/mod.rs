@@ -25,6 +25,8 @@
 pub mod arc4;
 pub mod frame;
 pub mod handshake;
+pub mod messages;
+pub mod peer;
 pub mod tables;
 pub mod version;
 
@@ -36,6 +38,8 @@ mod handshake_fixtures;
 pub use arc4::Arc4;
 pub use frame::{Frame, FrameError};
 pub use handshake::{ClientSeed, Established, HandshakeError};
+pub use messages::{PortalAccountLogin, RequestResponse};
+pub use peer::ReferenceClient;
 pub use tables::Entry;
 
 /// Server → client: where to go. `{host[24], port, map_token, region, player_token,

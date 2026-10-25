@@ -118,6 +118,12 @@ rather than an edge case (`docs/05-gw2-lessons.md`, rule 1). When a player authe
 connection, any older session for the same account and character is killed — never the reverse. The
 older session's lease release becomes a no-op, so it cannot free a lease the newer session now holds.
 
+Note what "killed" means, and does not: it is a live *connection* that is closed, not a database row
+that is spent. GWPS only ever reads its session table, and a login must leave the row resolvable, or a
+client that disconnects and reconnects would be refused (`docs/03-protocol.md`, section 4). The
+registry of live connections is in memory, in the auth service, and is lost on restart — which is
+acceptable because a restart already means every player re-authenticates.
+
 **Durable identity is never physical.** Accounts, characters and parties are identified by GUID. A
 server id, a port and a player token are routing hints with a lifetime; no correctness decision may be
 keyed on one. This is what lets a world move to another machine without anything else noticing.

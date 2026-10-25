@@ -62,19 +62,18 @@ handshake produces traffic that diffs clean against the GWPS reference for the s
 **Risk:** the highest in the project. Failure is an opaque client error (`007`), so keep the packet
 trace and compare every message. This is why the reference implementation stays runnable.
 
-**In progress.** Delivered so far, all of it provable without a client: connection classification
-from the first four bytes (`asura-protocol::client::version`), framing with the fixed size per header
-and no length field (`asura-protocol::client::frame`), the full auth message table — 60 client
-headers, 40 server headers, with field layouts — generated out of the GWPS reference by
-`tools/gen-auth-tables.py` and self-checking against it, the key exchange (`client::handshake`:
-ARC4 from `client::arc4`, the fixed-constant Diffie–Hellman, the protocol's own key derivation, pinned
-against fixtures compiled from the reference's own C — `docs/adr/0009-crypto-primitives.md`), and the
-database half of login: the portal identity pair (`session.portal_user` beside `session.id`), the
-lookup that validates both halves, closing older sessions, and the account-scoped character list
-(`asura-db::login`, six tests against the live database). That work corrected `docs/03-protocol.md`
-sections 1 and 3, which had described a length field the protocol does not have and left the exchange
-approximate. Remaining: the golden GWPS packet trace, and the listener that puts the pieces on a
-socket. `tools/m3-verify.ps1` covers what exists.
+**Nearly done; what remains is the real client.** The service runs and answers a login end to end.
+Delivered: connection classification from the first four bytes, framing with the fixed size per header
+(no length field — the document had that wrong, see `docs/03-protocol.md` §1), the full auth message
+table generated out of the GWPS reference, the key exchange (ARC4, the fixed-constant Diffie–Hellman,
+the protocol's own key derivation — pinned by fixtures **compiled from the reference's own C**,
+`docs/adr/0009-crypto-primitives.md`), typed layouts for the login messages, a reference client, the
+login decision against the database, and the listener that puts them together with a per-message trace
+behind `ASURA_TRACE=1`. `crates/asura-auth/tests/login.rs` proves it over a socket: a client logs in,
+gets its character list, is refused when the pair does not resolve, and can log in again with the same
+pair. Remaining: the `ACCOUNT_SETTINGS` and `ACCOUNT_INFO` messages the batch interleaves, and the
+packet-trace diff against GWPS with the real client, which is the acceptance criterion. `tools/m3-verify.ps1`
+covers everything that can be checked without one.
 
 ## M4 — End-to-end travel
 
@@ -147,7 +146,7 @@ made knowing what is coming.
 |---|---|---|---|
 | M1 | unit round-trips, version mismatch | — | — |
 | M2 | harness register/heartbeat/stale/refuse | — | — |
-| M3 | message table matches the reference (`gen-auth-tables.py --check`), key exchange matches fixtures compiled from the reference's C, framing round-trips, identity-pair refusals against the live database | login to character list | packet diff vs GWPS |
+| M3 | message table matches the reference (`gen-auth-tables.py --check`), key exchange matches fixtures compiled from the reference's C, framing round-trips, identity-pair refusals, and a client logging in over a socket (`asura-auth/tests/login.rs`) | login to character list | packet diff vs GWPS |
 | M4 | — | hop, and client state settles | tear-down/rebuilt, memory |
 | M5 | — | refusal while in outpost | saved state round-trip |
 | M6 | — | cross-host hop | latency |

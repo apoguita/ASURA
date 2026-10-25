@@ -8,20 +8,29 @@ State of the project as of the last commit, so a new session can begin without r
   crate now owns registration, the atomic reservation, the lease ledger, the reaper and the
   reconciler; `asura-fakeworld` runs the whole sequence as a harness; the acceptance suite passes
   repeatedly (`.\tools\m2-verify.ps1`). No game client was involved — that was the point.
-- **M3 has started, at the layers that need no client: the messages, the key exchange, and the login
-  decision.** `asura-protocol` classifies a connection from its first four bytes, frames messages by the
-  table's fixed size per header, refuses to build a message at the wrong size, and performs the key
-  exchange: ARC4, the fixed-constant Diffie–Hellman, and the protocol's own key derivation. The message
-  table (60 client headers, 40 server headers, with field layouts) is generated from the GWPS reference
-  by `tools/gen-auth-tables.py`, and the key-exchange arithmetic is pinned by fixtures produced by
-  **compiling the reference's own C** (`tools/gen-handshake-fixtures.py`), so both are copies of a fact
-  rather than transcriptions. `asura-db` decides what a presented identity pair means — validated on
-  both halves, a closed session never resolving, a character list scoped by account — against a
-  `session` table that holds the portal user beside the session id, and records which migrations it has
-  had.
-  **68 tests pass** (`cargo test --workspace`), and `.\tools\m3-verify.ps1` proves the whole login path
-  in one command: migrations, the login tests against the live database, the protocol and handshake
-  tests, and freshness checks on both generated files. clippy is clean, and `cargo fmt --check` holds.
+- **M3 is nearly done, and the service runs.** `asura-auth` is a real program now: it reads its
+  configuration, connects, verifies the schema version, binds a socket, classifies each connection,
+  runs the key exchange with real randomness, scrambles both directions with ARC4, takes the login
+  message, validates the identity pair against the database, and answers with the character list —
+  with a per-message trace behind `ASURA_TRACE=1` that prints direction, header, name, size and the
+  first bytes, the way GWPS does. A reference client (`asura-protocol::client::peer`) and
+  `cargo run -p asura-auth --example login` drive it without the game.
+  **91 tests pass** (`cargo test --workspace`), `.\tools\m3-verify.ps1` runs the whole path in one
+  command (five steps, ending with a client logging in over a socket against the live database), and
+  clippy plus `cargo fmt --check` are clean.
+- **What the pieces are:** classification from the first four bytes, framing by the table's fixed size
+  per header with no length field, the key exchange (ARC4, the fixed-constant Diffie–Hellman, the
+  protocol's own key derivation, pinned by fixtures **compiled from the reference's own C**), typed
+  message layouts for the login path, the reference client, the login decision in `asura-db::login`,
+  the migration record, and a seed for the three identity pairs the rig's portal DLL hands out.
+- **Two rules the wire taught us, both now documented:** a login does **not** spend the session row
+  (GWPS never writes its session table, and the rig presents the same fixed pair every time), and the
+  login batch has a fixed order the client expects (`docs/03-protocol.md` section 4).
+- **Still missing for M3's acceptance:** the `AUTH_SMSG_ACCOUNT_SETTINGS` and `AUTH_SMSG_ACCOUNT_INFO`
+  messages GWPS interleaves into that batch, and the packet-trace diff against a real client.
+- **M1's scaffold still holds:** the workspace compiles, `cargo test --workspace` is green (the M1/M2
+  part of it: 12 unit + 4 live-database placement tests that skip cleanly without a database), and
+  `cargo clippy --workspace --all-targets` is clean.
 - **The login identities exist.** The client does not ask a web service who it is — the rig's portal
   DLL hands it a fixed pair (`PreSearing/portal/portal.c`) — so `tools/seed-dev.ps1` writes the rows
   those pairs must resolve to: three accounts with a character each. Idempotent; re-running reopens
@@ -69,7 +78,7 @@ transaction, so `count(lease) <= leased <= capacity` holds at every commit and t
 
 | what | state | evidence |
 |---|---|---|
-| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **68 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean |
+| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **91 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean |
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
 | **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **8 tables** applied (the 7 from 0001 plus `lease`), and 0003 added the `session.portal_user` column; credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
@@ -115,32 +124,40 @@ where a UTF-8 em dash decodes to a smart quote and breaks the parse at a line fa
 | AzerothCore is the design authority (structure); deviations are recorded | `docs/adr/0006-azerothcore-is-the-reference.md` |
 | The one rule: never send a client to something that is not already answering | `docs/02-architecture.md` |
 
-## Next session: M3 continues — the socket
+## Next session: M3's acceptance — the real client, and two missing messages
 
-What is done is the part that needs no client. What remains is the part that needs one.
+The service answers a client end to end. What remains is the part only the real client can settle.
 
-1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **68 passing** (6 of
-   them live-database login tests, 4 live-database placement tests). Then `.\tools\m3-verify.ps1`.
-   If a count changed, read `git log` before assuming it is broken.
-2. **The packet trace, before the listener.** GWPS logs with `GWPS_TRACE=1`; run it, capture a login to
-   the character list, and keep the capture as the reference side of the diff. This is M3's
-   acceptance criterion, and it is cheaper to establish before the Rust code can be wrong.
-3. **The listener**: bind the socket, classify the connection (`client::version`), run the handshake
-   (`client::handshake::accept` — the caller supplies the 20 random bytes), frame with `client::frame`
-   and unscramble through the two ciphers. Take `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` (`0x8038`), answer
-   with `AUTH_SMSG_SESSION_INFO` (`0x0001`), `AUTH_SMSG_ACCOUNT_INFO` (`0x0011`) and the character list
-   from `asura-db::login`. **The per-message trace (direction, header, size, first bytes, toggled by an
-   environment variable) belongs in this step's first commit**, not its second: the client reports
-   nothing but `007`.
-4. **Point the patched client at it** and diff the trace against the GWPS capture. That is M3 done.
+1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **91 passing** (7 of
+   them end-to-end over a socket, 6 live-database login tests, 4 live-database placement tests). Then
+   `.\tools\m3-verify.ps1`. If a count changed, read `git log` before assuming it is broken.
+2. **Capture the reference trace.** Run GWPS with `GWPS_TRACE=1`, log in to the character list, and
+   keep that trace as the reference side of the diff. Then run this service with `ASURA_TRACE=1` and
+   diff the two. This is M3's acceptance criterion (`docs/roadmap.md`).
+3. **Add the two messages the batch is missing** — `AUTH_SMSG_ACCOUNT_SETTINGS` (`0x0016`, a fixed
+   ~500-byte blob that GWPS ships verbatim in `AuthSrv_SendAccountSettings`) and
+   `AUTH_SMSG_ACCOUNT_INFO` (`0x0011`, whose fields `AuthSrv_SendAccountInfo` fills). The trace diff
+   says whether the client needs them to reach the character list; the reference sends them, so
+   assume it does. Both are fixed layouts, so both belong in `client::messages` with a test that sizes
+   them against the table — and the settings blob is a copied fact, so generate it from the C rather
+   than retyping it (`tools/gen-handshake-fixtures.py` is the pattern).
+4. **Answer the settings uploads.** `AUTH_CMSG_SETTING_UPDATE_SIZE` and `..._CONTENT` are already
+   acknowledged; if the capture shows others, acknowledge those too. An unacknowledged upload is a
+   hang, and it is the trap the reference's own history is built on (`docs/03-protocol.md` §6).
 5. **M4 — end-to-end travel** stays blocked on M3 and on a world server that accepts its own
    gameplay connections (`docs/04-from-gwps.md`, step 1).
 
-**Decided, and not to be re-opened without a reason:** the portal user id and the session id are
-separate columns, not one reused column (`crates/asura-db/migrations/0003_portal_identity.sql`, and
-`docs/02-architecture.md`, "Identity and reconnection"). The migration refuses to invent an identity
-for a pre-existing session row, because a login path that silently accepts a pair nobody issued is
-the one failure mode worth failing loudly for.
+**Decided, and not to be re-opened without a reason:**
+
+- The portal user id and the session id are separate columns, not one reused column
+  (`crates/asura-db/migrations/0003_portal_identity.sql`, `docs/02-architecture.md`). The migration
+  refuses to invent an identity for a pre-existing session row, because a login path that silently
+  accepts a pair nobody issued is the one failure mode worth failing loudly for.
+- **The login path never writes `ended_at`.** GWPS only reads its session table, and the rig presents
+  the same fixed pair every login. `close_session`/`close_other_sessions` are for a deliberate logout
+  or a stale sweep, not for a disconnect.
+- **A connection this service does not understand is closed, not guessed at**, and a pair that does
+  not resolve is answered with the client's auth error (`11`) rather than silence.
 
 ## The pieces M3 added
 
@@ -159,6 +176,11 @@ the one failure mode worth failing loudly for.
 | ARC4, ported from `arc4.c`, checked against published vectors and the reference's keystream | `crates/asura-protocol/src/client/arc4.rs` |
 | the key exchange: seeds, fixed-constant DH, and the protocol's own key derivation | `crates/asura-protocol/src/client/handshake.rs` |
 | reference outputs for the handshake, compiled out of GWPS's own C | `tools/gen-handshake-fixtures.py` -> `client/handshake_fixtures.rs` |
+| typed layouts for the messages the login path uses, with sizes checked against the table | `crates/asura-protocol/src/client/messages.rs` |
+| a reference client: the same protocol from the other end, so the service is testable without the game | `crates/asura-protocol/src/client/peer.rs` |
+| the service itself: listener, key exchange, ARC4 both ways, login, trace | `crates/asura-auth/src/lib.rs` (+ `src/main.rs`) |
+| a client anyone can run against a live service | `crates/asura-auth/examples/login.rs` |
+| the end-to-end proof: a real socket, the real database, the character list | `crates/asura-auth/tests/login.rs` |
 
 The generated files carry `#[rustfmt::skip]` and are checked by `python tools/gen-auth-tables.py
 --check` and `python tools/gen-handshake-fixtures.py --check`; if either disagrees with the reference,
@@ -184,11 +206,14 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
 
 ## What is deliberately not here yet
 
-- No sockets. The client protocol exists — classification, framing, the message table, the key
-  exchange — and the login decision exists, but nothing binds a port: `asura-auth` still prints its
-  startup order and exits. That listener is the next step.
-- No CI. Tests run locally first.
-- No simulation. It arrives in phase 2 (`docs/roadmap.md`).
+- Two messages of the login batch: `AUTH_SMSG_ACCOUNT_SETTINGS` and `AUTH_SMSG_ACCOUNT_INFO`. The
+  service sends the characters, the friend-stream end and the request response; the reference
+  interleaves two more, and the trace diff will say whether the client insists on them.
+- No world server work at all: no gameplay connection, no travel, no simulation. The auth service
+  answers a login and nothing else (`docs/roadmap.md`, M4 onwards).
+- No CI. Tests run locally first, and `tools/m3-verify.ps1` is the one command that stands in for it.
+- No session bookkeeping in memory: the service resolves a login per connection and keeps no registry
+  of who is connected. That registry is what "the newest connection wins" will need at M4.
 
 ## Reading order for a fresh session
 

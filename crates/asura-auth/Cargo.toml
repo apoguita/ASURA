@@ -9,3 +9,11 @@ description = "The auth service: login, key exchange, sessions, and telling the 
 [dependencies]
 asura-protocol = { path = "../asura-protocol" }
 asura-db = { path = "../asura-db" }
+tokio = { workspace = true }
+uuid = { workspace = true }
+getrandom = { workspace = true }
+
+[dev-dependencies]
+# The end-to-end test drives the real listener over a loopback socket, using the reference client in
+# `asura-protocol::client::peer`. No game client is involved.
+tokio = { workspace = true }

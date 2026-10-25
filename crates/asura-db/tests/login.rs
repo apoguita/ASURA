@@ -20,52 +20,12 @@
 
 use asura_db::login as db;
 use asura_db::{PgPool, Uuid};
-use std::path::{Path, PathBuf};
 
 const MAP: i32 = 15;
 
-fn database_url() -> Option<String> {
-    if let Ok(url) = std::env::var("ASURA_DATABASE_URL") {
-        let trimmed = url.trim().to_string();
-        if !trimmed.is_empty() {
-            return Some(trimmed);
-        }
-    }
-    let candidates = [
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.env"),
-        PathBuf::from(".env"),
-    ];
-    for path in candidates {
-        if let Some(url) = read_url_from(&path) {
-            return Some(url);
-        }
-    }
-    None
-}
-
-fn read_url_from(path: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let (key, value) = match line.split_once('=') {
-            Some(pair) => pair,
-            None => continue,
-        };
-        if key.trim() == "ASURA_DATABASE_URL" {
-            let value = value.trim().trim_matches('"').trim_matches('\'');
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
-}
-
 async fn pool() -> Option<PgPool> {
-    let url = database_url()?;
+    // One rule for finding the settings, in `asura_db::config`, shared with the services.
+    let url = asura_db::config::database_url()?;
     Some(
         asura_db::placement::connect(&url, 4)
             .await
