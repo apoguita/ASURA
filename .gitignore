@@ -9,9 +9,10 @@
 *.jsonl
 /config.local.*
 
-# Local secrets and configuration
+# Local secrets and configuration. The real .env is never committed; the template is.
 .env
 .env.*
+!.env.example
 *.pgpass
 
 # Editors and OS
