@@ -295,6 +295,64 @@ pub fn session_info(server_salt: u32, unknown: u32) -> Frame {
     Frame::new(tables::AUTH_SMSG_SESSION_INFO, writer.into_body())
 }
 
+/// `AUTH_SMSG_ACCOUNT_SETTINGS` (`0x0016`): the client's stored settings, as a fixed blob.
+///
+/// Layout (`AuthSrv_AccountSettings`): `req_id`, `n_data`, then 2048 bytes of data of which GWPS fills
+/// the first 591. The blob is copied from the reference's own literal
+/// ([`super::login_fixtures::ACCOUNT_SETTINGS_DATA`]) because nothing here knows what most of it
+/// means — it is what the reference sends, which is the only reason a client will accept it.
+pub fn account_settings(request: u32) -> Frame {
+    let data = super::login_fixtures::ACCOUNT_SETTINGS_DATA;
+    let mut writer = Writer::new();
+    writer.u32(request).u32(data.len() as u32);
+    writer.bytes.extend_from_slice(data);
+    writer
+        .bytes
+        .resize(writer.bytes.len() + (2048 - data.len()), 0);
+    Frame::new(tables::AUTH_SMSG_ACCOUNT_SETTINGS, writer.into_body())
+}
+
+/// `AUTH_SMSG_ACCOUNT_INFO` (`0x0011`): the account, the selected character, and the account's feature
+/// list.
+///
+/// Layout and values from GWPS `AuthSrv_SendAccountInfo`. The two 8-byte blobs are its literals:
+/// `h000E` (`3F 00 00 00 00 00 00 00`) and `h0016` (`80 3F 42 00 83 00 0C 02`, commented in the
+/// reference as controlling which campaigns are owned). `features` is the third (`01 00 04 00 57 00
+/// 01 00`), whose third `u16` is the account's number of character slots.
+///
+/// `character` is the session's last selection; the reference sends all zeroes when the account has
+/// no characters at all.
+pub fn account_info(request: u32, account: [u8; 16], character: Option<[u8; 16]>) -> Frame {
+    /// `h000E` in `AuthSrv_SendAccountInfo`.
+    const H000E: [u8; 8] = [0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    /// `h0016`: which campaigns the account owns, per the reference's own comment.
+    const H0016: [u8; 8] = [0x80, 0x3F, 0x42, 0x00, 0x83, 0x00, 0x0C, 0x02];
+    /// `features`: the third `u16` is the number of character slots (the reference notes that two are
+    /// unaccounted for).
+    const FEATURES: [u8; 8] = [0x01, 0x00, 0x04, 0x00, 0x57, 0x00, 0x01, 0x00];
+
+    let mut writer = Writer::new();
+    writer.u32(request);
+    writer.u32(0); // h0006
+    writer.u32(4); // h000A
+    writer.bytes.extend_from_slice(&H000E);
+    writer.bytes.extend_from_slice(&H0016);
+    writer.array16(account);
+    writer.array16(character.unwrap_or([0u8; 16]));
+    writer.u32(8); // h003E
+                   // `unk4` is an ARRAY_8 of 200 slots: a four-byte count, then the whole field whatever the count
+                   // says. The reference fills eight of them and leaves the rest zero, and the message size depends
+                   // on the field's capacity, not on the count.
+    writer.u32(FEATURES.len() as u32); // n_unk4
+    writer.bytes.extend_from_slice(&FEATURES);
+    writer
+        .bytes
+        .resize(writer.bytes.len() + (200 - FEATURES.len()), 0);
+    writer.bytes.push(24); // eula_accepted
+    writer.u32(3); // unk5
+    Frame::new(tables::AUTH_SMSG_ACCOUNT_INFO, writer.into_body())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,6 +380,12 @@ mod tests {
         let character = character_info(7, [0x33; 16], "Asura").expect("builds");
         assert_eq!(character.len(), 138);
 
+        // The two the batch carries in the middle: 2058 and 275 bytes, per the reference's layouts.
+        let settings = account_settings(7);
+        assert_eq!(settings.len(), 2058);
+        let info = account_info(7, [0x44; 16], Some([0x55; 16]));
+        assert_eq!(info.len(), 275);
+
         assert_eq!(friend_stream_end(7).len(), 10);
         assert_eq!(session_info(1, 0).len(), 10);
 
@@ -329,6 +393,8 @@ mod tests {
             frame,
             response.frame(),
             character,
+            settings,
+            info,
             friend_stream_end(7),
             session_info(1, 0),
         ] {
@@ -336,6 +402,58 @@ mod tests {
                 .encode_validated()
                 .unwrap_or_else(|err| panic!("header {:#06X}: {err}", frame.header));
         }
+    }
+
+    #[test]
+    fn the_account_settings_carry_the_reference_blob_and_no_more() {
+        // The data length is part of the message: the client reads `n_data` bytes of a 2048-byte
+        // field, so both the blob and the count have to match the reference.
+        let frame = account_settings(0x1234);
+        let body = &frame.body;
+        assert_eq!(
+            u32::from_le_bytes([body[0], body[1], body[2], body[3]]),
+            0x1234
+        );
+        let declared = u32::from_le_bytes([body[4], body[5], body[6], body[7]]) as usize;
+        assert_eq!(
+            declared,
+            super::super::login_fixtures::ACCOUNT_SETTINGS_DATA.len()
+        );
+        assert_eq!(declared, 591, "the reference's blob is 591 bytes");
+        assert_eq!(
+            &body[8..8 + declared],
+            super::super::login_fixtures::ACCOUNT_SETTINGS_DATA,
+            "the blob is copied verbatim"
+        );
+        assert!(
+            body[8 + declared..].iter().all(|byte| *byte == 0),
+            "the rest of the 2048-byte field is zero, as the reference leaves it"
+        );
+    }
+
+    #[test]
+    fn the_account_info_carries_the_account_and_the_selected_character() {
+        let account = [0xAAu8; 16];
+        let character = [0xBBu8; 16];
+        let frame = account_info(9, account, Some(character));
+
+        assert_eq!(
+            u32::from_le_bytes(frame.body[0..4].try_into().expect("4")),
+            9
+        );
+        // req_id, h0006, h000A, then h000E and h0016 (8 each), then the two UUIDs.
+        assert_eq!(&frame.body[12..20], &[0x3F, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            &frame.body[20..28],
+            &[0x80, 0x3F, 0x42, 0x00, 0x83, 0x00, 0x0C, 0x02]
+        );
+        assert_eq!(&frame.body[28..44], &account);
+        assert_eq!(&frame.body[44..60], &character);
+
+        // With no character selected the reference sends zeroes rather than omitting the field.
+        let empty = account_info(9, account, None);
+        assert_eq!(empty.len(), frame.len());
+        assert!(empty.body[44..60].iter().all(|byte| *byte == 0));
     }
 
     #[test]

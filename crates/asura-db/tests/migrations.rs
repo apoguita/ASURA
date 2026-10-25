@@ -10,6 +10,8 @@
 
 use asura_db::migrations::{self, EnsureError, LATEST_VERSION};
 use asura_db::PgPool;
+use std::sync::OnceLock;
+use tokio::sync::Mutex;
 
 async fn pool() -> Option<PgPool> {
     // One rule for finding the settings, in `asura_db::config`, shared with the services.
@@ -21,6 +23,14 @@ async fn pool() -> Option<PgPool> {
     )
 }
 
+/// The tests below share one `schema_version` table, and one of them deliberately removes a row from
+/// it. Run in parallel, that removal is visible to the other test halfway through its own assertions —
+/// which is a flake, not a bug in the code under test. They take turns instead.
+fn schema_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
 fn skip() {
     println!("ASURA_DATABASE_URL not set; skipping live-database migration test");
 }
@@ -30,6 +40,7 @@ async fn the_database_records_every_migration_and_nothing_is_pending() {
     let Some(pool) = pool().await else {
         return skip();
     };
+    let _guard = schema_lock().lock().await;
 
     let result = migrations::apply_pending(&pool).await.expect("apply");
     assert!(
@@ -60,6 +71,7 @@ async fn a_database_that_is_behind_is_refused_and_names_what_is_missing() {
     let Some(pool) = pool().await else {
         return skip();
     };
+    let _guard = schema_lock().lock().await;
     migrations::apply_pending(&pool).await.expect("apply");
 
     // Take the record away without undoing the change: exactly the state a half-finished deployment

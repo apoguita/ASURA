@@ -175,6 +175,20 @@ async fn main() -> ExitCode {
                     characters += 1;
                     eprintln!("           character: {}", read_character_name(&frame.body));
                 }
+                tables::AUTH_SMSG_ACCOUNT_SETTINGS => {
+                    let data = u32::from_le_bytes([
+                        frame.body[4],
+                        frame.body[5],
+                        frame.body[6],
+                        frame.body[7],
+                    ]);
+                    eprintln!("           stored settings: {data} bytes");
+                }
+                tables::AUTH_SMSG_ACCOUNT_INFO => {
+                    let account =
+                        Uuid::from_bytes_le(frame.body[28..44].try_into().expect("16 bytes"));
+                    eprintln!("           account: {account}");
+                }
                 tables::AUTH_SMSG_REQUEST_RESPONSE => {
                     let reply = RequestResponse::decode(&frame).expect("a request response");
                     status = Some(reply.status);

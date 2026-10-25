@@ -347,18 +347,26 @@ async fn answer_login(
         );
     }
 
-    // The order GWPS sends, which the client expects (`AuthSrv_HandlePortalAccountLogin`): the
-    // characters, then the friend-list terminator, then the answer to the request. The account
-    // settings and account info messages that GWPS interleaves are the next piece of the port; the
-    // character list is what this milestone needs.
-    let mut replies = Vec::with_capacity(characters.len() + 2);
+    // The order GWPS sends, which the client expects (`AuthSrv_HandlePortalAccountLogin`):
+    // the characters, the stored settings, the friend-list terminator, the account info, and finally
+    // the answer to the request.
+    let selected = resolved
+        .character
+        .or_else(|| characters.first().map(|character| character.id));
+    let mut replies = Vec::with_capacity(characters.len() + 4);
     for character in &characters {
         replies.push(
             messages::character_info(login.request, character.id.to_bytes_le(), &character.name)
                 .map_err(ConnectionError::Message)?,
         );
     }
+    replies.push(messages::account_settings(login.request));
     replies.push(messages::friend_stream_end(login.request));
+    replies.push(messages::account_info(
+        login.request,
+        resolved.account.to_bytes_le(),
+        selected.map(|character| character.to_bytes_le()),
+    ));
     replies.push(
         RequestResponse {
             request: login.request,

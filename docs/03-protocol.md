@@ -134,13 +134,22 @@ called from the login path.
 | # | message | contents |
 |---|---|---|
 | 1 | `AUTH_SMSG_CHARACTER_INFO` `0x0007`, once per character | request id, character id, name (counted UTF-16, 20 slots), a 64-byte settings block |
-| 2 | `AUTH_SMSG_ACCOUNT_SETTINGS` `0x0016` | request id, then a fixed ~500-byte settings blob — **not sent yet** |
+| 2 | `AUTH_SMSG_ACCOUNT_SETTINGS` `0x0016` | request id, `n_data`, then a **591-byte** fixed blob inside a 2048-byte field |
 | 3 | `AUTH_SMSG_FRIEND_STREAM_END` `0x0014` | the request id, twice |
-| 4 | `AUTH_SMSG_ACCOUNT_INFO` `0x0011` | request id, account and character ids, an 8-byte feature list — **not sent yet** |
+| 4 | `AUTH_SMSG_ACCOUNT_INFO` `0x0011` | request id, the account and selected-character ids, a 200-slot feature array of which 8 are used |
 | 5 | `AUTH_SMSG_REQUEST_RESPONSE` `0x0003` | the request id and the status: `0` accepted, `11` (`GM_ERROR_AUTH_ERROR`) refused |
 
-Rows 2 and 4 are the remaining work for the real-client diff; the service currently sends 1, 3 and 5,
-which is what `crates/asura-auth/tests/login.rs` asserts over a socket. A refusal sends only row 5.
+All five are sent, in that order, and `crates/asura-auth/tests/login.rs` asserts the sequence and the
+two fixed sizes over a socket. A refusal sends only row 5.
+
+Two details that are easy to get wrong and are now pinned by tests:
+
+- **The settings blob is a copied fact.** 591 bytes the client is handed on every login, and nothing in
+  this project knows what most of it means. It is parsed out of the reference's own literal by
+  `tools/gen-handshake-fixtures.py` rather than typed — see `client/login_fixtures.rs`.
+- **A counted field still occupies its full width.** The feature list in row 4 is an `ARRAY_8` of 200
+  slots with a count of 8: the four-byte count, then all 200 bytes. Sizing a message from the count
+  instead of the capacity is how a body ends up 192 bytes short.
 
 **UUIDs on the wire are the RFC 4122 little-endian variant** — the first three fields little endian,
 the clock sequence and node not (`uuid_enc_le`, GWPS `GmUuid.h`). `uuid::Uuid::to_bytes_le` and

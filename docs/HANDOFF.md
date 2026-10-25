@@ -15,7 +15,7 @@ State of the project as of the last commit, so a new session can begin without r
   with a per-message trace behind `ASURA_TRACE=1` that prints direction, header, name, size and the
   first bytes, the way GWPS does. A reference client (`asura-protocol::client::peer`) and
   `cargo run -p asura-auth --example login` drive it without the game.
-  **91 tests pass** (`cargo test --workspace`), `.\tools\m3-verify.ps1` runs the whole path in one
+  **93 tests pass** (`cargo test --workspace`), `.\tools\m3-verify.ps1` runs the whole path in one
   command (five steps, ending with a client logging in over a socket against the live database), and
   clippy plus `cargo fmt --check` are clean.
 - **What the pieces are:** classification from the first four bytes, framing by the table's fixed size
@@ -26,8 +26,11 @@ State of the project as of the last commit, so a new session can begin without r
 - **Two rules the wire taught us, both now documented:** a login does **not** spend the session row
   (GWPS never writes its session table, and the rig presents the same fixed pair every time), and the
   login batch has a fixed order the client expects (`docs/03-protocol.md` section 4).
-- **Still missing for M3's acceptance:** the `AUTH_SMSG_ACCOUNT_SETTINGS` and `AUTH_SMSG_ACCOUNT_INFO`
-  messages GWPS interleaves into that batch, and the packet-trace diff against a real client.
+- **Still missing for M3's acceptance: only the real client.** The login batch is complete (characters,
+  stored settings, friend-stream end, account info, request response — the reference's order and
+  sizes), and everything else the milestone asks for is proven without the game: the tables, the key
+  exchange, the login decision, and a client logging in over a socket. What remains is the
+  packet-trace diff against GWPS when the patched client is pointed at this service.
 - **M1's scaffold still holds:** the workspace compiles, `cargo test --workspace` is green (the M1/M2
   part of it: 12 unit + 4 live-database placement tests that skip cleanly without a database), and
   `cargo clippy --workspace --all-targets` is clean.
@@ -78,7 +81,7 @@ transaction, so `count(lease) <= leased <= capacity` holds at every commit and t
 
 | what | state | evidence |
 |---|---|---|
-| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **91 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean |
+| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **93 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean |
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
 | **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **8 tables** applied (the 7 from 0001 plus `lease`), and 0003 added the `session.portal_user` column; credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
@@ -124,26 +127,25 @@ where a UTF-8 em dash decodes to a smart quote and breaks the parse at a line fa
 | AzerothCore is the design authority (structure); deviations are recorded | `docs/adr/0006-azerothcore-is-the-reference.md` |
 | The one rule: never send a client to something that is not already answering | `docs/02-architecture.md` |
 
-## Next session: M3's acceptance — the real client, and two missing messages
+## Next session: M3's acceptance — point the real client at it
 
-The service answers a client end to end. What remains is the part only the real client can settle.
+The service answers a client end to end, with the reference's full login batch. What remains is the
+part only the game client can settle.
 
-1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **91 passing** (7 of
+1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **93 passing** (7 of
    them end-to-end over a socket, 6 live-database login tests, 4 live-database placement tests). Then
    `.\tools\m3-verify.ps1`. If a count changed, read `git log` before assuming it is broken.
 2. **Capture the reference trace.** Run GWPS with `GWPS_TRACE=1`, log in to the character list, and
    keep that trace as the reference side of the diff. Then run this service with `ASURA_TRACE=1` and
    diff the two. This is M3's acceptance criterion (`docs/roadmap.md`).
-3. **Add the two messages the batch is missing** — `AUTH_SMSG_ACCOUNT_SETTINGS` (`0x0016`, a fixed
-   ~500-byte blob that GWPS ships verbatim in `AuthSrv_SendAccountSettings`) and
-   `AUTH_SMSG_ACCOUNT_INFO` (`0x0011`, whose fields `AuthSrv_SendAccountInfo` fills). The trace diff
-   says whether the client needs them to reach the character list; the reference sends them, so
-   assume it does. Both are fixed layouts, so both belong in `client::messages` with a test that sizes
-   them against the table — and the settings blob is a copied fact, so generate it from the C rather
-   than retyping it (`tools/gen-handshake-fixtures.py` is the pattern).
-4. **Answer the settings uploads.** `AUTH_CMSG_SETTING_UPDATE_SIZE` and `..._CONTENT` are already
-   acknowledged; if the capture shows others, acknowledge those too. An unacknowledged upload is a
-   hang, and it is the trap the reference's own history is built on (`docs/03-protocol.md` §6).
+3. **Point the patched client at the service.** `.\tools\seed-dev.ps1`, then
+   `cargo run -p asura-auth` (6112 by default, which is where the reference binds), then start the
+   game. The rig's portal DLL presents `fa520ee2-…`/`d8b9bf5d-…` for `user1@example.com`.
+   If the client stops at an error, the two traces say where — that is what the trace exists for.
+4. **Answer anything else the client uploads.** `AUTH_CMSG_SETTING_UPDATE_SIZE` and `..._CONTENT` are
+   already acknowledged; if the capture shows other requests, acknowledge those too. An
+   unacknowledged upload is a hang, and it is the trap the reference's own history is built on
+   (`docs/03-protocol.md` §6).
 5. **M4 — end-to-end travel** stays blocked on M3 and on a world server that accepts its own
    gameplay connections (`docs/04-from-gwps.md`, step 1).
 
@@ -176,6 +178,7 @@ The service answers a client end to end. What remains is the part only the real 
 | ARC4, ported from `arc4.c`, checked against published vectors and the reference's keystream | `crates/asura-protocol/src/client/arc4.rs` |
 | the key exchange: seeds, fixed-constant DH, and the protocol's own key derivation | `crates/asura-protocol/src/client/handshake.rs` |
 | reference outputs for the handshake, compiled out of GWPS's own C | `tools/gen-handshake-fixtures.py` -> `client/handshake_fixtures.rs` |
+| the login batch's fixed 591-byte settings blob, parsed out of the reference | same generator -> `client/login_fixtures.rs` |
 | typed layouts for the messages the login path uses, with sizes checked against the table | `crates/asura-protocol/src/client/messages.rs` |
 | a reference client: the same protocol from the other end, so the service is testable without the game | `crates/asura-protocol/src/client/peer.rs` |
 | the service itself: listener, key exchange, ARC4 both ways, login, trace | `crates/asura-auth/src/lib.rs` (+ `src/main.rs`) |
@@ -206,14 +209,16 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
 
 ## What is deliberately not here yet
 
-- Two messages of the login batch: `AUTH_SMSG_ACCOUNT_SETTINGS` and `AUTH_SMSG_ACCOUNT_INFO`. The
-  service sends the characters, the friend-stream end and the request response; the reference
-  interleaves two more, and the trace diff will say whether the client insists on them.
+- The acceptance proof itself: no real game client has been pointed at this service. Everything that
+  can be checked without one is checked, and the packet trace is built for the moment it is.
 - No world server work at all: no gameplay connection, no travel, no simulation. The auth service
   answers a login and nothing else (`docs/roadmap.md`, M4 onwards).
 - No CI. Tests run locally first, and `tools/m3-verify.ps1` is the one command that stands in for it.
 - No session bookkeeping in memory: the service resolves a login per connection and keeps no registry
   of who is connected. That registry is what "the newest connection wins" will need at M4.
+- No character selection yet: the client's `AUTH_CMSG_CHANGE_PLAY_CHARACTER` is logged as unhandled,
+  and `asura_db::login::select_character` exists but nothing calls it. The login batch reports the
+  character the session already points at; choosing one is the next login-path message.
 
 ## Reading order for a fresh session
 

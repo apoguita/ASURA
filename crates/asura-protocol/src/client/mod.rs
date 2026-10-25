@@ -35,6 +35,10 @@ pub mod version;
 #[cfg(test)]
 mod handshake_fixtures;
 
+/// The login batch's fixed data, parsed out of the reference by the same generator. Real data, so it
+/// is compiled in: `AUTH_SMSG_ACCOUNT_SETTINGS` carries this blob on every login.
+pub mod login_fixtures;
+
 pub use arc4::Arc4;
 pub use frame::{Frame, FrameError};
 pub use handshake::{ClientSeed, Established, HandshakeError};

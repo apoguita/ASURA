@@ -142,7 +142,7 @@ async fn login(
 }
 
 #[tokio::test]
-async fn a_client_logs_in_and_receives_its_character_list() {
+async fn a_client_logs_in_and_receives_the_whole_login_batch() {
     if skip() {
         return;
     }
@@ -166,17 +166,35 @@ async fn a_client_logs_in_and_receives_its_character_list() {
     let mut client = handshake_with(&mut stream).await;
     let frames = login(&mut stream, &mut client, seeded.portal_user, seeded.session).await;
 
-    // The characters come first, then the friend-list terminator, then the answer to the request --
-    // the order GWPS sends and the client expects.
+    // The characters come first, then the stored settings, the friend-list terminator, the account
+    // info, and finally the answer to the request -- the order GWPS sends and the client expects.
     let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
     assert_eq!(
         headers,
         vec![
             tables::AUTH_SMSG_CHARACTER_INFO,
+            tables::AUTH_SMSG_ACCOUNT_SETTINGS,
             tables::AUTH_SMSG_FRIEND_STREAM_END,
+            tables::AUTH_SMSG_ACCOUNT_INFO,
             tables::AUTH_SMSG_REQUEST_RESPONSE,
         ],
-        "the login batch is characters, friend-stream end, then the response"
+        "the login batch is characters, settings, friend-stream end, account info, then the response"
+    );
+    assert_eq!(
+        frames[1].len(),
+        2058,
+        "the settings message is the reference's fixed size"
+    );
+    assert_eq!(frames[3].len(), 275, "so is the account info");
+    assert_eq!(
+        &frames[3].body[28..44],
+        &seeded.account.to_bytes_le(),
+        "the account info names the account that just logged in"
+    );
+    assert_eq!(
+        &frames[3].body[44..60],
+        &seeded.character.to_bytes_le(),
+        "and the character: the session's last selection, or the first one"
     );
 
     // The character is ours, with the id and name coming back exactly as stored. The UUID travels in
@@ -201,7 +219,8 @@ async fn a_client_logs_in_and_receives_its_character_list() {
     assert_eq!(String::from_utf16(&units).expect("utf-16"), "Asura E2E");
 
     // And the request is answered, successfully, on the id it was asked with.
-    let reply = peer::as_request_response(&frames[2]).expect("a request response");
+    let reply =
+        peer::as_request_response(frames.last().expect("a reply")).expect("a request response");
     assert_eq!(reply.request, REQUEST_ID);
     assert_eq!(reply.status, messages::STATUS_OK);
 
