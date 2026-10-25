@@ -27,10 +27,23 @@ State of the project as of the last commit, so a new session can begin without r
 **The one thing blocking M2** is a database role and schema. Either run the two commands below, or
 export `PGPASSWORD` and say so, and the setup plus the M2 acceptance test can be done in one pass.
 
+Either run the two statements below in `psql`, or use the script that does the whole setup and
+verifies it:
+
+```powershell
+$env:PGPASSWORD = "<postgres superuser password>"
+& .\tools\db-setup.ps1            # creates role + database, applies the schema, lists the tables
+```
+
 ```sql
 CREATE ROLE asura LOGIN PASSWORD '<choose one>';
 CREATE DATABASE asura OWNER asura;
 ```
+
+`psql` holds the CLI (`C:\Program Files\PostgreSQL\16\bin\psql.exe`); `-c` runs one statement,
+`-f` applies a file, `\dt` lists tables. pgAdmin is the GUI equivalent if preferred. Scripts in this
+repository stay ASCII-only: Windows PowerShell 5.1 reads a BOM-less file as ANSI, where a UTF-8 em
+dash decodes to a smart quote and breaks the parse at a line far from the cause.
 
 ## Decisions already made (do not re-litigate without reading these)
 
