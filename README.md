@@ -61,6 +61,9 @@ simulation is explicitly deferred until the control plane works. See
 
 ## Read in this order
 
+Starting a session? Read [`docs/HANDOFF.md`](docs/HANDOFF.md) first: it states what is decided,
+what is missing from this machine, and what the next three tasks are.
+
 | document | what it settles |
 |---|---|
 | [`docs/01-scope.md`](docs/01-scope.md) | the boundary: what is the auth service's job and what is explicitly not |

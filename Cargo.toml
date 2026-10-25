@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/asura-auth",
+    "crates/asura-world",
+    "crates/asura-protocol",
+    "crates/asura-db",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# Deliberately empty for now. The first dependencies to add, when they are needed:
+#   tokio        - the service runtimes (AzerothCore: Boost.Asio)
+#   sqlx         - pooled database access (AzerothCore: DatabaseWorkerPool)
+#   tracing      - structured logging (AzerothCore: their logging module)
+#   serde        - configuration
+# Add them when the code that needs them exists, not before.

@@ -1,0 +1,11 @@
+[package]
+name = "asura-world"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "A world server: maps, instances, placement, and character persistence"
+
+[dependencies]
+asura-protocol = { path = "../asura-protocol" }
+asura-db = { path = "../asura-db" }
