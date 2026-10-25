@@ -62,6 +62,16 @@ handshake produces traffic that diffs clean against the GWPS reference for the s
 **Risk:** the highest in the project. Failure is an opaque client error (`007`), so keep the packet
 trace and compare every message. This is why the reference implementation stays runnable.
 
+**In progress.** Delivered so far, all of it provable without a client: connection classification
+from the first four bytes (`asura-protocol::client::version`), framing with the fixed size per header
+and no length field (`asura-protocol::client::frame`), and the full auth message table — 60 client
+headers, 40 server headers, with field layouts — generated out of the GWPS reference by
+`tools/gen-auth-tables.py` and self-checking against it. That work corrected `docs/03-protocol.md`
+section 1, which had described a length field the protocol does not have. Remaining: the key
+exchange (ARC4 + DH), the golden GWPS packet trace, the listener, and the login/character-list path —
+which needs a decision about where `user_id`/`session_id` come from, since this project has no web
+gate yet.
+
 ## M4 — End-to-end travel
 
 The auth service allocates, a world grants an instance, the client is redirected to that world's own address
@@ -133,7 +143,7 @@ made knowing what is coming.
 |---|---|---|---|
 | M1 | unit round-trips, version mismatch | — | — |
 | M2 | harness register/heartbeat/stale/refuse | — | — |
-| M3 | — | login to character list | packet diff vs GWPS |
+| M3 | message table matches the reference (`gen-auth-tables.py --check`), framing round-trips | login to character list | packet diff vs GWPS |
 | M4 | — | hop, and client state settles | tear-down/rebuilt, memory |
 | M5 | — | refusal while in outpost | saved state round-trip |
 | M6 | — | cross-host hop | latency |

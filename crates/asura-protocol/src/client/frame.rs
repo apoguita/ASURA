@@ -1,0 +1,491 @@
+//! Message framing: a `u16` header and a fixed-size body that the header alone implies.
+//!
+//! **There is no length field.** This was verified in the reference rather than assumed:
+//! `pack_msg` (`msgpack.c`) writes the format's fields and nothing else, and
+//! `AuthConnection_SendMessage` sends exactly `sizeof(struct)` bytes of them, so the size of an
+//! auth message is a property of its header via [`tables`] and is never transmitted. GWPS's receive
+//! path reads the header, looks the format up, and lets `unpack_msg` consume the fields
+//! (`AuthSrv.c`, `AuthSrv_GetMessages`).
+//!
+//! `docs/03-protocol.md` section 1 described a `u16 length` here. That was wrong, and it is the
+//! kind of wrong that costs a session: a port that writes a length the client does not expect gets
+//! nothing back but error `007`. The document now records the correction and the evidence for it.
+//!
+//! Consequences that shape this module:
+//!
+//! * **Decoding cannot see a wrong size**, because no size is on the wire. The risks are a header
+//!   that is not in the table (refused, never guessed) and a body that is still arriving
+//!   ([`FrameError::Incomplete`], which is a signal to read more, not a violation).
+//! * **Encoding can.** [`Frame::encode_validated`] is the second half of the port's safety: a body
+//!   built at the wrong size is indistinguishable from a working one until the client reports
+//!   `007`, so it is refused here instead.
+//! * **Buffering lives elsewhere.** [`Frame::decode`] takes bytes and returns a frame plus how many
+//!   it used; the socket owner keeps the buffer.
+
+use super::tables;
+
+/// The header is two bytes. Everything after it is the body, whose length the table fixes.
+pub const HEADER_LEN: usize = 2;
+
+/// One message, already validated against the table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Frame {
+    /// The wire header, direction bit included.
+    pub header: u16,
+    /// The fixed-size fields after the header: `expected_size - HEADER_LEN` bytes, exactly.
+    pub body: Vec<u8>,
+}
+
+/// Why a byte stream is not (yet) a frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameError {
+    /// Fewer bytes than the frame needs. Not a protocol violation: read more.
+    ///
+    /// `needed` is the whole frame size once the header has been read, or [`HEADER_LEN`] while
+    /// even the header is incomplete (GWPS's `ERR_NOT_ENOUGH_DATA` / `ERR_WOULDBLOCK` distinction
+    /// collapses into this one signal, because both mean "wait").
+    Incomplete { needed: usize },
+    /// A header that is not in the auth table. GWPS logs the bytes and closes the connection
+    /// rather than guess; so does this.
+    UnknownHeader { header: u16 },
+    /// The body is not the size this header requires.
+    ///
+    /// Only [`Frame::encode_validated`] can raise this: a received frame's size came from the
+    /// table, so it cannot disagree with it. On the sending side this is the `007` trap.
+    SizeMismatch {
+        header: u16,
+        got: usize,
+        expected: usize,
+    },
+}
+
+impl core::fmt::Display for FrameError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            FrameError::Incomplete { needed } => write!(f, "incomplete: {needed} bytes needed"),
+            FrameError::UnknownHeader { header } => {
+                write!(f, "unknown auth header {header:#06X}")
+            }
+            FrameError::SizeMismatch {
+                header,
+                got,
+                expected,
+            } => write!(
+                f,
+                "header {header:#06X} built at {got} bytes, the table says {expected}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for FrameError {}
+
+impl Frame {
+    /// A frame from a header and a body, with the body taken as given.
+    pub fn new(header: u16, body: Vec<u8>) -> Self {
+        Frame { header, body }
+    }
+
+    /// A correctly sized, all-zero message for a header — GWPS's `AuthConnection_BuildMsg`.
+    ///
+    /// Every field is written explicitly by the caller afterwards; starting from the table's size
+    /// is what keeps a partially filled message from being the wrong length.
+    pub fn zeros(header: u16) -> Result<Self, FrameError> {
+        let expected = tables::expected_size(header).ok_or(FrameError::UnknownHeader { header })?;
+        Ok(Frame {
+            header,
+            body: vec![0; expected - HEADER_LEN],
+        })
+    }
+
+    /// The whole on-wire size of this frame.
+    pub fn len(&self) -> usize {
+        HEADER_LEN + self.body.len()
+    }
+
+    /// Whether the body is empty. No auth message is header-only, so this is always false for a
+    /// frame built by [`Frame::zeros`] or [`Frame::decode`]; it exists to satisfy `clippy`.
+    pub fn is_empty(&self) -> bool {
+        self.body.is_empty()
+    }
+
+    /// Whether this header is client-to-server, which the `0x8000` direction bit decides.
+    pub fn is_from_client(&self) -> bool {
+        self.header & tables::AUTH_CMSG_MASK != 0
+    }
+
+    /// The size the table requires for this header, if the header is known.
+    pub fn expected_size(&self) -> Option<usize> {
+        tables::expected_size(self.header)
+    }
+
+    /// Whether this frame's size is the one the table requires.
+    ///
+    /// An unknown header is *not* expected: silence here would be how a mistyped constant reaches
+    /// a client and comes back as `007`.
+    pub fn size_is_expected(&self) -> bool {
+        self.expected_size() == Some(self.len())
+    }
+
+    /// Serialise to the wire: header, then the body, and nothing else.
+    ///
+    /// Deliberately infallible — it writes what it was given. Whether that is the *correct* size is
+    /// [`Frame::encode_validated`]'s question, asked separately so the two failures never blur.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.len());
+        out.extend_from_slice(&self.header.to_le_bytes());
+        out.extend_from_slice(&self.body);
+        out
+    }
+
+    /// Serialise, refusing a body whose size the table does not expect.
+    ///
+    /// This is the path server code should use for the messages it constructs. The sizes in
+    /// [`tables`] are not suggestions; a five-byte map update in the login batch is indistinguishable
+    /// from a working one until the client reports `007` (`docs/03-protocol.md`, section 6).
+    pub fn encode_validated(&self) -> Result<Vec<u8>, FrameError> {
+        match self.expected_size() {
+            None => Err(FrameError::UnknownHeader {
+                header: self.header,
+            }),
+            Some(expected) if expected != self.len() => Err(FrameError::SizeMismatch {
+                header: self.header,
+                got: self.len(),
+                expected,
+            }),
+            Some(_) => Ok(self.encode()),
+        }
+    }
+
+    /// Take one frame off the front of `bytes`, and say how many bytes it used.
+    ///
+    /// The header decides the size, so there are only three outcomes: unknown header (refuse), not
+    /// enough bytes yet (wait), or a frame. Note the consequence: a *fragment* that happens to start
+    /// mid-stream is framed as whatever its first two bytes name, so a caller must only ever pass a
+    /// buffer whose start it knows is a message boundary. The connection does that by keeping its
+    /// buffer between reads.
+    pub fn decode(bytes: &[u8]) -> Result<(Frame, usize), FrameError> {
+        if bytes.len() < HEADER_LEN {
+            return Err(FrameError::Incomplete { needed: HEADER_LEN });
+        }
+
+        let header = u16::from_le_bytes([bytes[0], bytes[1]]);
+        let expected = tables::expected_size(header).ok_or(FrameError::UnknownHeader { header })?;
+
+        if bytes.len() < expected {
+            return Err(FrameError::Incomplete { needed: expected });
+        }
+
+        let body = bytes[HEADER_LEN..expected].to_vec();
+        Ok((Frame { header, body }, expected))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HEARTBEAT_SMSG: u16 = tables::AUTH_SMSG_HEARTBEAT; // 6 bytes: header + u32 tick
+    const HEARTBEAT_CMSG: u16 = tables::AUTH_CMSG_HEARTBEAT; // also 6 bytes, other direction
+    const REQUEST_RESPONSE: u16 = tables::AUTH_SMSG_REQUEST_RESPONSE; // 10: header + 2 x u32
+
+    #[test]
+    fn a_frame_round_trips() {
+        let frame = Frame::zeros(HEARTBEAT_SMSG).expect("known header");
+        assert_eq!(frame.len(), 6);
+        assert_eq!(frame.body.len(), 4);
+
+        let bytes = frame.encode();
+        assert_eq!(bytes.len(), 6, "no length field: header plus body only");
+        assert_eq!(&bytes[..2], &[0x00, 0x00]);
+
+        let (decoded, used) = Frame::decode(&bytes).expect("decodes");
+        assert_eq!(decoded, frame);
+        assert_eq!(used, 6);
+    }
+
+    #[test]
+    fn the_wire_carries_no_length_field() {
+        // A request response is header, req_id, status -- 10 bytes, with nothing between the header
+        // and the payload. If a length prefix ever appears here, this test is where it shows up.
+        let mut frame = Frame::zeros(REQUEST_RESPONSE).expect("known header");
+        frame.body[..4].copy_from_slice(&7u32.to_le_bytes()); // req_id
+        frame.body[4..].copy_from_slice(&0u32.to_le_bytes()); // status
+
+        assert_eq!(
+            frame.encode(),
+            vec![0x03, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        );
+    }
+
+    #[test]
+    fn the_direction_bit_is_the_mask() {
+        assert!(Frame::new(HEARTBEAT_CMSG, vec![0; 4]).is_from_client());
+        assert!(!Frame::new(HEARTBEAT_SMSG, vec![0; 4]).is_from_client());
+    }
+
+    #[test]
+    fn a_short_buffer_is_incomplete_rather_than_an_error() {
+        let bytes = Frame::zeros(REQUEST_RESPONSE)
+            .expect("known header")
+            .encode();
+        assert_eq!(
+            Frame::decode(&bytes[..0]),
+            Err(FrameError::Incomplete { needed: HEADER_LEN })
+        );
+        assert_eq!(
+            Frame::decode(&bytes[..1]),
+            Err(FrameError::Incomplete { needed: HEADER_LEN })
+        );
+        for cut in HEADER_LEN..bytes.len() {
+            assert_eq!(
+                Frame::decode(&bytes[..cut]),
+                Err(FrameError::Incomplete {
+                    needed: bytes.len()
+                }),
+                "cut at {cut}"
+            );
+        }
+        // The last cut is the whole frame, which must succeed.
+        assert!(Frame::decode(&bytes).is_ok());
+    }
+
+    #[test]
+    fn decoding_consumes_exactly_one_frame_and_leaves_the_rest() {
+        let first = Frame::zeros(HEARTBEAT_SMSG).expect("known header").encode();
+        let second = Frame::zeros(REQUEST_RESPONSE)
+            .expect("known header")
+            .encode();
+        let mut stream = first.clone();
+        stream.extend_from_slice(&second);
+
+        let (decoded, used) = Frame::decode(&stream).expect("first frame");
+        assert_eq!(used, first.len());
+        assert_eq!(decoded.header, HEARTBEAT_SMSG);
+
+        let (decoded, used) = Frame::decode(&stream[used..]).expect("second frame");
+        assert_eq!(used, second.len());
+        assert_eq!(decoded.header, REQUEST_RESPONSE);
+    }
+
+    #[test]
+    fn an_unknown_header_is_refused() {
+        // A game header is not an auth header, and pretending otherwise is how a port drifts.
+        let bytes = vec![
+            super::super::MAP_UPDATE_CURRENT as u8,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+        ];
+        assert_eq!(
+            Frame::decode(&bytes),
+            Err(FrameError::UnknownHeader {
+                header: super::super::MAP_UPDATE_CURRENT
+            })
+        );
+    }
+
+    #[test]
+    fn encode_validated_refuses_a_body_of_the_wrong_size() {
+        // The 007 trap, caught before a client can see it.
+        let short = Frame::new(HEARTBEAT_SMSG, vec![0; 2]);
+        assert_eq!(
+            short.encode_validated(),
+            Err(FrameError::SizeMismatch {
+                header: HEARTBEAT_SMSG,
+                got: 4,
+                expected: 6
+            })
+        );
+
+        let right = Frame::zeros(HEARTBEAT_SMSG).expect("known header");
+        assert_eq!(right.encode_validated(), Ok(right.encode()));
+
+        let unknown = Frame::new(super::super::MAP_UPDATE_CURRENT, vec![]);
+        assert_eq!(
+            unknown.encode_validated(),
+            Err(FrameError::UnknownHeader {
+                header: super::super::MAP_UPDATE_CURRENT
+            })
+        );
+    }
+
+    #[test]
+    fn every_row_of_the_table_frames_at_exactly_its_recorded_size() {
+        for entry in tables::AUTH_TABLE {
+            let frame = Frame::zeros(entry.header).unwrap_or_else(|err| {
+                panic!("{:#06X} is missing from the lookup: {err}", entry.header)
+            });
+            assert_eq!(frame.len(), entry.size, "{:#06X} size", entry.header);
+            assert_eq!(
+                frame.is_from_client(),
+                entry.from_client,
+                "{:#06X} direction",
+                entry.header
+            );
+            assert_eq!(tables::expected_size(entry.header), Some(entry.size));
+
+            let bytes = frame.encode_validated().expect("table size encodes");
+            assert_eq!(bytes.len(), entry.size);
+            let (decoded, used) = Frame::decode(&bytes).expect("decodes");
+            assert_eq!(decoded, frame);
+            assert_eq!(used, entry.size);
+
+            // One byte short must be Incomplete, never a wrong-size acceptance.
+            assert_eq!(
+                Frame::decode(&bytes[..entry.size - 1]),
+                Err(FrameError::Incomplete { needed: entry.size })
+            );
+        }
+    }
+
+    #[test]
+    fn every_row_computes_to_the_size_the_reference_declares() {
+        // The generated table carries each message's field layout beside its recorded size, so the
+        // size is *provable* here instead of trusted: the widths come from pack_helper in
+        // msgpack.c. A number that drifted, or a generator that misread a column, fails.
+        for entry in tables::AUTH_TABLE {
+            let variable = tables::VARIABLE_LENGTH_HEADERS.contains(&entry.header);
+            let mut known = 0usize;
+            let mut has_variable = false;
+            for field in entry.fields {
+                match field.wire_size() {
+                    Some(width) => known += width,
+                    None => has_variable = true,
+                }
+            }
+
+            assert_eq!(
+                has_variable, variable,
+                "{:#06X}: the table and the layout disagree about variability",
+                entry.header
+            );
+
+            if variable {
+                // A nested struct's own length depends on a count carried on the wire, so the
+                // declared maximum is carried verbatim. It must at least cover the fixed fields
+                // plus the nested struct's one-byte count.
+                assert!(
+                    entry.size > known,
+                    "{:#06X}: declared {} does not exceed its fixed fields ({known})",
+                    entry.header,
+                    entry.size
+                );
+            } else {
+                assert_eq!(
+                    entry.size,
+                    known,
+                    "{:#06X} ({}): declared size is not the sum of its fields",
+                    entry.header,
+                    entry.name.unwrap_or("unnamed")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_sizes_that_the_login_path_depends_on_are_pinned() {
+        // A second, independent check on the handful of messages M3 actually sends and receives:
+        // each number is the field sum written out longhand, so a generator bug cannot hide behind
+        // the layout it produced. Computed from msgdefs.c's field lists, never from sizeof(struct)
+        // -- see the next test for why that distinction matters.
+        let cases: &[(&str, u16, usize)] = &[
+            // header + server_salt, and two more dwords the struct has but the format does not
+            (
+                "AUTH_SMSG_SESSION_INFO",
+                tables::AUTH_SMSG_SESSION_INFO,
+                2 + 4 + 4,
+            ),
+            // header + req_id + status
+            (
+                "AUTH_SMSG_REQUEST_RESPONSE",
+                tables::AUTH_SMSG_REQUEST_RESPONSE,
+                2 + 4 + 4,
+            ),
+            // header + req_id + uuid + unk0 + (4 + 20*2) + (4 + 64)
+            (
+                "AUTH_SMSG_CHARACTER_INFO",
+                tables::AUTH_SMSG_CHARACTER_INFO,
+                2 + 4 + 16 + 4 + 44 + 68,
+            ),
+            // header + req_id + map_token + map_id + host[24] + player_token
+            (
+                "AUTH_SMSG_GAME_SERVER_INFO",
+                tables::AUTH_SMSG_GAME_SERVER_INFO,
+                2 + 4 + 4 + 4 + 24 + 4,
+            ),
+            // header + req_id + 3 dwords + 8 + 8 + 16 + 16 + dword + (4 + 200) + byte + dword
+            (
+                "AUTH_SMSG_ACCOUNT_INFO",
+                tables::AUTH_SMSG_ACCOUNT_INFO,
+                2 + 4 + 4 + 4 + 8 + 8 + 16 + 16 + 4 + 204 + 1 + 4,
+            ),
+            // header + req_id + (4 + 2048)
+            (
+                "AUTH_SMSG_ACCOUNT_SETTINGS",
+                tables::AUTH_SMSG_ACCOUNT_SETTINGS,
+                2 + 4 + 4 + 2048,
+            ),
+            // header + req_id + user_id + session_id + (4 + 40) + (4 + 64)
+            (
+                "AUTH_CMSG_PORTAL_ACCOUNT_LOGIN",
+                tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN,
+                2 + 4 + 16 + 16 + 44 + 68,
+            ),
+            // header + value
+            (
+                "AUTH_CMSG_ACCEPT_EULA",
+                tables::AUTH_CMSG_ACCEPT_EULA,
+                2 + 1,
+            ),
+            // header + req_id + map_type + map_id + region + district + language
+            (
+                "AUTH_CMSG_REQUEST_GAME_INSTANCE",
+                tables::AUTH_CMSG_REQUEST_GAME_INSTANCE,
+                2 + 4 * 6,
+            ),
+        ];
+
+        for (name, header, expected) in cases {
+            assert_eq!(
+                tables::expected_size(*header),
+                Some(*expected),
+                "{name} ({header:#06X})"
+            );
+        }
+    }
+
+    #[test]
+    fn the_wire_size_comes_from_the_format_and_not_from_the_struct() {
+        // The trap that this port nearly fell into: AuthSrv_SessionInfo is a 14-byte packed struct
+        // (header + three dwords) but AUTH_SMSG_0001 declares only two dwords, and pack_msg writes
+        // the format, not the struct. Taking sizeof(struct) as the wire size would put two extra
+        // bytes on the wire and desynchronise every later message on the connection.
+        let entry = tables::entry(tables::AUTH_SMSG_SESSION_INFO).expect("present");
+        let dwords = entry
+            .fields
+            .iter()
+            .filter(|field| field.kind == tables::FieldKind::Dword)
+            .count();
+        assert_eq!(entry.size, 2 + 4 * dwords);
+        assert_eq!(
+            dwords, 2,
+            "the format has two dwords where the struct has three"
+        );
+        assert_ne!(
+            entry.size, 14,
+            "14 is sizeof(AuthSrv_SessionInfo); it is not what goes on the wire"
+        );
+    }
+
+    #[test]
+    fn the_two_heartbeats_are_different_messages_with_the_same_size() {
+        // The mask is the direction, so index 0 exists in both directions and one table serves both.
+        assert_eq!(HEARTBEAT_SMSG, 0x0000);
+        assert_eq!(HEARTBEAT_CMSG, 0x8000);
+        assert_eq!(tables::expected_size(HEARTBEAT_SMSG), Some(6));
+        assert_eq!(tables::expected_size(HEARTBEAT_CMSG), Some(6));
+    }
+}

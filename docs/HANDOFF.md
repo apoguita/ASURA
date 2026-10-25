@@ -8,9 +8,22 @@ State of the project as of the last commit, so a new session can begin without r
   crate now owns registration, the atomic reservation, the lease ledger, the reaper and the
   reconciler; `asura-fakeworld` runs the whole sequence as a harness; the acceptance suite passes
   repeatedly (`.\tools\m2-verify.ps1`). No game client was involved — that was the point.
-- **M1's scaffold still holds:** the workspace compiles, `cargo test --workspace` is green (16
-  tests: 12 unit + 4 live-database placement tests that skip cleanly without a database), and
-  `cargo clippy --workspace --all-targets` is clean.
+- **M3 has started, at the layer that needs no client: framing and the auth message table.**
+  `asura-protocol` now classifies a connection from its first four bytes, frames messages by the
+  table's fixed size per header, and refuses to build a message at the wrong size. The table
+  (60 client headers, 40 server headers, with field layouts) is generated from the GWPS reference
+  by `tools/gen-auth-tables.py`, so it is a copy of a fact rather than a transcription.
+  **36 tests pass** (`cargo test --workspace`), clippy is clean, and `cargo fmt --check` plus
+  `python tools/gen-auth-tables.py --check` both hold.
+- **M1's scaffold still holds:** the workspace compiles, `cargo test --workspace` is green (16 of
+  those tests are the M1/M2 ones: 12 unit + 4 live-database placement tests that skip cleanly
+  without a database), and `cargo clippy --workspace --all-targets` is clean.
+- **A protocol document was wrong, and is now corrected.** `docs/03-protocol.md` section 1 claimed a
+  `u16 length` after every message header. The reference has no length field at all: `pack_msg`
+  writes the format's fields and nothing else, so a message's size is a property of its header.
+  Writing the length would have produced the client's opaque `007`. The evidence is recorded in the
+  document, along with the related trap that `sizeof(struct)` is not the wire size
+  (`AuthSrv_SessionInfo`: 14 bytes in C, 10 on the wire).
 - **Fifteen documents and eight ADRs** describe what is built, what is refused, and why.
 - **GWPS is research material** (`docs/adr/0005-gwps-reference-only.md`). ASURA is written from
   scratch; nothing is ported or patched there.
@@ -45,7 +58,7 @@ transaction, so `count(lease) <= leased <= capacity` holds at every commit and t
 
 | what | state | evidence |
 |---|---|---|
-| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **16 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean |
+| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **36 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean |
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
 | **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **8 tables** applied (the 7 from 0001 plus `lease`); credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
@@ -91,20 +104,41 @@ where a UTF-8 em dash decodes to a smart quote and breaks the parse at a line fa
 | AzerothCore is the design authority (structure); deviations are recorded | `docs/adr/0006-azerothcore-is-the-reference.md` |
 | The one rule: never send a client to something that is not already answering | `docs/02-architecture.md` |
 
-## Next session: M3 — the auth endpoint (the hard one)
+## Next session: M3 continues — the handshake, then the socket
 
-Handshake, ARC4, DH with the fixed constants, login against the web gate, character list, character
-select. The hard one, and the first that needs the real client. GWPS is the oracle for every byte
-(`docs/03-protocol.md`), and `asura-protocol` already carries the message identities with the
-`0x0099` size trap as a test.
+What is done is the part that needs no client. What remains is the part that needs one.
 
-1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → 16 passing (4 skipped
-   without a database). If the count changed, read `git log` before assuming it is broken.
-2. **M3 — the auth endpoint.** Framing, the handshake, ARC4, DH with the fixed constants, login,
-   character list. The risk is the opaque `007` client error, so the packet trace matters more than
-   the code: keep `GWPS_TRACE`-style per-message logging from the first commit.
-3. **M4 — end-to-end travel** stays blocked on M3 and on a world server that accepts its own
+1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **36 passing** (4 of
+   them live-database placement tests). Also `python tools/gen-auth-tables.py --check` → up to date.
+   If either count changed, read `git log` before assuming it is broken.
+2. **Key exchange**: `MSG_CLIENT_SEED` / `MSG_SERVER_SEED`, ARC4, Diffie–Hellman with GWPS's fixed
+   constants (`main.c`). This is where a mistake is invisible until the client says `007`, so the
+   per-message trace has to exist first (below).
+3. **The packet trace, before the server.** GWPS logs with `GWPS_TRACE=1`; run it, capture a login to
+   the character list, and keep the capture as the reference side of the diff. This is M3's
+   acceptance criterion, and it is cheaper to establish before the Rust code can be wrong.
+4. **The listener**: classify the connection, run the handshake, take
+   `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` (`0x8038`, 150 bytes: `user_id`, `session_id`, character name,
+   type), answer with `AUTH_SMSG_SESSION_INFO` (`0x0001`), `AUTH_SMSG_ACCOUNT_INFO` (`0x0011`), and a
+   character list. Login needs `session`/`account`/`characters` rows, and nothing issues those yet:
+   the client gets `user_id`/`session_id` from a web gate that does not exist in this project.
+   **That is an open decision** — a dev stub that inserts a session, or a real portal endpoint — and
+   it is the first thing to settle before the login path can be exercised at all.
+5. **M4 — end-to-end travel** stays blocked on M3 and on a world server that accepts its own
    gameplay connections (`docs/04-from-gwps.md`, step 1).
+
+## The pieces M3 added
+
+| piece | where |
+|---|---|
+| connection classification: the three version headers, their sizes, and the refusal to guess | `crates/asura-protocol/src/client/version.rs` |
+| framing: header plus table-sized body, no length field, with encode-side size validation | `crates/asura-protocol/src/client/frame.rs` |
+| the auth message table: 100 rows with names, sizes and field layouts | `crates/asura-protocol/src/client/tables.rs` (generated) |
+| the generator that reads it out of the reference, and checks its own output | `tools/gen-auth-tables.py` |
+
+The generated file carries `#[rustfmt::skip]` on its table and is checked by
+`python tools/gen-auth-tables.py --check`; if the table and the reference disagree, that command
+fails rather than letting the port drift. `--gwps` points it at a checkout other than `..\PreSearing`.
 
 ## Definition of done for the first session (met)
 

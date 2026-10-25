@@ -109,23 +109,11 @@ impl Frame {
     }
 }
 
-/// Client-facing message headers that ASURA has to reproduce.
+/// The client-facing protocol: connection classification, framing, and the auth message table.
 ///
-/// Sources: GWPS `msgdefs.c` and the captures in `PreSearing/captures/`. Sizes are context
-/// dependent for `MAP_UPDATE_CURRENT`, which is a trap recorded in `docs/03-protocol.md`.
-pub mod client {
-    /// Server → client: where to go. `{host[24], port, map_token, region, player_token,
-    /// is_explorable, map_id}`. GWPS sends 46 bytes; live captures show 52. Field order matters.
-    pub const TRANSFER_GAME_SERVER_INFO: u16 = 0x01A6;
-    pub const TRANSFER_GAME_SERVER_INFO_LEN: usize = 46;
-
-    /// Server → client: switch to this map now. `{header, 0, map_id, 0}`.
-    pub const MAP_UPDATE_CURRENT: u16 = 0x0099;
-    /// In a travel redirect this is 12 bytes.
-    pub const MAP_UPDATE_CURRENT_LEN: usize = 12;
-    /// In the login batch it must be 5 bytes, or the client fails with error 007.
-    pub const MAP_UPDATE_CURRENT_LOGIN_LEN: usize = 5;
-}
+/// See the module documentation for the order a connection follows and for what is deliberately
+/// not here yet (the game/world family).
+pub mod client;
 
 #[cfg(test)]
 mod tests {
@@ -163,16 +151,5 @@ mod tests {
             Frame::decode(truncated),
             Err(FrameError::LengthMismatch { .. })
         ));
-    }
-
-    #[test]
-    fn client_constants_match_the_recorded_protocol() {
-        assert_eq!(client::TRANSFER_GAME_SERVER_INFO, 0x01A6);
-        assert_eq!(client::MAP_UPDATE_CURRENT, 0x0099);
-        assert_ne!(
-            client::MAP_UPDATE_CURRENT_LEN,
-            client::MAP_UPDATE_CURRENT_LOGIN_LEN,
-            "the map-update size trap must stay visible"
-        );
     }
 }

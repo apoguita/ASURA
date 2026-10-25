@@ -13,24 +13,56 @@ handshake in `AuthSrv.c`, travel in `GameSrv.c`, captures in `PreSearing/capture
 After the handshake, every message in both directions is a small fixed-size structure:
 
 ```
-u16 header        message id, little endian
-u16 length        total size including these four bytes
-u8  body[...]     fixed layout per header
+u16 header        message id, little endian; bit 15 set means client to server
+u8  body[...]     the message's fields, fixed layout per header, and nothing else
 ```
 
-and the whole stream is ARC4-encrypted after the key exchange. Message sizes are fixed per header
-(a table lookup, not a length prefix to be trusted); both sides size-check before parsing. GWPS
-refuses and logs when a message arrives with an unexpected size.
+**There is no length field.** An earlier version of this document claimed a `u16 length` followed the
+header. That was wrong, and it is the kind of wrong that costs a session: a port that writes a
+length the client does not expect gets back nothing but error `007`. Corrected from the reference:
+
+- `pack_msg` (`msgpack.c`) writes the format's fields and nothing else; `pack_helper` handles
+  `TYPE_MSG_HEADER` as exactly two bytes.
+- `AuthConnection_SendMessage` (`AuthSrv.c`) is called with `sizeof(struct)` as its input length and
+  passes the *written* count back out of `pack_msg`; the written count comes from the format.
+- The receive path (`AuthSrv_GetMessages`) reads the header, indexes the format table, and lets
+  `unpack_msg` consume the fields. No length is ever read.
+
+So a message's size is a property of its header alone. That table is
+`crates/asura-protocol/src/client/tables.rs`, generated from `msgdefs.c` and `opcodes.h` by
+`tools/gen-auth-tables.py`, and it carries each message's field layout beside its size so the size
+is verifiable rather than trusted. Framing then has only two failure modes: a header that is not in
+the table (refuse — GWPS logs the bytes and closes), and a body that has not arrived yet (wait).
+
+The one nuance for later: some **game** messages carry a four-byte header — the u16 header plus a
+u16 the captures always show as zero (`TYPE_MSG_HEADER_GAME`). It is opt-in per message in the
+reference, because turning it on globally broke login. The auth family does not use it.
+
+The whole stream is ARC4-encrypted after the key exchange.
 
 `GWPS_TRACE=1` logs every outgoing message as header, size and the first bytes — that is the
 cheapest way to compare a Rust port against the C reference.
 
 ## 2. Identifying the connection
 
-The first message a client sends decides what the connection is. GWPS compares the header against
-the auth, game and ctrl "version" headers (`AuthSrv.c`, connection classification) and routes the
-socket accordingly. The auth service needs the same discrimination on its listener, and must reject anything
-it does not recognise instead of guessing.
+The first message a client sends decides what the connection is. It is a bare little-endian `u32`,
+**not** a framed message: it has no two-byte header, so decoding it as one would read `0x0400` as a
+message id. GWPS compares it against three constants and routes the socket accordingly
+(`AuthSrv.c`, `Connection_ReadVersion`):
+
+| header | constant | message | size |
+|---|---|---|---|
+| `0x000C0400` | `AUTH_CMSG_VERSION_HEADER` | auth: `{header, version, h0008, h000C}` | 16 |
+| `0x000C0500` | `GAME_CMSG_VERSION_HEADER` | game: the auth shape plus map/player tokens and both UUIDs | 64 |
+| `0x000C0FFF` | `CTRL_CMSG_VERSION_HEADER` | control: the header alone | 4 |
+
+The auth service must make the same decision on its listener, and must reject anything else instead
+of guessing.
+
+One fact to keep rather than to re-learn: GWPS stores `version`, `h0008` and `h000C` from the auth
+version message and **never compares them to anything**. They are not a compatibility gate.
+Reproducing a gate the reference does not have would be inventing protocol; keep the fields for the
+packet trace.
 
 ## 3. Key exchange
 
@@ -87,6 +119,8 @@ This is the part the whole design exists to protect.
 
 | trap | what happens | rule |
 |---|---|---|
+| `sizeof(struct)` taken as the wire size | two extra bytes on the wire, so the client misreads every message after it | the size is the format's field sum, not the struct's size. `AuthSrv_SessionInfo` is 14 bytes in C and 10 on the wire — the format has two dwords where the struct has three |
+| a length field written where the protocol has none | the client misreads the body as the next header: error `007` | there is no length field (`section 1`) |
 | `0x0099` size | 12 bytes in the login batch makes the client fail with 007; the same message is 12 bytes (5 in the login batch) | size per context, not per header |
 | `is_explorable` from the wrong map | error 005 after travel | always from the destination district |
 | settings upload not acknowledged | hang correlated 7/7 with unacknowledged uploads | always answer `AUTH_CMSG_SETTING_UPDATE` with a request response |
@@ -136,9 +170,21 @@ the sections above.
 
 Not "ported and hoped". Each item gets a capture-based test:
 
+0. the message table still matches the reference: `python tools/gen-auth-tables.py --check` (no
+   client needed, so this runs first and stays cheap);
 1. handshake completes and the client reaches the character list;
 2. login works for a fresh account, and a second login for a signed-in account behaves the same way
    GWPS does;
 3. a travel request produces a redirect the client accepts, and the client reconnects;
 4. the reconnect is validated, including the rejection path (wrong token → error, not silence);
 5. the map update after the redirect leaves the client in the right map.
+
+## 10. Open questions
+
+- **`AUTH_SMSG_0026` (`0x001A`) declares 32 bytes where its own layout can only occupy 31.** It is a
+  `TYPE_NESTED_STRUCT` message, whose length depends on a count carried on the wire, and the
+  declared maximum is one byte more than `1 + count * 2` can produce. GWPS would therefore consume
+  31 bytes for it while a table-driven framer consumes 32, so a client that sends it would
+  desynchronise this port and not GWPS. It is an unnamed friend/social message outside the login
+  path, so it is recorded rather than guessed at; `crates/asura-protocol/src/client/tables.rs` lists
+  it in `VARIABLE_LENGTH_HEADERS`. Resolve it when something needs the message.
