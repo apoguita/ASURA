@@ -9,6 +9,11 @@
 *.jsonl
 /config.local.*
 
+# Local secrets and configuration
+.env
+.env.*
+*.pgpass
+
 # Editors and OS
 .vscode/
 .idea/

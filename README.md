@@ -70,6 +70,7 @@ what is missing from this machine, and what the next three tasks are.
 
 | document | what it settles |
 |---|---|
+| [`docs/HANDOFF.md`](docs/HANDOFF.md) | **start here** — environment status, what is decided, the next three tasks |
 | [`docs/01-scope.md`](docs/01-scope.md) | the boundary: what is the auth service's job and what is explicitly not |
 | [`docs/02-architecture.md`](docs/02-architecture.md) | the components, the registry and pool tables, travel end to end, and the one rule that must not be broken |
 | [`docs/03-protocol.md`](docs/03-protocol.md) | the wire facts: framing, key exchange, login, travel, and the world-link protocol |
