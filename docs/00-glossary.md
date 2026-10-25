@@ -9,8 +9,9 @@ explaining it, it is defined here.
 about. It answers the game client, knows who is logged in, and decides where a player's map runs.
 It never runs a map itself.
 
-**World server** — a program that runs maps for players. In our setup these are the existing C game
-servers. They are disposable: restarting one loses a session, not the database.
+**World server** — a program that runs maps for players. In phase 1 these are the existing C game
+servers; in phase 2 the simulation becomes part of this project. Either way they are disposable:
+restarting one loses a session, not the database.
 
 **GWPS** — the existing single-process project (`PreSearing`). It does the job of ASURA *and* the
 world servers in one program. It stays as the working reference.

@@ -23,7 +23,7 @@ maps what to reuse as knowledge, what to port, and what to leave behind.
 | `AuthSrv.c` | **ASURA**: auth endpoint, handshake, login, character list, sessions, allocation decisions. Ported to Rust. |
 | `AuthSrvCtrl.c`, `CtrlConn.c/.h` | **ASURA**: the world link. Redesigned — the current messages carry live socket handles, which cannot cross processes cleanly. |
 | `main.c` | split: `asura` main and `world` main. Today one binary binds 6112/6113/1337 and runs everything. |
-| `GameSrv.c` | **world server** (stays C): simulation, players, instance lifecycle. |
+| `GameSrv.c` | **world server** in phase 1 (stays C): simulation, players, instance lifecycle. It is the seed of ASURA's own simulation phase. |
 | `GmMapDataImport.c`, `FaArchive.c`, `GmPaths.c`, `GmItem.c`, … | **world server** (stays C), untouched. |
 | `Db.c`, `DbSchema.h` | **ASURA** owns schema and writes; worlds read. Shared definition, one owner. |
 | `GmCommands.c` | **world server**, plus the map list it carries is the input for outpost prebuild. |

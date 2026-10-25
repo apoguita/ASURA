@@ -83,6 +83,18 @@ nothing but a longer loading screen to show for it.
 
 **Test:** real client, two hosts.
 
+## Phase 2 - simulation (deferred, not cancelled)
+
+These begin only when phase 1 works end to end. They are listed here so that phase-1 decisions are
+made knowing what is coming.
+
+| milestone | outcome |
+|---|---|
+| S1 | decide the simulation's language and structure: port the C world server to Rust, or adopt it as a C component owned by this project. This is a decision, not an accident |
+| S2 | the world server builds and runs from this repository, with its own maps and player load/save |
+| S3 | the world link carries everything the simulation needs from the control plane, with no shortcuts and no shared headers |
+| S4 | instance teardown: an empty explorable is cleared and returned to its pool, and memory does not grow across a session |
+
 ## After M6
 
 - Districts as capacity (a town that is full gains a second instance) — same machinery as

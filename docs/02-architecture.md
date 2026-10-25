@@ -15,6 +15,18 @@ holds a player's gameplay connection. That is the whole point of the split: the 
 to scale (instances) becomes a set of interchangeable processes, and the part that is hard to
 replicate (identity and placement) stays in one small place.
 
+## Phases
+
+| phase | what is being built | where simulation lives |
+|---|---|---|
+| 1 | control plane: auth, sessions, directory, allocation, persistence, world link | the existing C world server, unchanged |
+| 2 | simulation: the world server becomes part of this project | decided then - port it to Rust, or adopt the C implementation |
+
+Phase 1 exists so that phase 2 can be judged on its own merits instead of being tangled up with
+identity, allocation and the process model. Nothing in phase 1 may assume the simulation stays in C
+forever: the world link is a *protocol*, not a linked library, and the interface is identical
+whether the far side is Rust or C (`docs/adr/0003-simulation-in-scope.md`).
+
 ## What a world server is
 
 A process that:

@@ -53,9 +53,14 @@ not held as a world's private truth.
 The portal the client talks to before it talks to us, which hands it a `user_id` and `session_id`.
 ASURA authenticates those.
 
-## ASURA does not own
+## Phase 1 boundary: what ASURA does not do *yet*
 
-- **Simulation.** Agents, movement, pathfinding, combat, skills, drops. A world server.
+Simulation - agents, movement, pathfinding, combat, skills, drops - is part of this project's
+long-term scope, deferred until the control plane is correct
+(`docs/adr/0003-simulation-in-scope.md`). In phase 1 it lives where it already does, in a world
+server:
+
+- **Simulation.** A world server. Not ASURA, not yet.
 - **The gameplay connection**, once accepted. If the world owns its own listener (the target
   design), the client's gameplay socket is between the client and that world; ASURA is not in the
   data path.
@@ -75,6 +80,8 @@ ASURA authenticates those.
 
 ## Explicitly out of scope for now
 
+- **Simulation.** In scope for the project, out of scope until the control plane works. "Deferred"
+  is doing real work in that sentence: it is not cancelled, and no phase-1 decision may preclude it.
 - Multiple regions or languages. One region, one language, and districts only as a capacity
   concept.
 - Server-to-server chat between worlds: chat is delivered through the world server the player is

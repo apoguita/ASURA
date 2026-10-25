@@ -37,10 +37,12 @@ ASURA takes the control half out and does it properly. The worlds stay in C and 
 | Persistence | accounts, sessions, characters, bags/items — the databases the worlds read |
 | Web gate | the portal login that hands the client its `user_id`/`session_id` |
 
-## What ASURA does not own
+## What ASURA does not own *yet*
 
-Map simulation, agents, pathfinding, combat, chat delivery, and the per-map game connection
-handshake once it has been handed off. Those belong to the world servers.
+Map simulation, agents, pathfinding, combat and chat delivery are in this project's long-term scope
+- this repository is meant to hold the whole server stack, not only its control half - but
+simulation is explicitly deferred until the control plane works. See
+`docs/adr/0003-simulation-in-scope.md`.
 
 ## Read in this order
 
@@ -62,7 +64,10 @@ anywhere. Every design decision in this repository is downstream of that, and
 
 ## Language
 
-Rust, for the control plane only (`docs/adr/0001-rust.md`). The world servers remain C.
+Rust for the control plane (`docs/adr/0001-rust.md`). The world servers remain the existing C
+implementation for now; whether the simulation is eventually ported to Rust or adopted as a C
+component of this project is a decision deliberately left to the simulation phase
+(`docs/adr/0003-simulation-in-scope.md`).
 
 ## Working with the sibling repository
 
