@@ -1,4 +1,10 @@
-# What comes from GWPS, and how to get here from there
+# What we learned from GWPS (research record)
+
+> **GWPS is not a migration target.** ASURA is written from scratch, following AzerothCore's
+> structure (`docs/adr/0006-azerothcore-is-the-reference.md`). This document records what GWPS
+> taught us and where the reference code for each fact lives. The "steps" below describe the
+> shape the new stack must have, not edits to the old project
+> (`docs/adr/0005-gwps-reference-only.md`).
 
 GWPS is not being thrown away. It is the working reference: every protocol fact, every client
 quirk, and every "this made the client fail with error 007" was discovered there. This document

@@ -1,7 +1,8 @@
 # Architecture
 
-The structure is AzerothCore's, ported as a whole (`docs/adr/0004-port-azerothcore-structure.md`),
-with one deviation forced by our client. This document describes what that means concretely.
+The structure is AzerothCore's (`docs/adr/0006-azerothcore-is-the-reference.md`): it is the design
+authority, and this document describes the structure we take from it. The one deviation is forced by
+our client and is under experiment (`docs/adr/0005-gwps-reference-only.md`).
 
 ## Components
 
@@ -11,6 +12,12 @@ with one deviation forced by our client. This document describes what that means
 | **world server** (`asura-world`) | many | maps, players, instances, placement, character persistence | instances in memory; nothing that survives a restart |
 | **database** (`asura-db`) | 1 (+ standby) | the shared truth and the coordination channel | everything |
 | **content service** | 1+ | game assets (`Gw.dat` streaming) | outside ASURA |
+
+Correspondence with AzerothCore, so that any structural question can be answered by reading their
+tree: `authservice` → auth service; `worldserver` (a realm) → world server; `realmlist` + realm flags →
+`world` registry; Login/Character/World databases → `auth`/`game`/`content`;
+`DatabaseWorkerPool` → `asura-db`; `MapInstancer`/`MapUpdater` → instance manager and update-thread
+pool. Full table in `docs/adr/0006-azerothcore-is-the-reference.md`.
 
 The auth service never runs a map and is not in the gameplay data path. World servers are
 interchangeable and disposable. The database is the only thing both kinds of program agree on.

@@ -17,6 +17,9 @@ There is no single program called "ASURA". When a document means the login side 
 service**; when it means a map-running process it says **world server**.
 
 - **Status:** design phase. No code yet; this repository currently holds the specification.
+- **Design authority:** where a structural question arises, the default answer is *what AzerothCore
+  does* (`docs/adr/0006-azerothcore-is-the-reference.md`). GWPS is research material, not a target; the
+  client rig is Reforged plus the stealth hooks.
 - **Sibling project:** [`PreSearing`/GWPS](https://github.com/apoguita/GWPS) is the existing
   single-process implementation, and remains the *reference* for every protocol fact in this repo.
   Nothing here is proven until it behaves against a real client the way GWPS does.
@@ -63,6 +66,7 @@ simulation is explicitly deferred until the control plane works. See
 | [`docs/01-scope.md`](docs/01-scope.md) | the boundary: what is the auth service's job and what is explicitly not |
 | [`docs/02-architecture.md`](docs/02-architecture.md) | the components, the registry and pool tables, travel end to end, and the one rule that must not be broken |
 | [`docs/03-protocol.md`](docs/03-protocol.md) | the wire facts: framing, key exchange, login, travel, and the world-link protocol |
+| [`docs/adr/0006-azerothcore-is-the-reference.md`](docs/adr/0006-azerothcore-is-the-reference.md) | **the design authority** — follow AzerothCore by default, deviate only in writing |
 | [`docs/05-gw2-lessons.md`](docs/05-gw2-lessons.md) | what the GW2 microservices talk changes here — the restartability rules, and what we deliberately do not copy |
 | [`docs/04-from-gwps.md`](docs/04-from-gwps.md) | what is inherited from GWPS, what must be re-proven, and where the reference code is |
 | [`docs/roadmap.md`](docs/roadmap.md) | milestones, in the order they can be tested |

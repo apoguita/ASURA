@@ -1,6 +1,7 @@
 # ADR 0004 — Port AzerothCore's server structure
 
-- **Status:** Accepted (owner's direction, 2026-10-25)
+- **Status:** Accepted (owner's direction, 2026-10-25). AzerothCore is now the standing design
+  authority, not only the source of this structure: `docs/adr/0006-azerothcore-is-the-reference.md`.
 - **Date:** 2026-10-25
 - **Context:** AzerothCore is a mature, multi-process Guild Wars–scale emulator that supports far
   larger populations than anything GWPS has attempted. Its server structure is proven in production

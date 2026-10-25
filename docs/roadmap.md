@@ -15,6 +15,9 @@ without asking the author: *what does the auth service do?* and *what does a wor
 
 ## M1 — Cargo workspace, no networking
 
+The skeleton follows AzerothCore's shape (auth service, world server, database domains, registry),
+not GWPS's single-process layout.
+
 Three crates, no sockets yet:
 
 - `asura` — the binary (config loading, logging, startup order, shutdown).
@@ -84,6 +87,19 @@ A world on a second host, reachable because step 1 made the client-facing addres
 nothing but a longer loading screen to show for it.
 
 **Test:** real client, two hosts.
+
+## M6.5 — The instance-creation experiment
+
+The one question we cannot answer from GWPS without more work there, so it is answered here
+(`docs/adr/0005-gwps-reference-only.md`):
+
+- Default: a travel is answered only with an already-running instance (prebuilt pool).
+- Test: create the instance during the travel, redirect only after the world reports the instance
+  ready, and watch the real client with the recorder. Rebuilt world = on-demand creation is
+  acceptable; torn down and never rebuilt = the pool requirement is real, and we have a reproduction
+  in our own code instead of an inference from a confounded one.
+
+**Done when:** the answer is recorded with the client state that proves it, either way.
 
 ## Phase 2 - simulation (deferred, not cancelled)
 
