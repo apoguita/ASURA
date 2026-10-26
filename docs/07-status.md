@@ -45,3 +45,14 @@ that nobody reads the table above as more than it says:
 - **the game connection's front door** is a byte-copy router; the reference hands the socket
   itself to the game server, which needs one process and is not what this does
   (`crates/asura-auth/src/frontdoor.rs`).
+
+## Features the reference has but keeps switched off
+
+Parity with GWPS includes matching what it *disables*, not only what it implements. From its own
+source:
+
+- **chat sending** is gated (`GameSrv_ChatSendingEnabled`, `GWPS_CHAT=1` to enable) and off by
+  default. Its comment records why: an unconditional send put a message on the wire the client
+  could not parse, `GameSrv_SendInvalidCommand` above all, **and it crashed the client**. A port
+  that sends chat by default would be less faithful than one that does not;
+- **GM commands** (`/tp`, `/maps`) exist behind the same gate.
