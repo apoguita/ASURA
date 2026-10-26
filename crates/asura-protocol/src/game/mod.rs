@@ -18,6 +18,10 @@
 //! framed by the generated game table ([`super::client::game_tables`]) through
 //! [`super::client::Frame::decode_game_message`].
 
+/// The unlockable PvP item table, generated from the reference: 387 `(id, params)` pairs the client
+/// builds its item table from. Data rather than protocol, which is why it is generated and not typed.
+pub mod pvp_items;
+
 /// `GAME_SMSG_INSTANCE_LOAD_HEAD` (`0x017C`): 6 bytes. The first message a client receives on the
 /// game connection.
 pub const INSTANCE_LOAD_HEAD: u16 = 0x017C;
@@ -487,10 +491,16 @@ pub fn pvp_update_unlocked_heroes(bitmap: &[u32]) -> crate::client::Frame {
 
 /// `GAME_SMSG_PVP_ITEM_STREAM_ADD`: one unlockable PvP item and its parameters.
 pub fn pvp_item_stream_add(item_id: u16, params: &[u32]) -> crate::client::Frame {
-    Builder::new(PVP_ITEM_STREAM_ADD)
+    // The parameter count is a **u8**, not the u16 every other counted field uses: the reference's
+    // layout declares this one as a nested struct, and its own log shows an entry with three
+    // parameters at 17 bytes (`2 + 2 + 1 + 3 * 4`).
+    let mut builder = Builder::new(PVP_ITEM_STREAM_ADD)
         .u16(item_id)
-        .dwords(params)
-        .frame()
+        .u8(params.len() as u8);
+    for param in params {
+        builder = builder.u32(*param);
+    }
+    builder.frame()
 }
 
 /// `GAME_SMSG_PVP_ITEM_STREAM_END`.
@@ -769,6 +779,15 @@ mod tests {
         assert_eq!(wire(&map_update_current(146)), 5);
         assert_eq!(wire(&ready_for_map_spawn()), 6);
         assert_eq!(wire(&pvp_item_stream_end()), 2);
+        // The reference's own sizes: 17 bytes for three parameters, 25 for five.
+        assert_eq!(
+            wire(&pvp_item_stream_add(
+                1,
+                &[0x2408_0081, 0x2530_0102, 0x24B8_0300]
+            )),
+            17
+        );
+        assert_eq!(wire(&pvp_item_stream_add(48, &[0; 5])), 25);
         assert_eq!(wire(&account_feature(1, 10, 0)), 8);
         assert_eq!(wire(&agent_update_attribute_points(1, 50, 50)), 8);
         assert_eq!(wire(&player_update_profession(1, 0, 0, 0)), 9);

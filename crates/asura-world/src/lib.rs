@@ -69,6 +69,15 @@ pub const PLAYER_TEAM_TOKEN: u32 = 0xBAAD_F00D;
 /// The district number the reference always answers with (`AuthSrv_HandleRequestGameInstance`).
 pub const DISTRICT_NUMBER: u32 = 1;
 
+/// The primary profession the reference reports for its default character, read off its send log
+/// (`GAME_SMSG_PLAYER_UPDATE_PROFESSION`: `01`). 0 is `Profession_None`, which is not a character a
+/// client can render.
+pub const DEFAULT_PRIMARY_PROFESSION: u8 = 1;
+
+/// The unlocked-profession bitmap the reference sends (`GAME_SMSG_PLAYER_UPDATE_UNLOCKED_PROFESSIONS`:
+/// `02 00 00 00`), i.e. the bit for the profession above.
+pub const DEFAULT_UNLOCKED_PROFESSIONS: u32 = 2;
+
 /// One map a world server publishes, with what the client needs to load it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MapEntry {
@@ -461,7 +470,8 @@ async fn answer(
                 game::FACTION_MAX_BALTHAZAR,
                 game::FACTION_MAX_IMPERIAL,
             ] {
-                frames.push(game::faction_max(faction, 0));
+                // 10000, which is what the reference sends (`10 27 00 00`).
+                frames.push(game::faction_max(faction, 10_000));
             }
             frames.push(game::hard_mode_unlocked(1));
             // The reference sends an **empty** name here (`GameSrv_SendCharacterInfo`), not the
@@ -532,8 +542,10 @@ async fn answer(
     }
 }
 
-/// The reference's `MapId_Count`: the sentinel that means "all maps up to here".
-const MAP_ID_COUNT: u16 = 0xFFFF;
+/// The reference's `MapId_Count`: the sentinel the first manifest `DONE` carries, meaning "every map
+/// up to here". Its value is 877 (`0x036D`), read off the reference's own send log
+/// (`... 01 02 6D 03 00 00 00 00`).
+const MAP_ID_COUNT: u16 = 877;
 
 /// The six-message manifest the reference sends after `READY_FOR_MAP_SPAWN`
 /// (`GameSrv_SendDownloadManifest`).
@@ -567,11 +579,14 @@ const PHASE_DONE: u8 = 2;
 fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> {
     let mut frames = Vec::with_capacity(30);
 
-    // The PvP unlocks. The reference sends its own fixed item table (389 entries, `GameSrv.c`); this
-    // server has no item data, so the stream is opened and closed and the client is told nothing is
-    // unlocked. That is a smaller claim than inventing items with wrong ids.
+    // The PvP unlocks. The reference sends its own fixed table of 387 unlockable items
+    // (`GameSrv_SendPvpItems`, generated into `game::pvp_items`), and the client builds its
+    // unlockable-item table from them, so they are copied rather than skipped.
     frames.push(game::pvp_update_unlocked_skills(&[]));
     frames.push(game::pvp_update_unlocked_heroes(&[0xFFFF_FFFF; 8]));
+    for item in game::pvp_items::PVP_ITEMS {
+        frames.push(game::pvp_item_stream_add(item.id, item.params));
+    }
     frames.push(game::pvp_item_stream_end());
 
     // The account features, exactly the reference's list (`GameSrv_SendAccountFeatures`).
@@ -598,10 +613,20 @@ fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> {
     ]));
     frames.push(game::instance_loaded(PLAYER_TEAM_TOKEN));
 
-    // Skills and attributes, then factions, then the attribute spread.
+    // Skills and attributes, then factions, then the attribute spread. The profession values are the
+    // reference's own for its default character, read off its send log: primary 1 (Warrior) and one
+    // unlocked-profession bit.
     frames.push(game::agent_update_attribute_points(AGENT_ID, 50, 50));
-    frames.push(game::player_update_profession(AGENT_ID, 0, 0, 0));
-    frames.push(game::player_update_unlocked_professions(AGENT_ID, 0));
+    frames.push(game::player_update_profession(
+        AGENT_ID,
+        DEFAULT_PRIMARY_PROFESSION,
+        0,
+        0,
+    ));
+    frames.push(game::player_update_unlocked_professions(
+        AGENT_ID,
+        DEFAULT_UNLOCKED_PROFESSIONS,
+    ));
     frames.push(game::skillbar_update(AGENT_ID, &[0; 8], &[0; 8], 1));
     frames.push(game::update_unlocked_skills(&[]));
     frames.push(game::character_update_factions(
@@ -623,25 +648,28 @@ fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> {
         game::PLAYER_SPEED_BASE,
         PLAYER_TEAM_TOKEN,
     ));
-    frames.push(game::agent_property_update_int(
-        game::AGENT_PROPERTY_HEALTH,
-        AGENT_ID,
-        game::PLAYER_HEALTH_MAX,
-    ));
+    // Health and energy in the reference's order, then the regeneration rate and the public level.
+    // The reference's own values, read off its send log: energy 25, health 400, regeneration 0.0 and
+    // level 0 (it never sets `energy_per_sec` or `level` on a fresh agent).
     frames.push(game::agent_property_update_int(
         game::AGENT_PROPERTY_ENERGY,
         AGENT_ID,
         game::PLAYER_ENERGY_MAX,
     ));
+    frames.push(game::agent_property_update_int(
+        game::AGENT_PROPERTY_HEALTH,
+        AGENT_ID,
+        game::PLAYER_HEALTH_MAX,
+    ));
     frames.push(game::agent_property_update_float(
         game::AGENT_PROPERTY_ENERGY_REGEN,
         AGENT_ID,
-        game::PLAYER_ENERGY_REGEN,
+        0.0,
     ));
     frames.push(game::agent_property_update_int(
         game::AGENT_PROPERTY_PUBLIC_LEVEL,
         AGENT_ID,
-        1,
+        0,
     ));
     frames.push(game::agent_initial_effects(AGENT_ID, 0));
     frames.push(game::update_agent_visual_equipment(AGENT_ID, [0; 9]));

@@ -203,7 +203,8 @@ impl Frame {
         }
         let header = u16::from_le_bytes([bytes[0], bytes[1]]);
         let entry = tables::entry(header).ok_or(FrameError::UnknownHeader { header })?;
-        let position = walk(bytes, header, entry.fields.iter().map(shape_of_auth))?;
+        let shapes: Vec<Shape> = entry.fields.iter().map(shape_of_auth).collect();
+        let position = walk(bytes, header, &shapes)?;
         let body = bytes[HEADER_LEN..position].to_vec();
         Ok((Frame { header, body }, position))
     }
@@ -228,7 +229,8 @@ impl Frame {
         let header = u16::from_le_bytes([bytes[0], bytes[1]]);
         let fields =
             game_tables::fields(header, from_client).ok_or(FrameError::UnknownHeader { header })?;
-        let position = walk(bytes, header, fields.iter().map(shape_of_game))?;
+        let shapes: Vec<Shape> = fields.iter().map(shape_of_game).collect();
+        let position = walk(bytes, header, &shapes)?;
         let body = bytes[HEADER_LEN..position].to_vec();
         Ok((Frame { header, body }, position))
     }
@@ -239,6 +241,7 @@ impl Frame {
 /// Both tables describe their fields with their own `FieldKind` (the game table documents the counted
 /// kinds as they actually are on the wire), so each is mapped onto this small shared vocabulary rather
 /// than the walker being written twice.
+#[derive(Clone, Copy)]
 enum Shape {
     /// The message header: already consumed before the walk starts.
     Header,
@@ -246,9 +249,10 @@ enum Shape {
     Fixed(usize),
     /// A `u16` count and that many units, up to the field's capacity.
     Counted { unit: usize, capacity: u16 },
-    /// A nested struct: a count repeating the remaining fields. Nothing this project sends or accepts
-    /// uses one, and refusing it beats guessing its length.
-    Nested,
+    /// A nested struct: a `u8` count and that many repeats of the fields that follow it. Measured, not
+    /// assumed: the reference's `GAME_SMSG_PVP_ITEM_STREAM_ADD` with three parameters is 17 bytes
+    /// (`2 header + 2 item id + 1 count + 3 * 4`), which is exactly what this shape produces.
+    Nested { capacity: u8 },
 }
 
 fn shape_of_auth(field: &tables::Field) -> Shape {
@@ -275,7 +279,9 @@ fn shape_of_auth(field: &tables::Field) -> Shape {
             unit: 4,
             capacity: field.length,
         },
-        tables::FieldKind::NestedStruct => Shape::Nested,
+        tables::FieldKind::NestedStruct => Shape::Nested {
+            capacity: field.length.min(u8::MAX as u16) as u8,
+        },
     }
 }
 
@@ -302,22 +308,30 @@ fn shape_of_game(field: &game_tables::Field) -> Shape {
             unit: 4,
             capacity: field.length,
         },
-        FieldKind::NestedStruct => Shape::Nested,
+        FieldKind::NestedStruct => Shape::Nested {
+            capacity: field.length.min(u8::MAX as u16) as u8,
+        },
     }
 }
 
 /// Walk a message's field layout and return where its body ends.
 ///
-/// The one rule this implements, for both families: a counted field carries a `u16` count and consumes
-/// exactly that many units, so the table's `max_size` is an upper bound and never a length.
-fn walk(
+/// The rule this implements, for both families: a counted field carries a `u16` count and consumes
+/// exactly that many units, so the table's `max_size` is an upper bound and never a length. A nested
+/// struct is the same idea one level down — a `u8` count and that many repeats of the fields after it.
+fn walk(bytes: &[u8], header: u16, shapes: &[Shape]) -> Result<usize, FrameError> {
+    walk_from(bytes, header, HEADER_LEN, shapes)
+}
+
+fn walk_from(
     bytes: &[u8],
     header: u16,
-    shapes: impl Iterator<Item = Shape>,
+    mut position: usize,
+    shapes: &[Shape],
 ) -> Result<usize, FrameError> {
-    let mut position = HEADER_LEN;
-    for shape in shapes {
-        match shape {
+    let mut index = 0;
+    while index < shapes.len() {
+        match shapes[index] {
             Shape::Header => {}
             Shape::Fixed(width) => {
                 position += width;
@@ -344,8 +358,30 @@ fn walk(
                     return Err(FrameError::Incomplete { needed: position });
                 }
             }
-            Shape::Nested => return Err(FrameError::UnknownHeader { header }),
+            Shape::Nested { capacity } => {
+                let Some(&count) = bytes.get(position) else {
+                    return Err(FrameError::Incomplete {
+                        needed: position + 1,
+                    });
+                };
+                if count > capacity {
+                    return Err(FrameError::SizeMismatch {
+                        header,
+                        got: count as usize,
+                        expected: capacity as usize,
+                    });
+                }
+                position += 1;
+                // Every repeat is the tail of the layout, so the tail is consumed here and the loop
+                // ends: there is nothing left to walk after the repeats.
+                let tail = &shapes[index + 1..];
+                for _ in 0..count {
+                    position = walk_from(bytes, header, position, tail)?;
+                }
+                return Ok(position);
+            }
         }
+        index += 1;
     }
     Ok(position)
 }
