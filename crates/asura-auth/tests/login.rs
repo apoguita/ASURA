@@ -123,7 +123,9 @@ async fn login(
     let frame = client
         .login_message(REQUEST_ID, user_id.to_bytes_le(), session_id.to_bytes_le())
         .expect("build the login message");
-    let bytes = client.seal(&frame).expect("seal");
+    // A client message is not the table's size, so it is sealed as raw bytes rather than validated.
+    let mut bytes = frame.encode();
+    client.seal_raw(&mut bytes);
     stream.write_all(&bytes).await.expect("write the login");
 
     let mut frames: Vec<Frame> = Vec::new();

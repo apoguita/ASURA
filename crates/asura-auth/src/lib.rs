@@ -614,34 +614,11 @@ async fn next_frame(
     trace: Trace,
 ) -> Result<Option<Frame>, ConnectionError> {
     loop {
-        // The client opens with a preamble whose size the table cannot describe
-        // (`client::messages::decode_computer_info`). Consume it structurally, before any table-sized
-        // framing, or the login message behind it is swallowed.
-        loop {
-            if !session
-                .plaintext
-                .starts_with(&tables::AUTH_CMSG_SEND_COMPUTER_INFO.to_le_bytes())
-            {
-                break;
-            }
-            match messages::decode_computer_info(&session.plaintext)
-                .map_err(ConnectionError::Message)?
-            {
-                Some((info, used)) => {
-                    session.plaintext.drain(..used);
-                    if trace.on() {
-                        eprintln!(
-                            "auth <- computer info ({} bytes): user {:?} on {:?}",
-                            used, info.username, info.pc_name
-                        );
-                    }
-                }
-                // Not all of it has arrived: fall through and read more.
-                None => break,
-            }
-        }
-
-        match Frame::decode(&session.plaintext) {
+        // Client messages are framed by *walking their field layout*, not by the table's maximum size:
+        // a counted field carries a u16 count and occupies only that much
+        // (`Frame::decode_client_message`). Framing them by the table is what made a real client hang —
+        // its login message is 54 bytes, and the table says 150.
+        match Frame::decode_client_message(&session.plaintext) {
             Ok((frame, used)) => {
                 session.plaintext.drain(..used);
                 return Ok(Some(frame));

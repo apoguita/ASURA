@@ -281,13 +281,15 @@ mod tests {
         assert!(client.is_established());
 
         // The client seals a frame with its own scrambler; the server opens it with its incoming one.
+        // The server frames client messages by walking their layout, not by the table's maximum.
         let frame = client.login_message(9, [1; 16], [2; 16]).expect("builds");
-        let bytes = client.seal(&frame).expect("seals");
+        let mut bytes = frame.encode();
+        client.seal_raw(&mut bytes);
 
         let mut server_incoming = established.incoming;
         let mut received = bytes;
         server_incoming.apply(&mut received);
-        let (decoded, used) = Frame::decode(&received).expect("frames");
+        let (decoded, used) = Frame::decode_client_message(&received).expect("frames");
         assert_eq!(used, received.len());
         assert_eq!(decoded, frame);
 

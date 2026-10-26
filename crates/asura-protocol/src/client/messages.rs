@@ -83,16 +83,27 @@ impl<'a> Reader<'a> {
         Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 
-    /// A `u16` count followed by that many UTF-16 units — the shape the client uses for the counted
-    /// strings in its preamble message (see [`decode_computer_info`]). `Ok(None)` when the bytes have
-    /// not all arrived yet.
-    fn u16_utf16(&mut self) -> Result<Option<String>, MessageError> {
+    /// A `u16` count followed by that many UTF-16 units — the shape the client sends for every counted
+    /// string (see [`Frame::decode_client_message`]). `Ok(None)` when the bytes have not all arrived;
+    /// a count larger than the field's capacity is an error, as the reference treats it.
+    fn u16_utf16(
+        &mut self,
+        capacity: usize,
+        field: &'static str,
+    ) -> Result<Option<String>, MessageError> {
         let start = self.position;
         let count_bytes = match self.bytes.get(start..start + 2) {
             Some(bytes) => bytes,
             None => return Ok(None),
         };
         let count = u16::from_le_bytes([count_bytes[0], count_bytes[1]]) as usize;
+        if count > capacity {
+            return Err(MessageError::TooLong {
+                field,
+                capacity,
+                got: count,
+            });
+        }
         let end = start + 2 + count * 2;
         if end > self.bytes.len() {
             return Ok(None);
@@ -120,6 +131,10 @@ impl<'a> Reader<'a> {
 
     /// A counted UTF-16 string: a `u32` length, then that many `u16` code units, then padding to the
     /// field's capacity. The length is the number of code units, not bytes.
+    ///
+    /// This is the **server-to-client** shape the reference packs. It is kept for the tests and for
+    /// messages the reference pads; client messages use [`Reader::u16_utf16`].
+    #[allow(dead_code)]
     fn utf16(&mut self, capacity: usize, field: &'static str) -> Result<String, MessageError> {
         let count = self.u32(field)? as usize;
         if count > capacity {
@@ -162,6 +177,9 @@ impl Writer {
 
     /// A counted UTF-16 string padded to `capacity` code units, which is what the fixed-size layout
     /// requires: the field always occupies its full width whatever the name's length.
+    ///
+    /// This is the **server-to-client** form. The client sends the other form; see
+    /// [`Writer::u16_utf16`].
     fn utf16(
         &mut self,
         text: &str,
@@ -182,6 +200,33 @@ impl Writer {
         }
         self.bytes
             .resize(self.bytes.len() + (capacity - units.len()) * 2, 0);
+        Ok(self)
+    }
+
+    /// A counted UTF-16 string in the **client's** form: a `u16` count and the units, with no padding.
+    ///
+    /// The client packs this way for everything it sends (`unpack_msg` on the reference side reads a
+    /// u16 count and consumes exactly that many units), which is why a client message is shorter than
+    /// the table says.
+    fn u16_utf16(
+        &mut self,
+        text: &str,
+        capacity: usize,
+        field: &'static str,
+    ) -> Result<&mut Self, MessageError> {
+        let units: Vec<u16> = text.encode_utf16().collect();
+        if units.len() > capacity {
+            return Err(MessageError::TooLong {
+                field,
+                capacity,
+                got: units.len(),
+            });
+        }
+        self.bytes
+            .extend_from_slice(&(units.len() as u16).to_le_bytes());
+        for unit in &units {
+            self.bytes.extend_from_slice(&unit.to_le_bytes());
+        }
         Ok(self)
     }
 
@@ -247,11 +292,11 @@ pub fn decode_computer_info(bytes: &[u8]) -> Result<Option<(ComputerInfo, usize)
     }
 
     let mut reader = Reader::new(&bytes[2..]);
-    let username = match reader.u16_utf16()? {
+    let username = match reader.u16_utf16(32, "n_username")? {
         Some(name) => name,
         None => return Ok(None),
     };
-    let pc_name = match reader.u16_utf16()? {
+    let pc_name = match reader.u16_utf16(32, "pcname")? {
         Some(name) => name,
         None => return Ok(None),
     };
@@ -288,8 +333,12 @@ impl PortalAccountLogin {
         let request = reader.u32("req_id")?;
         let user_id = reader.array16(16, "user_id")?;
         let session_id = reader.array16(16, "session_id")?;
-        let character_name = reader.utf16(20, "charname")?;
-        let kind = reader.utf16(32, "type")?;
+        let character_name = reader
+            .u16_utf16(20, "charname")?
+            .ok_or(MessageError::Truncated { field: "charname" })?;
+        let kind = reader
+            .u16_utf16(32, "type")?
+            .ok_or(MessageError::Truncated { field: "type" })?;
         Ok(PortalAccountLogin {
             request,
             user_id,
@@ -306,8 +355,8 @@ impl PortalAccountLogin {
             .u32(self.request)
             .array16(self.user_id)
             .array16(self.session_id)
-            .utf16(&self.character_name, 20, "charname")?
-            .utf16(&self.kind, 32, "type")?;
+            .u16_utf16(&self.character_name, 20, "charname")?
+            .u16_utf16(&self.kind, 32, "type")?;
         Ok(Frame::new(
             tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN,
             writer.into_body(),
@@ -395,7 +444,9 @@ pub fn heartbeat(tick: u32) -> Frame {
 pub fn decode_change_character(body: &[u8]) -> Result<String, MessageError> {
     let mut reader = Reader::new(body);
     reader.u32("req_id")?;
-    reader.utf16(20, "charname")
+    reader
+        .u16_utf16(20, "charname")?
+        .ok_or(MessageError::Truncated { field: "charname" })
 }
 
 /// `AUTH_SMSG_ACCOUNT_SETTINGS` (`0x0016`): the client's stored settings, as a fixed blob.
@@ -459,21 +510,13 @@ pub fn account_info(request: u32, account: [u8; 16], character: Option<[u8; 16]>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::frame::FrameError;
 
     #[test]
-    fn every_message_this_module_builds_is_the_size_the_table_requires() {
-        // The table is the authority on size; a body built here that disagrees cannot be sent.
-        let login = PortalAccountLogin {
-            request: 7,
-            user_id: [0x11; 16],
-            session_id: [0x22; 16],
-            character_name: "Asura".to_string(),
-            kind: "Gw1".to_string(),
-        };
-        let frame = login.frame().expect("builds");
-        assert_eq!(frame.len(), 150);
-        assert!(frame.size_is_expected());
-
+    fn every_server_to_client_message_is_the_size_the_table_requires() {
+        // The table is the authority for what *the server* sends: the reference packs those to the
+        // format's full width, so their size is fixed and a body built here that disagrees cannot be
+        // sent. Client messages are the other shape and are covered by the next test.
         let response = RequestResponse {
             request: 7,
             status: STATUS_OK,
@@ -491,20 +534,51 @@ mod tests {
 
         assert_eq!(friend_stream_end(7).len(), 10);
         assert_eq!(session_info(1, 0).len(), 10);
+        assert_eq!(heartbeat(16).len(), 6);
 
         for frame in [
-            frame,
             response.frame(),
             character,
             settings,
             info,
             friend_stream_end(7),
             session_info(1, 0),
+            heartbeat(16),
         ] {
             frame
                 .encode_validated()
                 .unwrap_or_else(|err| panic!("header {:#06X}: {err}", frame.header));
         }
+    }
+
+    #[test]
+    fn a_client_message_is_shorter_than_its_table_maximum_and_walks_its_own_layout() {
+        // Measured against a real client: its login is 54 bytes where the table says 150. The table's
+        // number is a maximum, and treating it as a size is how this service made a client hang.
+        let login = PortalAccountLogin {
+            request: 7,
+            user_id: [0x11; 16],
+            session_id: [0x22; 16],
+            character_name: String::new(),
+            kind: "Portal".to_string(),
+        };
+        let frame = login.frame().expect("builds");
+        // header 2, req_id 4, two 16-byte ids, an empty name (2), a six-unit type (2 + 12).
+        assert_eq!(frame.len(), 54);
+        assert!(
+            !frame.size_is_expected(),
+            "a client message is not the table's size, and must not be validated as if it were"
+        );
+        assert!(frame.len() < tables::expected_size(frame.header).expect("known header"));
+
+        let bytes = frame.encode();
+        let (decoded, used) = Frame::decode_client_message(&bytes).expect("walks its layout");
+        assert_eq!(used, bytes.len());
+        assert_eq!(decoded, frame);
+        assert_eq!(
+            PortalAccountLogin::decode(&decoded).expect("decodes"),
+            login
+        );
     }
 
     #[test]
@@ -570,7 +644,7 @@ mod tests {
         };
 
         let bytes = login.frame().expect("builds").encode();
-        let (frame, used) = Frame::decode(&bytes).expect("frames");
+        let (frame, used) = Frame::decode_client_message(&bytes).expect("frames");
         assert_eq!(used, bytes.len());
 
         let decoded = PortalAccountLogin::decode(&frame).expect("decodes");
@@ -683,13 +757,88 @@ mod tests {
             kind: String::new(),
         };
         let bytes = login.frame().expect("builds").encode();
-        let (frame, _) = Frame::decode(&bytes).expect("frames");
+        let (frame, _) = Frame::decode_client_message(&bytes).expect("frames");
         let decoded = PortalAccountLogin::decode(&frame).expect("decodes");
         assert_eq!(decoded.character_name, "");
     }
 
-    /// Exactly what a real client (build 39112) sent to this service after the key exchange,
-    /// captured from the service's own trace on 2026-10-26.
+    /// Exactly the login message a real client (build 39112) sent to this service, captured from its
+    /// trace on 2026-10-26 — the message the service was waiting 96 extra bytes for, and hanging on.
+    const CAPTURED_LOGIN: &[u8] = &[
+        0x38, 0x80, 0x01, 0x00, 0x00, 0x00, 0xe2, 0x0e, 0x52, 0xfa, 0x19, 0x44, 0xb4, 0x4e, 0xae,
+        0x49, 0x6e, 0x9a, 0xbe, 0x6e, 0xf2, 0x4f, 0x5d, 0xbf, 0xb9, 0xd8, 0xb1, 0x90, 0xbd, 0x4c,
+        0x9b, 0x76, 0x88, 0xda, 0x7b, 0xe7, 0x63, 0xb6, 0x00, 0x00, 0x06, 0x00, 0x50, 0x00, 0x6f,
+        0x00, 0x72, 0x00, 0x74, 0x00, 0x61, 0x00, 0x6c, 0x00,
+    ];
+
+    #[test]
+    fn the_captured_login_from_a_real_client_frames_and_decodes() {
+        // 54 bytes, where the table says 150. This is the exact case that made a real client hang.
+        assert_eq!(CAPTURED_LOGIN.len(), 54);
+
+        let (frame, used) = Frame::decode_client_message(CAPTURED_LOGIN).expect("frames");
+        assert_eq!(used, 54, "the whole message, and no more");
+        assert_eq!(frame.header, tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN);
+        assert_eq!(frame.body.len(), 52);
+
+        let login = PortalAccountLogin::decode(&frame).expect("decodes");
+        assert_eq!(login.request, 1);
+        // The rig`s portal user, fa520ee2-4419-4eb4-ae49-6e9abe6ef24f, in the wire`s little-endian
+        // UUID variant. Written as bytes so the test needs no uuid dependency.
+        assert_eq!(
+            login.user_id,
+            [
+                0xe2, 0x0e, 0x52, 0xfa, 0x19, 0x44, 0xb4, 0x4e, 0xae, 0x49, 0x6e, 0x9a, 0xbe, 0x6e,
+                0xf2, 0x4f
+            ],
+            "the portal user the rig presents"
+        );
+        assert_eq!(
+            login.session_id,
+            [
+                0x5d, 0xbf, 0xb9, 0xd8, 0xb1, 0x90, 0xbd, 0x4c, 0x9b, 0x76, 0x88, 0xda, 0x7b, 0xe7,
+                0x63, 0xb6
+            ],
+            "and its session id, d8b9bf5d-90b1-4cbd-9b76-88da7be763b6"
+        );
+        assert_eq!(login.character_name, "", "a first login names no character");
+        assert_eq!(login.kind, "Portal");
+    }
+
+    #[test]
+    fn a_client_message_whose_count_exceeds_its_field_is_refused() {
+        // The reference answers ERR_BAD_USER_DATA and closes; a count of 21 in a 20-slot name field is
+        // not an instruction to read past the field.
+        let mut bytes = CAPTURED_LOGIN.to_vec();
+        let name_count_at = 38; // after header, req_id, user_id and session_id
+        bytes[name_count_at] = 21;
+        assert_eq!(
+            Frame::decode_client_message(&bytes),
+            Err(FrameError::SizeMismatch {
+                header: tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN,
+                got: 21,
+                expected: 20
+            })
+        );
+    }
+
+    #[test]
+    fn a_server_to_client_message_is_still_framed_by_the_table() {
+        // The two directions are different shapes and must not be confused: the server pads, so its
+        // messages are the table's size.
+        let frame = character_info(1, [0x11; 16], "Asura").expect("builds");
+        let bytes = frame.encode();
+        let (decoded, used) = Frame::decode(&bytes).expect("table framing");
+        assert_eq!(used, 138);
+        assert_eq!(decoded, frame);
+        // ... and the client-facing walker would also frame it, because every field is fixed once
+        // counted strings are read as the *client* would. They disagree only for counted fields, which
+        // is exactly why the direction has to be stated.
+        assert!(Frame::decode_client_message(&bytes).is_err());
+    }
+
+    /// Exactly what a real client (build 39112) sent after the key exchange, captured from this
+    /// service's own trace on 2026-10-26: 42 bytes of computer info, then a 22-byte computer hash.
     const CAPTURED_PREAMBLE: &[u8] = &[
         0x01, 0x80, 0x03, 0x00, 0x41, 0x00, 0x70, 0x00, 0x6f, 0x00, 0x0f, 0x00, 0x44, 0x00, 0x45,
         0x00, 0x53, 0x00, 0x4b, 0x00, 0x54, 0x00, 0x4f, 0x00, 0x50, 0x00, 0x2d, 0x00, 0x44, 0x00,

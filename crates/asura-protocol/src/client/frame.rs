@@ -164,6 +164,10 @@ impl Frame {
     /// mid-stream is framed as whatever its first two bytes name, so a caller must only ever pass a
     /// buffer whose start it knows is a message boundary. The connection does that by keeping its
     /// buffer between reads.
+    ///
+    /// This is the **server-to-client** rule: the reference packs each message to its format's full
+    /// width, so those are fixed. Client-to-server messages are not; see
+    /// [`Frame::decode_client_message`].
     pub fn decode(bytes: &[u8]) -> Result<(Frame, usize), FrameError> {
         if bytes.len() < HEADER_LEN {
             return Err(FrameError::Incomplete { needed: HEADER_LEN });
@@ -178,6 +182,86 @@ impl Frame {
 
         let body = bytes[HEADER_LEN..expected].to_vec();
         Ok((Frame { header, body }, expected))
+    }
+
+    /// Take one client-to-server message off the front of `bytes`, and say how many bytes it used.
+    ///
+    /// **A client message is not a fixed size.** The reference's `unpack_msg` walks the message's field
+    /// list, and for every counted field (`TYPE_STRING_16` and the `ARRAY_*` kinds) it reads a **u16**
+    /// count from the wire and consumes exactly that many units — so a message is as long as its own
+    /// contents, and the table's `max_size` is an upper bound, not a size. Measured against a real
+    /// client: its `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` is **54 bytes**, not the table's 150, because the
+    /// character name is empty and the type string is six units. Waiting for 150 is exactly how this
+    /// service made a real client hang at "Connecting".
+    ///
+    /// A count larger than its field's capacity is refused, as the reference refuses it
+    /// (`ERR_BAD_USER_DATA`), rather than reading past the field.
+    pub fn decode_client_message(bytes: &[u8]) -> Result<(Frame, usize), FrameError> {
+        if bytes.len() < HEADER_LEN {
+            return Err(FrameError::Incomplete { needed: HEADER_LEN });
+        }
+        let header = u16::from_le_bytes([bytes[0], bytes[1]]);
+        let entry = tables::entry(header).ok_or(FrameError::UnknownHeader { header })?;
+
+        let mut position = HEADER_LEN;
+        for field in entry.fields {
+            // The header field is the two bytes already consumed.
+            if matches!(field.kind, tables::FieldKind::MsgHeader) {
+                continue;
+            }
+            let fixed = match field.kind {
+                tables::FieldKind::MsgHeaderGame => Some(4),
+                tables::FieldKind::AgentId
+                | tables::FieldKind::Float
+                | tables::FieldKind::Dword => Some(4),
+                tables::FieldKind::Vect2 => Some(8),
+                tables::FieldKind::Vect3 => Some(12),
+                tables::FieldKind::Byte => Some(1),
+                tables::FieldKind::Word => Some(2),
+                tables::FieldKind::Blob => Some(field.length as usize),
+                _ => None,
+            };
+            if let Some(width) = fixed {
+                position += width;
+                if position > bytes.len() {
+                    return Err(FrameError::Incomplete { needed: position });
+                }
+                continue;
+            }
+
+            // A counted field: a u16 count, then that many units.
+            let unit = match field.kind {
+                tables::FieldKind::String16 | tables::FieldKind::Array16 => 2,
+                tables::FieldKind::Array8 => 1,
+                tables::FieldKind::Array32 => 4,
+                // A nested struct is a count of repeats of the remaining fields. Nothing on the login
+                // path uses one, and refusing it is better than guessing its length.
+                tables::FieldKind::NestedStruct => {
+                    return Err(FrameError::UnknownHeader { header });
+                }
+                _ => unreachable!("every other kind is fixed and handled above"),
+            };
+            if position + 2 > bytes.len() {
+                return Err(FrameError::Incomplete {
+                    needed: position + 2,
+                });
+            }
+            let count = u16::from_le_bytes([bytes[position], bytes[position + 1]]) as usize;
+            if count > field.length as usize {
+                return Err(FrameError::SizeMismatch {
+                    header,
+                    got: count,
+                    expected: field.length as usize,
+                });
+            }
+            position += 2 + count * unit;
+            if position > bytes.len() {
+                return Err(FrameError::Incomplete { needed: position });
+            }
+        }
+
+        let body = bytes[HEADER_LEN..position].to_vec();
+        Ok((Frame { header, body }, position))
     }
 }
 
