@@ -238,10 +238,28 @@ async fn main() -> ExitCode {
         }
     };
 
+    let replay = match asura_world::replay::Replay::from_environment() {
+        Ok(replay) => replay,
+        Err(err) => {
+            eprintln!("asura-world: could not read the replay capture: {err}");
+            return ExitCode::from(5);
+        }
+    };
+    if let Some(replay) = &replay {
+        eprintln!(
+            "asura-world: replaying the reference's captured stream ({} / {} / {} / {} messages)",
+            replay.load.len(),
+            replay.items.len(),
+            replay.spawn.len(),
+            replay.players.len()
+        );
+    }
+
     let world = Arc::new(World {
         pool,
         world_id,
         maps,
+        replay,
     });
     if let Err(err) = serve(listener, world, trace.on()).await {
         eprintln!("asura-world: the listener stopped: {err}");

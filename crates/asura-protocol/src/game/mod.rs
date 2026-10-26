@@ -162,6 +162,73 @@ pub const CHAR_CLASS_PLAYER_BASE: u32 = 0x3000_0000;
 /// `AgentType_Living`: the agent type of a player (`GmAgent.h`).
 pub const AGENT_TYPE_LIVING: u8 = 1;
 
+/// A character's appearance, as the client's own 32-bit bitfield (`GmChar.h`, `Appearance`).
+///
+/// This is not decoration: the client builds the character model from these bits, and an all-zero
+/// appearance says `Profession_None` with hair style 0 -- a model it has no data for. The reference's
+/// own character sends `0x03100000` in `GAME_SMSG_PLAYER_CREATE` (its own trace, read by
+/// `tools/compare-load.py`), which decodes as profession 1 and hair style 3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Appearance {
+    /// 1 bit.
+    pub sex: u8,
+    /// 4 bits.
+    pub height: u8,
+    /// 5 bits.
+    pub skin_color: u8,
+    /// 5 bits.
+    pub hair_color: u8,
+    /// 5 bits.
+    pub face_style: u8,
+    /// 4 bits.
+    pub primary_profession: u8,
+    /// 6 bits.
+    pub hair_style: u8,
+    /// 2 bits: 0 Prophecies, 1 Factions, 2 Nightfall.
+    pub race: u8,
+}
+
+impl Appearance {
+    /// The appearance the reference reports for its default character: profession 1 (Warrior) and
+    /// hair style 3, everything else zero. It is a copy of the wire, not a design.
+    pub const REFERENCE_DEFAULT: Appearance = Appearance {
+        sex: 0,
+        height: 0,
+        skin_color: 0,
+        hair_color: 0,
+        face_style: 0,
+        primary_profession: 1,
+        hair_style: 3,
+        race: 0,
+    };
+
+    /// Pack into the wire's 32-bit word, in the client's field order.
+    pub fn pack(&self) -> u32 {
+        (u32::from(self.sex) & 0x1)
+            | ((u32::from(self.height) & 0xF) << 1)
+            | ((u32::from(self.skin_color) & 0x1F) << 5)
+            | ((u32::from(self.hair_color) & 0x1F) << 10)
+            | ((u32::from(self.face_style) & 0x1F) << 15)
+            | ((u32::from(self.primary_profession) & 0xF) << 20)
+            | ((u32::from(self.hair_style) & 0x3F) << 24)
+            | ((u32::from(self.race) & 0x3) << 30)
+    }
+
+    /// Unpack a word from the wire, for tests and for reading one back.
+    pub fn unpack(word: u32) -> Self {
+        Appearance {
+            sex: (word & 0x1) as u8,
+            height: ((word >> 1) & 0xF) as u8,
+            skin_color: ((word >> 5) & 0x1F) as u8,
+            hair_color: ((word >> 10) & 0x1F) as u8,
+            face_style: ((word >> 15) & 0x1F) as u8,
+            primary_profession: ((word >> 20) & 0xF) as u8,
+            hair_style: ((word >> 24) & 0x3F) as u8,
+            race: ((word >> 30) & 0x3) as u8,
+        }
+    }
+}
+
 /// A message body being built, with the header first.
 struct Builder {
     bytes: Vec<u8>,
@@ -877,6 +944,34 @@ mod tests {
         let frame = character_update_factions(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         assert_eq!(wire(&frame), 62);
         assert_eq!(frame.body.len(), 60, "fifteen dwords");
+    }
+
+    #[test]
+    fn the_appearance_bitfield_matches_the_clients_own_word() {
+        // The reference's `PLAYER_CREATE` carries 0x03100000 for its character. If this packing is
+        // wrong the client builds a model out of nonsense, so the number is asserted from the wire.
+        assert_eq!(Appearance::REFERENCE_DEFAULT.pack(), 0x0310_0000);
+        let unpacked = Appearance::unpack(0x0310_0000);
+        assert_eq!(unpacked.primary_profession, 1, "Warrior");
+        assert_eq!(unpacked.hair_style, 3);
+        assert_eq!(unpacked.race, 0, "Prophecies");
+        assert_eq!(unpacked.sex, 0);
+        assert_eq!(unpacked.height, 0);
+        assert_eq!(
+            Appearance::unpack(Appearance::REFERENCE_DEFAULT.pack()),
+            Appearance::REFERENCE_DEFAULT
+        );
+    }
+
+    #[test]
+    fn a_zero_appearance_is_not_the_default_one() {
+        // The bug this exists to prevent: 0 packs to profession 0 (Profession_None) and hair 0, which
+        // is a character model the client has no data for.
+        assert_ne!(
+            Appearance::default().pack(),
+            Appearance::REFERENCE_DEFAULT.pack()
+        );
+        assert_eq!(Appearance::unpack(0).primary_profession, 0);
     }
 
     #[test]

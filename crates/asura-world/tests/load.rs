@@ -91,6 +91,7 @@ impl Harness {
                 spawn: (6602.0, 4485.0),
                 spawn_plane: 0,
             }],
+            replay: None,
         });
         let server = tokio::spawn(async move {
             let _ = serve(listener, world, true).await;

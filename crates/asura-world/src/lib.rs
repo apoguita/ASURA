@@ -20,7 +20,7 @@
 //! ```
 //!
 //! What this module deliberately does **not** do yet: simulate anything. There is one player, no
-//! NPCs, no items, no combat — the entity that exists is the character the transfer named, standing
+//! NPCs, no items, no combat â€” the entity that exists is the character the transfer named, standing
 //! where the map's spawn name says. Everything else arrives with the milestones that own it, and the
 //! messages are sent anyway because a client that does not get them never leaves the loading screen.
 
@@ -52,7 +52,7 @@ pub const PING_VALUE: u32 = 20;
 /// The one player and one agent this world server has.
 ///
 /// The reference allocates both from per-server id tables (thousands of agents, hundreds of players).
-/// ASURA has one character in a map, so the id table is a constant — and the party message carries
+/// ASURA has one character in a map, so the id table is a constant â€” and the party message carries
 /// these as `u16`, which is the only real constraint. It becomes a real allocator when there is more
 /// than one player to allocate for.
 pub const PLAYER_ID: u32 = 1;
@@ -103,6 +103,10 @@ pub struct World {
     /// The maps this world publishes. A client that presents a map not in this list has been sent to
     /// the wrong world, and is refused.
     pub maps: Vec<MapEntry>,
+    /// When set, the blocks sent to a client are the reference's own captured bytes instead of the
+    /// ones this server builds (see the `replay` module). A bisection tool: if a client survives a
+    /// replay and dies against the built blocks, the difference is payload content.
+    pub replay: Option<crate::replay::Replay>,
 }
 
 impl World {
@@ -111,6 +115,9 @@ impl World {
         self.maps.iter().find(|map| map.map_id == map_id)
     }
 }
+
+/// Replaying the reference's captured stream, for bisection (ASURA_WORLD_REPLAY).
+pub mod replay;
 
 /// Why a connection ended.
 #[derive(Debug)]
@@ -311,25 +318,11 @@ pub async fn handle_connection(
 
     // ---- 5. the load block ------------------------------------------------------------------
     // The reference sends these four the moment it has the connection, without waiting to be asked.
-    send(
-        &mut stream,
-        &mut session,
-        vec![
-            game::instance_load_head_default(),
-            game::instance_player_data_start(),
-            game::instance_load_player_name(&name),
-            game::instance_load_info(
-                AGENT_ID,
-                map.map_id as u16,
-                1, // the reference hardcodes this; see the builder's documentation
-                DISTRICT_NUMBER,
-                0, // language: the reference's default
-                0, // is_observer
-            ),
-        ],
-        trace,
-    )
-    .await?;
+    let block = match &world.replay {
+        Some(replay) => replay.load.clone(),
+        None => load_block(&map, &name),
+    };
+    send(&mut stream, &mut session, block, trace).await?;
 
     // ---- 6/7. the asks, then the session ----------------------------------------------------
     let started = Instant::now();
@@ -363,8 +356,17 @@ pub async fn handle_connection(
                                     hex_preview(&frame.encode())
                                 );
                             }
-                            if !answer(&mut stream, &mut session, frame, &map, &name, started, trace)
-                                .await?
+                            if !answer(
+                                &mut stream,
+                                &mut session,
+                                frame,
+                                &map,
+                                &name,
+                                started,
+                                world.replay.as_ref(),
+                                trace,
+                            )
+                            .await?
                             {
                                 break 'session;
                             }
@@ -412,6 +414,75 @@ fn hex_preview(bytes: &[u8]) -> String {
         .join(" ")
 }
 
+/// The answer to the client's item request (`GameSrv_HandleInstanceLoadRequestItems`).
+///
+/// A pure function of the map so that `examples/dump-load.rs` can print exactly what a client would
+/// receive, byte for byte, without a socket â€” which is how this stream is compared against the
+/// reference's own log.
+pub fn items_block(map: &MapEntry) -> Vec<Frame> {
+    let mut frames = vec![
+        game::item_stream_create(1, 0),
+        game::item_set_active_weapon_set(1, 0),
+    ];
+    // The inventory: the six bags the reference always creates, empty. A client that is given no bag
+    // has nowhere to put the weapon sets that follow, and the reference never sends an item stream
+    // without them (`GameSrv_SendInventory`).
+    for (bag_id, model_id, bag_type, slots) in game::DEFAULT_BAGS {
+        frames.push(game::inventory_create_bag(
+            1, bag_type, model_id, bag_id, slots, 0,
+        ));
+    }
+    // Four empty weapon slots, exactly as `GameSrv_SendWeaponSlots` sends them.
+    for slot in 0..4u8 {
+        frames.push(game::item_weapon_set(1, slot, 0, 0));
+    }
+    frames.push(game::update_gold_storage(1, 0));
+    for faction in [
+        game::FACTION_MAX_KURZICK,
+        game::FACTION_MAX_LUXON,
+        game::FACTION_MAX_BALTHAZAR,
+        game::FACTION_MAX_IMPERIAL,
+    ] {
+        // 10000, which is what the reference sends (`10 27 00 00`).
+        frames.push(game::faction_max(faction, 10_000));
+    }
+    frames.push(game::hard_mode_unlocked(1));
+    // The reference sends an **empty** name here (`GameSrv_SendCharacterInfo`), not the character's:
+    // the client already has the name from the load block.
+    frames.push(game::character_update_info(""));
+    frames.push(game::map_update_current(map.map_id as u16));
+    frames.push(game::ready_for_map_spawn());
+    frames.extend(manifest(map.map_id as u16));
+    frames
+}
+
+/// The answer to the client's spawn request: the map blob, and where to stand inside it.
+pub fn spawn_block(map: &MapEntry) -> Vec<Frame> {
+    vec![game::instance_load_spawn_point(
+        map.map_file_id,
+        map.spawn.0,
+        map.spawn.1,
+        map.spawn_plane,
+    )]
+}
+
+/// The four messages a world server sends without being asked, the moment it has the connection.
+pub fn load_block(map: &MapEntry, name: &str) -> Vec<Frame> {
+    vec![
+        game::instance_load_head_default(),
+        game::instance_player_data_start(),
+        game::instance_load_player_name(name),
+        game::instance_load_info(
+            AGENT_ID,
+            map.map_id as u16,
+            1, // the reference hardcodes this; see the builder's documentation
+            DISTRICT_NUMBER,
+            0, // language: the reference's default
+            0, // is_observer
+        ),
+    ]
+}
+
 /// Scramble and write frames.
 async fn send(
     stream: &mut TcpStream,
@@ -439,6 +510,7 @@ async fn answer(
     map: &MapEntry,
     name: &str,
     started: Instant,
+    replay: Option<&crate::replay::Replay>,
     trace: bool,
 ) -> Result<bool, GameError> {
     let _ = &frame.body; // no message here carries a field this world reads yet
@@ -447,65 +519,33 @@ async fn answer(
         // slots, the gold, the faction caps, the character info, the map, the spawn readiness and the
         // download manifest -- in that order (`GameSrv_HandleInstanceLoadRequestItems`).
         0x8091 => {
-            let mut frames = vec![
-                game::item_stream_create(1, 0),
-                game::item_set_active_weapon_set(1, 0),
-            ];
-            // The inventory: the six bags the reference always creates, empty. A client that is given
-            // no bag has nowhere to put the weapon sets that follow, and the reference never sends an
-            // item stream without them (`GameSrv_SendInventory`).
-            for (bag_id, model_id, bag_type, slots) in game::DEFAULT_BAGS {
-                frames.push(game::inventory_create_bag(
-                    1, bag_type, model_id, bag_id, slots, 0,
-                ));
-            }
-            // Four empty weapon slots, exactly as `GameSrv_SendWeaponSlots` sends them.
-            for slot in 0..4u8 {
-                frames.push(game::item_weapon_set(1, slot, 0, 0));
-            }
-            frames.push(game::update_gold_storage(1, 0));
-            for faction in [
-                game::FACTION_MAX_KURZICK,
-                game::FACTION_MAX_LUXON,
-                game::FACTION_MAX_BALTHAZAR,
-                game::FACTION_MAX_IMPERIAL,
-            ] {
-                // 10000, which is what the reference sends (`10 27 00 00`).
-                frames.push(game::faction_max(faction, 10_000));
-            }
-            frames.push(game::hard_mode_unlocked(1));
-            // The reference sends an **empty** name here (`GameSrv_SendCharacterInfo`), not the
-            // character's: the client already has the name from the load block.
-            frames.push(game::character_update_info(""));
-            frames.push(game::map_update_current(map.map_id as u16));
-            frames.push(game::ready_for_map_spawn());
-            frames.extend(manifest(map.map_id as u16));
-            send(stream, session, frames, trace).await?;
+            let block = match replay {
+                Some(replay) => replay.items.clone(),
+                None => items_block(map),
+            };
+            send(stream, session, block, trace).await?;
             Ok(true)
         }
 
         // The client asks where to stand. The reference answers with the agent's own position and the
         // map blob's file id.
         0x8088 => {
-            send(
-                stream,
-                session,
-                vec![game::instance_load_spawn_point(
-                    map.map_file_id,
-                    map.spawn.0,
-                    map.spawn.1,
-                    map.spawn_plane,
-                )],
-                trace,
-            )
-            .await?;
+            let block = match replay {
+                Some(replay) => replay.spawn.clone(),
+                None => spawn_block(map),
+            };
+            send(stream, session, block, trace).await?;
             Ok(true)
         }
 
         // The client asks who else is here. This is the big block, and its last message
         // (`INSTANCE_LOAD_FINISH`) is what takes the client off the loading screen.
         0x8090 => {
-            send(stream, session, player_block(name, map, started), trace).await?;
+            let block = match replay {
+                Some(replay) => replay.players.clone(),
+                None => player_block(name, map, started),
+            };
+            send(stream, session, block, trace).await?;
             Ok(true)
         }
 
@@ -556,7 +596,7 @@ const MAP_ID_COUNT: u16 = 877;
 /// there may consider the whole download finished before it starts.
 ///
 /// The first `DONE` carries the `MapId_Count` sentinel, the second the map itself.
-fn manifest(map_id: u16) -> Vec<Frame> {
+pub fn manifest(map_id: u16) -> Vec<Frame> {
     vec![
         game::instance_manifest_phase(PHASE_1),
         game::instance_manifest_phase(PHASE_2),
@@ -576,7 +616,7 @@ const PHASE_DONE: u8 = 2;
 
 /// Everything the client is told about the players in the instance, in the reference's order
 /// (`GameSrv_HandleInstanceLoadRequestPlayers`).
-fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> {
+pub fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> {
     let mut frames = Vec::with_capacity(30);
 
     // The PvP unlocks. The reference sends its own fixed table of 387 unlockable items
@@ -637,8 +677,15 @@ fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> {
         started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32,
     ));
 
-    // The player, the agent, and what a client needs in order to draw them.
-    frames.push(game::player_create(PLAYER_ID, AGENT_ID, 0, name));
+    // The player, the agent, and what a client needs in order to draw them. The appearance carries
+    // the profession the model is built from: all-zero bits say `Profession_None`, which is not a
+    // character the client can draw, so the reference's own default is used.
+    frames.push(game::player_create(
+        PLAYER_ID,
+        AGENT_ID,
+        game::Appearance::REFERENCE_DEFAULT.pack(),
+        name,
+    ));
     frames.push(game::world_create_agent(
         AGENT_ID,
         game::CHAR_CLASS_PLAYER_BASE | PLAYER_ID,

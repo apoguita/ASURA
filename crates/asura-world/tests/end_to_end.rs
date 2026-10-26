@@ -123,6 +123,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
             spawn: SPAWN,
             spawn_plane: 0,
         }],
+        replay: None,
     });
     let world_task = tokio::spawn(async move {
         let _ = serve_world(world_listener, world, true).await;
