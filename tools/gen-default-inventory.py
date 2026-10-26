@@ -121,6 +121,10 @@ def render(window, ids):
     lines.append("/// Each entry is a whole message: the header, then the body. They are replayed as they are,")
     lines.append("/// because every field in them (file ids, models, names, placement) is the reference's own")
     lines.append("/// data rather than something this project can derive.")
+    # rustfmt would reflow these one-line entries and `cargo fmt` runs in the battery, so the generated
+    # file must be skipped by it -- otherwise `--check` reports staleness that is only formatting, which
+    # is a false alarm that trains a reader to ignore the check.
+    lines.append("#[rustfmt::skip]")
     lines.append("pub const DEFAULT_INVENTORY: &[(u16, &[u8])] = &[")
     for header, data in window:
         body = ", ".join("0x%02X" % byte for byte in data[2:])
