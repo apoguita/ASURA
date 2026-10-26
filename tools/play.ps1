@@ -54,7 +54,17 @@ function Find-Cargo {
 function Invoke-Step {
     param([string] $Script, [string] $Label)
     Write-Host "== $Label"
-    $code = & (Get-Command powershell).Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot $Script)
+    # The child's output is passed through rather than captured into `$code`: PowerShell would then
+    # compare its stdout text against 0 and call a successful step a failure.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & (Get-Command powershell).Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot $Script) 2>&1 |
+            ForEach-Object { Write-Host "$_" }
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
     if ($code -ne 0) { throw "$Label failed (exit $code)" }
 }
 
@@ -68,8 +78,19 @@ Invoke-Step -Script "seed-map.ps1" -Label "seeding the maps a world can host"
 Write-Host ""
 
 Write-Host "== building"
-& $cargo build --offline -p asura-auth -p asura-world 2>&1 | Select-String -Pattern 'error|warning: unused' | ForEach-Object { "$_" }
-if ($LASTEXITCODE -ne 0) { throw "the build failed" }
+# Cargo writes its progress to stderr, and PowerShell turns native stderr into error records that
+# $ErrorActionPreference = "Stop" treats as fatal -- a successful build would abort this script.
+$previous = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    & $cargo build --offline -p asura-auth -p asura-world 2>&1 |
+        Select-String -Pattern 'error|warning: unused' |
+        ForEach-Object { Write-Host "$_" }
+    $buildCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previous
+}
+if ($buildCode -ne 0) { throw "the build failed (exit $buildCode)" }
 
 $authExe = Join-Path $repo "target\debug\asura-auth.exe"
 $worldExe = Join-Path $repo "target\debug\asura-world.exe"
