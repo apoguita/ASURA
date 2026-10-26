@@ -35,6 +35,8 @@ use asura_protocol::client::handshake::{self, Established, CLIENT_SEED_LEN, MAST
 use asura_protocol::client::version::{self, GAME_CMSG_VERSION_LEN};
 use asura_protocol::client::{Frame, FrameError};
 use asura_protocol::game;
+
+use crate::agent::AgentState;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -117,6 +119,9 @@ impl World {
 }
 
 /// Replaying the reference's captured stream, for bisection (ASURA_WORLD_REPLAY).
+/// One agent's position, and the reference's rules for believing a client about it.
+pub mod agent;
+
 pub mod replay;
 
 /// Why a connection ended.
@@ -315,6 +320,13 @@ pub async fn handle_connection(
     }
 
     let mut session = Session::new(established);
+    // The one agent this world has: the character the transfer named, standing at the map's spawn.
+    let mut agent = AgentState::new(
+        AGENT_ID,
+        map.spawn,
+        map.spawn_plane,
+        game::PLAYER_SPEED_BASE,
+    );
 
     // ---- 5. the load block ------------------------------------------------------------------
     // The reference sends these four the moment it has the connection, without waiting to be asked.
@@ -363,6 +375,7 @@ pub async fn handle_connection(
                                 &map,
                                 &name,
                                 started,
+                                &mut agent,
                                 world.replay.as_ref(),
                                 trace,
                             )
@@ -510,6 +523,7 @@ async fn answer(
     map: &MapEntry,
     name: &str,
     started: Instant,
+    agent: &mut AgentState,
     replay: Option<&crate::replay::Replay>,
     trace: bool,
 ) -> Result<bool, GameError> {
@@ -566,10 +580,103 @@ async fn answer(
 
         // Movement. This world has no simulation yet, so a move is acknowledged the only honest way
         // available: nothing is sent, and the trace says why. The client keeps its own prediction; a
-        // server that echoed a position it does not simulate would be inventing state.
-        0x803E | 0x803D => {
+        // The client asks to walk somewhere (`GameSrv_HandleMoveToCoord`). The reference answers with the
+        // next waypoint of its own path; this server has no navmesh, so it answers with the client's own
+        // destination -- a straight line, which is what it can honestly promise.
+        0x803E => {
+            if frame.body.len() < 12 {
+                return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
+            }
+            let destination = (
+                f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
+                f32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]),
+            );
+            let plane =
+                u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]])
+                    as u16;
             if trace {
-                eprintln!("world: movement is not simulated yet; nothing to broadcast");
+                eprintln!(
+                    "world: agent {} walks to ({:.1}, {:.1}) plane {plane}",
+                    agent.agent_id, destination.0, destination.1
+                );
+            }
+            send(
+                stream,
+                session,
+                vec![game::agent_move_to_point(
+                    agent.agent_id,
+                    destination,
+                    plane,
+                    agent.plane,
+                )],
+                trace,
+            )
+            .await?;
+            Ok(true)
+        }
+
+        // The client reports where it is (`GameSrv_HandlePositionUpdate`). The position is adopted when
+        // the budget allows it, clamped when it does not, and refused across a plane change that is too
+        // far. Nothing is sent back: the client already knows where it is, and with one player there is
+        // nobody else to tell.
+        0x803D => {
+            if frame.body.len() < 12 {
+                return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
+            }
+            let position = (
+                f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
+                f32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]),
+            );
+            let plane =
+                u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]])
+                    as u16;
+            let adopted = agent.adopt_report(position, plane, Instant::now());
+            if trace {
+                eprintln!(
+                    "world: agent {} reported ({:.1}, {:.1}) plane {plane}: {adopted:?} -> ({:.1}, \
+                     {:.1})",
+                    agent.agent_id, position.0, position.1, agent.position.0, agent.position.1
+                );
+            }
+            Ok(true)
+        }
+
+        // The client stopped walking (`GameSrv_HandleCancelMovement`): the agent stops where it is and
+        // everyone is told, which is the mover too as far as this server is concerned.
+        0x8028 => {
+            send(
+                stream,
+                session,
+                vec![game::agent_stop_moving(agent.agent_id)],
+                trace,
+            )
+            .await?;
+            Ok(true)
+        }
+
+        // The client corrects its position after a cancelled walk
+        // (`GameSrv_HandleLastPosOnMoveCanceled`): short corrections on the same plane are taken, longer
+        // ones refused, and nothing is sent either way.
+        0x8047 => {
+            if frame.body.len() < 12 {
+                return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
+            }
+            let position = (
+                f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
+                f32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]),
+            );
+            let plane =
+                u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]])
+                    as u16;
+            let taken = agent.adopt_correction(position, plane);
+            if trace {
+                eprintln!(
+                    "world: agent {} correction to ({:.1}, {:.1}) plane {plane}: {}",
+                    agent.agent_id,
+                    position.0,
+                    position.1,
+                    if taken { "taken" } else { "refused" }
+                );
             }
             Ok(true)
         }

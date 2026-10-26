@@ -136,6 +136,12 @@ pub const CHARACTER_UPDATE_PARTY: u16 = 0x01B3;
 
 /// `GAME_SMSG_WORLD_SIMULATION_TICK` (`0x001E`): 6 bytes.
 pub const WORLD_SIMULATION_TICK: u16 = 0x001E;
+/// `GAME_SMSG_AGENT_MOVE_TO_POINT` (`0x0029`): 18 bytes. Tells the client where an agent is walking to.
+pub const AGENT_MOVE_TO_POINT: u16 = 0x0029;
+/// `GAME_SMSG_AGENT_STOP_MOVING` (`0x0028`): 6 bytes.
+pub const AGENT_STOP_MOVING: u16 = 0x0028;
+/// `GAME_SMSG_AGENT_UPDATE_POSITION` (`0x002C`): 16 bytes.
+pub const AGENT_UPDATE_POSITION: u16 = 0x002C;
 /// `GAME_SMSG_PING_REQUEST` (`0x000C`): 2 bytes.
 pub const PING_REQUEST: u16 = 0x000C;
 /// `GAME_SMSG_PING_REPLY` (`0x000D`): 6 bytes.
@@ -807,6 +813,48 @@ pub fn character_update_party(party_id: u16, unknown: u8) -> crate::client::Fram
 /// `GAME_SMSG_WORLD_SIMULATION_TICK`: the world's clock. The client expects one at least every 500 ms.
 pub fn world_simulation_tick(delta_ms: u32) -> crate::client::Frame {
     Builder::new(WORLD_SIMULATION_TICK).u32(delta_ms).frame()
+}
+
+/// `GAME_SMSG_AGENT_MOVE_TO_POINT`: an agent is walking to `destination` on `plane`, from
+/// `current_plane` (`GameSrv_MoveAgentToPoint`).
+///
+/// The reference sends the *next waypoint of its own path*, not the destination the client asked for:
+/// it runs `PathFinding` over the map's navmesh and hands out one waypoint at a time. This server has no
+/// navmesh yet, so it hands out the client's own destination — a straight line, which is honest about
+/// what it knows.
+pub fn agent_move_to_point(
+    agent_id: u32,
+    destination: (f32, f32),
+    plane: u16,
+    current_plane: u16,
+) -> crate::client::Frame {
+    Builder::new(AGENT_MOVE_TO_POINT)
+        .u32(agent_id)
+        .f32(destination.0)
+        .f32(destination.1)
+        .u16(plane)
+        .u16(current_plane)
+        .frame()
+}
+
+/// `GAME_SMSG_AGENT_STOP_MOVING`: the agent is no longer walking (`GameSrv_AgentStopMoving`).
+pub fn agent_stop_moving(agent_id: u32) -> crate::client::Frame {
+    Builder::new(AGENT_STOP_MOVING).u32(agent_id).frame()
+}
+
+/// `GAME_SMSG_AGENT_UPDATE_POSITION`: where an agent is now. Sent to everyone *else* — the client that
+/// reported the position already knows it (`GameSrv_BroadcastAgentPosition`).
+pub fn agent_update_position(
+    agent_id: u32,
+    position: (f32, f32),
+    plane: u16,
+) -> crate::client::Frame {
+    Builder::new(AGENT_UPDATE_POSITION)
+        .u32(agent_id)
+        .f32(position.0)
+        .f32(position.1)
+        .u16(plane)
+        .frame()
 }
 
 /// `GAME_SMSG_PING_REQUEST`: asks the client to answer with a ping reply.
