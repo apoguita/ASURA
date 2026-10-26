@@ -22,6 +22,10 @@
 /// builds its item table from. Data rather than protocol, which is why it is generated and not typed.
 pub mod pvp_items;
 
+/// The reference's own default character inventory, generated from a trace of it working: the bag and
+/// item messages a client needs before it can draw a character at all. Data, not protocol.
+pub mod default_inventory;
+
 /// `GAME_SMSG_INSTANCE_LOAD_HEAD` (`0x017C`): 6 bytes. The first message a client receives on the
 /// game connection.
 pub const INSTANCE_LOAD_HEAD: u16 = 0x017C;

@@ -37,6 +37,80 @@ pub struct Replay {
     pub items: Block,
     pub spawn: Block,
     pub players: Block,
+    /// Which blocks to actually replace with the capture's.
+    pub pick: Pick,
+}
+
+/// Which blocks a replay should replace, from `ASURA_WORLD_REPLAY_PICK`.
+///
+/// Bisection needs to mix: replacing *only* the item block and leaving this server's own player block
+/// in place answers "is it the items or the players" in one run, which is the difference between one
+/// question to a human and two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pick {
+    pub load: bool,
+    pub items: bool,
+    pub spawn: bool,
+    pub players: bool,
+}
+
+/// One of the four load blocks, named so a [`Pick`] can be asked about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockName {
+    Load,
+    Items,
+    Spawn,
+    Players,
+}
+
+impl Pick {
+    /// Everything, which is what a bare `ASURA_WORLD_REPLAY` means.
+    pub const ALL: Pick = Pick {
+        load: true,
+        items: true,
+        spawn: true,
+        players: true,
+    };
+
+    /// Read `ASURA_WORLD_REPLAY_PICK`: a comma-separated list of `load`, `items`, `spawn` and
+    /// `players`. Unset or empty is [`Pick::ALL`]; an unknown name is an error, because a bisection
+    /// that silently ignores what it was told is a bisection that tests nothing.
+    pub fn from_environment() -> Result<Pick, String> {
+        let Ok(value) = std::env::var("ASURA_WORLD_REPLAY_PICK") else {
+            return Ok(Pick::ALL);
+        };
+        if value.trim().is_empty() {
+            return Ok(Pick::ALL);
+        }
+        let mut pick = Pick {
+            load: false,
+            items: false,
+            spawn: false,
+            players: false,
+        };
+        for part in value.split(',') {
+            match part.trim() {
+                "load" => pick.load = true,
+                "items" => pick.items = true,
+                "spawn" => pick.spawn = true,
+                "players" => pick.players = true,
+                other => return Err(format!(
+                    "ASURA_WORLD_REPLAY_PICK: {other:?} is not one of load, items, spawn, players"
+                )),
+            }
+        }
+        Ok(pick)
+    }
+
+    /// Whether this block should be replayed.
+    pub fn wants(self, block: BlockName) -> bool {
+        match block {
+            BlockName::Load => self.load,
+            BlockName::Items => self.items,
+            BlockName::Spawn => self.spawn,
+            BlockName::Players => self.players,
+        }
+    }
 }
 
 /// Headers that belong to the world's own clock rather than to an answer. They appear inside the
@@ -115,6 +189,7 @@ impl Replay {
             items,
             spawn,
             players,
+            pick: Pick::from_environment()?,
         })
     }
 
@@ -167,6 +242,22 @@ fn parse_message(rest: &str) -> Option<(u16, Frame)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pick_says_which_blocks_to_replace() {
+        // No environment variable is `ALL`, and a bisection can name any subset.
+        let pick = Pick {
+            load: true,
+            items: false,
+            spawn: true,
+            players: false,
+        };
+        assert!(pick.wants(BlockName::Load));
+        assert!(!pick.wants(BlockName::Items));
+        assert!(pick.wants(BlockName::Spawn));
+        assert!(!pick.wants(BlockName::Players));
+        assert!(Pick::ALL.wants(BlockName::Players));
+    }
 
     #[test]
     fn a_captured_block_parses_into_frames() {

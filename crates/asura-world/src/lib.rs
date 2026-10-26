@@ -319,8 +319,8 @@ pub async fn handle_connection(
     // ---- 5. the load block ------------------------------------------------------------------
     // The reference sends these four the moment it has the connection, without waiting to be asked.
     let block = match &world.replay {
-        Some(replay) => replay.load.clone(),
-        None => load_block(&map, &name),
+        Some(replay) if replay.pick.wants(crate::replay::BlockName::Load) => replay.load.clone(),
+        _ => load_block(&map, &name),
     };
     send(&mut stream, &mut session, block, trace).await?;
 
@@ -424,13 +424,13 @@ pub fn items_block(map: &MapEntry) -> Vec<Frame> {
         game::item_stream_create(1, 0),
         game::item_set_active_weapon_set(1, 0),
     ];
-    // The inventory: the six bags the reference always creates, empty. A client that is given no bag
-    // has nowhere to put the weapon sets that follow, and the reference never sends an item stream
-    // without them (`GameSrv_SendInventory`).
-    for (bag_id, model_id, bag_type, slots) in game::DEFAULT_BAGS {
-        frames.push(game::inventory_create_bag(
-            1, bag_type, model_id, bag_id, slots, 0,
-        ));
+    // The inventory. The reference seeds every character it loads with a fixed set -- a backpack with
+    // its bag item, a cupcake, and six pieces of equipment -- and a client given no items at all has no
+    // inventory model: it dies when it draws the character it has just created. Those messages are
+    // copied verbatim from a trace of the reference working (`game::default_inventory`), because every
+    // field in them (file ids, models, names) is its data and not something this project can derive.
+    for (header, body) in game::default_inventory::DEFAULT_INVENTORY {
+        frames.push(Frame::new(*header, body.to_vec()));
     }
     // Four empty weapon slots, exactly as `GameSrv_SendWeaponSlots` sends them.
     for slot in 0..4u8 {
@@ -520,8 +520,10 @@ async fn answer(
         // download manifest -- in that order (`GameSrv_HandleInstanceLoadRequestItems`).
         0x8091 => {
             let block = match replay {
-                Some(replay) => replay.items.clone(),
-                None => items_block(map),
+                Some(replay) if replay.pick.wants(crate::replay::BlockName::Items) => {
+                    replay.items.clone()
+                }
+                _ => items_block(map),
             };
             send(stream, session, block, trace).await?;
             Ok(true)
@@ -531,8 +533,10 @@ async fn answer(
         // map blob's file id.
         0x8088 => {
             let block = match replay {
-                Some(replay) => replay.spawn.clone(),
-                None => spawn_block(map),
+                Some(replay) if replay.pick.wants(crate::replay::BlockName::Spawn) => {
+                    replay.spawn.clone()
+                }
+                _ => spawn_block(map),
             };
             send(stream, session, block, trace).await?;
             Ok(true)
@@ -542,8 +546,10 @@ async fn answer(
         // (`INSTANCE_LOAD_FINISH`) is what takes the client off the loading screen.
         0x8090 => {
             let block = match replay {
-                Some(replay) => replay.players.clone(),
-                None => player_block(name, map, started),
+                Some(replay) if replay.pick.wants(crate::replay::BlockName::Players) => {
+                    replay.players.clone()
+                }
+                _ => player_block(name, map, started),
             };
             send(stream, session, block, trace).await?;
             Ok(true)
@@ -741,7 +747,10 @@ pub fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> 
         0,
     ));
     frames.push(game::agent_initial_effects(AGENT_ID, 0));
-    frames.push(game::update_agent_visual_equipment(AGENT_ID, [0; 9]));
+    frames.push(game::update_agent_visual_equipment(
+        AGENT_ID,
+        game::default_inventory::EQUIPPED_ITEM_IDS,
+    ));
     frames.push(game::agent_display_cape(AGENT_ID, 1));
     frames.push(game::world_update_controlled_agent(AGENT_ID, 3));
 
