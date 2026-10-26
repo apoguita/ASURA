@@ -95,6 +95,7 @@ impl Harness {
                 spawn_plane: 0,
             }],
             replay: None,
+            drop_messages: asura_world::DropMessages::Agent,
         });
         let server = tokio::spawn(async move {
             let _ = serve(listener, world, true).await;
@@ -586,17 +587,17 @@ async fn a_dropped_item_leaves_the_stack_and_lands_on_the_ground() {
     say(&mut stream, &mut client, 0x802C, &body).await;
 
     let frames = read_until(&mut stream, &mut client, game::WORLD_CREATE_AGENT).await;
-    let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
-    let agent_at = headers
-        .iter()
-        .position(|header| *header == game::WORLD_CREATE_AGENT)
-        .expect("the drop created an agent");
     assert!(
-        headers[..agent_at].contains(&game::ITEM_REMOVE),
-        "the stack left the client's model before the new one appeared"
+        !frames
+            .iter()
+            .any(|frame| frame.header == game::ITEM_REMOVE),
+        "a drop sends none of the inventory messages a live client crashed on: ITEM_REMOVE is in no \
+         capture, so the deduction stays server-side and the client is told about the ground agent only"
     );
-
-    let agent = &frames[agent_at];
+    let agent = frames
+        .iter()
+        .find(|frame| frame.header == game::WORLD_CREATE_AGENT)
+        .expect("the drop created an agent");
     assert_eq!(agent.len(), 99, "the reference's fixed agent message");
     assert_eq!(
         agent.body[8],

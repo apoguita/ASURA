@@ -255,11 +255,25 @@ async fn main() -> ExitCode {
         );
     }
 
+    // What a drop is allowed to send. `ASURA_DROP` exists because the inventory messages a drop used to
+    // send are the ones a live client crashed on; see `asura_world::DropMessages`.
+    let drop_messages = match asura_world::DropMessages::from_environment() {
+        Ok(mode) => mode,
+        Err(err) => {
+            eprintln!("asura-world: {err}");
+            return ExitCode::from(5);
+        }
+    };
+    if drop_messages != asura_world::DropMessages::default() {
+        eprintln!("asura-world: drop messages set to {drop_messages:?} (ASURA_DROP)");
+    }
+
     let world = Arc::new(World {
         pool,
         world_id,
         maps,
         replay,
+        drop_messages,
     });
     if let Err(err) = serve(listener, world, trace.on()).await {
         eprintln!("asura-world: the listener stopped: {err}");

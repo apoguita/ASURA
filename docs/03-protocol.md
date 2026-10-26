@@ -425,15 +425,23 @@ from the item's type (`EquippedItemSlot`, `GmInventory.h`). `UNEQUIP_ITEM`'s thr
 what it means is not known — unequipping by dragging arrives as `ITEM_MOVE`.
 
 `DROP_ITEM` is answered by an item appearing **and the stack shrinking**: the client sends `count = 1` for
-a stack of a hundred, so the server takes that many off the row, tells the client its stack was removed and
-re-creates it at what is left (`ITEM_REMOVE` `0x014D`, 8 bytes, then `CREATE_NAMED_ITEM` +
-`ITEM_MOVE_TO_LOCATION`), and then broadcasts `WORLD_CREATE_AGENT` (`0x0020`, 99 bytes) for an agent of type
-`AgentType_Item` (`4`) at the player's position plus `(30, 30)`, wearing the item's **model** — to every
-connection, the dropper included.
+a stack of a hundred, so the server takes that many off the row and broadcasts `WORLD_CREATE_AGENT`
+(`0x0020`, 99 bytes) for an agent of type `AgentType_Item` (`4`) at the player's position plus `(30, 30)`,
+wearing the item's **model** — to every connection, the dropper included.
 
-The reference does none of the deduction: its handler creates the agent and returns, and it gives up
-entirely when `count != quantity`, which is every drop of a stack. What this port does instead is recorded
-in `docs/07-status.md` and `docs/08-next-inventory-model.md`.
+**What the client is told about its own stack is the open question.** The first version of this also sent
+`ITEM_REMOVE` (`0x014D`) and then re-created the item at what was left, which is what the reference does
+when it resends a bag — and a live client **crashed**. `ITEM_REMOVE` is the suspect: it appears **zero**
+times in the capture, so its 8-byte width is `sizeof(GameSrv_ItemRemove)` and nothing else, and this
+project has already been bitten once by treating a struct's size as the wire's (§1). A drop therefore
+sends the agent and nothing else by default, and `ASURA_DROP=full|agent|none` picks the variant so the
+question can be answered by a run instead of an argument:
+
+| `ASURA_DROP` | what a drop sends |
+|---|---|
+| `agent` (default) | `WORLD_CREATE_AGENT` only. The stack shrinks in the database; the client's copy catches up at the next load |
+| `full` | `ITEM_REMOVE`, `CREATE_NAMED_ITEM`, `ITEM_MOVE_TO_LOCATION`, then the agent — what crashed a client |
+| `none` | nothing at all; the deduction is server-side only |
 
 Three answers change nothing and send nothing: item id `0`, an item that is not in the backpack/belt
 pouch/bag 1/bag 2 (`GmBag_FindItem` looks no further, so storage is not droppable), and a count larger than

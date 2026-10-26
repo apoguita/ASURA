@@ -74,6 +74,16 @@ in the status document, rather than a guess someone would have to rediscover.
 
 ## The traps this left behind
 
+- **A message nobody has measured will crash a client, and one did.** The first finished drop sent
+  `ITEM_REMOVE` (`0x014D`) and then re-created the item at what was left. A live client died on it.
+  `ITEM_REMOVE` appears **zero** times in the capture — its 8-byte width is `sizeof(GameSrv_ItemRemove)`
+  and nothing else that can be checked — which is the mistake `docs/03-protocol.md` §1 records for the
+  auth path, made again by someone who had read the section. A drop now sends the ground agent and
+  nothing else (`ASURA_DROP=agent`, the default); the inventory update is behind `ASURA_DROP=full` so the
+  question "the inventory messages or the agent" is one run away from an answer.
+  **And the question that decides whether the default is right**: does the client decrement its own stack
+  when it sends `DROP_ITEM`? If it does, the default is correct and this is closed; if it does not, the
+  client shows the old count until the next load and something *measured* has to close the gap.
 - **An item id is a runtime allocation, not a row number.** The reference hands them out with
   `GameSrv_AllocateItem` and a client only needs them to be consistent within a session. ASURA writes them
   from `item_id_seq`, so the seed's capture ids (1..9) are renumbered as they are written and two

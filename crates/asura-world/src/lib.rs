@@ -106,6 +106,54 @@ pub struct MapEntry {
     pub spawn_plane: u16,
 }
 
+/// What a drop puts on the wire, from `ASURA_DROP`.
+///
+/// **Why this is a switch.** The first version of the finished drop sent three inventory messages —
+/// `ITEM_REMOVE`, the item re-created at what was left, and its slot — and a live client **crashed** on
+/// a drop. Of those three, `ITEM_REMOVE` (`0x014D`) has never been seen on the wire: the reference has
+/// the message and uses it only when it frees a bag, and the capture this project measures against
+/// contains it **zero** times. Its "8 bytes" comes from `sizeof(GameSrv_ItemRemove)`, and the reference's
+/// own comment records that a struct's size is not the wire's (`PING_REQUEST` is 4 bytes where the struct
+/// implies 8). So this port was sending a message whose width nobody has measured, into a client that
+/// dies on messages it cannot parse — which is the same trap `docs/03-protocol.md` §1 records for the
+/// auth path, and this port walked into it.
+///
+/// The default is therefore the smallest thing that is measured: the deduction (server truth) and the
+/// ground agent, whose 99-byte `WORLD_CREATE_AGENT` is in the capture. The other two modes exist so the
+/// question "is it the inventory messages or the agent" can be answered in one run each instead of by
+/// argument.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DropMessages {
+    /// The agent only. The default, until a live client says the inventory messages are safe.
+    #[default]
+    Agent,
+    /// The inventory update as well — `ITEM_REMOVE`, the item at what is left, and its slot. What
+    /// crashed a live client, kept for the bisection.
+    Full,
+    /// Nothing at all: the row is deducted and the client is not told, so its stack stays as it was
+    /// until the next inventory reload (a relog).
+    None,
+}
+
+impl DropMessages {
+    /// `ASURA_DROP=full|agent|none`. An unknown value is refused rather than defaulted: a bisection that
+    /// silently tests something else is worse than one that stops.
+    pub fn from_environment() -> Result<DropMessages, String> {
+        let Ok(value) = std::env::var("ASURA_DROP") else {
+            return Ok(DropMessages::Agent);
+        };
+        match value.trim().to_ascii_lowercase().as_str() {
+            "" => Ok(DropMessages::Agent),
+            "agent" => Ok(DropMessages::Agent),
+            "full" => Ok(DropMessages::Full),
+            "none" => Ok(DropMessages::None),
+            other => Err(format!(
+                "ASURA_DROP: {other:?} is not one of agent, full, none"
+            )),
+        }
+    }
+}
+
 /// What a world server needs in order to accept a client.
 #[derive(Clone)]
 pub struct World {
@@ -119,6 +167,8 @@ pub struct World {
     /// ones this server builds (see the `replay` module). A bisection tool: if a client survives a
     /// replay and dies against the built blocks, the difference is payload content.
     pub replay: Option<crate::replay::Replay>,
+    /// What a drop is allowed to put on the wire: see [`DropMessages`].
+    pub drop_messages: DropMessages,
 }
 
 /// Where a character stands as it enters a map.
@@ -1207,7 +1257,7 @@ async fn drop_item(
     };
 
     let agent_id = play.agents.allocate();
-    let frames = drop_messages(agent_id, &taken, &play.agents.player);
+    let frames = drop_messages(agent_id, &taken, &play.agents.player, world.drop_messages);
     if trace {
         eprintln!(
             "world: {} dropped {count} of item {item_id} at ({:.1}, {:.1}) on agent {agent_id}, {} left",
@@ -1223,29 +1273,37 @@ async fn drop_item(
 
 /// The messages a drop puts on the wire, in the order the client needs them.
 ///
-/// **`ITEM_REMOVE` and then the item again**: neither message family has a "this item's quantity
-/// changed", so a stack that lost something is removed from the client's model and re-created at what is
-/// left, in the slot it was in. That is the same rebuild the reference does when it resends a bag
-/// (`GameSrv_SendBagItems`: create, then move).
+/// The agent is always last and, in the default mode, the only message: `RECEIVE`-side reality beats
+/// elegance, and `DropMessages` explains why the inventory update is not the default.
 pub fn drop_messages(
     agent_id: u32,
     taken: &db_inventory::Taken,
     player: &crate::agent::AgentState,
+    mode: DropMessages,
 ) -> Vec<Frame> {
     let item = &taken.item;
     let mut frames = Vec::with_capacity(4);
-    frames.push(game::item_remove(ITEM_STREAM, wire_u32(item.id)));
-    if taken.remaining > 0 {
-        let mut left = item.clone();
-        left.quantity = taken.remaining;
-        frames.push(game::create_named_item(&named_item(&left)));
-        if let (Some(bag), Some(slot)) = (left.bag_id, left.slot) {
-            frames.push(game::item_move_to_location(
-                ITEM_STREAM,
-                wire_u32(left.id),
-                wire_u16(bag),
-                wire_u8(slot),
-            ));
+    if mode == DropMessages::None {
+        // The row is deducted and the client is told nothing; its stack catches up at the next load.
+        return frames;
+    }
+    if mode == DropMessages::Full {
+        // The stack lost something and the client has no "quantity changed" message, so the item is
+        // removed and re-created at what is left -- the same rebuild `GameSrv_SendBagItems` does. This
+        // is the part that crashed a live client, so it is not the default.
+        frames.push(game::item_remove(ITEM_STREAM, wire_u32(item.id)));
+        if taken.remaining > 0 {
+            let mut left = item.clone();
+            left.quantity = taken.remaining;
+            frames.push(game::create_named_item(&named_item(&left)));
+            if let (Some(bag), Some(slot)) = (left.bag_id, left.slot) {
+                frames.push(game::item_move_to_location(
+                    ITEM_STREAM,
+                    wire_u32(left.id),
+                    wire_u16(bag),
+                    wire_u8(slot),
+                ));
+            }
         }
     }
     frames.push(game::world_create_agent(&game::CreateAgent {
@@ -2005,17 +2063,57 @@ mod tests {
     }
 
     #[test]
-    fn a_drop_of_one_out_of_a_stack_deducts_one_and_shows_a_cupcake() {
-        // The live session's own numbers: the client asks to drop 1 of a stack of 100, and the reference
-        // answers nothing at all because its partial-stack branch is a `TODO`. This is what should have
-        // happened -- the stack is rebuilt at 99, and the thing on the ground is the item's *model*.
+    fn a_drop_sends_the_agent_and_nothing_the_client_has_never_seen() {
+        // The default mode, and the one a live client survived: the ground agent alone. `ITEM_REMOVE`
+        // (`0x014D`) is not in it, because that message is in no capture and a client crashed on it.
         let player =
             crate::agent::AgentState::new(AGENT_ID, (6602.0, 4485.0), 0, game::PLAYER_SPEED_BASE);
         let taken = db_inventory::Taken {
             item: cupcake(100),
             remaining: 99,
         };
-        let frames = drop_messages(2, &taken, &player);
+        let frames = drop_messages(2, &taken, &player, DropMessages::Agent);
+        let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
+        assert_eq!(
+            headers,
+            vec![game::WORLD_CREATE_AGENT],
+            "the deduction is server truth; the client is told about the thing on the ground only"
+        );
+
+        // The agent carries the item's model, not its id.
+        let agent = &frames[0].body;
+        assert_eq!(
+            u32::from_le_bytes([agent[4], agent[5], agent[6], agent[7]]),
+            22269,
+            "a cupcake's model, which is what the client can draw"
+        );
+        assert_eq!(agent[8], game::AGENT_TYPE_ITEM, "AgentType_Item");
+        assert_eq!(
+            f32::from_le_bytes([agent[10], agent[11], agent[12], agent[13]]),
+            6632.0,
+            "the player's x plus 30"
+        );
+        assert_eq!(
+            f32::from_le_bytes([agent[14], agent[15], agent[16], agent[17]]),
+            4515.0,
+            "and the player's y plus 30"
+        );
+
+        // Nothing at all is another mode, and it sends nothing.
+        assert!(drop_messages(2, &taken, &player, DropMessages::None).is_empty());
+    }
+
+    #[test]
+    fn the_full_drop_update_is_kept_for_the_bisection() {
+        // What crashed a live client, kept so the question "inventory messages or agent" can be answered
+        // in one run: `ASURA_DROP=full`.
+        let player =
+            crate::agent::AgentState::new(AGENT_ID, (6602.0, 4485.0), 0, game::PLAYER_SPEED_BASE);
+        let taken = db_inventory::Taken {
+            item: cupcake(100),
+            remaining: 99,
+        };
+        let frames = drop_messages(2, &taken, &player, DropMessages::Full);
         let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
         assert_eq!(
             headers,
@@ -2042,36 +2140,18 @@ mod tests {
             99,
             "what is left of the stack"
         );
-
-        // The agent carries the model, not the item id.
-        let agent = &frames[3].body;
-        assert_eq!(
-            u32::from_le_bytes([agent[4], agent[5], agent[6], agent[7]]),
-            22269,
-            "a cupcake's model, which is what the client can draw"
-        );
-        assert_eq!(agent[8], game::AGENT_TYPE_ITEM, "AgentType_Item");
-        assert_eq!(
-            f32::from_le_bytes([agent[10], agent[11], agent[12], agent[13]]),
-            6632.0,
-            "the player's x plus 30"
-        );
-        assert_eq!(
-            f32::from_le_bytes([agent[14], agent[15], agent[16], agent[17]]),
-            4515.0,
-            "and the player's y plus 30"
-        );
     }
 
     #[test]
-    fn a_drop_of_a_whole_stack_removes_it_and_never_re_creates_it() {
+    fn a_whole_stack_drop_never_re_creates_the_item() {
+        // In the full mode the stack is removed and nothing puts it back, because nothing is left of it.
         let player =
             crate::agent::AgentState::new(AGENT_ID, (6602.0, 4485.0), 0, game::PLAYER_SPEED_BASE);
         let taken = db_inventory::Taken {
             item: cupcake(100),
             remaining: 0,
         };
-        let headers: Vec<u16> = drop_messages(2, &taken, &player)
+        let headers: Vec<u16> = drop_messages(2, &taken, &player, DropMessages::Full)
             .iter()
             .map(|frame| frame.header)
             .collect();

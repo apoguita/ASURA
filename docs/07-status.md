@@ -42,10 +42,13 @@ that nobody reads the table above as more than it says:
   reference has no pick-up handler and this one has none either, so a dropped item is litter for
   the rest of the session. `DROP_ITEM` is the one item message the reference's dispatch acts on;
   its handler is unfinished there (a `TODO` for partial stacks, no removal) and this port finishes
-  it -- a recorded deviation, argued in `docs/08-next-inventory-model.md`. `ITEM_MOVE` and
-  `EQUIP_ITEM` are messages the reference does not dispatch at all, so their behaviour here is
-  this project's; `UNEQUIP_ITEM` (`0x804F`) is not implemented because its layout carries no item
-  id and no capture has shown what it means (dragging an item out of the equipped bag arrives as
+  it -- a recorded deviation, argued in `docs/08-next-inventory-model.md`. What a drop *sends* is
+  `ASURA_DROP` (`agent` by default): the inventory-update messages a first version sent are the
+  ones a live client crashed on, and the suspect (`ITEM_REMOVE`) is in no capture, so the default
+  is the agent alone and the deduction stays server-side. `ITEM_MOVE` and `EQUIP_ITEM` are
+  messages the reference does not dispatch at all, so their behaviour here is this project's;
+  `UNEQUIP_ITEM` (`0x804F`) is not implemented because its layout carries no item id and no
+  capture has shown what it means (dragging an item out of the equipped bag arrives as
   `ITEM_MOVE` and works);
 - **instances** are prebuilt per map and never created on demand, and only outposts are hosted;
 - **persistence** saves where a character stood when it leaves and puts it back there when it
