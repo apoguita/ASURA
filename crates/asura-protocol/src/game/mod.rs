@@ -134,6 +134,26 @@ pub const PARTY_MEMBER_STREAM_END: u16 = 0x01D4;
 /// `GAME_SMSG_CHARACTER_UDPATE_PARTY` (`0x01B3`, the reference's own spelling): 5 bytes.
 pub const CHARACTER_UPDATE_PARTY: u16 = 0x01B3;
 
+/// `GAME_SMSG_CHAT_MESSAGE_CORE` (`0x005D`): the text of a chat message, `2 + 2 + 2n`.
+pub const CHAT_MESSAGE_CORE: u16 = 0x005D;
+/// `GAME_SMSG_CHAT_MESSAGE_LOCAL` (`0x0061`): which player spoke, on which channel. 10 bytes.
+pub const CHAT_MESSAGE_LOCAL: u16 = 0x0061;
+/// `Channel_All` in the client's own enum (`GmChat.h`): the channel `!` speaks on.
+pub const CHANNEL_ALL: u32 = 3;
+
+/// `GAME_SMSG_CHAT_MESSAGE_CORE`: the text of one chat message.
+pub fn chat_message_core(text: &str) -> crate::client::Frame {
+    Builder::new(CHAT_MESSAGE_CORE).text(text, 122).frame()
+}
+
+/// `GAME_SMSG_CHAT_MESSAGE_LOCAL`: who is speaking, and on which channel.
+pub fn chat_message_local(player_id: u32, channel: u32) -> crate::client::Frame {
+    Builder::new(CHAT_MESSAGE_LOCAL)
+        .u32(player_id)
+        .u32(channel)
+        .frame()
+}
+
 /// `GAME_SMSG_WORLD_SIMULATION_TICK` (`0x001E`): 6 bytes.
 pub const WORLD_SIMULATION_TICK: u16 = 0x001E;
 /// `GAME_SMSG_AGENT_MOVE_TO_POINT` (`0x0029`): 18 bytes. Tells the client where an agent is walking to.

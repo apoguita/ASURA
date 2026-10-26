@@ -8,7 +8,7 @@ It compares this repository with the GWPS reference's own dispatch switches, so 
 
 ## Implemented handlers
 
-23 of the reference's client-message handlers are present in this repository.
+24 of the reference's client-message handlers are present in this repository.
 
 ## No-ops in the reference itself
 
@@ -26,7 +26,6 @@ missing work:
 - `GAME_CMSG_CHAR_CREATION_REQUEST_ARMORS` (`0x808A`)
 - `GAME_CMSG_CHAR_CREATION_CHANGE_PROF` (`0x8060`)
 - `GAME_CMSG_CHAR_CREATION_CONFIRM` (`0x808B`)
-- `GAME_CMSG_SEND_CHAT_MESSAGE` (`0x8064`)
 - `GAME_CMSG_DROP_ITEM` (`0x802C`)
 
 ## Known partial areas

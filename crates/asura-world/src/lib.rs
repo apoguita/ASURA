@@ -420,6 +420,23 @@ pub async fn handle_connection(
     Ok(())
 }
 
+/// Whether chat is sent at all, from `ASURA_CHAT` (`1`, `true`, `yes`).
+///
+/// The same gate as the reference's `GameSrv_ChatSendingEnabled`/`GWPS_CHAT`, and off for the same
+/// reason it is off there: its own comment records that an unconditional send put a message on the wire
+/// the client could not parse, `GameSrv_SendInvalidCommand` above all, and crashed it.
+fn chat_enabled() -> bool {
+    static VALUE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| {
+        std::env::var("ASURA_CHAT")
+            .map(|value| {
+                let value = value.trim().to_ascii_lowercase();
+                value == "1" || value == "true" || value == "yes"
+            })
+            .unwrap_or(false)
+    })
+}
+
 /// The first bytes of a message, as hex, for the trace.
 ///
 /// When a client dies mid-load, the only evidence left is what it sent and what it was sent. A header
@@ -686,6 +703,91 @@ async fn answer(
                 );
             }
             Ok(true)
+        }
+
+        // The client speaks (`GameSrv_HandleChatMessage`). The first unit of the message is the channel:
+        // `!` is local/general, `/` is a command, and the reference refuses anything else as bad user
+        // data. Its *sending* is gated off by default (`GameSrv_ChatSendingEnabled`) because an
+        // unconditional send once put a message on the wire the client could not parse and crashed it,
+        // so this port has the same gate and the same default.
+        0x8064 => {
+            let body = &frame.body;
+            if body.len() < 6 {
+                return Err(GameError::Framing(FrameError::Incomplete { needed: 8 }));
+            }
+            let units = u16::from_le_bytes([body[4], body[5]]) as usize;
+            let text: Vec<u16> = (0..units)
+                .map(|index| {
+                    let at = 6 + index * 2;
+                    u16::from_le_bytes([
+                        body.get(at).copied().unwrap_or(0),
+                        body.get(at + 1).copied().unwrap_or(0),
+                    ])
+                })
+                .collect();
+            let Some(channel) = text.first().copied() else {
+                return Ok(true); // an empty message, which the reference drops
+            };
+            let spoken: String = char::decode_utf16(text[1.min(text.len())..].iter().copied())
+                .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
+                .collect();
+
+            match u8::try_from(channel).unwrap_or(0) as char {
+                '!' | '#' | '$' => {
+                    if !chat_enabled() {
+                        if trace {
+                            eprintln!("world: chat {spoken:?} dropped (sending is off; ASURA_CHAT=1 to send)");
+                        }
+                        return Ok(true);
+                    }
+                    // Channel values other than `Channel_All` are not implemented yet: the reference
+                    // maps `#` to group and `$` to trade, and those enum values have to be read out of
+                    // its headers rather than guessed, so only `!` speaks today.
+                    if u8::try_from(channel).unwrap_or(0) as char != '!' {
+                        if trace {
+                            eprintln!(
+                                "world: channel {channel:#X} not implemented; message dropped"
+                            );
+                        }
+                        return Ok(true);
+                    }
+                    send(
+                        stream,
+                        session,
+                        vec![
+                            game::chat_message_core(&spoken),
+                            game::chat_message_local(PLAYER_ID, game::CHANNEL_ALL),
+                        ],
+                        trace,
+                    )
+                    .await?;
+                    Ok(true)
+                }
+                '/' => {
+                    // The only command that does not need the GM machinery: `/stuck` stops the agent.
+                    if spoken.trim() == "stuck" {
+                        send(
+                            stream,
+                            session,
+                            vec![game::agent_stop_moving(agent.agent_id)],
+                            trace,
+                        )
+                        .await?;
+                        Ok(true)
+                    } else {
+                        if trace {
+                            eprintln!("world: unknown command {spoken:?}");
+                        }
+                        Ok(true)
+                    }
+                }
+                other => {
+                    eprintln!(
+                        "world: chat on channel {other:?} refused, as the reference refuses it"
+                    );
+                    Ok(true)
+                }
+            }
         }
 
         // The client is going away.
