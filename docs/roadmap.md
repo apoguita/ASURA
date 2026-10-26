@@ -105,10 +105,7 @@ port nothing answers on), the slot is taken with the atomic `reserve`, and the a
 refusal is status 2 with no info message, and it leaves the counter untouched. `tests/travel.rs`
 proves all of that over a socket, including the refusal for a registered-but-silent world.
 
-Still open: the world half — a listener that accepts the game connection, validates the
-`map_token`/`player_token` pair against the pending transfer, and carries the client into a map.
-
-**Progress (world half).** `asura-world` now listens, and the whole path exists
+**Progress (world half).** `asura-world` listens, and the whole path exists
 (`crates/asura-world/src/lib.rs`):
 
 * it classifies the connection, reads `GAME_CMSG_VERSION` (64 bytes: world id, map, player token, both
@@ -123,13 +120,33 @@ Still open: the world half — a listener that accepts the game connection, vali
 * leaving releases the pool slot immediately rather than waiting for the reaper;
 * the game message table is generated from the reference (`tools/gen-game-tables.py`, 682 rows), so
   client messages are framed by the reference's own field layouts rather than by a hand-written list.
+**DELIVERED 2026-10-26 with the real client (build 39112): log in, choose the character, travel, and
+stand in Lakeside County with its armour on, with the world server keeping the clock and answering
+pings for as long as the client stays.**
 
-`crates/asura-world/tests/load.rs` proves all of it over a socket: a placed client is loaded into its
-map, a token nobody issued is closed without a word, and a transfer naming a different character is
-refused.
+The auth service is also the game connection's front door: a real client dials the auth address
+whatever `GAME_SERVER_INFO` names (measured — it ignored the port in that message), so the auth routes
+the socket to the world it named (`crates/asura-auth/src/frontdoor.rs`).
 
-Still open: the real client. Everything above is proven against the reference client in this
-repository, not against `Gw.custom.exe` in a map.
+`crates/asura-world/tests/load.rs` proves the load over a socket — a placed client is loaded into its
+map, a token nobody issued is closed without a word, a transfer naming a different character is
+refused — and `tests/end_to_end.rs` drives login → travel → the routed game connection →
+`INSTANCE_LOAD_FINISH` in one process. `tools/m4-verify.ps1` runs all of it, and `tools/play.ps1`
+starts the stack for the real client.
+
+**How the last bugs were found, because the method is the durable part.** `tools/patch-gwps-full-trace.py`
+makes the reference dump whole messages (its own trace cut at 24 bytes, which hid every field that
+mattered); `tools/compare-load.py` diffs our stream against its trace by size, bytes **and order**;
+`ASURA_WORLD_REPLAY` + `ASURA_WORLD_REPLAY_PICK` serve the reference's captured bytes per block, which
+is what separated "our payloads differ" from "our connection is wrong". The three bugs that survived
+every earlier guess were, in order:
+
+1. **a missing second `PLAYER_UPDATE_PROFESSION`** after `PLAYER_CREATE` and before the agent exists —
+   an *order* bug, invisible to a diff that matched messages by header;
+2. **an all-zero appearance word** (`PROFESSION_None`, hair style 0) — a model the client cannot build;
+3. **no inventory at all** — bags and nothing else, and a client with no items has nothing to draw the
+   character from. The reference's own default inventory is now generated from its trace
+   (`tools/gen-default-inventory.py`), and its equipped item ids are what put the armour on.
 
 ## M5 — Capacity, refusal, and persistence
 

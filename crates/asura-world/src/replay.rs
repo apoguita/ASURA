@@ -94,9 +94,11 @@ impl Pick {
                 "items" => pick.items = true,
                 "spawn" => pick.spawn = true,
                 "players" => pick.players = true,
-                other => return Err(format!(
+                other => {
+                    return Err(format!(
                     "ASURA_WORLD_REPLAY_PICK: {other:?} is not one of load, items, spawn, players"
-                )),
+                ))
+                }
             }
         }
         Ok(pick)
