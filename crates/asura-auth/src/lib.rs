@@ -413,12 +413,43 @@ async fn next_frame(
     trace: Trace,
 ) -> Result<Option<Frame>, ConnectionError> {
     loop {
+        // The client opens with a preamble whose size the table cannot describe
+        // (`client::messages::decode_computer_info`). Consume it structurally, before any table-sized
+        // framing, or the login message behind it is swallowed.
+        loop {
+            if !session
+                .plaintext
+                .starts_with(&tables::AUTH_CMSG_SEND_COMPUTER_INFO.to_le_bytes())
+            {
+                break;
+            }
+            match messages::decode_computer_info(&session.plaintext)
+                .map_err(ConnectionError::Message)?
+            {
+                Some((info, used)) => {
+                    session.plaintext.drain(..used);
+                    if trace.on() {
+                        eprintln!(
+                            "auth <- computer info ({} bytes): user {:?} on {:?}",
+                            used, info.username, info.pc_name
+                        );
+                    }
+                }
+                // Not all of it has arrived: fall through and read more.
+                None => break,
+            }
+        }
+
         match Frame::decode(&session.plaintext) {
             Ok((frame, used)) => {
                 session.plaintext.drain(..used);
                 return Ok(Some(frame));
             }
-            Err(FrameError::Incomplete { .. }) => {}
+            Err(FrameError::Incomplete { .. }) => {
+                if trace.on() {
+                    trace_waiting(&session.plaintext);
+                }
+            }
             Err(err) => return Err(ConnectionError::Framing(err)),
         }
 
@@ -434,9 +465,56 @@ async fn next_frame(
         session.established.incoming.apply(&mut plaintext);
         session.plaintext.extend_from_slice(&plaintext);
         if trace.on() {
-            eprintln!("auth <- {read} byte(s) on the wire");
+            // The whole chunk, not a preview. When the client and the table disagree about a message,
+            // these are the bytes that settle it, and there is no second chance to capture them.
+            eprintln!("auth <- {read} byte(s) on the wire, decrypted to:");
+            for line in plaintext.chunks(16) {
+                let hex: String = line
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let text: String = line
+                    .iter()
+                    .map(|byte| {
+                        if byte.is_ascii_graphic() {
+                            *byte as char
+                        } else {
+                            '.'
+                        }
+                    })
+                    .collect();
+                eprintln!("         {hex:<48} {text}");
+            }
         }
     }
+}
+
+/// Say what the undecoded plaintext claims to be.
+///
+/// This is the line that answers "the client is waiting and we are waiting": it prints the two bytes
+/// being read as a header, the size they declare, and whether that header is in the table. A wrong key
+/// stream shows up here as a header nobody sent, which is much cheaper than guessing from the client's
+/// `007`.
+fn trace_waiting(plaintext: &[u8]) {
+    if plaintext.len() < 2 {
+        eprintln!(
+            "auth .. waiting: {} byte(s) buffered, not even a header",
+            plaintext.len()
+        );
+        return;
+    }
+    let header = u16::from_le_bytes([plaintext[0], plaintext[1]]);
+    let name = tables::entry(header)
+        .and_then(|entry| entry.name)
+        .unwrap_or("NOT IN THE TABLE");
+    let expected = tables::expected_size(header);
+    eprintln!(
+        "auth .. waiting: {} byte(s) buffered, header {:#06X} ({name}), table size {:?}",
+        plaintext.len(),
+        header,
+        expected
+    );
 }
 
 /// Read into `buffer` until it holds at least `wanted` bytes.

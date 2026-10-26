@@ -26,11 +26,27 @@ State of the project as of the last commit, so a new session can begin without r
 - **Two rules the wire taught us, both now documented:** a login does **not** spend the session row
   (GWPS never writes its session table, and the rig presents the same fixed pair every time), and the
   login batch has a fixed order the client expects (`docs/03-protocol.md` section 4).
-- **Still missing for M3's acceptance: only the real client.** The login batch is complete (characters,
-  stored settings, friend-stream end, account info, request response — the reference's order and
-  sizes), and everything else the milestone asks for is proven without the game: the tables, the key
-  exchange, the login decision, and a client logging in over a socket. What remains is the
-  packet-trace diff against GWPS when the patched client is pointed at this service.
+- **The real client has been pointed at this service, and the risky half is confirmed.** Client build
+  39112, on this machine, 2026-10-26: it classified as an auth connection, completed the key exchange,
+  and **its subsequent traffic decrypted correctly in our ARC4** — which is the first proof that the
+  fixed-constant Diffie–Hellman and the protocol's own key derivation match the real client rather
+  than just the reference's C. Its opening messages were captured byte for byte: `0x8001`
+  `SEND_COMPUTER_INFO` (**42 bytes, variable-length, `u16` counts — not the table's 138**) and `0x8002`
+  `SEND_COMPUTER_HASH` (22 bytes), 64 bytes in total. Both are now decoded, and the capture is a
+  regression test.
+- **The portal is a real HTTP service after all, and this project has to serve it**
+  (`docs/03-protocol.md` §4, corrected): with `-portal 127.0.0.1` the client calls four
+  `/Spawned/WebGate/…` endpoints on `localhost:6601` and takes its `user_id`/`session_id` from them.
+  The reference web gate (`PreSearing/tools/webgate.py`) answered all four during a working run.
+  **Not yet implemented here** — a run against this service used the reference's web gate.
+- **Where it stops, and it is now the top of the queue:** after that web-gate login the client opened a
+  second auth connection, sent the same preamble, and reset it instead of sending the portal login.
+  Against GWPS the login did arrive, nine seconds later, and worked. The reference's own log shows it
+  *mis-framing* that preamble (`Unhandled AuthSrv packet with header 35`), so it is not that GWPS
+  handles the message better — something else differs. `docs/03-protocol.md` §10 records the two cheap
+  pieces of evidence that would settle it: the client's on-screen error text, and a trace with
+  timestamps and connection ids.
+
 - **M1's scaffold still holds:** the workspace compiles, `cargo test --workspace` is green (the M1/M2
   part of it: 12 unit + 4 live-database placement tests that skip cleanly without a database), and
   `cargo clippy --workspace --all-targets` is clean.

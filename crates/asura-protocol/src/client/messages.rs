@@ -83,6 +83,34 @@ impl<'a> Reader<'a> {
         Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 
+    /// A `u16` count followed by that many UTF-16 units — the shape the client uses for the counted
+    /// strings in its preamble message (see [`decode_computer_info`]). `Ok(None)` when the bytes have
+    /// not all arrived yet.
+    fn u16_utf16(&mut self) -> Result<Option<String>, MessageError> {
+        let start = self.position;
+        let count_bytes = match self.bytes.get(start..start + 2) {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
+        let count = u16::from_le_bytes([count_bytes[0], count_bytes[1]]) as usize;
+        let end = start + 2 + count * 2;
+        if end > self.bytes.len() {
+            return Ok(None);
+        }
+        let units: Vec<u16> = (0..count)
+            .map(|index| {
+                let at = start + 2 + index * 2;
+                u16::from_le_bytes([self.bytes[at], self.bytes[at + 1]])
+            })
+            .collect();
+        self.position = end;
+        Ok(Some(
+            char::decode_utf16(units)
+                .map(|result| result.unwrap_or(char::REPLACEMENT_CHARACTER))
+                .collect(),
+        ))
+    }
+
     fn array16(&mut self, count: usize, field: &'static str) -> Result<[u8; 16], MessageError> {
         let bytes = self.take(count, field)?;
         let mut out = [0u8; 16];
@@ -173,6 +201,65 @@ fn expect(frame: &Frame, expected: u16) -> Result<(), MessageError> {
 }
 
 // ---------------------------------------------------------------- client to server
+
+/// The client's opening preamble: who the computer is, then a hash of it.
+///
+/// **`0x8001` is not the size the table says.** The client sends it as `header, u16 count, UTF-16
+/// units, u16 count, UTF-16 units` — variable length, no padding into the 32-slot fields the
+/// reference's `AuthSrv_ComputerInfo` struct implies, and the count is two bytes rather than four.
+/// Measured, not guessed: a real client (build 39112) sent this on a real connection to this service,
+/// and it decodes cleanly as 42 bytes of computer info followed immediately by a 22-byte
+/// `AUTH_CMSG_SEND_COMPUTER_HASH` — 64 bytes in total, which is exactly what arrived:
+///
+/// ```text
+/// 01 80 03 00 41 00 70 00 6f 00 0f 00 44 00 45 00 53 00 4b 00 54 00 4f 00 50 00
+/// 2d 00 44 00 55 00 52 00 4a 00 37 00 4e 00 30 00     "Apo" (3), "DESKTOP-DURJ7N0" (15)
+/// 02 80 c8 98 00 00 f5 e6 06 66 71 a9 87 45 b8 fc 3a a6 b3 c8 55 25
+///                    ^^ version 0x98c8 = 39112, the client's own build, then the hash
+/// ```
+///
+/// So the table's 138 bytes for `0x8001` describes the reference's *struct*, not this client's wire
+/// format. The service consumes this message structurally (with [`decode_computer_info`]) instead of
+/// by table size: waiting for 138 bytes would consume the login message that follows and frame from
+/// the middle of the buffer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComputerInfo {
+    /// The Windows account name the client reported.
+    pub username: String,
+    /// The computer's name.
+    pub pc_name: String,
+}
+
+/// Consume a `0x8001` computer-info message from the front of `bytes`.
+///
+/// `Ok(None)` means it has not fully arrived. The number returned is how many bytes it occupied,
+/// which is what the caller must discard.
+pub fn decode_computer_info(bytes: &[u8]) -> Result<Option<(ComputerInfo, usize)>, MessageError> {
+    if bytes.len() < 2 {
+        return Ok(None);
+    }
+    let header = u16::from_le_bytes([bytes[0], bytes[1]]);
+    if header != tables::AUTH_CMSG_SEND_COMPUTER_INFO {
+        return Err(MessageError::UnexpectedHeader {
+            got: header,
+            expected: tables::AUTH_CMSG_SEND_COMPUTER_INFO,
+        });
+    }
+
+    let mut reader = Reader::new(&bytes[2..]);
+    let username = match reader.u16_utf16()? {
+        Some(name) => name,
+        None => return Ok(None),
+    };
+    let pc_name = match reader.u16_utf16()? {
+        Some(name) => name,
+        None => return Ok(None),
+    };
+    Ok(Some((
+        ComputerInfo { username, pc_name },
+        2 + reader.position,
+    )))
+}
 
 /// `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` (`0x8038`): the client presents its identity pair.
 ///
@@ -583,5 +670,86 @@ mod tests {
         let (frame, _) = Frame::decode(&bytes).expect("frames");
         let decoded = PortalAccountLogin::decode(&frame).expect("decodes");
         assert_eq!(decoded.character_name, "");
+    }
+
+    /// Exactly what a real client (build 39112) sent to this service after the key exchange,
+    /// captured from the service's own trace on 2026-10-26.
+    const CAPTURED_PREAMBLE: &[u8] = &[
+        0x01, 0x80, 0x03, 0x00, 0x41, 0x00, 0x70, 0x00, 0x6f, 0x00, 0x0f, 0x00, 0x44, 0x00, 0x45,
+        0x00, 0x53, 0x00, 0x4b, 0x00, 0x54, 0x00, 0x4f, 0x00, 0x50, 0x00, 0x2d, 0x00, 0x44, 0x00,
+        0x55, 0x00, 0x52, 0x00, 0x4a, 0x00, 0x37, 0x00, 0x4e, 0x00, 0x30, 0x00, 0x02, 0x80, 0xc8,
+        0x98, 0x00, 0x00, 0xf5, 0xe6, 0x06, 0x66, 0x71, 0xa9, 0x87, 0x45, 0xb8, 0xfc, 0x3a, 0xa6,
+        0xb3, 0xc8, 0x55, 0x25,
+    ];
+
+    #[test]
+    fn the_captured_preamble_decodes_and_hands_over_to_the_next_message() {
+        // This is the regression that matters: the client's computer-info message is 42 bytes, not
+        // the table's 138. Framing it by the table would swallow the following message.
+        let (info, used) = decode_computer_info(CAPTURED_PREAMBLE)
+            .expect("decodes")
+            .expect("complete");
+        assert_eq!(used, 42, "the client's message is 42 bytes");
+        assert_eq!(
+            info,
+            ComputerInfo {
+                username: "Apo".to_string(),
+                pc_name: "DESKTOP-DURJ7N0".to_string(),
+            }
+        );
+
+        // Everything after it frames normally: a 22-byte computer hash.
+        let rest = &CAPTURED_PREAMBLE[used..];
+        assert_eq!(rest.len(), 22);
+        let (hash, consumed) = Frame::decode(rest).expect("the hash frames by the table");
+        assert_eq!(hash.header, tables::AUTH_CMSG_SEND_COMPUTER_HASH);
+        assert_eq!(consumed, 22);
+        assert_eq!(
+            u32::from_le_bytes([hash.body[0], hash.body[1], hash.body[2], hash.body[3]]),
+            39112,
+            "the hash message carries the client's build number"
+        );
+        assert_eq!(used + consumed, CAPTURED_PREAMBLE.len());
+    }
+
+    #[test]
+    fn a_partial_preamble_asks_for_more_rather_than_consuming_it() {
+        for cut in 0..42 {
+            assert_eq!(
+                decode_computer_info(&CAPTURED_PREAMBLE[..cut]),
+                Ok(None),
+                "cut at {cut} must not be consumed"
+            );
+        }
+        assert!(decode_computer_info(&CAPTURED_PREAMBLE[..42])
+            .expect("decodes")
+            .is_some());
+    }
+
+    #[test]
+    fn the_preamble_decoder_refuses_a_different_header() {
+        let mut bytes = CAPTURED_PREAMBLE.to_vec();
+        bytes[0..2].copy_from_slice(&tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN.to_le_bytes());
+        assert_eq!(
+            decode_computer_info(&bytes),
+            Err(MessageError::UnexpectedHeader {
+                got: tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN,
+                expected: tables::AUTH_CMSG_SEND_COMPUTER_INFO
+            })
+        );
+    }
+
+    #[test]
+    fn the_table_is_known_to_be_wrong_about_this_one_message() {
+        // Not a wish: a recorded fact, with the capture above as the evidence. If a future reader
+        // "fixes" the table to 42, this test says why that would be a guess rather than a fix.
+        assert_eq!(
+            tables::expected_size(tables::AUTH_CMSG_SEND_COMPUTER_INFO),
+            Some(138)
+        );
+        assert_eq!(
+            decode_computer_info(CAPTURED_PREAMBLE).unwrap().unwrap().1,
+            42
+        );
     }
 }

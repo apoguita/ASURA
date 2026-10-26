@@ -121,6 +121,24 @@ is a matching row, so the database is seeded, not the wire:
 `tools/seed-dev.ps1` writes the three pairs the DLL knows, and re-running it reopens them; `login` is
 `crates/asura-db/src/login.rs`, with the refusal rules under test in `crates/asura-db/tests/login.rs`.
 
+**The portal is an HTTP web gate on loopback, and it *is* something this project has to serve.**
+Corrected from a measurement with the real client (build 39112, 2026-10-26). The client launched with
+`-portal 127.0.0.1` speaks plain HTTP to `localhost:6601` and gets its identity from four endpoints:
+
+| # | request | reply |
+|---|---|---|
+| 1 | `GET /Spawned/WebGate/session/create.xml` | `<Reply><Session>UUID</Session></Reply>` — a bearer id for the next calls |
+| 2 | `POST /Spawned/WebGate/users/login.xml` (`Authorization: Arena <session>`, body carrying `Provider`, `LoginName`, base64 `Password`, `GameCode`) | `<Reply><UserId>…</UserId>…</Reply>` — the `user_id` of the login message |
+| 3 | `POST /Spawned/WebGate/my_account/game_accounts.xml` | the `gw1` account row |
+| 4 | `POST /Spawned/WebGate/my_account/token.xml` | `<Reply><Token>…</Token></Reply>` — the `session_id` of the login message |
+
+All four were observed answering `200` from the reference web gate (`PreSearing/tools/webgate.py`),
+and the `user_id`/`session_id` it returns are the pair the login message then carries. So the auth
+service's scope line — "the web gate: the portal login that hands the client its user_id/session_id"
+(`docs/01-scope.md`) — is real work, not a figure of speech. Nothing else about the earlier account of
+the portal was wrong (its identity pairs are fixed per test account), but "there is nothing to serve"
+was wrong and is corrected here.
+
 **A login does not spend the session.** GWPS's login path calls `Db_GetSession` and writes nothing,
 and the rig presents the same fixed pair on every login — so a service that closed the row on
 disconnect or on login would refuse the client's very next attempt. "The newest wins"
@@ -186,6 +204,7 @@ This is the part the whole design exists to protect.
 
 | trap | what happens | rule |
 |---|---|---|
+| `AUTH_CMSG_SEND_COMPUTER_INFO` sized from the table | the client sends it as **42 bytes** — `u16` counts, variable-length strings, no padding — while the table says 138; framing by the table swallows the message behind it and desynchronises the stream | consume this one structurally (`client::messages::decode_computer_info`), not by table size. Measured against a real client, build 39112: it arrived as 42 bytes of computer info plus a 22-byte `SEND_COMPUTER_HASH` |
 | `sizeof(struct)` taken as the wire size | two extra bytes on the wire, so the client misreads every message after it | the size is the format's field sum, not the struct's size. `AuthSrv_SessionInfo` is 14 bytes in C and 10 on the wire — the format has two dwords where the struct has three |
 | a length field written where the protocol has none | the client misreads the body as the next header: error `007` | there is no length field (`section 1`) |
 | `0x0099` size | 12 bytes in the login batch makes the client fail with 007; the same message is 12 bytes (5 in the login batch) | size per context, not per header |
@@ -248,6 +267,16 @@ Not "ported and hoped". Each item gets a capture-based test:
 
 ## 10. Open questions
 
+- **Why does the client drop the auth connection after its preamble, against this service but not
+  against GWPS?** Measured 2026-10-26. Both servers see the same sequence — version, client seed,
+  server seed, then the 64-byte preamble — and the client's traffic decrypts correctly in both, so the
+  key exchange is right. Against GWPS the portal login follows about nine seconds later (when the
+  credentials are submitted) and the session works; against this service the client opened a *second*
+  auth connection, sent the same preamble, and then reset it without sending the login. GWPS's own log
+  for the working run shows it mis-framed that same preamble (`Unhandled AuthSrv packet with header 35`),
+  so the difference is not "GWPS handles it better" — something else about the exchange differs.
+  Next evidence to gather: the exact error text the client displays, and a run of this service with
+  timestamps and connection ids on every trace line. Both are cheap; neither has been done yet.
 - **`AUTH_SMSG_0026` (`0x001A`) declares 32 bytes where its own layout can only occupy 31.** It is a
   `TYPE_NESTED_STRUCT` message, whose length depends on a count carried on the wire, and the
   declared maximum is one byte more than `1 + count * 2` can produce. GWPS would therefore consume
