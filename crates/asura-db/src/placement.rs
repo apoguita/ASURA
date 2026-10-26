@@ -311,6 +311,96 @@ pub async fn world_is_fresh(pool: &PgPool, world_id: i32, max_age_secs: f64) -> 
     Ok(fresh)
 }
 
+/// A world that could serve a map right now: what the auth service needs in order to answer a travel
+/// request with `AUTH_SMSG_GAME_SERVER_INFO`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorldCandidate {
+    pub world_id: i32,
+    pub name: String,
+    /// The address as the world registered it. `asura-world` registers the address the *client* may
+    /// dial, not the one it binds: a server behind a NAT listens on a private address and must
+    /// publish the public one, exactly as a realmlist does.
+    pub address: String,
+    pub port: i32,
+    pub map_id: i32,
+    pub leased: i32,
+    pub capacity: i32,
+}
+
+/// Every world that could serve `map_id` right now, best first.
+///
+/// "Could" is deliberately four conditions, and each one is a way a naive lookup goes wrong:
+///
+/// * the world publishes the map at all (a world that does not host map 146 cannot serve a client
+///   asking for it, and must not be offered as if it could);
+/// * it is not draining (a restart in progress takes no new players);
+/// * it said it was alive within `max_age_secs`, by the same threshold the reaper uses, so "too old
+///   to offer" and "too old to keep leases" cannot disagree;
+/// * its counter says there is room. The count is a *hint* — only [`reserve`] can actually win a slot —
+///   but offering a full world would make every travel a round trip that ends in a refusal.
+///
+/// Several candidates come back, not one, because the caller has to *probe* the port: a world can be
+/// fresh in the database and dead on the socket, and the one thing this service must never do is hand
+/// a client an address nothing is listening on. The caller walks the list until one answers.
+pub async fn find_worlds(
+    pool: &PgPool,
+    map_id: i32,
+    max_age_secs: f64,
+    limit: i64,
+) -> sqlx::Result<Vec<WorldCandidate>> {
+    let rows: Vec<(i32, String, String, i32, i32, i32, i32)> = sqlx::query_as(
+        "SELECT w.id, w.name, w.address, w.port, p.map_id, p.leased, p.capacity
+           FROM world w
+           JOIN world_pool p ON p.world_id = w.id
+          WHERE p.map_id = $1
+            AND NOT w.draining
+            AND w.heartbeat_at > now() - make_interval(secs => $2::float8)
+            AND p.leased < p.capacity
+          ORDER BY p.leased ASC, w.id ASC
+          LIMIT $3",
+    )
+    .bind(map_id)
+    .bind(max_age_secs)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(world_id, name, address, port, map_id, leased, capacity)| WorldCandidate {
+                world_id,
+                name,
+                address,
+                port,
+                map_id,
+                leased,
+                capacity,
+            },
+        )
+        .collect())
+}
+
+/// Record which world a login session was sent to. Best effort: the row is a routing hint, and a
+/// session that could not be updated must not fail a travel the client has already been told about.
+pub async fn note_session_world(
+    pool: &PgPool,
+    session_id: uuid::Uuid,
+    world_id: i32,
+    map_id: i32,
+) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE session SET world_id = $2, map_id = $3
+          WHERE id = $1 AND ended_at IS NULL",
+    )
+    .bind(session_id)
+    .bind(world_id)
+    .bind(map_id)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() > 0)
+}
+
 /// Test support only: write a pool counter value directly, to simulate the drift a crash can leave
 /// behind (counter and ledger disagree). The reconciler is the code that repairs such drift; this is
 /// how a test creates the fault it repairs. No service calls this.

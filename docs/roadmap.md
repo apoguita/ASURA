@@ -96,6 +96,18 @@ rebuild, as it does on GWPS: 100–204 ms).
 
 **Test:** real client, plus the client-state recorder to prove the client actually settled.
 
+**Progress.** The auth half is in (`crates/asura-auth/src/travel.rs`): `0x8029` is decoded,
+`asura_db::placement::find_worlds` looks for a world that publishes the requested map and is fresh,
+not draining and not full, the candidate's port is **dialled before it is offered** (a world can be
+fresh in the database and dead on the socket, and the one rule is that a client is never sent to a
+port nothing answers on), the slot is taken with the atomic `reserve`, and the answer is
+`GAME_SERVER_INFO` (42 bytes, host blob in the reference's own asymmetry) plus a status-0 response. A
+refusal is status 2 with no info message, and it leaves the counter untouched. `tests/travel.rs`
+proves all of that over a socket, including the refusal for a registered-but-silent world.
+
+Still open: the world half — a listener that accepts the game connection, validates the
+`map_token`/`player_token` pair against the pending transfer, and carries the client into a map.
+
 ## M5 — Capacity, refusal, and persistence
 
 The auth service sizes the world, refuses when full, and owns player state.

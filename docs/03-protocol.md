@@ -200,6 +200,29 @@ This is the part the whole design exists to protect.
    given, presenting the token. That reconnect is accepted only if it matches the recorded identity;
    a mismatch is client error 007.
 
+### 5a. The auth-side pair (measured from the reference)
+
+Before any of that, on the **auth** connection, the client asks for a map and the auth service says
+where to go. Two fixed-size messages, and one row for each in the generated table:
+
+| message | header | wire size | fields after the header |
+|---|---|---|---|
+| `AUTH_CMSG_REQUEST_GAME_INSTANCE` | `0x8029` | 26 | `req_id, map_type, map_id, region, district, language` — six dwords |
+| `AUTH_SMSG_GAME_SERVER_INFO` | `0x0009` | 42 | `req_id, map_token, map_id, host[24], player_token` |
+
+* `map_token` is the **world's id** in GWPS (`metadata->server_id`), and the game server is what
+  decides whether it means anything.
+* `player_token` is random per travel (`random_uint32`). It is the same number the auth service hands
+  to the world server, so it is the only thing that ties the client's next connection to this one.
+* `host[24]` is not a string: 2 bytes of address family (`AF_INET` little-endian, `AF_INET6`
+  little-endian — Winsock's 2 and 23, not Linux's 10), then the port **big-endian**, then the address
+  bytes, then zero padding. The little/big asymmetry is the reference's own.
+* The info message is followed by an ordinary `AUTH_SMSG_REQUEST_RESPONSE` with status 0. A refusal
+  is the response with `GM_ERROR_NETWORK_ERROR` (2) **and no info message** — the client then shows an
+  error it can describe, where silence is a loading screen that never ends. Sending the info message
+  for a port nothing is listening on is worse than either: the client leaves character select and dies
+  on a connect timeout.
+
 ## 6. Traps that cost real time in GWPS
 
 | trap | what happens | rule |

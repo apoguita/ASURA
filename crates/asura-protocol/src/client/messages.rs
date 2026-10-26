@@ -509,6 +509,109 @@ pub fn account_info(request: u32, account: [u8; 16], character: Option<[u8; 16]>
     Frame::new(tables::AUTH_SMSG_ACCOUNT_INFO, writer.into_body())
 }
 
+// ---------------------------------------------------------------- travel
+
+/// The size of the `host` blob in `AUTH_SMSG_GAME_SERVER_INFO`.
+///
+/// Bigger than an IPv4 address needs, because one struct carries either family
+/// (`AuthSrv_GameServerInfo.host[24]`): 2 bytes of address family, 2 of port, then the address.
+pub const GAME_SERVER_HOST_LEN: usize = 24;
+
+/// The address family values the `host` blob starts with.
+///
+/// These are Winsock's constants, and they are written down here rather than taken from the host
+/// platform on purpose: `AF_INET6` is 23 on Windows and 10 on Linux, and the reader of this field is a
+/// Windows client, so a service that ran on Linux and sent its own platform's value would send a
+/// number the client does not know. The reference has the same hazard and has only ever run on
+/// Windows in this rig.
+pub const ADDRESS_FAMILY_INET: u16 = 2;
+/// See [`ADDRESS_FAMILY_INET`].
+pub const ADDRESS_FAMILY_INET6: u16 = 23;
+
+/// The map a client asked to travel to: `AUTH_CMSG_REQUEST_GAME_INSTANCE` (`0x8029`).
+///
+/// Layout (`AuthSrv_RequestGameInstance`): `req_id`, `map_type`, `map_id`, `region`, `district`,
+/// `language` — six dwords after the header, 26 bytes on the wire. The table says 26 and this message
+/// is fixed-size in both directions, so it is one of the few where the table is the wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GameInstanceRequest {
+    pub request: u32,
+    /// 0 for an outpost, 1 for an explorable area (`MapType_FromInt`).
+    pub map_type: u32,
+    pub map_id: u32,
+    pub region: u32,
+    pub district: u32,
+    pub language: u32,
+}
+
+impl GameInstanceRequest {
+    /// Read the body of an `AUTH_CMSG_REQUEST_GAME_INSTANCE`.
+    pub fn decode(body: &[u8]) -> Result<Self, MessageError> {
+        let mut reader = Reader::new(body);
+        Ok(Self {
+            request: reader.u32("req_id")?,
+            map_type: reader.u32("map_type")?,
+            map_id: reader.u32("map_id")?,
+            region: reader.u32("region")?,
+            district: reader.u32("district")?,
+            language: reader.u32("language")?,
+        })
+    }
+}
+
+/// `AUTH_SMSG_GAME_SERVER_INFO` (`0x0009`): where the client should play, and the tokens it presents
+/// there.
+///
+/// Layout (`AuthSrv_GameServerInfo`): `req_id`, `map_token`, `map_id`, `host[24]`, `player_token` —
+/// 42 bytes. The reference fills `map_token` with the world's id and `player_token` with a random
+/// number per travel, and the game server is what decides whether the pair is real.
+///
+/// Note that the client is told about a server, never about a *map file*: the world server owns that.
+pub fn game_server_info(
+    request: u32,
+    map_token: u32,
+    map_id: u32,
+    host: [u8; GAME_SERVER_HOST_LEN],
+    player_token: u32,
+) -> Frame {
+    let mut writer = Writer::new();
+    writer.u32(request);
+    writer.u32(map_token);
+    writer.u32(map_id);
+    writer.bytes.extend_from_slice(&host);
+    writer.u32(player_token);
+    Frame::new(tables::AUTH_SMSG_GAME_SERVER_INFO, writer.into_body())
+}
+
+/// The `host` blob for an IPv4 game server: family, port big-endian, four address bytes, zero padding.
+///
+/// `le16enc` for the family and `be16enc` for the port is the reference's own asymmetry
+/// (`AuthSrv_SendGameServerInfo`), and copying it is cheaper than discovering it.
+pub fn host_ipv4(address: std::net::Ipv4Addr, port: u16) -> [u8; GAME_SERVER_HOST_LEN] {
+    let mut host = [0u8; GAME_SERVER_HOST_LEN];
+    host[0..2].copy_from_slice(&ADDRESS_FAMILY_INET.to_le_bytes());
+    host[2..4].copy_from_slice(&port.to_be_bytes());
+    host[4..8].copy_from_slice(&address.octets());
+    host
+}
+
+/// The `host` blob for an IPv6 game server: family, port big-endian, sixteen address bytes.
+pub fn host_ipv6(address: std::net::Ipv6Addr, port: u16) -> [u8; GAME_SERVER_HOST_LEN] {
+    let mut host = [0u8; GAME_SERVER_HOST_LEN];
+    host[0..2].copy_from_slice(&ADDRESS_FAMILY_INET6.to_le_bytes());
+    host[2..4].copy_from_slice(&port.to_be_bytes());
+    host[4..20].copy_from_slice(&address.octets());
+    host
+}
+
+/// The `host` blob for any address the auth service may hand out.
+pub fn host_for(address: std::net::SocketAddr) -> [u8; GAME_SERVER_HOST_LEN] {
+    match address {
+        std::net::SocketAddr::V4(v4) => host_ipv4(*v4.ip(), v4.port()),
+        std::net::SocketAddr::V6(v6) => host_ipv6(*v6.ip(), v6.port()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -938,5 +1041,98 @@ mod tests {
             decode_computer_info(CAPTURED_PREAMBLE).unwrap().unwrap().1,
             42
         );
+    }
+
+    // ------------------------------------------------------------ travel
+
+    #[test]
+    fn a_travel_request_decodes_from_the_shape_a_client_sends() {
+        // `req_id, map_type, map_id, region, district, language`: the six dwords of
+        // `AuthSrv_RequestGameInstance`. Map 146 is what the real client asked for after character
+        // select (docs/06-reference-session.md).
+        let mut body = Vec::new();
+        for value in [7u32, 0, 146, 0, 0, 0] {
+            body.extend_from_slice(&value.to_le_bytes());
+        }
+        let frame = Frame::new(tables::AUTH_CMSG_REQUEST_GAME_INSTANCE, body);
+        let bytes = frame.encode();
+        assert_eq!(bytes.len(), 26, "the whole message, header included");
+
+        let (decoded, used) =
+            Frame::decode_client_message(&bytes).expect("fixed size, walks by the table");
+        assert_eq!(used, 26);
+        assert_eq!(
+            GameInstanceRequest::decode(&decoded.body).expect("decodes"),
+            GameInstanceRequest {
+                request: 7,
+                map_type: 0,
+                map_id: 146,
+                region: 0,
+                district: 0,
+                language: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn a_truncated_travel_request_is_refused_rather_than_padded() {
+        assert_eq!(
+            GameInstanceRequest::decode(&[1, 2, 3]),
+            Err(MessageError::Truncated { field: "req_id" })
+        );
+    }
+
+    #[test]
+    fn game_server_info_is_42_bytes_with_the_reference_field_order() {
+        let host = host_ipv4(std::net::Ipv4Addr::new(127, 0, 0, 1), 6113);
+        let frame = game_server_info(7, 8001, 146, host, 0xDEAD_BEEF);
+        let bytes = frame.encode();
+
+        assert_eq!(bytes.len(), 42, "the table says 42, and this message is 42");
+        assert_eq!(frame.header, tables::AUTH_SMSG_GAME_SERVER_INFO);
+        assert_eq!(frame.body.len(), 40);
+
+        // req_id, map_token, map_id, host, player_token — read as plain little-endian dwords either
+        // side of the host blob.
+        assert_eq!(u32::from_le_bytes(bytes[2..6].try_into().unwrap()), 7);
+        assert_eq!(u32::from_le_bytes(bytes[6..10].try_into().unwrap()), 8001);
+        assert_eq!(u32::from_le_bytes(bytes[10..14].try_into().unwrap()), 146);
+        assert_eq!(
+            u32::from_le_bytes(bytes[38..42].try_into().unwrap()),
+            0xDEAD_BEEF
+        );
+    }
+
+    #[test]
+    fn an_ipv4_host_is_family_little_endian_and_port_big_endian() {
+        // `le16enc(&host[0], AF_INET)` then `be16enc(&host[2], port)` in the reference: the asymmetry
+        // is the reference's, not an accident of packing.
+        let host = host_ipv4(std::net::Ipv4Addr::new(192, 168, 1, 50), 6113);
+        assert_eq!(&host[0..2], &[0x02, 0x00], "AF_INET, little endian");
+        assert_eq!(&host[2..4], &[0x17, 0xE1], "6113 = 0x17E1, big endian");
+        assert_eq!(&host[4..8], &[192, 168, 1, 50]);
+        assert_eq!(&host[8..], &[0u8; 16], "the rest of the 24 is zeroed");
+    }
+
+    #[test]
+    fn an_ipv6_host_fills_all_sixteen_address_bytes() {
+        let address: std::net::Ipv6Addr = "::1".parse().expect("parses");
+        let host = host_ipv6(address, 6113);
+        assert_eq!(&host[0..2], &[23, 0], "AF_INET6 as Winsock numbers it");
+        assert_eq!(&host[2..4], &[0x17, 0xE1]);
+        assert_eq!(&host[4..20], &address.octets());
+        assert_eq!(&host[20..], &[0u8; 4]);
+    }
+
+    #[test]
+    fn a_socket_address_becomes_the_host_blob_of_its_own_family() {
+        let v4: std::net::SocketAddr = "10.0.0.7:7000".parse().expect("parses");
+        let host = host_for(v4);
+        assert_eq!(&host[0..2], &[2, 0]);
+        assert_eq!(&host[4..8], &[10, 0, 0, 7]);
+        assert_eq!(&host[2..4], &7000u16.to_be_bytes());
+
+        let v6: std::net::SocketAddr = "[::1]:7001".parse().expect("parses");
+        assert_eq!(&host_for(v6)[0..2], &[23, 0]);
     }
 }

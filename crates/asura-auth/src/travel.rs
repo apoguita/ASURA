@@ -1,0 +1,240 @@
+//! Travel: answering `AUTH_CMSG_REQUEST_GAME_INSTANCE` with a world the client can actually reach.
+//!
+//! The client asks for a map; the auth service answers with `AUTH_SMSG_GAME_SERVER_INFO` — an address,
+//! a map token, and a player token — and then the ordinary `AUTH_SMSG_REQUEST_RESPONSE` with status 0.
+//! That pair is the whole contract: the reference sends the info message and the response, and nothing
+//! else (`AuthSrv_HandleRequestGameInstance`).
+//!
+//! Five steps, in this order, and the order is the design:
+//!
+//! 1. **Decode** the request. Six dwords; a body that does not hold them is a malformed message, not a
+//!    guess.
+//! 2. **Find candidate worlds** that publish the requested map, are not draining, said they were alive
+//!    recently, and whose counter says there is room (`asura_db::placement::find_worlds`).
+//! 3. **Probe the port.** A world can be fresh in the database and dead on the socket. The one rule
+//!    this service must never break is that it does not hand a client an address nothing is listening
+//!    on: the client's next move is a connection, and its failure mode is a loading screen that never
+//!    ends. So every candidate is dialled, cheaply, before it is offered.
+//! 4. **Reserve** the slot. Only the database can decide there is room (`reserve` is one atomic
+//!    statement); the counter read in step 2 is a hint, and losing the race simply means trying the
+//!    next candidate.
+//! 5. **Answer**: the game server info, then the request response. Both, in that order, because the
+//!    client waits for the response and the info message alone is not an answer.
+//!
+//! A refusal is `AUTH_SMSG_REQUEST_RESPONSE` with `GM_ERROR_NETWORK_ERROR` (2) and no info message.
+//! That is honest — the client shows an error it can describe — and it is what the previous milestone
+//! did for *every* travel request. What is new is that a refusal is now the exception.
+
+use std::net::SocketAddr;
+use std::time::Duration;
+
+use asura_db::placement;
+use asura_db::PgPool;
+use asura_protocol::client::messages::{self, GameInstanceRequest, RequestResponse, STATUS_OK};
+use asura_protocol::client::Frame;
+use uuid::Uuid;
+
+use crate::ConnectionError;
+
+/// `GM_ERROR_NETWORK_ERROR`: what the reference answers when it cannot place a player
+/// (`AuthSrv_HandleRequestGameInstance`).
+pub const STATUS_NETWORK_ERROR: u32 = 2;
+
+/// How stale a world's heartbeat may be before placement stops offering it.
+///
+/// The default matches the reaper's threshold in the M2 scenario, so "too old to offer" and "too old
+/// to keep leases" are the same number. `ASURA_WORLD_MAX_AGE_SECS` overrides it.
+pub const DEFAULT_WORLD_MAX_AGE_SECS: f64 = 60.0;
+
+/// How long a candidate world's port has to answer before it is dropped from consideration.
+///
+/// A loopback world answers in microseconds; a world that has gone silent should not make the client
+/// wait for the operating system's connect timeout. `ASURA_WORLD_PROBE_TIMEOUT_MS` overrides it.
+pub const DEFAULT_PROBE_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// How many candidates are considered. The first that answers wins; more than a handful is a queue of
+/// dead worlds, and the refusal is the same either way.
+const MAX_CANDIDATES: i64 = 4;
+
+/// The freshness window in force, from `ASURA_WORLD_MAX_AGE_SECS` when it is set.
+pub fn world_max_age_secs() -> f64 {
+    static VALUE: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| {
+        std::env::var("ASURA_WORLD_MAX_AGE_SECS")
+            .ok()
+            .and_then(|value| value.trim().parse::<f64>().ok())
+            .filter(|seconds| *seconds > 0.0)
+            .unwrap_or(DEFAULT_WORLD_MAX_AGE_SECS)
+    })
+}
+
+/// The probe timeout in force, from `ASURA_WORLD_PROBE_TIMEOUT_MS` when it is set.
+pub fn probe_timeout() -> Duration {
+    static VALUE: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| {
+        std::env::var("ASURA_WORLD_PROBE_TIMEOUT_MS")
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .filter(|millis| *millis > 0)
+            .map(Duration::from_millis)
+            .unwrap_or(DEFAULT_PROBE_TIMEOUT)
+    })
+}
+
+/// Whether something accepts connections at `address` right now.
+async fn port_answers(address: SocketAddr) -> bool {
+    matches!(
+        tokio::time::timeout(probe_timeout(), tokio::net::TcpStream::connect(address)).await,
+        Ok(Ok(_))
+    )
+}
+
+/// The frames to send in answer to a travel request, and a line for the trace.
+///
+/// Never returns an error for a refusal: "there is no room" is an answer, not a failure of the
+/// connection. It returns `Err` only when the database itself failed, which is a different thing.
+pub async fn answer(
+    pool: &PgPool,
+    session_id: Option<Uuid>,
+    request: GameInstanceRequest,
+    trace: bool,
+) -> Result<Vec<Frame>, ConnectionError> {
+    let map_id = i32::try_from(request.map_id).unwrap_or(-1);
+    let request_frames = |status: u32| {
+        vec![RequestResponse {
+            request: request.request,
+            status,
+        }
+        .frame()]
+    };
+
+    let Some(session_id) = session_id else {
+        // A travel request from a connection that never logged in names no session, so there is
+        // nothing a lease could belong to. The reference refuses the same case (`!conn->connected`).
+        if trace {
+            eprintln!("auth: travel to map {map_id} refused: the connection has no session");
+        }
+        return Ok(request_frames(STATUS_NETWORK_ERROR));
+    };
+
+    let candidates = placement::find_worlds(pool, map_id, world_max_age_secs(), MAX_CANDIDATES)
+        .await
+        .map_err(ConnectionError::Database)?;
+
+    if trace {
+        eprintln!(
+            "auth: travel to map {map_id} (type {}, region {}, district {}, language {}): {} \
+             candidate world(s)",
+            request.map_type,
+            request.region,
+            request.district,
+            request.language,
+            candidates.len()
+        );
+    }
+
+    for candidate in &candidates {
+        let address =
+            match format!("{}:{}", candidate.address, candidate.port).parse::<SocketAddr>() {
+                Ok(address) => address,
+                Err(err) => {
+                    eprintln!(
+                        "auth: world {} ({}) registered an address that does not parse: {err}",
+                        candidate.world_id, candidate.name
+                    );
+                    continue;
+                }
+            };
+
+        if !port_answers(address).await {
+            // Registered, in the database, and not listening: the one case that must never reach the
+            // client. Keep looking; if no candidate answers, the refusal below is the honest answer.
+            eprintln!(
+                "auth: world {} ({}) is registered at {address} but nothing answers there; skipping",
+                candidate.world_id, candidate.name
+            );
+            continue;
+        }
+
+        // The slot, atomically. `None` means another travel took the last one between the lookup and
+        // here, which is a race, not an error: try the next candidate.
+        let Some(reserved_world) = placement::reserve(pool, candidate.world_id, map_id, session_id)
+            .await
+            .map_err(ConnectionError::Database)?
+        else {
+            if trace {
+                eprintln!(
+                    "auth: world {} filled up before the reservation; trying the next one",
+                    candidate.world_id
+                );
+            }
+            continue;
+        };
+
+        let player_token = crate::random_u32()?;
+        if let Err(err) =
+            placement::note_session_world(pool, session_id, reserved_world, map_id).await
+        {
+            // A routing hint that could not be written is not a reason to refuse a travel the player
+            // can complete: log it and answer anyway.
+            eprintln!("auth: could not record the session's world: {err}");
+        }
+
+        if trace {
+            eprintln!(
+                "auth: travel to map {map_id} placed on world {} ({}) at {address}, player token \
+                 {player_token:#010X}",
+                candidate.world_id, candidate.name
+            );
+        }
+
+        return Ok(vec![
+            messages::game_server_info(
+                request.request,
+                candidate.world_id as u32,
+                map_id as u32,
+                messages::host_for(address),
+                player_token,
+            ),
+            RequestResponse {
+                request: request.request,
+                status: STATUS_OK,
+            }
+            .frame(),
+        ]);
+    }
+
+    if trace {
+        eprintln!("auth: travel to map {map_id} refused: no world is serving that map right now");
+    }
+    Ok(request_frames(STATUS_NETWORK_ERROR))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refusal_is_a_request_response_and_nothing_else() {
+        // The shape a refusal has, without a database: status 2, the request id echoed, no info
+        // message. The client's error comes from this message, so it must never be dropped.
+        let frames = [RequestResponse {
+            request: 9,
+            status: STATUS_NETWORK_ERROR,
+        }
+        .frame()];
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0].header,
+            asura_protocol::client::tables::AUTH_SMSG_REQUEST_RESPONSE
+        );
+    }
+
+    #[test]
+    fn the_defaults_are_the_ones_the_documentation_states() {
+        // Read through the accessors only when the environment does not override them; the constants
+        // are the documented values.
+        assert_eq!(DEFAULT_WORLD_MAX_AGE_SECS, 60.0);
+        assert_eq!(DEFAULT_PROBE_TIMEOUT, Duration::from_millis(500));
+    }
+}

@@ -40,6 +40,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use uuid::Uuid;
 
+/// Answering `AUTH_CMSG_REQUEST_GAME_INSTANCE`: which world, and whether there is one at all.
+pub mod travel;
+
 /// How long a connection may sit without sending anything before it is dropped.
 ///
 /// Not from the reference — GWPS relies on the operating system's timeouts — but a login connection
@@ -450,25 +453,14 @@ async fn dispatch(
         // The reference keeps the client's player status on the connection and sends nothing.
         tables::AUTH_CMSG_SET_PLAYER_STATUS | tables::AUTH_CMSG_ACCEPT_EULA => Ok(true),
 
-        // A travel request needs a world server to allocate into, which is M4's work. Until then the
-        // honest answer is a refusal the client can show, not silence: silence here is a loading
-        // screen that never ends.
+        // A travel request is answered with a world that is actually reachable *now*
+        // (`travel::answer`): the info message with an address, then the success response. The one
+        // rule it exists to keep is that the client is never sent to a port nothing answers on.
         tables::AUTH_CMSG_REQUEST_GAME_INSTANCE => {
-            let request = request_id(&frame);
-            eprintln!(
-                "auth: a travel request arrived, but no world server is configured yet; refusing"
-            );
-            send_frames(
-                stream,
-                session,
-                vec![RequestResponse {
-                    request,
-                    status: 2, // GM_ERROR_NETWORK_ERROR
-                }
-                .frame()],
-                trace,
-            )
-            .await?;
+            let request = messages::GameInstanceRequest::decode(&frame.body)
+                .map_err(ConnectionError::Message)?;
+            let replies = travel::answer(pool, session.session_id, request, trace.on()).await?;
+            send_frames(stream, session, replies, trace).await?;
             Ok(true)
         }
 
@@ -502,7 +494,7 @@ fn request_id(frame: &Frame) -> u32 {
 }
 
 /// A random `u32` for the session salt, from the operating system.
-fn random_u32() -> Result<u32, ConnectionError> {
+pub(crate) fn random_u32() -> Result<u32, ConnectionError> {
     let mut bytes = [0u8; 4];
     getrandom::getrandom(&mut bytes)
         .map_err(|err| ConnectionError::Io(io::Error::other(err.to_string())))?;
@@ -548,6 +540,10 @@ async fn answer_login(
         .map_err(ConnectionError::Database)?;
 
     session.account = Some(resolved.account);
+    // The pair resolved, so the session row is real and this connection may act on it: a travel
+    // request needs it for the lease, and a character selection is recorded on it. Leaving this unset
+    // made every travel refuse with "the connection has no session".
+    session.session_id = Some(session_id);
     if resolved.character.is_some() && trace.on() {
         eprintln!(
             "auth: the session records character {:?} as last selected",
