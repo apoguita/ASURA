@@ -307,3 +307,102 @@ Not "ported and hoped". Each item gets a capture-based test:
   desynchronise this port and not GWPS. It is an unnamed friend/social message outside the login
   path, so it is recorded rather than guessed at; `crates/asura-protocol/src/client/tables.rs` lists
   it in `VARIABLE_LENGTH_HEADERS`. Resolve it when something needs the message.
+
+## 11. The game connection: from placement to a character in a map
+
+After `AUTH_SMSG_GAME_SERVER_INFO` the client opens a **second** connection, to the address it was
+handed, and presents the tokens it was issued. Everything below is measured from the reference: the
+message layouts from its packed structs (`GameMsg.h`), the sizes from its own send log, and the order
+from the functions named beside each step.
+
+### 11.1 How the connection begins
+
+1. **Classify.** The first four bytes are a `u32` and they name the connection kind, exactly as on the
+   auth port: `0x000C_0500` is a game connection (`GAME_CMSG_VERSION_HEADER`).
+2. **`GAME_CMSG_VERSION`, 64 bytes, fixed.** The client identifies itself and its travel:
+
+   | off | size | field |
+   |---|---|---|
+   | 0 | 4 | `header` = `0x000C_0500` |
+   | 4 | 4 | `version` (the client's build; **never validated**, by us or by the reference) |
+   | 8 | 4 | `h0008` (observed 1, never compared) |
+   | 12 | 4 | `map_token` — the world id from `GAME_SERVER_INFO` |
+   | 16 | 4 | `map_id` |
+   | 20 | 4 | `player_token` — the random token issued for this travel |
+   | 24 | 16 | `account_uuid` (RFC 4122 little-endian) |
+   | 40 | 16 | `character_uuid` (same variant) |
+   | 56 | 8 | `h0038`, `h003C` (both 0) |
+
+   The server **sends nothing in reply** to this message. There is no acknowledgement and no error
+   message: a token pair the server does not believe in is answered by closing the socket, and the
+   client reports that itself as error 007.
+3. **Key exchange**, the same as on the auth port: `MSG_CLIENT_SEED` (`0x4200`, 66 bytes) →
+   `MSG_SERVER_SEED` (`0x1601`, 22 bytes), then every byte in both directions is ARC4 with one shared
+   keystream.
+
+### 11.2 The token pair is the credential
+
+The reference validates `(map_token, player_token)` plus the character id against what the auth
+service recorded when it answered the travel, and closes the connection on any mismatch
+(`AuthSrv_DoPostHandshake`). It keeps two pairs per account — *current* and *pending* — so a client
+that stayed where it was and a client that took a transfer are both recognised, whichever order the
+messages arrive in.
+
+ASURA records that intent in the `transfer` table instead (migration 0004), and `claim_transfer` is a
+single `UPDATE ... WHERE claimed_at IS NULL RETURNING`, so two connections presenting the same token
+cannot both be believed. A world server checks the character id too: a live token with someone else's
+character is refused.
+
+### 11.3 The load block (server → client, sent unasked)
+
+| # | message | header | size |
+|---|---|---|---|
+| 1 | `INSTANCE_LOAD_HEAD` | `0x017C` | 6 |
+| 2 | `INSTANCE_PLAYER_DATA_START` | `0x0186` | 2 |
+| 3 | `INSTANCE_LOAD_PLAYER_NAME` | `0x017D` | `2 + 2 + 2n` |
+| 4 | `INSTANCE_LOAD_INFO` | `0x019A` | 16 |
+
+`LOAD_INFO` is `{agent, map_id(u16), is_explorable(u8), district(u32), language(u8), is_observer(u8),
+unk(u8)}`. The reference hardcodes `is_explorable = 1` with the comment `// what to put here?`.
+
+### 11.4 The three things the client asks for
+
+The client asks in the order **items (`0x8091`), spawn (`0x8088`), players (`0x8090`)**; the reference
+answers whatever arrives, in whatever order.
+
+* **items (`0x8091`, 4 bytes)** → the item stream opens, four weapon slots, gold storage, the four
+  faction caps, hard mode, character info, `MAP_UPDATE_CURRENT` (5 bytes, the *login* shape),
+  `READY_FOR_MAP_SPAWN` (6), and the six-message download manifest.
+* **spawn (`0x8088`, 2 bytes)** → `INSTANCE_LOAD_SPAWN_POINT` (`0x0196`), 26 bytes:
+  `{map_file_id(u32), position(2×f32), plane(u16), unk0, is_cinematic, unk1[8]}`. These two numbers —
+  the Gw.dat blob and the coordinate inside it — are what a client needs to load a map at all.
+* **players (`0x8090`, 19 bytes)** → the long block: PvP unlocks, the account features, the unlocked
+  map list, `INSTANCE_LOADED` (the player's team token), skills and attributes, factions, the load
+  time, `PLAYER_CREATE` (`0x0059`, `25 + 2n`), `WORLD_CREATE_AGENT` (`0x0020`, **99 bytes, fixed**),
+  the agent's health/energy/level/effects/equipment/cape, `WORLD_UPDATE_CONTROLLED_AGENT`, the party
+  (create/add/end + pointer), and finally **`INSTANCE_LOAD_FINISH` (`0x018E`, 2 bytes)** — the message
+  that takes the client off the loading screen.
+
+### 11.5 Keeping the session alive
+
+The server sends, without being asked:
+
+* `WORLD_SIMULATION_TICK` (`0x001E`, 6 bytes) at least every 500 ms — a client that stops receiving it
+  stops moving;
+* `PING_REQUEST` (`0x000C`, 2 bytes) every 5 s, and answers the client's own `PING_REQUEST` (`0x800D`)
+  with `PING_REPLY` (`0x000D`, 6 bytes, `{u32 ping}`).
+
+There is **no idle timeout** in the reference and it never disconnects over a missing heartbeat. The
+only reliable disconnects are a client `DISCONNECT` (`0x8008`) and a socket error.
+
+### 11.6 Framing on this connection
+
+Same rule as the auth family, different table: a `u16` header (client→server headers carry `0x8000`,
+server→client ones do not), and a body whose length is fixed per header except for counted fields,
+which carry a `u16` count and then exactly that many units. The two families **collide on header
+values** — `0x8000` is `AUTH_CMSG_HEARTBEAT` on the auth connection and `GAME_CMSG_TRADE_ACKNOWLEDGE`
+on this one — which is why there are two tables and why the game lookup takes a direction.
+
+The whole game family is generated from the reference: 194 client-to-server headers and 488
+server-to-client ones, with each message's field layout
+(`crates/asura-protocol/src/client/game_tables.rs`, `tools/gen-game-tables.py`).

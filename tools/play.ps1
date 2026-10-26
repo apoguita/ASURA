@@ -1,0 +1,136 @@
+<#
+.SYNOPSIS
+    Start the whole stack for a real client: seed, auth service, world server.
+
+.DESCRIPTION
+    Three things have to be true before a client can get from the login screen into a map, and this
+    script makes all three true in one command:
+
+      1. the database has the dev identities the patched client presents, and the maps a world server
+         can host (tools/seed-dev.ps1, tools/seed-map.ps1);
+      2. the auth service is listening on 6112 and answering logins;
+      3. a world server is listening on 6113, registered, publishing a pool for the map, and answering
+         the game connection.
+
+    It leaves both services running and tails their output into this console, so every message in both
+    directions shows up here with its size. Ctrl+C stops both.
+
+    The client is launched by you, not by this script: it needs a window, and a game window cannot be
+    read by a script. The services' output is the verdict.
+
+    ASCII only, like every script in tools/.
+
+.EXAMPLE
+    .\tools\play.ps1
+
+.EXAMPLE
+    # a world that hosts both pre-Searing outposts
+    .\tools\play.ps1 -Maps 146,148
+
+.EXAMPLE
+    # only the services' own log lines, no per-message trace
+    .\tools\play.ps1 -Quiet
+#>
+
+param(
+    [string] $Maps = "146",
+    [int] $World = 8001,
+    [int] $Capacity = 8,
+    [switch] $Quiet
+)
+
+$ErrorActionPreference = "Stop"
+
+$repo = Split-Path -Parent $PSScriptRoot
+
+function Find-Cargo {
+    $onPath = Get-Command cargo -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+    $candidate = Join-Path $env:USERPROFILE ".cargo\bin\cargo.exe"
+    if (Test-Path $candidate) { return $candidate }
+    throw "cargo not found. Install Rust, or add %USERPROFILE%\.cargo\bin to PATH."
+}
+
+function Invoke-Step {
+    param([string] $Script, [string] $Label)
+    Write-Host "== $Label"
+    $code = & (Get-Command powershell).Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot $Script)
+    if ($code -ne 0) { throw "$Label failed (exit $code)" }
+}
+
+$cargo = Find-Cargo
+Write-Host "cargo: $cargo"
+Write-Host ""
+
+Invoke-Step -Script "seed-dev.ps1" -Label "seeding the identities the client presents"
+Write-Host ""
+Invoke-Step -Script "seed-map.ps1" -Label "seeding the maps a world can host"
+Write-Host ""
+
+Write-Host "== building"
+& $cargo build --offline -p asura-auth -p asura-world 2>&1 | Select-String -Pattern 'error|warning: unused' | ForEach-Object { "$_" }
+if ($LASTEXITCODE -ne 0) { throw "the build failed" }
+
+$authExe = Join-Path $repo "target\debug\asura-auth.exe"
+$worldExe = Join-Path $repo "target\debug\asura-world.exe"
+foreach ($exe in @($authExe, $worldExe)) {
+    if (-not (Test-Path $exe)) { throw "$exe is missing; the build did not produce it" }
+}
+
+$env:ASURA_TRACE = if ($Quiet) { "0" } else { "1" }
+$authLog = Join-Path $env:TEMP "asura-auth.log"
+$worldLog = Join-Path $env:TEMP "asura-world.log"
+Remove-Item $authLog, $worldLog -ErrorAction SilentlyContinue
+
+Write-Host ""
+Write-Host "== auth service on 127.0.0.1:6112"
+$auth = Start-Process -FilePath $authExe -ArgumentList "--bind", "127.0.0.1:6112" -NoNewWindow -PassThru -RedirectStandardError $authLog
+Start-Sleep -Milliseconds 700
+
+Write-Host "== world server id $World on 127.0.0.1:6113, maps $Maps"
+$worldArgs = @("--world", "$World", "--maps", $Maps, "--capacity", "$Capacity", "--public", "127.0.0.1:6113")
+$worldProc = Start-Process -FilePath $worldExe -ArgumentList $worldArgs -NoNewWindow -PassThru -RedirectStandardError $worldLog
+Start-Sleep -Milliseconds 700
+
+Write-Host ""
+Write-Host "client command line:"
+Write-Host "  F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1"
+Write-Host ""
+Write-Host "the service output follows. What a successful travel looks like:"
+Write-Host "  auth:  travel to map 146 placed on world $World"
+Write-Host "  world: joined map 146, then 'world -> 0x018E'"
+Write-Host "  0x018E is INSTANCE_LOAD_FINISH -- the message that ends the loading screen."
+Write-Host ""
+Write-Host "Ctrl+C stops both services."
+Write-Host ""
+
+# Tail both logs into this console: the trace is the verdict, and a file the user has to remember to
+# open is a trace nobody reads.
+$authSeen = 0
+$worldSeen = 0
+try {
+    while ($true) {
+        Start-Sleep -Milliseconds 250
+        if ($auth.HasExited) { throw "the auth service exited (see $authLog)" }
+        if ($worldProc.HasExited) { throw "the world server exited (see $worldLog)" }
+
+        foreach ($pair in @(@($authLog, "auth", $authSeen), @($worldLog, "world", $worldSeen))) {
+            $path = $pair[0]
+            $tag = $pair[1]
+            $seen = [int] $pair[2]
+            if (-not (Test-Path $path)) { continue }
+            $lines = @(Get-Content -Path $path -ErrorAction SilentlyContinue)
+            if ($lines.Count -gt $seen) {
+                for ($index = $seen; $index -lt $lines.Count; $index++) {
+                    Write-Host ("[{0}] {1}" -f $tag, $lines[$index])
+                }
+                if ($tag -eq "auth") { $authSeen = $lines.Count } else { $worldSeen = $lines.Count }
+            }
+        }
+    }
+} finally {
+    Write-Host ""
+    Write-Host "stopping"
+    if (-not $worldProc.HasExited) { Stop-Process -Id $worldProc.Id -Force -ErrorAction SilentlyContinue }
+    if (-not $auth.HasExited) { Stop-Process -Id $auth.Id -Force -ErrorAction SilentlyContinue }
+}

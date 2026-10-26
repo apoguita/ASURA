@@ -6,16 +6,17 @@
 //!
 //! Two rules that come from the reference and are not negotiable:
 //!
-//! * **The header is two bytes, and the direction is the top bit.** Client→server is `0x8000 | n`,
-//!   server→client is `n` (GWPS `opcodes.h`). A world server that swaps them sends a client a message
-//!   it reads as a different one.
-//! * **A counted field is a `u16` count followed by exactly that many units**, no padding — the same
-//!   rule as the auth path (`client::frame`). The reference's structs declare wider counters
+//! * **The header is two bytes, and the direction is the top bit.** Client-to-server is `0x8000 | n`,
+//!   server-to-client is `n` (GWPS `opcodes.h`). A world server that swaps them sends a client a
+//!   message it reads as a different one.
+//! * **A counted field is a `u16` count followed by exactly that many units**, with no padding -- the
+//!   same rule as the auth path (`client::frame`). The reference's structs declare wider counters
 //!   (`uint32_t n_name`), which is why `sizeof(struct)` is not the wire size and why these builders
 //!   write the count themselves instead of mirroring a struct.
 //!
-//! Everything here is server→client. The client→server messages a world server must *read* are
-//! framed by the generated table in [`crate::client::game_tables`].
+//! Everything here is server-to-client. The client-to-server messages a world server must *read* are
+//! framed by the generated game table ([`super::client::game_tables`]) through
+//! [`super::client::Frame::decode_game_message`].
 
 /// `GAME_SMSG_INSTANCE_LOAD_HEAD` (`0x017C`): 6 bytes. The first message a client receives on the
 /// game connection.

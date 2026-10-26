@@ -47,8 +47,11 @@ dependencies = [
 name = "asura-world"
 version = "0.1.0"
 dependencies = [
+ "asura-auth",
  "asura-db",
  "asura-protocol",
+ "getrandom 0.2.17",
+ "tokio",
 ]
 
 [[package]]

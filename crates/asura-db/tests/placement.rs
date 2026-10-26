@@ -263,9 +263,15 @@ async fn the_reaper_frees_a_silent_world_but_not_a_fresh_one() {
     let report = db::reap_stale(&pool_a, STALE_AFTER_SECS)
         .await
         .expect("reap_stale");
-    assert_eq!(
-        report.leases_freed, 2,
-        "exactly the silent world's leases are freed"
+    // Not an exact count: the reaper is global by design, and a development database may hold other
+    // worlds that went silent (an earlier run that stopped halfway through, a service that was
+    // killed). Asserting `== 2` here made this test fail on litter rather than on behaviour, so the
+    // claim is "at least this world's two, and this world's own state is what the next assertions
+    // check".
+    assert!(
+        report.leases_freed >= 2,
+        "the silent world's two leases are freed (report: {})",
+        report.leases_freed
     );
 
     let counts = db::pool_counts(&pool_a, silent, MAP)

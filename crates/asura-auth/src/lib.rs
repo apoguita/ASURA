@@ -146,35 +146,10 @@ struct Session {
 
 /// Whether to print the per-message trace.
 ///
-/// The same shape as GWPS's `GWPS_TRACE`, and not optional in spirit: the client reports nothing but
-/// `007`, so the trace is the only way to see what actually differed (`docs/03-protocol.md`, section 6).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Trace {
-    Off,
-    On,
-}
-
-impl Trace {
-    /// Read `ASURA_TRACE` from the environment: `1`, `true`, or `yes` turns it on. Anything else,
-    /// including an unset variable, is off.
-    pub fn from_environment() -> Self {
-        match std::env::var("ASURA_TRACE") {
-            Ok(value) if Trace::is_on_value(&value) => Trace::On,
-            _ => Trace::Off,
-        }
-    }
-
-    fn on(self) -> bool {
-        matches!(self, Trace::On)
-    }
-
-    /// Whether a value means "on". Split out from [`Trace::from_environment`] so the rule can be
-    /// tested without touching the process environment.
-    pub fn is_on_value(value: &str) -> bool {
-        let value = value.trim().to_ascii_lowercase();
-        value == "1" || value == "true" || value == "yes"
-    }
-}
+/// Defined in `asura-protocol` because a world server reads the same switch for the same reason: the
+/// client reports nothing but `007`, so the trace is the only way to see what actually differed
+/// (`docs/03-protocol.md`, section 6).
+pub use asura_protocol::Trace;
 
 /// Accept connections until the listener fails.
 ///

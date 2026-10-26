@@ -89,7 +89,7 @@ WITH acct AS (
     RETURNING account_id
 )
 INSERT INTO characters (id, account_id, name, map_id)
-SELECT gen_random_uuid(), sess.account_id, 'Asura One', 15 FROM sess
+SELECT gen_random_uuid(), sess.account_id, 'Asura One', 146 FROM sess
 WHERE NOT EXISTS (
     SELECT 1 FROM characters c WHERE c.account_id = sess.account_id AND c.name = 'Asura One'
 );
@@ -111,7 +111,7 @@ WITH acct AS (
     RETURNING account_id
 )
 INSERT INTO characters (id, account_id, name, map_id)
-SELECT gen_random_uuid(), sess.account_id, 'Asura Two', 15 FROM sess
+SELECT gen_random_uuid(), sess.account_id, 'Asura Two', 146 FROM sess
 WHERE NOT EXISTS (
     SELECT 1 FROM characters c WHERE c.account_id = sess.account_id AND c.name = 'Asura Two'
 );
@@ -133,7 +133,7 @@ WITH acct AS (
     RETURNING account_id
 )
 INSERT INTO characters (id, account_id, name, map_id)
-SELECT gen_random_uuid(), sess.account_id, 'Asura Three', 15 FROM sess
+SELECT gen_random_uuid(), sess.account_id, 'Asura Three', 146 FROM sess
 WHERE NOT EXISTS (
     SELECT 1 FROM characters c WHERE c.account_id = sess.account_id AND c.name = 'Asura Three'
 );
@@ -161,3 +161,5 @@ Write-Host "  user2@example.com  portal 5fb222bc-9d19-4308-ac3e-3c62685bc6ae  se
 Write-Host "  user3@example.com  portal 9957c79c-b93c-4b60-9d84-9f38a1f62be3  session ccdb4b8d-1c88-48c0-bda0-0a5e8d87f4da"
 Write-Host ""
 Write-Host "verify with: .\tools\m3-verify.ps1"
+
+

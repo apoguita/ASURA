@@ -120,6 +120,11 @@ pub mod client;
 /// header values: `0x8000 | n` names a different message in each.
 pub mod game;
 
+/// The per-message trace switch both services read (`ASURA_TRACE`).
+pub mod trace;
+
+pub use trace::Trace;
+
 #[cfg(test)]
 mod tests {
     use super::*;

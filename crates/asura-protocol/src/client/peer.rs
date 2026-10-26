@@ -213,6 +213,36 @@ impl ReferenceClient {
         Ok(frames)
     }
 
+    /// Take everything that has arrived from a **world server** and return the game messages it
+    /// completed.
+    ///
+    /// The same scrambling and reassembly as [`ReferenceClient::receive`], framed by the game table
+    /// instead of the auth one: the two families collide on header values, so a client double that
+    /// framed a world server's stream with the auth table would misread the first message it did not
+    /// recognise.
+    pub fn receive_game(&mut self, bytes: &[u8]) -> Result<Vec<Frame>, ClientError> {
+        let mut incoming = bytes.to_vec();
+        let scrambler = self
+            .scrambler_in
+            .as_mut()
+            .expect("receive is only valid after accept_server_seed");
+        scrambler.apply(&mut incoming);
+        self.plaintext.extend_from_slice(&incoming);
+
+        let mut frames = Vec::new();
+        loop {
+            match Frame::decode_game_message(&self.plaintext, false) {
+                Ok((frame, used)) => {
+                    self.plaintext.drain(..used);
+                    frames.push(frame);
+                }
+                Err(FrameError::Incomplete { .. }) => break,
+                Err(err) => return Err(ClientError::Framing(err)),
+            }
+        }
+        Ok(frames)
+    }
+
     /// Decrypt a chunk in place, without framing it.
     ///
     /// For a caller that needs the raw byte stream rather than messages — when two servers disagree

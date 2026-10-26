@@ -26,6 +26,9 @@ pub mod arc4;
 pub mod filecheck;
 pub mod frame;
 pub mod game;
+/// The game (world) message table, generated from the reference by `tools/gen-game-tables.py`: 194
+/// client-to-server headers and 488 server-to-client ones, with each message's field layout.
+pub mod game_tables;
 pub mod handshake;
 pub mod messages;
 pub mod peer;

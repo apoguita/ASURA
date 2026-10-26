@@ -108,6 +108,29 @@ proves all of that over a socket, including the refusal for a registered-but-sil
 Still open: the world half — a listener that accepts the game connection, validates the
 `map_token`/`player_token` pair against the pending transfer, and carries the client into a map.
 
+**Progress (world half).** `asura-world` now listens, and the whole path exists
+(`crates/asura-world/src/lib.rs`):
+
+* it classifies the connection, reads `GAME_CMSG_VERSION` (64 bytes: world id, map, player token, both
+  UUIDs), and **claims** the pending transfer — a token nobody issued, a token already claimed, a token
+  for another world, or the wrong character closes the socket with no message, which is what the
+  reference does;
+* it completes the key exchange, sends the reference's four-message load block unasked, answers the
+  item/spawn/players requests (the last ending with `INSTANCE_LOAD_FINISH`), and keeps the world tick
+  and ping running;
+* the spawn point comes from `map_config` (migration 0005) and holds the coordinate the reference rig
+  verified against a live client, not `(0,0)`;
+* leaving releases the pool slot immediately rather than waiting for the reaper;
+* the game message table is generated from the reference (`tools/gen-game-tables.py`, 682 rows), so
+  client messages are framed by the reference's own field layouts rather than by a hand-written list.
+
+`crates/asura-world/tests/load.rs` proves all of it over a socket: a placed client is loaded into its
+map, a token nobody issued is closed without a word, and a transfer naming a different character is
+refused.
+
+Still open: the real client. Everything above is proven against the reference client in this
+repository, not against `Gw.custom.exe` in a map.
+
 ## M5 — Capacity, refusal, and persistence
 
 The auth service sizes the world, refuses when full, and owns player state.

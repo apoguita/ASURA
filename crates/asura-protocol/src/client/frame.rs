@@ -22,6 +22,7 @@
 //! * **Buffering lives elsewhere.** [`Frame::decode`] takes bytes and returns a frame plus how many
 //!   it used; the socket owner keeps the buffer.
 
+use super::game_tables;
 use super::tables;
 
 /// The header is two bytes. Everything after it is the body, whose length the table fixes.
@@ -202,67 +203,151 @@ impl Frame {
         }
         let header = u16::from_le_bytes([bytes[0], bytes[1]]);
         let entry = tables::entry(header).ok_or(FrameError::UnknownHeader { header })?;
+        let position = walk(bytes, header, entry.fields.iter().map(shape_of_auth))?;
+        let body = bytes[HEADER_LEN..position].to_vec();
+        Ok((Frame { header, body }, position))
+    }
 
-        let mut position = HEADER_LEN;
-        for field in entry.fields.iter() {
-            // The header field is the two bytes already consumed.
-            if matches!(field.kind, tables::FieldKind::MsgHeader) {
-                continue;
-            }
-            let fixed = match field.kind {
-                tables::FieldKind::MsgHeaderGame => Some(4),
-                tables::FieldKind::AgentId
-                | tables::FieldKind::Float
-                | tables::FieldKind::Dword => Some(4),
-                tables::FieldKind::Vect2 => Some(8),
-                tables::FieldKind::Vect3 => Some(12),
-                tables::FieldKind::Byte => Some(1),
-                tables::FieldKind::Word => Some(2),
-                tables::FieldKind::Blob => Some(field.length as usize),
-                _ => None,
-            };
-            if let Some(width) = fixed {
+    /// Take one game message off the front of `bytes`, and say how many bytes it used.
+    ///
+    /// The game family follows the same rules as the auth family and needs the same walker, but it has
+    /// its own table because the two families collide on header values: `0x8000 | n` is a different
+    /// message in each (`GAME_CMSG_TRADE_ACKNOWLEDGE` and `AUTH_CMSG_HEARTBEAT` both arrive as
+    /// `0x8000`). Hence `from_client`: the caller knows which side of the conversation it is on, and
+    /// the table cannot.
+    ///
+    /// Like [`Frame::decode_client_message`], this is the **structural** rule rather than the table's
+    /// maximum: a counted field is a `u16` count and that many units, with no padding.
+    pub fn decode_game_message(
+        bytes: &[u8],
+        from_client: bool,
+    ) -> Result<(Frame, usize), FrameError> {
+        if bytes.len() < HEADER_LEN {
+            return Err(FrameError::Incomplete { needed: HEADER_LEN });
+        }
+        let header = u16::from_le_bytes([bytes[0], bytes[1]]);
+        let fields =
+            game_tables::fields(header, from_client).ok_or(FrameError::UnknownHeader { header })?;
+        let position = walk(bytes, header, fields.iter().map(shape_of_game))?;
+        let body = bytes[HEADER_LEN..position].to_vec();
+        Ok((Frame { header, body }, position))
+    }
+}
+
+/// How one field occupies the wire, for [`walk`].
+///
+/// Both tables describe their fields with their own `FieldKind` (the game table documents the counted
+/// kinds as they actually are on the wire), so each is mapped onto this small shared vocabulary rather
+/// than the walker being written twice.
+enum Shape {
+    /// The message header: already consumed before the walk starts.
+    Header,
+    /// A fixed number of bytes.
+    Fixed(usize),
+    /// A `u16` count and that many units, up to the field's capacity.
+    Counted { unit: usize, capacity: u16 },
+    /// A nested struct: a count repeating the remaining fields. Nothing this project sends or accepts
+    /// uses one, and refusing it beats guessing its length.
+    Nested,
+}
+
+fn shape_of_auth(field: &tables::Field) -> Shape {
+    match field.kind {
+        tables::FieldKind::MsgHeader => Shape::Header,
+        tables::FieldKind::MsgHeaderGame => Shape::Fixed(4),
+        tables::FieldKind::AgentId | tables::FieldKind::Float | tables::FieldKind::Dword => {
+            Shape::Fixed(4)
+        }
+        tables::FieldKind::Vect2 => Shape::Fixed(8),
+        tables::FieldKind::Vect3 => Shape::Fixed(12),
+        tables::FieldKind::Byte => Shape::Fixed(1),
+        tables::FieldKind::Word => Shape::Fixed(2),
+        tables::FieldKind::Blob => Shape::Fixed(field.length as usize),
+        tables::FieldKind::String16 | tables::FieldKind::Array16 => Shape::Counted {
+            unit: 2,
+            capacity: field.length,
+        },
+        tables::FieldKind::Array8 => Shape::Counted {
+            unit: 1,
+            capacity: field.length,
+        },
+        tables::FieldKind::Array32 => Shape::Counted {
+            unit: 4,
+            capacity: field.length,
+        },
+        tables::FieldKind::NestedStruct => Shape::Nested,
+    }
+}
+
+fn shape_of_game(field: &game_tables::Field) -> Shape {
+    use game_tables::FieldKind;
+    match field.kind {
+        FieldKind::MsgHeader => Shape::Header,
+        FieldKind::MsgHeaderGame => Shape::Fixed(4),
+        FieldKind::AgentId | FieldKind::Float | FieldKind::Dword => Shape::Fixed(4),
+        FieldKind::Vect2 => Shape::Fixed(8),
+        FieldKind::Vect3 => Shape::Fixed(12),
+        FieldKind::Byte => Shape::Fixed(1),
+        FieldKind::Word => Shape::Fixed(2),
+        FieldKind::Blob => Shape::Fixed(field.length as usize),
+        FieldKind::String16 | FieldKind::Array16 => Shape::Counted {
+            unit: 2,
+            capacity: field.length,
+        },
+        FieldKind::Array8 => Shape::Counted {
+            unit: 1,
+            capacity: field.length,
+        },
+        FieldKind::Array32 => Shape::Counted {
+            unit: 4,
+            capacity: field.length,
+        },
+        FieldKind::NestedStruct => Shape::Nested,
+    }
+}
+
+/// Walk a message's field layout and return where its body ends.
+///
+/// The one rule this implements, for both families: a counted field carries a `u16` count and consumes
+/// exactly that many units, so the table's `max_size` is an upper bound and never a length.
+fn walk(
+    bytes: &[u8],
+    header: u16,
+    shapes: impl Iterator<Item = Shape>,
+) -> Result<usize, FrameError> {
+    let mut position = HEADER_LEN;
+    for shape in shapes {
+        match shape {
+            Shape::Header => {}
+            Shape::Fixed(width) => {
                 position += width;
                 if position > bytes.len() {
                     return Err(FrameError::Incomplete { needed: position });
                 }
-                continue;
             }
-
-            // A counted field: a u16 count, then that many units.
-            let unit = match field.kind {
-                tables::FieldKind::String16 | tables::FieldKind::Array16 => 2,
-                tables::FieldKind::Array8 => 1,
-                tables::FieldKind::Array32 => 4,
-                // A nested struct is a count of repeats of the remaining fields. Nothing on the login
-                // path uses one, and refusing it is better than guessing its length.
-                tables::FieldKind::NestedStruct => {
-                    return Err(FrameError::UnknownHeader { header });
+            Shape::Counted { unit, capacity } => {
+                if position + 2 > bytes.len() {
+                    return Err(FrameError::Incomplete {
+                        needed: position + 2,
+                    });
                 }
-                _ => unreachable!("every other kind is fixed and handled above"),
-            };
-            if position + 2 > bytes.len() {
-                return Err(FrameError::Incomplete {
-                    needed: position + 2,
-                });
+                let count = u16::from_le_bytes([bytes[position], bytes[position + 1]]) as usize;
+                if count > capacity as usize {
+                    return Err(FrameError::SizeMismatch {
+                        header,
+                        got: count,
+                        expected: capacity as usize,
+                    });
+                }
+                position += 2 + count * unit;
+                if position > bytes.len() {
+                    return Err(FrameError::Incomplete { needed: position });
+                }
             }
-            let count = u16::from_le_bytes([bytes[position], bytes[position + 1]]) as usize;
-            if count > field.length as usize {
-                return Err(FrameError::SizeMismatch {
-                    header,
-                    got: count,
-                    expected: field.length as usize,
-                });
-            }
-            position += 2 + count * unit;
-            if position > bytes.len() {
-                return Err(FrameError::Incomplete { needed: position });
-            }
+            Shape::Nested => return Err(FrameError::UnknownHeader { header }),
         }
-
-        let body = bytes[HEADER_LEN..position].to_vec();
-        Ok((Frame { header, body }, position))
     }
+    Ok(position)
 }
 
 #[cfg(test)]
