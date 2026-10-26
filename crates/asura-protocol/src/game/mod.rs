@@ -51,6 +51,8 @@ pub const MAP_UPDATE_UNLOCKED_LIST: u16 = 0x0094;
 
 /// `GAME_SMSG_ITEM_STREAM_CREATE` (`0x0144`): 5 bytes.
 pub const ITEM_STREAM_CREATE: u16 = 0x0144;
+/// `GAME_SMSG_INVENTORY_CREATE_BAG` (`0x013F`): 13 bytes.
+pub const INVENTORY_CREATE_BAG: u16 = 0x013F;
 /// `GAME_SMSG_ITEM_SET_ACTIVE_WEAPON_SET` (`0x0148`): 5 bytes.
 pub const ITEM_SET_ACTIVE_WEAPON_SET: u16 = 0x0148;
 /// `GAME_SMSG_ITEM_WEAPON_SET` (`0x0147`): 13 bytes, sent once per weapon slot.
@@ -330,6 +332,42 @@ pub fn item_set_active_weapon_set(stream: u16, slot: u8) -> crate::client::Frame
         .u8(slot)
         .frame()
 }
+
+/// `GAME_SMSG_INVENTORY_CREATE_BAG`: one bag of the inventory.
+///
+/// A client that gets no bag at all has no inventory model to put the weapon sets and the equipped
+/// items into; the reference always creates six (`GameSrv_CreateDefaultBags`), and this builder exists
+/// so that "no bags" is never sent by accident.
+pub fn inventory_create_bag(
+    stream: u16,
+    bag_type: u8,
+    bag_model_id: u8,
+    bag_id: u16,
+    slot_count: u8,
+    assoc_item_id: u32,
+) -> crate::client::Frame {
+    Builder::new(INVENTORY_CREATE_BAG)
+        .u16(stream)
+        .u8(bag_type)
+        .u8(bag_model_id)
+        .u16(bag_id)
+        .u8(slot_count)
+        .u32(assoc_item_id)
+        .frame()
+}
+
+/// The bags a character has when it has never been loaded before (`GameSrv_CreateDefaultBags` and the
+/// `GmBag_Init*` functions), in the order the reference sends them — its bag array's order, which is
+/// not the order the ids were handed out in.
+pub const DEFAULT_BAGS: [(u16, u8, u8, u8); 6] = [
+    // (bag id, bag model id, bag type, slot count)
+    (1, 0, 1, 20), // backpack
+    (2, 5, 5, 41), // material storage
+    (6, 6, 3, 12), // unclaimed items
+    (3, 7, 4, 25), // storage 1
+    (4, 8, 4, 25), // storage 2
+    (5, 21, 2, 9), // equipped items
+];
 
 /// `GAME_SMSG_ITEM_WEAPON_SET`: the items in one weapon slot. The reference sends four of these, one
 /// per slot, all empty.
@@ -724,6 +762,7 @@ mod tests {
         assert_eq!(wire(&item_stream_create(1, 0)), 5);
         assert_eq!(wire(&item_set_active_weapon_set(1, 0)), 5);
         assert_eq!(wire(&item_weapon_set(1, 0, 0, 0)), 13);
+        assert_eq!(wire(&inventory_create_bag(1, 1, 0, 1, 20, 0)), 13);
         assert_eq!(wire(&update_gold_storage(1, 0)), 8);
         assert_eq!(wire(&faction_max(FACTION_MAX_KURZICK, 0)), 6);
         assert_eq!(wire(&hard_mode_unlocked(1)), 3);

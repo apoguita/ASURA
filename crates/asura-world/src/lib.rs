@@ -348,7 +348,11 @@ pub async fn handle_connection(
                         Ok((frame, used)) => {
                             session.plaintext.drain(..used);
                             if trace {
-                                eprintln!("world <- {:#06X} ({used} bytes)", frame.header);
+                                eprintln!(
+                                    "world <- {:#06X} ({used} bytes): {}",
+                                    frame.header,
+                                    hex_preview(&frame.encode())
+                                );
                             }
                             if !answer(&mut stream, &mut session, frame, &map, &name, started, trace)
                                 .await?
@@ -383,6 +387,20 @@ pub async fn handle_connection(
         eprintln!("world: {name:?} left map {}", map.map_id);
     }
     Ok(())
+}
+
+/// The first bytes of a message, as hex, for the trace.
+///
+/// When a client dies mid-load, the only evidence left is what it sent and what it was sent. A header
+/// and a size say which message; the first bytes say whether its contents were what the reference
+/// would have written.
+fn hex_preview(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .take(24)
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Scramble and write frames.
@@ -424,6 +442,14 @@ async fn answer(
                 game::item_stream_create(1, 0),
                 game::item_set_active_weapon_set(1, 0),
             ];
+            // The inventory: the six bags the reference always creates, empty. A client that is given
+            // no bag has nowhere to put the weapon sets that follow, and the reference never sends an
+            // item stream without them (`GameSrv_SendInventory`).
+            for (bag_id, model_id, bag_type, slots) in game::DEFAULT_BAGS {
+                frames.push(game::inventory_create_bag(
+                    1, bag_type, model_id, bag_id, slots, 0,
+                ));
+            }
             // Four empty weapon slots, exactly as `GameSrv_SendWeaponSlots` sends them.
             for slot in 0..4u8 {
                 frames.push(game::item_weapon_set(1, slot, 0, 0));
@@ -512,18 +538,29 @@ const MAP_ID_COUNT: u16 = 0xFFFF;
 /// The six-message manifest the reference sends after `READY_FOR_MAP_SPAWN`
 /// (`GameSrv_SendDownloadManifest`).
 ///
-/// The first `DONE` carries the `MapId_Count` sentinel, the second the map itself. Both matter: a
-/// client that gets one of them keeps a download bar on screen.
+/// The phases are the reference's own enum (`ManifestPhase_Phase1 = 0`, `Phase2 = 1`, `Done = 2`), and
+/// the second `DONE` carries `Phase1` rather than `Done`: that is not a mistake in this port but the
+/// reference's own sequence ("this map's manifest is complete"), and a client that is told `Done`
+/// there may consider the whole download finished before it starts.
+///
+/// The first `DONE` carries the `MapId_Count` sentinel, the second the map itself.
 fn manifest(map_id: u16) -> Vec<Frame> {
     vec![
-        game::instance_manifest_phase(1),
-        game::instance_manifest_phase(2),
-        game::instance_manifest_done(2, MAP_ID_COUNT),
-        game::instance_manifest_phase(1),
-        game::instance_manifest_phase(2),
-        game::instance_manifest_done(1, map_id),
+        game::instance_manifest_phase(PHASE_1),
+        game::instance_manifest_phase(PHASE_2),
+        game::instance_manifest_done(PHASE_DONE, MAP_ID_COUNT),
+        game::instance_manifest_phase(PHASE_1),
+        game::instance_manifest_phase(PHASE_2),
+        game::instance_manifest_done(PHASE_1, map_id),
     ]
 }
+
+/// `ManifestPhase_Phase1` in the reference's enum (`GmMap.h`).
+const PHASE_1: u8 = 0;
+/// See [`PHASE_1`].
+const PHASE_2: u8 = 1;
+/// See [`PHASE_1`].
+const PHASE_DONE: u8 = 2;
 
 /// Everything the client is told about the players in the instance, in the reference's order
 /// (`GameSrv_HandleInstanceLoadRequestPlayers`).
@@ -724,7 +761,10 @@ mod tests {
         assert_eq!(frames[2].header, game::INSTANCE_MANIFEST_DONE);
         let last = frames[5].encode();
         assert_eq!(last[0..2], [0x98, 0x01], "the last is a manifest DONE");
-        assert_eq!(last[2], 1, "its phase");
+        assert_eq!(
+            last[2], PHASE_1,
+            "the second DONE carries phase 1, as the reference sends it"
+        );
         assert_eq!(last[3..5], 146u16.to_le_bytes(), "and it names the map");
     }
 
