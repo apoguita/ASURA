@@ -382,6 +382,22 @@ pub fn session_info(server_salt: u32, unknown: u32) -> Frame {
     Frame::new(tables::AUTH_SMSG_SESSION_INFO, writer.into_body())
 }
 
+/// `AUTH_SMSG_HEARTBEAT` (`0x0000`): the answer to a client heartbeat. The reference always sends
+/// `tick = 16`; it is a constant, not a clock.
+pub fn heartbeat(tick: u32) -> Frame {
+    let mut writer = Writer::new();
+    writer.u32(tick);
+    Frame::new(tables::AUTH_SMSG_HEARTBEAT, writer.into_body())
+}
+
+/// The character name out of `AUTH_CMSG_CHANGE_PLAY_CHARACTER`: `req_id`, then a counted name of up to
+/// 20 UTF-16 units. The count is a `u32` on the wire, like every counted field in the table.
+pub fn decode_change_character(body: &[u8]) -> Result<String, MessageError> {
+    let mut reader = Reader::new(body);
+    reader.u32("req_id")?;
+    reader.utf16(20, "charname")
+}
+
 /// `AUTH_SMSG_ACCOUNT_SETTINGS` (`0x0016`): the client's stored settings, as a fixed blob.
 ///
 /// Layout (`AuthSrv_AccountSettings`): `req_id`, `n_data`, then 2048 bytes of data of which GWPS fills

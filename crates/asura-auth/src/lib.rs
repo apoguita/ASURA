@@ -30,6 +30,7 @@ use std::time::Duration;
 
 use asura_db::login as db_login;
 use asura_db::PgPool;
+use asura_protocol::client::filecheck;
 use asura_protocol::client::handshake::{self, CLIENT_SEED_LEN, MASTER_SECRET_LEN};
 use asura_protocol::client::messages::{self, PortalAccountLogin, RequestResponse, STATUS_OK};
 use asura_protocol::client::tables;
@@ -43,7 +44,26 @@ use uuid::Uuid;
 ///
 /// Not from the reference — GWPS relies on the operating system's timeouts — but a login connection
 /// that stalls holds a task and a pool connection, and losing it is free: the client reconnects.
-pub const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// The idle timeout in force, from `ASURA_IDLE_TIMEOUT_SECS` when it is set.
+///
+/// It is adjustable because the timeout is a *policy*, and the two policies disagree: a production
+/// service wants stalled connections gone in a couple of minutes, while a person logging a client in
+/// by hand may sit at the login screen for far longer than that with a perfectly healthy connection
+/// open. Dropping that connection looks exactly like a protocol failure, which is the last thing a
+/// debugging session needs.
+pub fn idle_timeout() -> Duration {
+    static TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *TIMEOUT.get_or_init(|| {
+        std::env::var("ASURA_IDLE_TIMEOUT_SECS")
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .filter(|seconds| *seconds > 0)
+            .map(Duration::from_secs)
+            .unwrap_or(DEFAULT_IDLE_TIMEOUT)
+    })
+}
 
 /// How many bytes to read from the socket at once.
 const READ_CHUNK: usize = 4096;
@@ -102,6 +122,11 @@ struct Session {
     plaintext: Vec<u8>,
     /// The account this connection resolved to, once the identity pair was accepted.
     account: Option<Uuid>,
+    /// The session row the pair named, kept so a character selection can be recorded on it.
+    session_id: Option<Uuid>,
+    /// The salt sent in `AUTH_SMSG_SESSION_INFO`, kept for the trace and for later messages that
+    /// sign against it. The reference keeps it per connection for the same reason.
+    server_salt: u32,
 }
 
 /// Whether to print the per-message trace.
@@ -172,6 +197,29 @@ pub async fn handle_connection(
 ) -> Result<(), ConnectionError> {
     let mut buffer = Vec::with_capacity(READ_CHUNK);
 
+    // ---- 0. the file check ------------------------------------------------------------------
+    // Before anything else: the file check. The reference answers it in its `AwaitHello` state, before
+    // the version message, and keeps waiting ("the client repeats the check, and anything that follows
+    // it is a normal handshake"). A service that does not answer it closes a socket the client is
+    // waiting on, and the client shows nothing but "Connecting".
+    //
+    // One read, not a fixed-size one: the client may send the check and the version message together,
+    // and requiring 21 bytes up front would block on a client that sends the version message first.
+    read_until(&mut stream, &mut buffer, 1).await?;
+    while filecheck::starts_with_request(&buffer) {
+        buffer.drain(..filecheck::FILE_CHECK_REQUEST.len());
+        stream
+            .write_all(&filecheck::FILE_CHECK_RESPONSE)
+            .await
+            .map_err(ConnectionError::Io)?;
+        if trace.on() {
+            eprintln!("auth <- file check, answered 32 bytes");
+        }
+        if buffer.is_empty() {
+            read_until(&mut stream, &mut buffer, 1).await?;
+        }
+    }
+
     // ---- 1. what kind of connection is this? ------------------------------------------------
     // Four bytes arrive first and are *kept*: they are the beginning of the version message, not a
     // message of their own.
@@ -229,6 +277,8 @@ pub async fn handle_connection(
         established,
         plaintext: buffer,
         account: None,
+        session_id: None,
+        server_salt: 0,
     };
 
     loop {
@@ -259,6 +309,32 @@ async fn dispatch(
     }
 
     match frame.header {
+        // GWPS `AuthSrv_SendComputerInfo`'s counterpart: the reference stores the reported name and
+        // computer name on the connection and sends nothing. (`0x8001` never reaches here — it is
+        // consumed structurally before framing; see `messages::decode_computer_info`.)
+        tables::AUTH_CMSG_SEND_COMPUTER_INFO => Ok(true),
+
+        // **This is the message the client waits on.** In the reference's dispatch,
+        // `AUTH_CMSG_SEND_COMPUTER_HASH` decodes the hash and immediately calls
+        // `AuthSrv_SendSessionInfo` — a random server salt in `AUTH_SMSG_SESSION_INFO`. A service that
+        // ignores this message leaves the client at "Connecting" with nothing to report, which is
+        // exactly what happened here before the reply existed.
+        tables::AUTH_CMSG_SEND_COMPUTER_HASH => {
+            let salt = random_u32()?;
+            session.server_salt = salt;
+            if trace.on() {
+                eprintln!("auth: computer hash -> session info (salt {salt:#010X})");
+            }
+            send_frames(
+                stream,
+                session,
+                vec![messages::session_info(salt, 0)],
+                trace,
+            )
+            .await?;
+            Ok(true)
+        }
+
         tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN => {
             let login = PortalAccountLogin::decode(&frame).map_err(ConnectionError::Message)?;
             if trace.on() {
@@ -272,12 +348,90 @@ async fn dispatch(
             Ok(true)
         }
 
+        // `AuthSrv_HandleAskServerResponse`: answer the request and nothing else.
+        tables::AUTH_CMSG_ASK_SERVER_RESPONSE => {
+            let request = request_id(&frame);
+            send_frames(
+                stream,
+                session,
+                vec![RequestResponse {
+                    request,
+                    status: STATUS_OK,
+                }
+                .frame()],
+                trace,
+            )
+            .await?;
+            Ok(true)
+        }
+
+        // `AuthSrv_HandleClientHeartbeat`: answer with a server heartbeat carrying tick 16, the
+        // reference's constant.
+        tables::AUTH_CMSG_HEARTBEAT => {
+            send_frames(stream, session, vec![messages::heartbeat(16)], trace).await?;
+            Ok(true)
+        }
+
+        // `AuthSrv_HandleChangePlayCharacter`: find the character by name, record it, answer the
+        // request. A name that is not on this account is an error, not a silent success.
+        tables::AUTH_CMSG_CHANGE_PLAY_CHARACTER => {
+            let request = request_id(&frame);
+            let Some(account) = session.account else {
+                send_frames(
+                    stream,
+                    session,
+                    vec![RequestResponse {
+                        request,
+                        status: messages::STATUS_AUTH_ERROR,
+                    }
+                    .frame()],
+                    trace,
+                )
+                .await?;
+                return Ok(true);
+            };
+
+            let name =
+                messages::decode_change_character(&frame.body).map_err(ConnectionError::Message)?;
+            let characters = db_login::characters(pool, account)
+                .await
+                .map_err(ConnectionError::Database)?;
+            let chosen = characters.iter().find(|character| character.name == name);
+
+            let status = match chosen {
+                Some(character) => {
+                    if let Some(session_id) = session.session_id {
+                        let _ = db_login::select_character(pool, session_id, character.id).await;
+                    }
+                    if trace.on() {
+                        eprintln!("auth: character {name:?} selected");
+                    }
+                    STATUS_OK
+                }
+                None => {
+                    if trace.on() {
+                        eprintln!("auth: no character {name:?} on this account");
+                    }
+                    2 // GM_ERROR_NETWORK_ERROR, which is what the reference answers here
+                }
+            };
+            send_frames(
+                stream,
+                session,
+                vec![RequestResponse { request, status }.frame()],
+                trace,
+            )
+            .await?;
+            Ok(true)
+        }
+
         // The settings uploads, which must be acknowledged: an unacknowledged one is a hang, and
         // GWPS lived through seven of those (`docs/03-protocol.md`, section 6). Answering every
         // request the client makes keeps that trap shut without having to understand the payload.
-        tables::AUTH_CMSG_SETTING_UPDATE_SIZE | tables::AUTH_CMSG_SETTING_UPDATE_CONTENT => {
-            let request =
-                u32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]);
+        tables::AUTH_CMSG_SETTING_UPDATE_SIZE
+        | tables::AUTH_CMSG_SETTING_UPDATE_CONTENT
+        | tables::AUTH_CMSG_UPDATE_CHARACTER_SETTINGS => {
+            let request = request_id(&frame);
             let reply = RequestResponse {
                 request,
                 status: STATUS_OK,
@@ -286,7 +440,33 @@ async fn dispatch(
             Ok(true)
         }
 
-        tables::AUTH_CMSG_HEARTBEAT => Ok(true),
+        // The reference keeps the client's player status on the connection and sends nothing.
+        tables::AUTH_CMSG_SET_PLAYER_STATUS | tables::AUTH_CMSG_ACCEPT_EULA => Ok(true),
+
+        // A travel request needs a world server to allocate into, which is M4's work. Until then the
+        // honest answer is a refusal the client can show, not silence: silence here is a loading
+        // screen that never ends.
+        tables::AUTH_CMSG_REQUEST_GAME_INSTANCE => {
+            let request = request_id(&frame);
+            eprintln!(
+                "auth: a travel request arrived, but no world server is configured yet; refusing"
+            );
+            send_frames(
+                stream,
+                session,
+                vec![RequestResponse {
+                    request,
+                    status: 2, // GM_ERROR_NETWORK_ERROR
+                }
+                .frame()],
+                trace,
+            )
+            .await?;
+            Ok(true)
+        }
+
+        // The client is going away; the reference drops the connection.
+        tables::AUTH_CMSG_DISCONNECT => Ok(false),
 
         // Anything else is logged and skipped rather than closing the connection: the reference
         // warns and carries on, and dropping a connection over a message we simply do not use yet
@@ -299,6 +479,27 @@ async fn dispatch(
             Ok(true)
         }
     }
+}
+
+/// The request id a message carries in its first four body bytes.
+///
+/// Every `AUTH_CMSG` the dispatch answers this way has `req_id` first (`change_character`,
+/// `ask_server_response`, the settings updates, `request_game_instance`), so one helper reads it
+/// rather than five copies of the same four-byte dance.
+fn request_id(frame: &Frame) -> u32 {
+    let body = &frame.body;
+    if body.len() < 4 {
+        return 0;
+    }
+    u32::from_le_bytes([body[0], body[1], body[2], body[3]])
+}
+
+/// A random `u32` for the session salt, from the operating system.
+fn random_u32() -> Result<u32, ConnectionError> {
+    let mut bytes = [0u8; 4];
+    getrandom::getrandom(&mut bytes)
+        .map_err(|err| ConnectionError::Io(io::Error::other(err.to_string())))?;
+    Ok(u32::from_le_bytes(bytes))
 }
 
 /// The login decision, expressed as the frames to send back.
@@ -454,7 +655,7 @@ async fn next_frame(
         }
 
         let mut chunk = [0u8; READ_CHUNK];
-        let read = match tokio::time::timeout(IDLE_TIMEOUT, stream.read(&mut chunk)).await {
+        let read = match tokio::time::timeout(idle_timeout(), stream.read(&mut chunk)).await {
             Err(_) => return Err(ConnectionError::Idle),
             Ok(Ok(0)) => return Ok(None),
             Ok(Ok(read)) => read,
@@ -529,7 +730,7 @@ async fn read_until(
 ) -> Result<(), ConnectionError> {
     while buffer.len() < wanted {
         let mut chunk = [0u8; READ_CHUNK];
-        let read = match tokio::time::timeout(IDLE_TIMEOUT, stream.read(&mut chunk)).await {
+        let read = match tokio::time::timeout(idle_timeout(), stream.read(&mut chunk)).await {
             Err(_) => return Err(ConnectionError::Idle),
             Ok(Ok(0)) => {
                 return Err(ConnectionError::Io(io::Error::new(

@@ -23,6 +23,7 @@
 //! travel milestone, which is when the client first needs it.
 
 pub mod arc4;
+pub mod filecheck;
 pub mod frame;
 pub mod handshake;
 pub mod messages;

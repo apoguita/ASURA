@@ -141,12 +141,49 @@ impl ReferenceClient {
     /// Scramble and serialise a frame for the wire.
     pub fn seal(&mut self, frame: &Frame) -> Result<Vec<u8>, ClientError> {
         let mut bytes = frame.encode_validated().map_err(ClientError::Framing)?;
+        self.seal_raw(&mut bytes);
+        Ok(bytes)
+    }
+
+    /// Scramble bytes that are already in wire form.
+    ///
+    /// Needed for the messages the table cannot size — the computer info (`0x8001`, variable length)
+    /// and anything pipelined behind it.
+    pub fn seal_raw(&mut self, bytes: &mut [u8]) {
         let scrambler = self
             .scrambler_out
             .as_mut()
             .expect("seal is only valid after accept_server_seed");
-        scrambler.apply(&mut bytes);
-        Ok(bytes)
+        scrambler.apply(bytes);
+    }
+
+    /// The preamble a real client sends straight after the key exchange: its computer info (`0x8001`
+    /// in the variable-length form that client actually uses) and its computer hash (`0x8002`, which
+    /// carries the build number).
+    ///
+    /// The service answers the hash with `AUTH_SMSG_SESSION_INFO`, and the client waits for that before
+    /// it will send a login — so a client double that skips this is not faithful to the wire.
+    pub fn computer_info_preamble(&self, username: &str, pc_name: &str, build: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        // 0x8001: header, u16 count + UTF-16 units, u16 count + UTF-16 units.
+        bytes.extend_from_slice(&super::tables::AUTH_CMSG_SEND_COMPUTER_INFO.to_le_bytes());
+        let user: Vec<u16> = username.encode_utf16().collect();
+        bytes.extend_from_slice(&(user.len() as u16).to_le_bytes());
+        for unit in &user {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        let pc: Vec<u16> = pc_name.encode_utf16().collect();
+        bytes.extend_from_slice(&(pc.len() as u16).to_le_bytes());
+        for unit in &pc {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+
+        // 0x8002: header, the build number, then a 16-byte hash. The service does not interpret the
+        // hash, and the real client's own value is its business.
+        bytes.extend_from_slice(&super::tables::AUTH_CMSG_SEND_COMPUTER_HASH.to_le_bytes());
+        bytes.extend_from_slice(&build.to_le_bytes());
+        bytes.extend_from_slice(&[0xA5u8; 16]);
+        bytes
     }
 
     /// Take everything that has arrived from the server and return the frames it completed.

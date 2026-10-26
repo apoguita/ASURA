@@ -15,6 +15,7 @@ use std::time::Duration;
 use asura_auth::{serve, Trace};
 use asura_db::login as db;
 use asura_db::{PgPool, Uuid};
+use asura_protocol::client::filecheck;
 use asura_protocol::client::handshake;
 use asura_protocol::client::messages::{self, RequestResponse};
 use asura_protocol::client::peer::{self, ReferenceClient};
@@ -379,6 +380,128 @@ async fn garbage_before_the_version_message_closes_the_connection() {
         "an unknown connection type is refused, not guessed at"
     );
 
+    harness.stop();
+}
+
+#[tokio::test]
+async fn the_server_answers_the_file_check_before_anything_else() {
+    // The reference answers a fixed 21-byte request with a fixed 32-byte reply in its "await hello"
+    // state, before the version message. A service that does not leaves the client at "Connecting".
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    let mut stream = harness.connect().await;
+    stream
+        .write_all(&filecheck::FILE_CHECK_REQUEST)
+        .await
+        .expect("write the file check");
+
+    let reply = read_exact(&mut stream, filecheck::FILE_CHECK_RESPONSE.len()).await;
+    assert_eq!(
+        reply,
+        filecheck::FILE_CHECK_RESPONSE.to_vec(),
+        "the file check is answered with the reference's bytes"
+    );
+
+    // The same connection carries the handshake and the login afterwards, because the reference keeps
+    // waiting rather than closing.
+    let mut client = handshake_with(&mut stream).await;
+    let name = account_name("filecheck");
+    let seeded = db::seed_identity(
+        &harness.pool,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        &name,
+        "Asura Checked",
+        MAP,
+    )
+    .await
+    .expect("seed the identity");
+    let frames = login(&mut stream, &mut client, seeded.portal_user, seeded.session).await;
+    assert!(
+        peer::as_request_response(frames.last().expect("a reply"))
+            .expect("response")
+            .is_ok(),
+        "the login still works after a file check on the same connection"
+    );
+
+    db::remove_account(&harness.pool, &name)
+        .await
+        .expect("cleanup");
+    harness.stop();
+}
+
+#[tokio::test]
+async fn the_computer_hash_is_answered_with_the_session_info_the_client_waits_for() {
+    // This is the reply that was missing. The reference's dispatch answers AUTH_CMSG_SEND_COMPUTER_HASH
+    // with AUTH_SMSG_SESSION_INFO, and the client does not send a login until it has it. Without the
+    // reply the client hangs at "Connecting" with nothing to report.
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    let mut stream = harness.connect().await;
+    let mut client = handshake_with(&mut stream).await;
+
+    // The real client's preamble: computer info (variable length) then the hash.
+    let mut preamble = client.computer_info_preamble("Apo", "DESKTOP-TEST", 39112);
+    client.seal_raw(&mut preamble);
+    stream
+        .write_all(&preamble)
+        .await
+        .expect("write the preamble");
+
+    let mut buffer = [0u8; 1024];
+    let read = tokio::time::timeout(TIMEOUT, stream.read(&mut buffer))
+        .await
+        .expect("the server answers the hash before the timeout")
+        .expect("read");
+    assert!(read > 0, "the server must answer the computer hash");
+
+    let frames = client.receive(&buffer[..read]).expect("frames");
+    assert_eq!(frames.len(), 1, "one answer to the hash");
+    assert_eq!(
+        frames[0].header,
+        tables::AUTH_SMSG_SESSION_INFO,
+        "the answer is AUTH_SMSG_SESSION_INFO"
+    );
+    assert_eq!(frames[0].len(), 10, "the session info is the table's size");
+    assert_ne!(
+        frames[0].body[..4],
+        [0u8; 4],
+        "the salt is random, not a zero placeholder"
+    );
+
+    // And the login still follows on the same connection.
+    let name = account_name("hash");
+    let seeded = db::seed_identity(
+        &harness.pool,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        &name,
+        "Asura Hashed",
+        MAP,
+    )
+    .await
+    .expect("seed the identity");
+    let frames = login(&mut stream, &mut client, seeded.portal_user, seeded.session).await;
+    assert!(
+        peer::as_request_response(frames.last().expect("a reply"))
+            .expect("response")
+            .is_ok(),
+        "the login works after the computer hash"
+    );
+
+    db::remove_account(&harness.pool, &name)
+        .await
+        .expect("cleanup");
     harness.stop();
 }
 
