@@ -170,37 +170,14 @@ impl Writer {
         self
     }
 
-    fn array16(&mut self, value: [u8; 16]) -> &mut Self {
-        self.bytes.extend_from_slice(&value);
+    fn u16(&mut self, value: u16) -> &mut Self {
+        self.bytes.extend_from_slice(&value.to_le_bytes());
         self
     }
 
-    /// A counted UTF-16 string padded to `capacity` code units, which is what the fixed-size layout
-    /// requires: the field always occupies its full width whatever the name's length.
-    ///
-    /// This is the **server-to-client** form. The client sends the other form; see
-    /// [`Writer::u16_utf16`].
-    fn utf16(
-        &mut self,
-        text: &str,
-        capacity: usize,
-        field: &'static str,
-    ) -> Result<&mut Self, MessageError> {
-        let units: Vec<u16> = text.encode_utf16().collect();
-        if units.len() > capacity {
-            return Err(MessageError::TooLong {
-                field,
-                capacity,
-                got: units.len(),
-            });
-        }
-        self.u32(units.len() as u32);
-        for unit in &units {
-            self.bytes.extend_from_slice(&unit.to_le_bytes());
-        }
-        self.bytes
-            .resize(self.bytes.len() + (capacity - units.len()) * 2, 0);
-        Ok(self)
+    fn array16(&mut self, value: [u8; 16]) -> &mut Self {
+        self.bytes.extend_from_slice(&value);
+        self
     }
 
     /// A counted UTF-16 string in the **client's** form: a `u16` count and the units, with no padding.
@@ -395,20 +372,49 @@ impl RequestResponse {
     }
 }
 
+/// The character-settings block the reference sends inside `AUTH_SMSG_CHARACTER_INFO`.
+///
+/// Copied from a live response (2026-10-26), not from a struct definition: 62 bytes that decode as
+/// `version = 6`, `last_outpost = 146`, then the appearance, the guild-hall id and the packed
+/// campaign/level/profession bits. Nothing here understands most of it, which is exactly why it is
+/// copied — a client that gets zeros where this belongs is a client that cannot draw the character.
+///
+/// To be built from the database when character creation exists; until then this is the reference's
+/// own answer for its seeded character.
+pub const CHARACTER_SETTINGS_EXTENDED: [u8; 62] = [
+    0x06, 0x00, 0x92, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x03, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x40, 0x00, 0x00,
+    0x05, 0x00, 0x00, 0x00, 0x00, 0x5b, 0x00, 0x0b, 0x00, 0x00, 0x5e, 0x00, 0x0b, 0x00, 0x00, 0x5d,
+    0x00, 0x0b, 0x00, 0x00, 0x5a, 0x00, 0x0b, 0x00, 0x00, 0x5c, 0x00, 0x0b, 0x00, 0x00,
+];
 /// `AUTH_SMSG_CHARACTER_INFO` (`0x0007`): one character in the list, sent once per character.
 ///
-/// Layout (`AuthSrv_CharacterInfo`): `req_id`, `uuid[16]`, `unk0`, a counted name of up to 20 UTF-16
-/// units, a counted 64-byte `extended` block (character settings).
+/// Layout (`AuthSrv_CharacterInfo`): `req_id`, `uuid[16]`, `unk0`, a counted name, a counted
+/// `extended` block of character settings.
+///
+/// **Both directions of this protocol are variable-length**, measured from the reference's own output:
+/// its `CHARACTER_INFO` for a five-character name and a 62-byte settings block is **102 bytes**
+/// (`07 00 | req_id | uuid | unk0 | 05 00 "Appok" | 3e 00 <62 bytes>`), where the table says 138. The
+/// counts are `u16` and nothing is padded to the field's capacity. A padded message is one the client
+/// cannot parse, which is what it reports as error 005.
 pub fn character_info(
     request: u32,
     character: [u8; 16],
     name: &str,
+    settings: &[u8],
 ) -> Result<Frame, MessageError> {
     let mut writer = Writer::new();
     writer.u32(request).array16(character).u32(0); // unk0: the reference leaves it zero
-    writer.utf16(name, 20, "name")?;
-    writer.u32(0); // n_extended: no settings yet; the reference sends its character-settings block
-    writer.bytes.resize(writer.bytes.len() + 64, 0);
+    writer.u16_utf16(name, 20, "name")?;
+    if settings.len() > 64 {
+        return Err(MessageError::TooLong {
+            field: "extended",
+            capacity: 64,
+            got: settings.len(),
+        });
+    }
+    writer.u16(settings.len() as u16);
+    writer.bytes.extend_from_slice(settings);
     Ok(Frame::new(
         tables::AUTH_SMSG_CHARACTER_INFO,
         writer.into_body(),
@@ -449,20 +455,18 @@ pub fn decode_change_character(body: &[u8]) -> Result<String, MessageError> {
         .ok_or(MessageError::Truncated { field: "charname" })
 }
 
-/// `AUTH_SMSG_ACCOUNT_SETTINGS` (`0x0016`): the client's stored settings, as a fixed blob.
+/// `AUTH_SMSG_ACCOUNT_SETTINGS` (`0x0016`): the client's stored settings.
 ///
-/// Layout (`AuthSrv_AccountSettings`): `req_id`, `n_data`, then 2048 bytes of data of which GWPS fills
-/// the first 591. The blob is copied from the reference's own literal
-/// ([`super::login_fixtures::ACCOUNT_SETTINGS_DATA`]) because nothing here knows what most of it
-/// means — it is what the reference sends, which is the only reason a client will accept it.
+/// Layout (`AuthSrv_AccountSettings`): `req_id`, a **u16** `n_data`, then exactly that many bytes of
+/// data. Measured from the reference's own output: `16 00 | 01 00 00 00 | 4f 02 <591 bytes>` —
+/// **599 bytes**, where the table says 2058. The blob is copied from the reference's own literal
+/// ([`super::login_fixtures::ACCOUNT_SETTINGS_DATA`]); nothing here knows what most of it means, and it
+/// is sent because it is what the reference sends.
 pub fn account_settings(request: u32) -> Frame {
     let data = super::login_fixtures::ACCOUNT_SETTINGS_DATA;
     let mut writer = Writer::new();
-    writer.u32(request).u32(data.len() as u32);
+    writer.u32(request).u16(data.len() as u16);
     writer.bytes.extend_from_slice(data);
-    writer
-        .bytes
-        .resize(writer.bytes.len() + (2048 - data.len()), 0);
     Frame::new(tables::AUTH_SMSG_ACCOUNT_SETTINGS, writer.into_body())
 }
 
@@ -475,7 +479,7 @@ pub fn account_settings(request: u32) -> Frame {
 /// 01 00`), whose third `u16` is the account's number of character slots.
 ///
 /// `character` is the session's last selection; the reference sends all zeroes when the account has
-/// no characters at all.
+/// no characters at all. Field widths and counts follow the whole-wire rule: u16 counts, no padding.
 pub fn account_info(request: u32, account: [u8; 16], character: Option<[u8; 16]>) -> Frame {
     /// `h000E` in `AuthSrv_SendAccountInfo`.
     const H000E: [u8; 8] = [0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
@@ -494,16 +498,12 @@ pub fn account_info(request: u32, account: [u8; 16], character: Option<[u8; 16]>
     writer.array16(account);
     writer.array16(character.unwrap_or([0u8; 16]));
     writer.u32(8); // h003E
-                   // `unk4` is an ARRAY_8 of 200 slots: a four-byte count, then the whole field whatever the count
-                   // says. The reference fills eight of them and leaves the rest zero, and the message size depends
-                   // on the field's capacity, not on the count.
-    writer.u32(FEATURES.len() as u32); // n_unk4
+    writer.u16(FEATURES.len() as u16); // n_unk4
     writer.bytes.extend_from_slice(&FEATURES);
-    writer
-        .bytes
-        .resize(writer.bytes.len() + (200 - FEATURES.len()), 0);
     writer.bytes.push(24); // eula_accepted
-    writer.u32(3); // unk5
+                           // No trailing field: measured, the message ends here. The reference struct has one more dword
+                           // (`unk5`), and its own output does not carry it -- `03 00` after this point is the header of the
+                           // next message, not a field of this one. The whole message is 77 bytes.
     Frame::new(tables::AUTH_SMSG_ACCOUNT_INFO, writer.into_body())
 }
 
@@ -523,19 +523,23 @@ mod tests {
         };
         assert_eq!(response.frame().len(), 10);
 
-        let character = character_info(7, [0x33; 16], "Asura").expect("builds");
-        assert_eq!(character.len(), 138);
+        // 2 + req_id 4 + uuid 16 + unk0 4 + (2 + 10 name) + (2 + 62 settings)
+        let character =
+            character_info(7, [0x33; 16], "Asura", &CHARACTER_SETTINGS_EXTENDED).expect("builds");
+        assert_eq!(character.len(), 102);
 
-        // The two the batch carries in the middle: 2058 and 275 bytes, per the reference's layouts.
+        // Measured from a live reference reply (`tools/inspect-reply.py`): the two messages the batch
+        // carries in the middle are 599 and 77 bytes, not the table's 2058 and 275.
         let settings = account_settings(7);
-        assert_eq!(settings.len(), 2058);
+        assert_eq!(settings.len(), 599);
         let info = account_info(7, [0x44; 16], Some([0x55; 16]));
-        assert_eq!(info.len(), 275);
+        assert_eq!(info.len(), 77);
 
         assert_eq!(friend_stream_end(7).len(), 10);
         assert_eq!(session_info(1, 0).len(), 10);
         assert_eq!(heartbeat(16).len(), 6);
 
+        // Every one of them frames back out of the stream by walking its own fields.
         for frame in [
             response.frame(),
             character,
@@ -545,9 +549,11 @@ mod tests {
             session_info(1, 0),
             heartbeat(16),
         ] {
-            frame
-                .encode_validated()
+            let bytes = frame.encode();
+            let (decoded, used) = Frame::decode_client_message(&bytes)
                 .unwrap_or_else(|err| panic!("header {:#06X}: {err}", frame.header));
+            assert_eq!(decoded, frame);
+            assert_eq!(used, bytes.len());
         }
     }
 
@@ -583,29 +589,26 @@ mod tests {
 
     #[test]
     fn the_account_settings_carry_the_reference_blob_and_no_more() {
-        // The data length is part of the message: the client reads `n_data` bytes of a 2048-byte
-        // field, so both the blob and the count have to match the reference.
+        // The count is a u16 and the data is exactly that long: measured, `16 00 | req_id | 4f 02
+        // <591 bytes>` — 599 bytes total, where the table's padded maximum is 2058.
         let frame = account_settings(0x1234);
         let body = &frame.body;
         assert_eq!(
             u32::from_le_bytes([body[0], body[1], body[2], body[3]]),
             0x1234
         );
-        let declared = u32::from_le_bytes([body[4], body[5], body[6], body[7]]) as usize;
+        let declared = u16::from_le_bytes([body[4], body[5]]) as usize;
         assert_eq!(
             declared,
             super::super::login_fixtures::ACCOUNT_SETTINGS_DATA.len()
         );
         assert_eq!(declared, 591, "the reference's blob is 591 bytes");
         assert_eq!(
-            &body[8..8 + declared],
+            &body[6..6 + declared],
             super::super::login_fixtures::ACCOUNT_SETTINGS_DATA,
             "the blob is copied verbatim"
         );
-        assert!(
-            body[8 + declared..].iter().all(|byte| *byte == 0),
-            "the rest of the 2048-byte field is zero, as the reference leaves it"
-        );
+        assert_eq!(body.len(), 6 + declared, "nothing is padded after the data");
     }
 
     #[test]
@@ -658,7 +661,7 @@ mod tests {
         let long = "x".repeat(21);
         let mut writer = Writer::new();
         assert_eq!(
-            writer.utf16(&long, 20, "charname").map(|_| ()),
+            writer.u16_utf16(&long, 20, "charname").map(|_| ()),
             Err(MessageError::TooLong {
                 field: "charname",
                 capacity: 20,
@@ -683,12 +686,20 @@ mod tests {
     }
 
     #[test]
-    fn a_counted_string_always_occupies_its_full_capacity() {
-        // The size is fixed per header, so a shorter name must be padded, not shortened.
-        let short = character_info(0, [0; 16], "A").expect("builds");
-        let long = character_info(0, [0; 16], "AAAAAAAAAAAAAAAAAAAA").expect("builds");
-        assert_eq!(short.len(), long.len());
-        assert_eq!(short.len(), 138);
+    fn a_counted_name_occupies_only_what_it_holds() {
+        // The opposite of what an earlier version of this test asserted, and the measurement is the
+        // reason: the reference's own `CHARACTER_INFO` for a five-character name is 102 bytes, with the
+        // name as `05 00 "Appok"` and no padding. A longer name makes a longer message.
+        let short = character_info(0, [0; 16], "A", &CHARACTER_SETTINGS_EXTENDED).expect("builds");
+        let long = character_info(
+            0,
+            [0; 16],
+            "AAAAAAAAAAAAAAAAAAAA",
+            &CHARACTER_SETTINGS_EXTENDED,
+        )
+        .expect("builds");
+        assert_eq!(short.len(), 2 + 4 + 16 + 4 + 2 + 2 + 2 + 62);
+        assert_eq!(long.len(), short.len() + 19 * 2);
     }
 
     #[test]
@@ -823,18 +834,27 @@ mod tests {
     }
 
     #[test]
-    fn a_server_to_client_message_is_still_framed_by_the_table() {
-        // The two directions are different shapes and must not be confused: the server pads, so its
-        // messages are the table's size.
-        let frame = character_info(1, [0x11; 16], "Asura").expect("builds");
+    fn both_directions_are_the_same_shape_and_the_table_is_only_a_maximum() {
+        // Corrected from the opposite claim, by measurement: the reference's own `CHARACTER_INFO` is
+        // 102 bytes with a u16 name count, not the table's 138 with a u32 one. So there is one rule for
+        // both directions, and the table's numbers are maxima to be checked against, never sizes to be
+        // trusted. `Frame::decode` (the table-sized view) therefore cannot frame this message at all.
+        let frame =
+            character_info(1, [0x11; 16], "Asura", &CHARACTER_SETTINGS_EXTENDED).expect("builds");
         let bytes = frame.encode();
-        let (decoded, used) = Frame::decode(&bytes).expect("table framing");
-        assert_eq!(used, 138);
+        assert_eq!(bytes.len(), 102);
+        assert!(
+            bytes.len() < tables::expected_size(frame.header).expect("known header"),
+            "the wire is shorter than the table's maximum"
+        );
+
+        let (decoded, used) = Frame::decode_client_message(&bytes).expect("walks its fields");
+        assert_eq!(used, bytes.len());
         assert_eq!(decoded, frame);
-        // ... and the client-facing walker would also frame it, because every field is fixed once
-        // counted strings are read as the *client* would. They disagree only for counted fields, which
-        // is exactly why the direction has to be stated.
-        assert!(Frame::decode_client_message(&bytes).is_err());
+        assert!(
+            Frame::decode(&bytes).is_err(),
+            "the table-sized view would wait for 138 bytes that never come"
+        );
     }
 
     /// Exactly what a real client (build 39112) sent after the key exchange, captured from this

@@ -201,7 +201,7 @@ impl ReferenceClient {
 
         let mut frames = Vec::new();
         loop {
-            match Frame::decode(&self.plaintext) {
+            match Frame::decode_client_message(&self.plaintext) {
                 Ok((frame, used)) => {
                     self.plaintext.drain(..used);
                     frames.push(frame);
@@ -211,6 +211,26 @@ impl ReferenceClient {
             }
         }
         Ok(frames)
+    }
+
+    /// Decrypt a chunk in place, without framing it.
+    ///
+    /// For a caller that needs the raw byte stream rather than messages — when two servers disagree
+    /// about where a message ends, the bytes are the only evidence.
+    pub fn decrypt(&mut self, bytes: &mut [u8]) {
+        let scrambler = self
+            .scrambler_in
+            .as_mut()
+            .expect("decrypt is only valid after accept_server_seed");
+        scrambler.apply(bytes);
+    }
+
+    /// The decrypted bytes that have arrived but not yet been consumed as frames.
+    ///
+    /// Exposed so a caller can show what actually came down the wire when framing fails: the bytes are
+    /// the evidence, and a framing error otherwise throws them away.
+    pub fn pending_plaintext(&self) -> &[u8] {
+        &self.plaintext
     }
 
     /// The login message for an identity pair.
@@ -318,9 +338,14 @@ mod tests {
             .expect("client accepts");
 
         let mut server_outgoing = established.outgoing;
-        let first = super::super::messages::character_info(1, [7; 16], "Split")
-            .expect("builds")
-            .encode();
+        let first = super::super::messages::character_info(
+            1,
+            [7; 16],
+            "Split",
+            &super::super::messages::CHARACTER_SETTINGS_EXTENDED,
+        )
+        .expect("builds")
+        .encode();
         let second = super::super::messages::friend_stream_end(1).encode();
         let mut stream = first.clone();
         stream.extend_from_slice(&second);

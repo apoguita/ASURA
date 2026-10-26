@@ -48,8 +48,9 @@ impl Harness {
         let address = listener.local_addr().expect("local address");
         let server_pool = pool.clone();
         let server = tokio::spawn(async move {
-            // The listener runs until the harness is dropped, which aborts this task.
-            let _ = serve(listener, server_pool, Trace::Off).await;
+            // The listener runs until the harness is dropped, which aborts this task. The trace
+            // follows ASURA_TRACE, so a failing test can be traced without editing it.
+            let _ = serve(listener, server_pool, Trace::from_environment()).await;
         });
 
         Some(Harness {
@@ -183,12 +184,14 @@ async fn a_client_logs_in_and_receives_the_whole_login_batch() {
         ],
         "the login batch is characters, settings, friend-stream end, account info, then the response"
     );
+    // Sizes measured from a live reference reply, not from the table: the settings message is 599
+    // bytes (req_id, a u16 count, then the 591-byte blob) and the account info is 77.
     assert_eq!(
         frames[1].len(),
-        2058,
-        "the settings message is the reference's fixed size"
+        599,
+        "the settings message is the reference's measured size"
     );
-    assert_eq!(frames[3].len(), 275, "so is the account info");
+    assert_eq!(frames[3].len(), 77, "so is the account info");
     assert_eq!(
         &frames[3].body[28..44],
         &seeded.account.to_bytes_le(),
@@ -210,16 +213,29 @@ async fn a_client_logs_in_and_receives_the_whole_login_batch() {
         seeded.character
     );
 
+    // The name count is a u16 at body offset 24, and the units follow immediately: the reference's
+    // own layout, measured (`05 00 "Appok"`).
     let name_length =
-        u32::from_le_bytes(character.body[24..28].try_into().expect("4 bytes")) as usize;
+        u16::from_le_bytes(character.body[24..26].try_into().expect("2 bytes")) as usize;
     assert_eq!(name_length, "Asura E2E".len());
     let units: Vec<u16> = (0..name_length)
         .map(|index| {
-            let at = 28 + index * 2;
+            let at = 26 + index * 2;
             u16::from_le_bytes([character.body[at], character.body[at + 1]])
         })
         .collect();
     assert_eq!(String::from_utf16(&units).expect("utf-16"), "Asura E2E");
+
+    // And the character's settings block is the reference's 62 bytes, not an empty field.
+    let extended_length = u16::from_le_bytes(
+        character.body[26 + name_length * 2..28 + name_length * 2]
+            .try_into()
+            .expect("2 bytes"),
+    );
+    assert_eq!(
+        extended_length, 62,
+        "the settings block the client draws from"
+    );
 
     // And the request is answered, successfully, on the id it was asked with.
     let reply =

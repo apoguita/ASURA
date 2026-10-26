@@ -557,8 +557,13 @@ async fn answer_login(
     let mut replies = Vec::with_capacity(characters.len() + 4);
     for character in &characters {
         replies.push(
-            messages::character_info(login.request, character.id.to_bytes_le(), &character.name)
-                .map_err(ConnectionError::Message)?,
+            messages::character_info(
+                login.request,
+                character.id.to_bytes_le(),
+                &character.name,
+                &messages::CHARACTER_SETTINGS_EXTENDED,
+            )
+            .map_err(ConnectionError::Message)?,
         );
     }
     replies.push(messages::account_settings(login.request));
@@ -597,7 +602,10 @@ async fn send_frames(
         if trace.on() {
             trace_frame("->", &frame);
         }
-        let mut bytes = frame.encode_validated().map_err(ConnectionError::Framing)?;
+        // No table-size validation: messages are variable-length (u16 counts, no padding), so the
+        // table`s sizes are maxima. `encode` writes what the frame holds; the client frames it by the
+        // same field-walking rule the service uses on the way in.
+        let mut bytes = frame.encode();
         session.established.outgoing.apply(&mut bytes);
         stream
             .write_all(&bytes)

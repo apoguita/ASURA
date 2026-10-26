@@ -118,13 +118,9 @@ async fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-    let sealed = match client.seal(&frame) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            eprintln!("login: could not seal the login message: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
+    // A client message is not the table's size, so it is sealed as raw bytes rather than validated.
+    let mut sealed = frame.encode();
+    client.seal_raw(&mut sealed);
     if let Err(err) = stream.write_all(&sealed).await {
         eprintln!("login: writing the login failed: {err}");
         return ExitCode::FAILURE;
