@@ -45,6 +45,37 @@ pub enum Adopted {
     Refused,
 }
 
+/// The agents one gameplay connection has: the player's own, and whatever a drop put on the ground.
+///
+/// The reference allocates agent ids from a per-server table (`GmIdAllocate`) and frees them when the
+/// agent goes away; a dropped item's agent is never freed, because there is nothing in the reference that
+/// picks an item up. With one player and a handful of dropped items the table is a counter — but the ids
+/// still have to be distinct, because a client told that two agents share an id draws one of them.
+#[derive(Debug, Clone)]
+pub struct Agents {
+    /// The character this connection drives.
+    pub player: AgentState,
+    next_id: u32,
+}
+
+impl Agents {
+    /// A session with one agent: the player, at `agent_id`, standing where the map or the saved position
+    /// says.
+    pub fn new(agent_id: u32, position: (f32, f32), plane: u16, speed_base: f32) -> Agents {
+        Agents {
+            player: AgentState::new(agent_id, position, plane, speed_base),
+            next_id: agent_id.saturating_add(1),
+        }
+    }
+
+    /// The next free agent id, for something the world creates (`GAME_CMSG_DROP_ITEM`).
+    pub fn allocate(&mut self) -> u32 {
+        let id = self.next_id;
+        self.next_id = self.next_id.saturating_add(1);
+        id
+    }
+}
+
 /// Where one agent is, and when it last said so.
 #[derive(Debug, Clone)]
 pub struct AgentState {

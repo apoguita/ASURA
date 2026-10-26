@@ -3,6 +3,14 @@
 //! Small on purpose. A world server owns the gameplay connection and its own in-memory simulation;
 //! what it takes from the database is the handful of facts a client cannot be told without, and what
 //! it writes back arrives with the milestone that writes state (`docs/roadmap.md`, M5).
+//!
+//! Two of those facts are a character's position, and this is where it is read and written: the world
+//! saves it when a player leaves and starts from it when the player comes back. **The reference does not
+//! do this** — it re-spawns every character at its map's spawn point on every session, and keeps only
+//! the map a character was last in (`characters.last_outpost`). ASURA keeps the coordinate because the
+//! whole of placement exists to answer "who is where", and a player who logs back in where it logged out
+//! is the smallest thing that answer is worth. The seed leaves the column NULL, so a character that has
+//! never been played still spawns where the map says.
 
 use crate::{PgPool, Uuid};
 
@@ -51,6 +59,67 @@ pub async fn character_name(pool: &PgPool, character: Uuid) -> sqlx::Result<Opti
         .bind(character)
         .fetch_optional(pool)
         .await
+}
+
+/// Where a character last stood.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Position {
+    /// The map the position belongs to. A position is only usable on the map it was taken in.
+    pub map_id: i32,
+    pub x: f32,
+    pub y: f32,
+    /// The plane inside the map blob, the client's third coordinate.
+    pub plane: i16,
+}
+
+/// The position a character was saved at, or `None` if it has never been saved.
+///
+/// `characters.pos_plane IS NULL` is what "never saved" means, and the whole row is then ignored: a
+/// character that has never been played has `pos_x`/`pos_y` at their default of 0, which is a legal
+/// coordinate (it is outside the walkable geometry on every map measured so far, but it is not out of
+/// range), so a caller must not be handed it as if it were a position.
+pub async fn position(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Position>> {
+    let row: Option<(i32, f32, f32, Option<i16>)> =
+        sqlx::query_as("SELECT map_id, pos_x, pos_y, pos_plane FROM characters WHERE id = $1")
+            .bind(character)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.and_then(|(map_id, x, y, plane)| {
+        plane.map(|plane| Position {
+            map_id,
+            x,
+            y,
+            plane,
+        })
+    }))
+}
+
+/// Save where a character stands, and which map it stands in.
+///
+/// Written when the player leaves. The reference persists a character's *map* and nothing else about its
+/// position, so the row this writes is one this project adds to the reference's model rather than one it
+/// copies (`crates/asura-db/migrations/0006_inventory.sql`).
+pub async fn record_position(
+    pool: &PgPool,
+    character: Uuid,
+    map_id: i32,
+    x: f32,
+    y: f32,
+    plane: i16,
+) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE characters
+            SET map_id = $2, pos_x = $3, pos_y = $4, pos_plane = $5, updated_at = now()
+          WHERE id = $1",
+    )
+    .bind(character)
+    .bind(map_id)
+    .bind(x)
+    .bind(y)
+    .bind(plane)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() > 0)
 }
 
 /// Every map the database knows, so a world server can publish a pool for each of them at startup.

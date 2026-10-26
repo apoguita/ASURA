@@ -370,9 +370,27 @@ unk(u8)}`. The reference hardcodes `is_explorable = 1` with the comment `// what
 The client asks in the order **items (`0x8091`), spawn (`0x8088`), players (`0x8090`)**; the reference
 answers whatever arrives, in whatever order.
 
-* **items (`0x8091`, 4 bytes)** → the item stream opens, four weapon slots, gold storage, the four
-  faction caps, hard mode, character info, `MAP_UPDATE_CURRENT` (5 bytes, the *login* shape),
-  `READY_FOR_MAP_SPAWN` (6), and the six-message download manifest.
+* **items (`0x8091`, 4 bytes)** → the item stream opens, the inventory itself, four weapon slots, gold
+  storage, the four faction caps, hard mode, character info, `MAP_UPDATE_CURRENT` (5 bytes, the *login*
+  shape), `READY_FOR_MAP_SPAWN` (6), and the six-message download manifest.
+
+  The inventory is `GameSrv_SendInventory`: for every bag **in bag-model order** (backpack `0`, material
+  storage `5`, unclaimed `6`, storage `7`+, equipped `21`) — and *not* in bag-id order, which is what the
+  capture's ids (1, 2, 6, 3, 4, 5) would suggest — first the item that *is* the bag if it has one, then
+  `INVENTORY_CREATE_BAG` (`0x013F`, 13 bytes), then each item in it by slot:
+
+  | message | header | wire layout |
+  |---|---|---|
+  | `CREATE_NAMED_ITEM` | `0x0161` | `u32 item_id, u32 file_id, u8 item_type, u8 dye_tint, u16 dye_colors, u16 materials, u8 unk1, u32 flags, u32 value, u32 model_id, u32 quantity, u16 n_name, u16 name[n], u8 n_modifiers, u32 modifiers[m]` |
+  | `ITEM_MOVE_TO_LOCATION` | `0x013E` | `u16 stream, u32 item_id, u16 bag_id, u8 slot` (11 bytes) |
+  | `ITEM_SET_PROFESSION` | `0x015A` | `u32 item_id, u8 profession` (7 bytes), sent only when the profession is not 0 |
+
+  `CREATE_NAMED_ITEM` has **no fixed size**, and its two counted fields count differently: the name is a
+  `u16` count of UTF-16 units and the modifier list is a **one-byte** count of dwords. That is the
+  reference's own packer (`TYPE_NESTED_STRUCT`, `msgpack.c`), and it is why a cupcake's message is 36
+  bytes while `sizeof(GameSrv_CreateNamedItem)` is 425. An item name is not a string: the backpack's name
+  is a `Gw.dat` template id packed into units (`0x21A8 0xD157 0xB58F 0x166F`), one of which is a lone
+  surrogate.
 * **spawn (`0x8088`, 2 bytes)** → `INSTANCE_LOAD_SPAWN_POINT` (`0x0196`), 26 bytes:
   `{map_file_id(u32), position(2×f32), plane(u16), unk0, is_cinematic, unk1[8]}`. These two numbers —
   the Gw.dat blob and the coordinate inside it — are what a client needs to load a map at all.
@@ -383,7 +401,30 @@ answers whatever arrives, in whatever order.
   (create/add/end + pointer), and finally **`INSTANCE_LOAD_FINISH` (`0x018E`, 2 bytes)** — the message
   that takes the client off the loading screen.
 
-### 11.5 Keeping the session alive
+### 11.5 The client's own messages, and the one that moves an item
+
+Six of the reference's dispatch cases are answered by a world that has nothing to simulate: the three load
+requests above, the ping, the heartbeat, and a disconnect. The two that carry state are movement
+(`0x803E`, `0x803D`, `0x8028`, `0x8047`) and the drop:
+
+| message | header | size | layout |
+|---|---|---|---|
+| `DROP_ITEM` | `0x802C` | 7 | `u32 item_id, u8 count` |
+| `POSITION_UPDATE` | `0x803D` | 26 | `Vec2f position, u32 plane, Vec2f unk0, u32 unk1` |
+
+`POSITION_UPDATE` is 26 bytes even though the position is in its first twelve: the framer wants the whole
+message, and a port that reads twelve and stops leaves the connection waiting for a message it has already
+been given.
+
+`DROP_ITEM` is answered by an item appearing, not by the bag changing: the reference creates an agent of
+type `AgentType_Item` (`4`) at the player's position plus `(30, 30)`, on the player's plane, facing x, and
+broadcasts `WORLD_CREATE_AGENT` (`0x0020`, 99 bytes) — to every connection, the dropper included. It does
+**not** remove the item from its slot, free its id, or send `ITEM_REMOVE`. Three answers change nothing at
+all and send nothing: item id `0`, an item that is not in the backpack/belt pouch/bag 1/bag 2
+(`GmBag_FindItem` looks no further, so storage is not droppable), and a count that does not equal the
+whole stack — the last one is a `TODO` in the reference's own source.
+
+### 11.6 Keeping the session alive
 
 The server sends, without being asked:
 
@@ -395,7 +436,7 @@ The server sends, without being asked:
 There is **no idle timeout** in the reference and it never disconnects over a missing heartbeat. The
 only reliable disconnects are a client `DISCONNECT` (`0x8008`) and a socket error.
 
-### 11.6 Framing on this connection
+### 11.7 Framing on this connection
 
 Same rule as the auth family, different table: a `u16` header (client→server headers carry `0x8000`,
 server→client ones do not), and a body whose length is fixed per header except for counted fields,

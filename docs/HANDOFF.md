@@ -4,6 +4,25 @@ State of the project as of the last commit, so a new session can begin without r
 
 ## Where this stands
 
+- **M5's inventory is delivered: a character has items, and they are rows.** The item block a client
+  receives is no longer the reference's messages replayed — it is built from `bag` and `item` rows, and
+  a test compares the result to the capture **byte for byte**
+  (`crates/asura-world/src/lib.rs`, `the_item_block_from_rows_is_the_capture_byte_for_byte`). The
+  default inventory is the reference's own six bags and nine items, generated from the capture into
+  `crates/asura-db/src/inventory/seed.rs` and written for any character that has none.
+  `GAME_CMSG_DROP_ITEM` (`0x802C`) is implemented, and — this is the part that matters — implemented as
+  the reference behaves, which is *badly*: the item stays in its bag and an item agent appears on the
+  ground. `docs/08-next-inventory-model.md` records that and the three other places the measurement
+  changed the plan. **175 tests pass** (`cargo test --workspace`), and clippy plus `cargo fmt --check`
+  are clean.
+- **A character's position survives a session.** Written when the player leaves, read when it returns,
+  and used only in the map it was taken in (`Standing::resume`). The reference does *not* do this — it
+  keeps a character's last map and re-spawns at the spawn point — so this is a recorded deviation, named
+  in `0006_inventory.sql` and in `docs/07-status.md`.
+- **What is left of the reference's dispatch is the four `CHAR_CREATION_*` handlers**, and they are
+  blocked on two things: a character-creation *instance* (its `MapType_CharacterCreation`, which this
+  world does not host) and the default-equipment table `GetDefaultEquipments` answers with. The second
+  is now cheap: equipment is item rows.
 - **M2 delivered: placement is safe, and it is proven against the real database.** The `asura-db`
   crate now owns registration, the atomic reservation, the lease ledger, the reaper and the
   reconciler; `asura-fakeworld` runs the whole sequence as a harness; the acceptance suite passes
@@ -11,13 +30,13 @@ State of the project as of the last commit, so a new session can begin without r
 - **M3 is delivered: the patched client reaches the character list against this service.** Measured
   2026-10-26: build 39112 logged in as `user1@example.com`, took the EULA, and reached character select.
   `docs/06-reference-session.md` holds the whole session — both directions, every header and size — and
-  `asura-auth` reproduced it line for line up to the client's travel request, which it refuses because
-  no world server exists yet. The service runs: it reads its configuration, refuses a stale schema,
+  `asura-auth` reproduced it line for line up to the client's travel request, which it refused while no
+  world server existed yet. The service runs: it reads its configuration, refuses a stale schema,
   binds a socket, classifies each connection, performs the key exchange with real randomness, answers
   the file check, the computer-info preamble and the session salt, validates the identity pair, and
   sends the reference's five-message login batch. `ASURA_TRACE=1` logs every message both ways.
-  **105 tests pass** (`cargo test --workspace`), `.\tools\m3-verify.ps1` runs the whole path in one
-  command, and clippy plus `cargo fmt --check` are clean.
+  `.\tools\m3-verify.ps1` runs the whole path in one command (it was 105 tests when M3 landed; the
+  suite is 175 now).
 - **What the pieces are:** classification from the first four bytes, framing by the table's fixed size
   per header with no length field, the key exchange (ARC4, the fixed-constant Diffie–Hellman, the
   protocol's own key derivation, pinned by fixtures **compiled from the reference's own C**), typed
@@ -97,16 +116,18 @@ transaction, so `count(lease) <= leased <= capacity` holds at every commit and t
 
 | what | state | evidence |
 |---|---|---|
-| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **93 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean |
+| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **175 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean; `cargo fmt --all -- --check` → clean |
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
-| **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **8 tables** applied (the 7 from 0001 plus `lease`), and 0003 added the `session.portal_user` column; credentials in `.env` (gitignored) |
+| **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **6 migrations applied / 11 tables** (`account`, `bag`, `characters`, `item`, `lease`, `map_config`, `schema_version`, `session`, `transfer`, `world`, `world_pool`); credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
-| client rig (Reforged + stealth hooks) | present from the PreSearing work | not needed until M4 |
+| client rig (Reforged + stealth hooks) | present from the PreSearing work | the only test the inventory has not had (`tools/play.ps1`) |
 
-**Database is ready.** `ASURA_DATABASE_URL` is in `.env` (gitignored, never committed). Both
-migrations are applied; `crates/asura-db/tests/placement.rs` verified the pool invariants against the
-live database — at capacity the reservation `UPDATE ... WHERE leased < capacity` returns no row (the
-refusal signal), and an over-capacity row is rejected by `world_pool_never_oversold`.
+**Database is ready.** `ASURA_DATABASE_URL` is in `.env` (gitignored, never committed). Every migration
+is applied; `crates/asura-db/tests/placement.rs` verified the pool invariants against the live database —
+at capacity the reservation `UPDATE ... WHERE leased < capacity` returns no row (the refusal signal), and
+an over-capacity row is rejected by `world_pool_never_oversold` — and `tests/inventory.rs` verifies that a
+character is seeded once, that its items read back identical to what was written, and that a position
+survives.
 
 If the superuser password is ever lost again, `tools/pg-recover.ps1` (run elevated) does the standard
 recovery. It restores secure auth before it finishes, and it writes the new credentials to `.env`.
@@ -143,29 +164,33 @@ where a UTF-8 em dash decodes to a smart quote and breaks the parse at a line fa
 | AzerothCore is the design authority (structure); deviations are recorded | `docs/adr/0006-azerothcore-is-the-reference.md` |
 | The one rule: never send a client to something that is not already answering | `docs/02-architecture.md` |
 
-## Next session: M4 — the game connection
+## Where the next session starts
 
-M3 is delivered. The client logs in against this service, takes the EULA, and reaches character select.
-What it asks for next is a **world**, and there is none.
+M4 is delivered — a real client logs in, travels, and stands in a map (`git log`, `4f610a8`) — and it now
+carries an inventory and comes back where it logged out.
 
-1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **105 passing** (9 of
-   them end-to-end over a socket, 6 live-database login tests, 4 live-database placement tests). Then
-   `.\tools\m3-verify.ps1`. If a count changed, read `git log` before assuming it is broken.
-2. **Answer the travel request.** `REQUEST_GAME_INSTANCE` (`0x8029`, 26 bytes: request, map type, map
-   id, region, district) must be answered with `GAME_SERVER_INFO` (`0x0009`, **42 bytes**: request id,
-   map token, map id, `host[24]` holding family/port/address, player token) and then a request
-   response — that is step 21 of `docs/06-reference-session.md`, with GWPS's own bytes for reference.
-   This is `AUTH_SMSG_GAME_SERVER_INFO`, and the message table already carries its layout.
-3. **Then something has to be listening at that address** and able to accept a `GAME_CMSG_VERSION`
-   connection — the second connection in the reference session (step 23). That is the world server,
-   and it is the boundary this project drew on purpose (`docs/adr/0003-simulation-in-scope.md`): the
-   auth service's job ends at the redirect.
-4. **Use the reference session as the spec.** `docs/06-reference-session.md` is the whole working
-   login, both directions; `tools/patch-gwps-auth-trace.py` reproduces the logging that produced it,
-   and `tools/compare-replies.py` diffs two servers' replies field by field. Reading the reference's C
-   was not enough to get the message shapes right twice; the measurement was.
-5. **M4 proper — end-to-end travel** stays blocked on a world server that accepts its own gameplay
-   connections (`docs/04-from-gwps.md`, step 1).
+1. **Verify the baseline** (3 minutes): `cargo test --workspace --offline` → **175 passing**, of which 16
+   are live-database tests in `asura-db` (login, placement, inventory, migrations) and 6 drive real
+   sockets in `asura-world` (the load, a drop, a return). Then `.\tools\test-battery.ps1`. If a count
+   changed, read `git log` before assuming it is broken.
+2. **What is left of the reference's dispatch is character creation**: the four
+   `GAME_CMSG_CHAR_CREATION_*` handlers (`docs/07-status.md`). They are blocked on a
+   *character-creation* instance (`MapType_CharacterCreation`, which this world does not host) and on
+   porting the default-equipment table `GetDefaultEquipments` answers with (`GmDefaultArmors.c`, 2820
+   lines of it). The second is now generation work rather than design: `tools/gen-pvp-items.py` and
+   `tools/gen-default-inventory.py` are the two shapes to copy, and equipment is item rows.
+3. **Then the things the reference never wrote**, which a working outpost needs: picking a dropped item
+   back up (`ITEM_REMOVE` — the message the drop path is missing, and the reason a drop duplicates),
+   moving an item between bags, equipping one, and buying. Each starts with a *measurement* of what the
+   client sends; the reference's C has now been insufficient three times and the capture sufficient
+   every time.
+4. **Use the reference session as the spec.** `docs/06-reference-session.md` is the whole working login,
+   both directions; `tools/patch-gwps-auth-trace.py` reproduces the logging that produced it,
+   `tools/compare-replies.py` diffs two servers' replies field by field, and `tools/compare-load.py`
+   diffs the world's load stream against a capture of the reference working.
+5. **The real client is the only test that has never run for the inventory.** Everything above is
+   harness-only. `tools/play.ps1` plus the trace in that console is the verdict for "does the character
+   draw with its armour on and its backpack full".
 
 **Decided, and not to be re-opened without a reason:**
 
@@ -178,6 +203,30 @@ What it asks for next is a **world**, and there is none.
   or a stale sweep, not for a disconnect.
 - **A connection this service does not understand is closed, not guessed at**, and a pair that does
   not resolve is answered with the client's auth error (`11`) rather than silence.
+- **A dropped item stays in its bag.** The reference's `GameSrv_HandleDropItem` creates an agent for the
+  item and returns; it never removes the row, never frees the id, and never sends `ITEM_REMOVE`. That is
+  a duplication bug, and this port copies it deliberately: a port that fixes it sends a message the
+  reference never sends, and the message it would need does not exist in this codebase yet
+  (`docs/08-next-inventory-model.md`, `docs/07-status.md`). Fixing it is the *item pickup* milestone,
+  not a tidy-up.
+- **The item block is built from rows and compared to the capture byte for byte.** Either side changing
+  alone fails `the_item_block_from_rows_is_the_capture_byte_for_byte`, which is the point: the rows and
+  the capture are two descriptions of one thing, and the test is what keeps them one thing.
+
+## The pieces the inventory added (M5)
+
+| piece | where |
+|---|---|
+| `bag`, `item`, the item-id sequence, and `characters.pos_plane` | `crates/asura-db/migrations/0006_inventory.sql` |
+| reading a character's bags and items, seeding the default set, finding the item a drop names | `crates/asura-db/src/inventory.rs` |
+| the seed: the reference's own six bags and nine items, generated from the capture | `crates/asura-db/src/inventory/seed.rs` (generated) |
+| the capture itself, kept as the fixture the rows must reproduce | `crates/asura-protocol/src/game/default_inventory.rs` (generated) |
+| one generator for both halves: the seed rows and the captured bytes | `tools/gen-default-inventory.py` |
+| `CREATE_NAMED_ITEM`, `ITEM_MOVE_TO_LOCATION`, `ITEM_SET_PROFESSION` | `crates/asura-protocol/src/game/mod.rs` |
+| the item block from rows, the bags in model order, the worn ids from the equipped bag | `crates/asura-world/src/lib.rs` (`inventory_block`, `items_block`, `player_block`) |
+| `DROP_ITEM`, copied from the reference including what it does not do | `crates/asura-world/src/lib.rs` (`0x802C`, `drop_item`) |
+| the position saved on leaving and resumed on entering | `asura_db::game::record_position`/`position`, `Standing::resume` |
+| the live-database proof: seeding, round trip, drop scoping, position | `crates/asura-db/tests/inventory.rs` |
 
 ## The pieces M3 added
 
@@ -227,16 +276,22 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
 
 ## What is deliberately not here yet
 
-- The acceptance proof itself: no real game client has been pointed at this service. Everything that
-  can be checked without one is checked, and the packet trace is built for the moment it is.
-- No world server work at all: no gameplay connection, no travel, no simulation. The auth service
-  answers a login and nothing else (`docs/roadmap.md`, M4 onwards).
-- No CI. Tests run locally first, and `tools/m3-verify.ps1` is the one command that stands in for it.
-- No session bookkeeping in memory: the service resolves a login per connection and keeps no registry
-  of who is connected. That registry is what "the newest connection wins" will need at M4.
-- No character selection yet: the client's `AUTH_CMSG_CHANGE_PLAY_CHARACTER` is logged as unhandled,
+- **The real client has not been pointed at the inventory.** The load stream is proved byte for byte
+  against a capture of the reference working, and the database round trip is proved against the live
+  database, but "the character draws with its armour on and its backpack full" is still a claim about a
+  capture rather than a claim about a window. `tools/play.ps1` is how it stops being one.
+- **No item mutation at all**: nothing is picked up, moved between bags, equipped, bought or sold. A drop
+  creates an agent and changes no row (`docs/07-status.md`), which is what the reference does and the
+  reason a drop duplicates its item.
+- **No character creation**: the four `CHAR_CREATION_*` handlers need a creation instance and the default
+  equipment table.
+- **One agent, one player**: no NPCs, no other players, no combat, no quests, and no session registry in
+  memory — the service resolves a connection per connection and keeps no record of who is connected.
+- **No character selection yet**: the client's `AUTH_CMSG_CHANGE_PLAY_CHARACTER` is logged as unhandled,
   and `asura_db::login::select_character` exists but nothing calls it. The login batch reports the
   character the session already points at; choosing one is the next login-path message.
+- **No CI.** Tests run locally first, and `tools/test-battery.ps1` is the one command that stands in for
+  it (10 steps, PASS/FAIL each, and the last one is a human with a game client).
 
 ## Reading order for a fresh session
 

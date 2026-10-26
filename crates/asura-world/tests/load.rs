@@ -13,7 +13,9 @@
 //! * the players request ends with `INSTANCE_LOAD_FINISH`, which is what takes a client off the loading
 //!   screen;
 //! * the world keeps the clock running without being asked, and answers a ping;
-//! * the lease the travel took is released when the player leaves.
+//! * a dropped item becomes an agent of its own, and — as in the reference — stays in its bag;
+//! * a character that leaves standing somewhere comes back standing there, and the slot it took goes
+//!   back to the pool both times.
 //!
 //! With no database configured, each test prints a skip line and returns.
 
@@ -21,6 +23,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use asura_db::inventory as db_inventory;
 use asura_db::login as db;
 use asura_db::{placement, PgPool, Uuid};
 use asura_protocol::client::game::GameVersion;
@@ -152,6 +155,60 @@ impl Harness {
 
     fn stop(self) {
         self.server.abort();
+    }
+
+    /// The version message a client presents for `player_token`.
+    fn version(&self, player_token: u32) -> GameVersion {
+        GameVersion {
+            version: 39112,
+            h0008: 1,
+            map_token: self.world_id as u32,
+            map_id: self.map_id as u32,
+            player_token,
+            account: self.account.to_bytes_le(),
+            character: self.character.to_bytes_le(),
+            h0038: 0,
+            h003c: 0,
+        }
+    }
+
+    /// Do what the auth service does for one travel: take a slot, then write the pending transfer.
+    ///
+    /// A second call is how a test gets a second session for the same character — the first transfer is
+    /// claimed by the first connection and cannot be presented twice.
+    async fn transfer(&self) -> u32 {
+        placement::reserve(&self.pool, self.world_id, self.map_id, self.session)
+            .await
+            .expect("reserve");
+        let player_token = (Uuid::new_v4().as_u128() & 0xFFFF_FFFF) as u32;
+        placement::begin_transfer(
+            &self.pool,
+            player_token,
+            self.world_id,
+            self.map_id,
+            self.session,
+            self.account,
+            self.character,
+        )
+        .await
+        .expect("write the pending transfer");
+        player_token
+    }
+
+    /// Wait for the slot a travel took to go back to the pool, which the world does when the client
+    /// leaves. Returns whether it happened.
+    async fn slot_released(&self) -> bool {
+        for _ in 0..60 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            if placement::pool_counts(&self.pool, self.world_id, self.map_id)
+                .await
+                .expect("read the counter")
+                == Some((2, 0))
+            {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -475,6 +532,198 @@ async fn a_character_that_is_not_the_one_transferred_is_refused() {
         "the token names a character, and a different one is not accepted"
     );
 
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
+/// Send a client message with a body.
+async fn say(stream: &mut TcpStream, client: &mut ReferenceClient, header: u16, body: &[u8]) {
+    let mut bytes = Vec::with_capacity(2 + body.len());
+    bytes.extend_from_slice(&header.to_le_bytes());
+    bytes.extend_from_slice(body);
+    client.seal_raw(&mut bytes);
+    stream.write_all(&bytes).await.expect("write the message");
+}
+
+#[tokio::test]
+async fn a_dropped_item_becomes_an_agent_and_stays_in_the_bag() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    let version = harness.version(harness.player_token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused a token the auth service had just issued");
+    };
+    // The load block, so the character exists on this connection before anything is asked of it.
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_INFO).await;
+
+    // The world seeds the default inventory on the way in, so the cupcake's id is only known now.
+    let inventory = db_inventory::load(&harness.pool, harness.character)
+        .await
+        .expect("read the inventory");
+    assert_eq!(
+        inventory.bags.len(),
+        6,
+        "a character that has never been played was given the reference's bags"
+    );
+    let cupcake = inventory.items_in(1)[0].clone();
+    assert_eq!(cupcake.slot, Some(0));
+    assert_eq!(cupcake.quantity, 100);
+
+    // `GAME_CMSG_DROP_ITEM`: `{item_id: u32, count: u8}`. The whole stack, which is the only thing the
+    // reference implements.
+    let mut body = Vec::new();
+    body.extend_from_slice(&(cupcake.id as u32).to_le_bytes());
+    body.push(100);
+    say(&mut stream, &mut client, 0x802C, &body).await;
+
+    let frames = read_until(&mut stream, &mut client, game::WORLD_CREATE_AGENT).await;
+    let agent = frames
+        .iter()
+        .find(|frame| frame.header == game::WORLD_CREATE_AGENT)
+        .expect("the drop created an agent");
+    assert_eq!(agent.len(), 99, "the reference's fixed agent message");
+    assert_eq!(
+        agent.body[8],
+        game::AGENT_TYPE_ITEM,
+        "an item agent, not a living one"
+    );
+    assert_eq!(
+        u32::from_le_bytes([agent.body[4], agent.body[5], agent.body[6], agent.body[7]]),
+        cupcake.id as u32,
+        "and its model id is the item's id, which is what the reference writes"
+    );
+
+    // The reference does not take the item out of the bag, and neither does this: a drop is a second
+    // copy of the item standing on the ground, which is the reference's own unfinished handler.
+    let after = db_inventory::load(&harness.pool, harness.character)
+        .await
+        .expect("read the inventory");
+    assert_eq!(
+        after.items_in(1)[0].id,
+        cupcake.id,
+        "the dropped item is still in the backpack, as the reference leaves it"
+    );
+
+    // A drop of something that is not carried is answered with nothing at all, and does not end the
+    // session: the reference's handler returns ERR_OK and sends no message.
+    let mut body = 999_999u32.to_le_bytes().to_vec();
+    body.push(1);
+    say(&mut stream, &mut client, 0x802C, &body).await;
+    ask(&mut stream, &mut client, 0x800D, 2).await;
+    let frames = read_until(&mut stream, &mut client, game::PING_REPLY).await;
+    assert!(
+        !frames
+            .iter()
+            .any(|frame| frame.header == game::WORLD_CREATE_AGENT),
+        "an item nobody carries creates no agent"
+    );
+
+    drop(stream);
+    assert!(harness.slot_released().await, "the slot went back");
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
+#[tokio::test]
+async fn a_character_comes_back_where_it_left() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    // ---- the first session: walk away from the spawn point, then leave ----------------------
+    let version = harness.version(harness.player_token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused a token the auth service had just issued");
+    };
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_INFO).await;
+
+    // A position report 100 units from the spawn: inside the reference's budget, so it is adopted.
+    // `GAME_CMSG_POSITION_UPDATE` is 26 bytes: `{position: Vec2f, plane: u32, unk0: Vec2f, unk1: u32}`,
+    // and the world reads the first three fields.
+    let walked = (6702.0f32, 4485.0f32);
+    let mut body = Vec::new();
+    body.extend_from_slice(&walked.0.to_le_bytes());
+    body.extend_from_slice(&walked.1.to_le_bytes());
+    body.extend_from_slice(&0u32.to_le_bytes()); // plane
+    body.extend_from_slice(&[0u8; 12]); // the two trailing fields the world does not read
+    say(&mut stream, &mut client, 0x803D, &body).await;
+
+    // The report answers nothing; a ping is how this test knows the server has read it.
+    ask(&mut stream, &mut client, 0x800D, 2).await;
+    read_until(&mut stream, &mut client, game::PING_REPLY).await;
+
+    drop(stream);
+    assert!(
+        harness.slot_released().await,
+        "the slot went back when the player left"
+    );
+
+    // Where it stood is now in the database, which is the only thing that makes the next session
+    // different from the first.
+    let saved = asura_db::game::position(&harness.pool, harness.character)
+        .await
+        .expect("read the position")
+        .expect("leaving saves a position");
+    assert_eq!(saved.map_id, harness.map_id);
+    assert_eq!((saved.x, saved.y), walked);
+
+    // ---- the second session: the same character arrives where it left ----------------------
+    let token = harness.transfer().await;
+    let version = harness.version(token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused the second travel's token");
+    };
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_INFO).await;
+
+    ask(&mut stream, &mut client, 0x8088, 2).await;
+    let frames = read_until(&mut stream, &mut client, game::INSTANCE_LOAD_SPAWN_POINT).await;
+    let spawn = frames
+        .iter()
+        .find(|frame| frame.header == game::INSTANCE_LOAD_SPAWN_POINT)
+        .expect("a spawn point");
+    let x = f32::from_le_bytes([spawn.body[4], spawn.body[5], spawn.body[6], spawn.body[7]]);
+    let y = f32::from_le_bytes([spawn.body[8], spawn.body[9], spawn.body[10], spawn.body[11]]);
+    assert_eq!(
+        (x, y),
+        walked,
+        "the client is put back where the character left, not at the map's spawn"
+    );
+
+    // The agent is created at the same place, so the two messages do not disagree.
+    ask(&mut stream, &mut client, 0x8090, 19).await;
+    let frames = read_until(&mut stream, &mut client, game::INSTANCE_LOAD_FINISH).await;
+    let agent = frames
+        .iter()
+        .find(|frame| frame.header == game::WORLD_CREATE_AGENT)
+        .expect("an agent");
+    assert_eq!(
+        f32::from_le_bytes([
+            agent.body[10],
+            agent.body[11],
+            agent.body[12],
+            agent.body[13]
+        ]),
+        walked.0,
+        "the agent stands where the spawn point says"
+    );
+
+    drop(stream);
+    assert!(
+        harness.slot_released().await,
+        "and the slot went back again"
+    );
     placement::remove_world(&harness.pool, harness.world_id)
         .await
         .expect("remove the world");

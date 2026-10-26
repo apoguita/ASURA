@@ -145,8 +145,9 @@ every earlier guess were, in order:
    an *order* bug, invisible to a diff that matched messages by header;
 2. **an all-zero appearance word** (`PROFESSION_None`, hair style 0) — a model the client cannot build;
 3. **no inventory at all** — bags and nothing else, and a client with no items has nothing to draw the
-   character from. The reference's own default inventory is now generated from its trace
-   (`tools/gen-default-inventory.py`), and its equipped item ids are what put the armour on.
+   character from. The reference's own default inventory is generated from its trace
+   (`tools/gen-default-inventory.py`) — now as **rows** rather than as replayed bytes, and the block
+   rebuilt from them is compared to that capture byte for byte (`docs/08-next-inventory-model.md`).
 
 ## M5 — Capacity, refusal, and persistence
 
@@ -157,6 +158,19 @@ The auth service sizes the world, refuses when full, and owns player state.
 written on leaving an instance and read back on entering.
 
 **Test:** two clients, or one client and a harness that holds the slot.
+
+**Progress (persistence half).** A character's *position* is saved when it leaves and read back when it
+enters (`asura_db::game::record_position`/`position`, `Standing::resume`), and it is used only in the map
+it was taken in; a character that has never been played spawns where `map_config` says. The inventory is
+rows too (`crates/asura-db/migrations/0006_inventory.sql`), so an item survives a session — which is what
+"player state" meant and did not exist before. What is still *not* saved is everything else about a
+character: level, profession, gold, equipment changes.
+
+**Progress (capacity half).** Placement already publishes per-map capacity, reserves atomically and
+refuses a full map (`docs/HANDOFF.md`, M2), and `docs/02-architecture.md` records the one rule: a client
+is never sent to a port nothing answers on. What is missing is the *explorable* instance this milestone's
+"refused while still standing in the outpost" needs — the world hosts outposts only — so a refusal at
+travel time is proven (`asura-auth/tests/travel.rs`) but never with a client in a loading screen.
 
 ## M6 — More than one machine
 
@@ -207,5 +221,5 @@ made knowing what is coming.
 | M2 | harness register/heartbeat/stale/refuse | — | — |
 | M3 | message table matches the reference (`gen-auth-tables.py --check`), key exchange matches fixtures compiled from the reference's C, framing round-trips, identity-pair refusals, and a client logging in over a socket (`asura-auth/tests/login.rs`) | login to character list | packet diff vs GWPS |
 | M4 | — | hop, and client state settles | tear-down/rebuilt, memory |
-| M5 | — | refusal while in outpost | saved state round-trip |
+| M5 | the inventory rebuilt from rows equals the reference's capture byte for byte; seeding, drop scoping and the position round trip against the live database (`asura-db/tests/inventory.rs`); a client dropping an item and returning where it left over a socket (`asura-world/tests/load.rs`) | refusal while in outpost | saved state round-trip |
 | M6 | — | cross-host hop | latency |

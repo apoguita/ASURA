@@ -1,0 +1,567 @@
+//! The inventory: a character's bags and the items in them.
+//!
+//! Until this module existed the world server answered the client's item request with the reference's
+//! own messages, replayed byte for byte (`asura_protocol::game::default_inventory`). That made a client
+//! happy and made the server know nothing: there was no row, bag or slot to name, so nothing could be
+//! dropped, equipped, moved or saved. These are the rows that replaced them, and the two operations the
+//! world server needs them for:
+//!
+//! * **reading** a character's inventory into the shape the wire wants ([`load`]);
+//! * **creating** the default inventory for a character that has none ([`seed_default`]), which is what
+//!   the reference does for every player it creates (`GameSrv_CreateDefaultBags`, guarded by
+//!   `IsValidBag` so a loaded character keeps what it had);
+//! * **finding** the item a client asks to drop ([`find_in_carrying_bags`]), restricted to the bags the
+//!   reference searches (`GmBag_FindItem` looks only at the backpack, the belt pouch and bags 1 and 2).
+//!
+//! The model, and where it differs from the reference's own `items`/`bags` tables, is argued in
+//! `crates/asura-db/migrations/0006_inventory.sql`. In one line: a bag is named by the id the client is
+//! told *and* by its kind, an item's name and modifiers are stored because `CREATE_NAMED_ITEM` carries
+//! them, and a bag's own item is a row with no slot rather than a struct compiled into the server.
+
+use crate::{PgPool, Uuid};
+
+/// The default inventory the reference seeds, generated from a capture of it working.
+pub mod seed;
+
+/// One bag, as the wire tells a client about it (`INVENTORY_CREATE_BAG`, `0x013F`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Bag {
+    /// The number the client is told, and the one `ITEM_MOVED_TO_LOCATION` names.
+    pub bag_id: i32,
+    /// `BagModelId`: 0 backpack, 5 material storage, 6 unclaimed items, 7+ storage, 21 equipped items.
+    /// The reference sends its bags in this order, so this is also the wire order.
+    pub bag_model_id: i32,
+    /// `BagType`: 1 bag, 2 equipped, 3 not collected, 4 storage, 5 material storage.
+    pub bag_type: i32,
+    pub slot_count: i32,
+    /// The item that *is* the bag (the reference's `bag_item_id`), 0 for the bags that have none.
+    pub assoc_item_id: i32,
+}
+
+/// One item, with every field `CREATE_NAMED_ITEM` (`0x0161`) carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Item {
+    /// The client-visible id: what a drop names, and what `UPDATE_AGENT_VISUAL_EQUIPMENT` carries.
+    pub id: i32,
+    /// Where it sits. `None` for an item that is not in a slot — a bag's own item.
+    pub bag_id: Option<i32>,
+    pub slot: Option<i32>,
+    pub file_id: i64,
+    pub item_type: i32,
+    pub model_id: i32,
+    pub dye_tint: i32,
+    pub dye_colors: i32,
+    pub materials: i32,
+    pub unk1: i32,
+    pub flags: i64,
+    pub value: i32,
+    pub quantity: i32,
+    pub profession: i32,
+    /// The name, as the UTF-16 code units the wire carries. Not text: the reference's bag name is a
+    /// Gw.dat template id packed into units, and some of them are not valid Unicode.
+    pub name: Vec<i32>,
+    /// The modifier list, as the `u32` words the wire carries.
+    pub modifiers: Vec<i64>,
+}
+
+impl Item {
+    /// The name as the wire writes it: `u16` units.
+    pub fn name_units(&self) -> Vec<u16> {
+        self.name
+            .iter()
+            .map(|unit| u16::try_from(*unit).unwrap_or(0))
+            .collect()
+    }
+
+    /// The modifiers as the wire writes them: `u32` dwords.
+    pub fn modifier_dwords(&self) -> Vec<u32> {
+        self.modifiers
+            .iter()
+            .map(|word| u32::try_from(*word).unwrap_or(0))
+            .collect()
+    }
+}
+
+/// A character's whole inventory.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Inventory {
+    /// In the reference's order: by bag model id, which is the order its bag array is walked in.
+    pub bags: Vec<Bag>,
+    pub items: Vec<Item>,
+}
+
+impl Inventory {
+    /// Empty is the answer for a character that has never been loaded, and it is what
+    /// [`seed_default`] fills.
+    pub fn is_empty(&self) -> bool {
+        self.bags.is_empty() && self.items.is_empty()
+    }
+
+    pub fn bag(&self, bag_id: i32) -> Option<&Bag> {
+        self.bags.iter().find(|bag| bag.bag_id == bag_id)
+    }
+
+    pub fn item(&self, item_id: i32) -> Option<&Item> {
+        self.items.iter().find(|item| item.id == item_id)
+    }
+
+    /// The items in one bag, by slot — the order the reference sends them in.
+    pub fn items_in(&self, bag_id: i32) -> Vec<&Item> {
+        let mut found: Vec<&Item> = self
+            .items
+            .iter()
+            .filter(|item| item.bag_id == Some(bag_id))
+            .collect();
+        found.sort_by_key(|item| item.slot.unwrap_or(0));
+        found
+    }
+
+    /// The nine item ids `UPDATE_AGENT_VISUAL_EQUIPMENT` carries: what the agent is wearing, by slot.
+    ///
+    /// Read out of the equipped-items bag rather than from a constant, because the ids belong to this
+    /// character's items: a second character's armour has different ones.
+    pub fn equipped_item_ids(&self) -> [u32; 9] {
+        let mut ids = [0u32; 9];
+        let Some(bag) = self
+            .bags
+            .iter()
+            .find(|bag| bag.bag_model_id == EQUIPPED_ITEMS_MODEL)
+        else {
+            return ids;
+        };
+        for item in self.items_in(bag.bag_id) {
+            let Some(slot) = item.slot.and_then(|slot| usize::try_from(slot).ok()) else {
+                continue;
+            };
+            if slot < ids.len() {
+                ids[slot] = u32::try_from(item.id).unwrap_or(0);
+            }
+        }
+        ids
+    }
+}
+
+/// `BagModelId_EquippedItems` (`GmInventory.h`): the bag whose slots are the nine worn items.
+pub const EQUIPPED_ITEMS_MODEL: i32 = 21;
+
+/// `BagModelId_Backpack`.
+pub const BACKPACK_MODEL: i32 = 0;
+
+/// `BagModelId_Bag2`: the last bag `GmBag_FindItem` searches. A drop looks no further than this, and
+/// neither does this module: the reference cannot drop from storage, so neither can we.
+pub const LAST_CARRYING_MODEL: i32 = 3;
+
+/// One bag as the seed describes it: the capture's bag id, and the capture id of its own item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeedBag {
+    pub bag_id: i32,
+    pub bag_model_id: i32,
+    pub bag_type: i32,
+    pub slot_count: i32,
+    /// The capture's item id of the item that is this bag, 0 when the bag has none.
+    pub assoc_item: i32,
+}
+
+/// One item as the seed describes it. The slices are the wire's own units and dwords.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeedItem {
+    /// The capture's item id. Renumbered from the sequence when it is written.
+    pub id: i32,
+    pub bag_id: Option<i32>,
+    pub slot: Option<i32>,
+    pub file_id: i64,
+    pub item_type: i32,
+    pub model_id: i32,
+    pub dye_tint: i32,
+    pub dye_colors: i32,
+    pub materials: i32,
+    pub unk1: i32,
+    pub flags: i64,
+    pub value: i32,
+    pub quantity: i32,
+    pub profession: i32,
+    pub name: &'static [i32],
+    pub modifiers: &'static [i64],
+}
+
+impl SeedItem {
+    /// The seed row as a row: the shape both the reader and the wire builder use.
+    pub fn item(&self) -> Item {
+        Item {
+            id: self.id,
+            bag_id: self.bag_id,
+            slot: self.slot,
+            file_id: self.file_id,
+            item_type: self.item_type,
+            model_id: self.model_id,
+            dye_tint: self.dye_tint,
+            dye_colors: self.dye_colors,
+            materials: self.materials,
+            unk1: self.unk1,
+            flags: self.flags,
+            value: self.value,
+            quantity: self.quantity,
+            profession: self.profession,
+            name: self.name.to_vec(),
+            modifiers: self.modifiers.to_vec(),
+        }
+    }
+}
+
+impl From<&SeedBag> for Bag {
+    fn from(seed: &SeedBag) -> Bag {
+        Bag {
+            bag_id: seed.bag_id,
+            bag_model_id: seed.bag_model_id,
+            bag_type: seed.bag_type,
+            slot_count: seed.slot_count,
+            assoc_item_id: seed.assoc_item,
+        }
+    }
+}
+
+/// The reference's default inventory, as rows, with the ids its capture used.
+///
+/// This is the seed *and* the test fixture: [`seed_default`] writes these rows (with ids taken from the
+/// sequence, because two characters cannot both own item 1) and the world server's item-block test
+/// builds these rows into messages that must equal the capture byte for byte.
+pub fn default_inventory() -> Inventory {
+    Inventory {
+        bags: seed::BAGS.iter().map(Bag::from).collect(),
+        items: seed::ITEMS.iter().map(SeedItem::item).collect(),
+    }
+}
+
+/// One item row as both queries select it, in the order they select it (`load` and
+/// [`find_in_carrying_bags`] share the column list so the two cannot drift apart).
+type ItemRow = (
+    i32,
+    Option<i32>,
+    Option<i32>,
+    i64,
+    i32,
+    i32,
+    i32,
+    i32,
+    i32,
+    i32,
+    i64,
+    i32,
+    i32,
+    i32,
+    Vec<i32>,
+    Vec<i64>,
+);
+
+/// A row as [`Item`].
+fn item_from_row(row: ItemRow) -> Item {
+    let (
+        id,
+        bag_id,
+        slot,
+        file_id,
+        item_type,
+        model_id,
+        dye_tint,
+        dye_colors,
+        materials,
+        unk1,
+        flags,
+        value,
+        quantity,
+        profession,
+        name,
+        modifiers,
+    ) = row;
+    Item {
+        id,
+        bag_id,
+        slot,
+        file_id,
+        item_type,
+        model_id,
+        dye_tint,
+        dye_colors,
+        materials,
+        unk1,
+        flags,
+        value,
+        quantity,
+        profession,
+        name,
+        modifiers,
+    }
+}
+
+/// Read a character's bags and items.
+///
+/// Bags come back in the reference's send order (`bag_model_id`), items in `(bag, slot)` order, so the
+/// world server can build the block without re-sorting and without knowing why the order matters.
+pub async fn load(pool: &PgPool, character: Uuid) -> sqlx::Result<Inventory> {
+    let bags: Vec<(i32, i32, i32, i32, i32)> = sqlx::query_as(
+        "SELECT bag_id, bag_model_id, bag_type, slot_count, assoc_item_id
+           FROM bag WHERE character_id = $1
+          ORDER BY bag_model_id, bag_id",
+    )
+    .bind(character)
+    .fetch_all(pool)
+    .await?;
+
+    let items: Vec<ItemRow> = sqlx::query_as(
+        "SELECT id, bag_id, slot, file_id, item_type, model_id, dye_tint, dye_colors, materials,
+                unk1, flags, value, quantity, profession, name, modifiers
+           FROM item WHERE character_id = $1
+          ORDER BY bag_id NULLS FIRST, slot, id",
+    )
+    .bind(character)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(Inventory {
+        bags: bags
+            .into_iter()
+            .map(
+                |(bag_id, bag_model_id, bag_type, slot_count, assoc_item_id)| Bag {
+                    bag_id,
+                    bag_model_id,
+                    bag_type,
+                    slot_count,
+                    assoc_item_id,
+                },
+            )
+            .collect(),
+        items: items.into_iter().map(item_from_row).collect(),
+    })
+}
+
+/// Give a character the reference's default inventory, unless it already has bags.
+///
+/// `Ok(false)` means there was nothing to do, and that is the common case: the reference calls its
+/// `GameSrv_CreateDefaultBags` on every session and each of its `if (!IsValidBag(...))` guards turns it
+/// into a no-op once the bags exist. Doing it here in one transaction means a half-seeded character is
+/// not a state anyone can observe.
+///
+/// The item ids come from `item_id_seq` in the seed's own order, so the first character seeded in a
+/// fresh database gets the capture's numbering (1..9) and a second one gets a fresh range.
+pub async fn seed_default(pool: &PgPool, character: Uuid) -> sqlx::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    // `FOR UPDATE` on the character row: two connections arriving for the same character at once must
+    // not both decide it has no bags. The reference cannot hit this (one connection per player); a
+    // server that reconnects fast can.
+    let exists: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM characters WHERE id = $1 FOR UPDATE")
+            .bind(character)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if exists.is_none() {
+        return Ok(false);
+    }
+
+    let bags: i64 = sqlx::query_scalar("SELECT count(*) FROM bag WHERE character_id = $1")
+        .bind(character)
+        .fetch_one(&mut *tx)
+        .await?;
+    if bags > 0 {
+        return Ok(false);
+    }
+
+    // The items first, in the seed's order, so that a bag can name its own item by the id the sequence
+    // actually gave it rather than by the capture's. Neither `item.bag_id` nor `bag.assoc_item_id` is a
+    // foreign key (the reference's two tables point at each other), so the order is free.
+    let mut allocated: Vec<(i32, i32)> = Vec::with_capacity(seed::ITEMS.len());
+    for seed in seed::ITEMS {
+        let id: i32 = sqlx::query_scalar(
+            "INSERT INTO item (character_id, bag_id, slot, file_id, item_type, model_id, dye_tint,
+                               dye_colors, materials, unk1, flags, value, quantity, profession,
+                               name, modifiers)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+             RETURNING id",
+        )
+        .bind(character)
+        .bind(seed.bag_id)
+        .bind(seed.slot)
+        .bind(seed.file_id)
+        .bind(seed.item_type)
+        .bind(seed.model_id)
+        .bind(seed.dye_tint)
+        .bind(seed.dye_colors)
+        .bind(seed.materials)
+        .bind(seed.unk1)
+        .bind(seed.flags)
+        .bind(seed.value)
+        .bind(seed.quantity)
+        .bind(seed.profession)
+        .bind(seed.name.to_vec())
+        .bind(seed.modifiers.to_vec())
+        .fetch_one(&mut *tx)
+        .await?;
+        allocated.push((seed.id, id));
+    }
+
+    for seed in seed::BAGS {
+        let assoc_item_id = bag_own_item(seed, &allocated)?;
+
+        sqlx::query(
+            "INSERT INTO bag (character_id, bag_id, bag_model_id, bag_type, slot_count, assoc_item_id)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(character)
+        .bind(seed.bag_id)
+        .bind(seed.bag_model_id)
+        .bind(seed.bag_type)
+        .bind(seed.slot_count)
+        .bind(assoc_item_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(true)
+}
+
+/// The id the seed's bag calls its own item, in the ids the sequence actually gave.
+///
+/// A seed that names an item it does not carry would write a bag pointing at nothing; that is refused
+/// here rather than written, so the failure happens at the write and not in a client drawing an
+/// inventory with a hole in it.
+fn bag_own_item(seed: &SeedBag, allocated: &[(i32, i32)]) -> sqlx::Result<i32> {
+    if seed.assoc_item == 0 {
+        return Ok(0);
+    }
+    allocated
+        .iter()
+        .find(|(capture_id, _)| *capture_id == seed.assoc_item)
+        .map(|(_, id)| *id)
+        .ok_or_else(|| {
+            sqlx::Error::Configuration(
+                format!(
+                    "the default inventory names item {} as bag {}'s own item, and no item in the seed \
+                     has that id",
+                    seed.assoc_item, seed.bag_id
+                )
+                .into(),
+            )
+        })
+}
+
+/// The item a drop names, if it is somewhere the reference would look for it.
+///
+/// `GmBag_FindItem` walks the bag array from the backpack to bag 2 and looks at nothing else, which is
+/// why a drop from storage is not a thing the reference can do: the handler answers as if the item did
+/// not exist. The join is that rule, in SQL, so the caller cannot forget it.
+pub async fn find_in_carrying_bags(
+    pool: &PgPool,
+    character: Uuid,
+    item_id: i32,
+) -> sqlx::Result<Option<Item>> {
+    let row: Option<ItemRow> = sqlx::query_as(
+        "SELECT i.id, i.bag_id, i.slot, i.file_id, i.item_type, i.model_id, i.dye_tint,
+                i.dye_colors, i.materials, i.unk1, i.flags, i.value, i.quantity, i.profession,
+                i.name, i.modifiers
+           FROM item i
+           JOIN bag b ON b.character_id = i.character_id AND b.bag_id = i.bag_id
+          WHERE i.character_id = $1
+            AND i.id = $2
+            AND b.bag_model_id BETWEEN $3 AND $4",
+    )
+    .bind(character)
+    .bind(item_id)
+    .bind(BACKPACK_MODEL)
+    .bind(LAST_CARRYING_MODEL)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(item_from_row))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_seeded_inventory_is_the_reference_ones_bags_and_items() {
+        let inventory = default_inventory();
+        assert_eq!(
+            inventory.bags.len(),
+            6,
+            "six bags, as GameSrv_CreateDefaultBags"
+        );
+        assert_eq!(inventory.items.len(), 9, "nine items in the capture");
+        assert!(!inventory.is_empty());
+
+        // The backpack is the first bag the reference sends, and it is the one that carries an item.
+        assert_eq!(inventory.bags[0].bag_id, 1);
+        assert_eq!(inventory.bags[0].bag_model_id, BACKPACK_MODEL);
+        assert_eq!(inventory.bags[0].assoc_item_id, 1);
+        assert!(
+            inventory.bags[1..].iter().all(|bag| bag.assoc_item_id == 0),
+            "only the backpack is an item"
+        );
+
+        // Bags are in the reference's send order: by model id, which is not the order of their ids.
+        let models: Vec<i32> = inventory.bags.iter().map(|bag| bag.bag_model_id).collect();
+        assert_eq!(models, vec![0, 5, 6, 7, 8, EQUIPPED_ITEMS_MODEL]);
+        assert_eq!(
+            inventory
+                .bags
+                .iter()
+                .map(|bag| bag.bag_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 6, 3, 4, 5],
+            "the ids are the reference's own, handed out in a different order"
+        );
+    }
+
+    #[test]
+    fn the_items_are_where_the_capture_put_them() {
+        let inventory = default_inventory();
+        let backpack = inventory.items_in(1);
+        assert_eq!(
+            backpack.iter().map(|item| item.id).collect::<Vec<_>>(),
+            vec![2, 9],
+            "two cupcakes, in slots 0 and 1"
+        );
+        assert!(backpack.iter().all(|item| item.quantity == 100));
+        assert_eq!(backpack[0].file_id, 0x47C34, "the cupcake");
+        assert_eq!(backpack[0].model_id, 22269);
+
+        // The bag's own item is not in a slot at all.
+        let bag_item = inventory.item(1).expect("the backpack's item");
+        assert_eq!(bag_item.bag_id, None);
+        assert_eq!(bag_item.slot, None);
+        assert_eq!(bag_item.item_type, 3, "ItemType_Bag");
+        assert_eq!(bag_item.name.len(), 4, "its name is four code units");
+        assert_eq!(bag_item.modifier_dwords(), vec![0x2448_1400]);
+
+        // The equipment, in the equipped-items bag, by slot.
+        let worn = inventory.equipped_item_ids();
+        assert_eq!(worn, [3, 0, 4, 5, 6, 7, 8, 0, 0]);
+        assert!(
+            inventory
+                .items_in(5)
+                .iter()
+                .all(|item| item.profession == 1),
+            "a piece of equipment carries the profession it is for"
+        );
+    }
+
+    #[test]
+    fn a_drop_looks_only_at_the_bags_the_reference_searches() {
+        // The rule `GmBag_FindItem` encodes, as the bounds the query uses: it walks from
+        // `BagModelId_Backpack` to `BagModelId_Bag2` and looks nowhere else.
+        let searched = [BACKPACK_MODEL, LAST_CARRYING_MODEL];
+        assert_eq!(searched, [0, 3]);
+        assert!(
+            !searched.contains(&EQUIPPED_ITEMS_MODEL),
+            "worn equipment is not a place a drop comes from"
+        );
+    }
+
+    #[test]
+    fn an_inventory_with_no_equipment_hands_the_client_nine_zeroes() {
+        let inventory = Inventory::default();
+        assert_eq!(inventory.equipped_item_ids(), [0; 9]);
+        assert!(inventory.is_empty());
+    }
+}

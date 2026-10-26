@@ -10,10 +10,12 @@
 //! ```
 //!
 //! The defaults are the values the reference session used (map 146, the reference's character name,
-//! its blob and spawn), so a diff against that session starts with no noise from a different map.
+//! its blob and spawn), and the inventory is the reference's own default set — read from the same rows
+//! the server seeds, not replayed, so this dump is what the *built* blocks contain. A diff against the
+//! reference's capture is therefore a diff of content and not of a replayed file.
 
 use asura_protocol::client::Frame;
-use asura_world::{items_block, load_block, player_block, spawn_block, MapEntry};
+use asura_world::{items_block, load_block, player_block, spawn_block, MapEntry, Standing};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,15 +33,23 @@ fn main() {
         spawn: (6602.0, 4485.0),
         spawn_plane: 0,
     };
+    let standing = Standing::from_map(&map);
+    // The reference's default inventory, as rows: the same six bags and nine items the server seeds.
+    let inventory = asura_db::inventory::default_inventory();
 
     println!("# the four messages sent unasked");
     dump(&load_block(&map, &name));
     println!("# the answer to 0x8091 (items)");
-    dump(&items_block(&map));
+    dump(&items_block(&map, &inventory));
     println!("# the answer to 0x8088 (spawn)");
-    dump(&spawn_block(&map));
+    dump(&spawn_block(&map, standing));
     println!("# the answer to 0x8090 (players)");
-    dump(&player_block(&name, &map, std::time::Instant::now()));
+    dump(&player_block(
+        &name,
+        standing,
+        &inventory,
+        std::time::Instant::now(),
+    ));
 }
 
 fn dump(frames: &[Frame]) {

@@ -8,7 +8,7 @@ It compares this repository with the GWPS reference's own dispatch switches, so 
 
 ## Implemented handlers
 
-26 of the reference's client-message handlers are present in this repository.
+27 of the reference's client-message handlers are present in this repository.
 
 ## No-ops in the reference itself
 
@@ -24,7 +24,6 @@ missing work:
 - `GAME_CMSG_CHAR_CREATION_REQUEST_ARMORS` (`0x808A`)
 - `GAME_CMSG_CHAR_CREATION_CHANGE_PROF` (`0x8060`)
 - `GAME_CMSG_CHAR_CREATION_CONFIRM` (`0x808B`)
-- `GAME_CMSG_DROP_ITEM` (`0x802C`)
 
 ## Known partial areas
 
@@ -35,10 +34,20 @@ that nobody reads the table above as more than it says:
   rather than the next waypoint of a path, so a straight line can cut a corner
   (`crates/asura-world/src/agent.rs`);
 - **world state** is one agent: no NPCs, no other players, no combat, no quests;
-- **items** are the reference's default inventory, replayed from its trace; nothing is equipped,
-  moved, dropped or bought (`game::default_inventory`);
+- **items** are rows (`asura_db::inventory`), and the block sent for them is the reference's own
+  down to the byte (`crates/asura-world/src/lib.rs`, the byte-equality test against the capture).
+  What is *not* there: nothing can be equipped, moved between bags, bought or picked up. The one
+  item message the reference acts on, `DROP_ITEM`, is implemented exactly as it behaves there --
+  which means **the dropped item stays in its bag**: the reference creates an agent for it and
+  never removes it, never frees its id and never sends `ITEM_REMOVE`. Its handler is unfinished in
+  its own source (a `TODO` for partial stacks), and this port copies the behaviour rather than
+  inventing the missing half;
 - **instances** are prebuilt per map and never created on demand, and only outposts are hosted;
-- **persistence** does not exist yet: a character's position is not written when it leaves;
+- **persistence** saves where a character stood when it leaves and puts it back there when it
+  returns (`asura_db::game::record_position`). That is a thing the reference does *not* do -- it
+  keeps a character's last map and re-spawns at the map's own spawn point every session -- so a
+  character's position is a deliberate addition, recorded in `0006_inventory.sql`. Nothing else
+  about a character is saved yet: no level, no profession, no equipment changes, no gold;
 - **character creation** (the four `CHAR_CREATION_*` handlers) needs two things this server does
   not have. The reference only offers it inside a *character-creation* instance (its
   `MapType_CharacterCreation`), and this world hosts outposts only; and

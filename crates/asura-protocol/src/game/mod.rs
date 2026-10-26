@@ -61,6 +61,12 @@ pub const MAP_UPDATE_UNLOCKED_LIST: u16 = 0x0094;
 pub const ITEM_STREAM_CREATE: u16 = 0x0144;
 /// `GAME_SMSG_INVENTORY_CREATE_BAG` (`0x013F`): 13 bytes.
 pub const INVENTORY_CREATE_BAG: u16 = 0x013F;
+/// `GAME_SMSG_CREATE_NAMED_ITEM` (`0x0161`): `34 + 2n + 4m`, and no fixed size — see the builder.
+pub const CREATE_NAMED_ITEM: u16 = 0x0161;
+/// `GAME_SMSG_ITEM_MOVE_TO_LOCATION` (`0x013E`): 11 bytes.
+pub const ITEM_MOVE_TO_LOCATION: u16 = 0x013E;
+/// `GAME_SMSG_ITEM_SET_PROFESSION` (`0x015A`): 7 bytes.
+pub const ITEM_SET_PROFESSION: u16 = 0x015A;
 /// `GAME_SMSG_ITEM_SET_ACTIVE_WEAPON_SET` (`0x0148`): 5 bytes.
 pub const ITEM_SET_ACTIVE_WEAPON_SET: u16 = 0x0148;
 /// `GAME_SMSG_ITEM_WEAPON_SET` (`0x0147`): 13 bytes, sent once per weapon slot.
@@ -191,6 +197,8 @@ pub const PLAYER_ENERGY_REGEN: f32 = 0.033;
 pub const CHAR_CLASS_PLAYER_BASE: u32 = 0x3000_0000;
 /// `AgentType_Living`: the agent type of a player (`GmAgent.h`).
 pub const AGENT_TYPE_LIVING: u8 = 1;
+/// `AgentType_Item`: the agent type of an item on the ground (`GmAgent.h`). What a drop creates.
+pub const AGENT_TYPE_ITEM: u8 = 4;
 
 /// A character's appearance, as the client's own 32-bit bitfield (`GmChar.h`, `Appearance`).
 ///
@@ -296,8 +304,18 @@ impl Builder {
     /// The reference's structs declare a `uint32_t` count and a fixed array; the wire carries the
     /// count as two bytes and only the units actually used. The trace settles it: a five-character
     /// name is `2 + 2 + 10`.
-    fn text(mut self, text: &str, capacity: usize) -> Self {
+    fn text(self, text: &str, capacity: usize) -> Self {
         let units: Vec<u16> = text.encode_utf16().take(capacity).collect();
+        self.units(&units, capacity)
+    }
+
+    /// A `u16` count and that many UTF-16 code units.
+    ///
+    /// An item's name arrives as units rather than as a string: some of them are not characters at all
+    /// (the backpack's name is a `Gw.dat` template id, and `0xD157` is a lone surrogate), so an item name
+    /// cannot go through a `&str` without being mangled.
+    fn units(mut self, units: &[u16], capacity: usize) -> Self {
+        let units = &units[..units.len().min(capacity)];
         self.bytes
             .extend_from_slice(&(units.len() as u16).to_le_bytes());
         for unit in units {
@@ -311,6 +329,17 @@ impl Builder {
         self.bytes
             .extend_from_slice(&(values.len() as u16).to_le_bytes());
         for value in values {
+            self.bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        self
+    }
+
+    /// A **one-byte** count followed by that many dwords: `TYPE_NESTED_STRUCT`'s shape (`msgpack.c`),
+    /// which is the only counted field in either family that counts one byte instead of two.
+    fn nested_dwords(mut self, values: &[u32]) -> Self {
+        self.bytes
+            .push(values.len().min(usize::from(u8::MAX)) as u8);
+        for value in values.iter().take(usize::from(u8::MAX)) {
             self.bytes.extend_from_slice(&value.to_le_bytes());
         }
         self
@@ -457,18 +486,81 @@ pub fn inventory_create_bag(
         .frame()
 }
 
-/// The bags a character has when it has never been loaded before (`GameSrv_CreateDefaultBags` and the
-/// `GmBag_Init*` functions), in the order the reference sends them — its bag array's order, which is
-/// not the order the ids were handed out in.
-pub const DEFAULT_BAGS: [(u16, u8, u8, u8); 6] = [
-    // (bag id, bag model id, bag type, slot count)
-    (1, 0, 1, 20), // backpack
-    (2, 5, 5, 41), // material storage
-    (6, 6, 3, 12), // unclaimed items
-    (3, 7, 4, 25), // storage 1
-    (4, 8, 4, 25), // storage 2
-    (5, 21, 2, 9), // equipped items
-];
+/// One item, in the field order and the field widths `GAME_SMSG_CREATE_NAMED_ITEM` writes them.
+///
+/// `name` and `modifiers` are raw wire values rather than a string and a struct: an item's name is
+/// UTF-16 code units that are not necessarily characters, and its modifiers are the client's own dwords.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NamedItem {
+    pub id: u32,
+    pub file_id: u32,
+    pub item_type: u8,
+    pub dye_tint: u8,
+    pub dye_colors: u16,
+    pub materials: u16,
+    pub unk1: u8,
+    pub flags: u32,
+    pub value: u32,
+    pub model_id: u32,
+    pub quantity: u32,
+    /// The name, as UTF-16 code units, at most 64.
+    pub name: Vec<u16>,
+    /// The modifier list, at most 64 dwords.
+    pub modifiers: Vec<u32>,
+}
+
+/// `GAME_SMSG_CREATE_NAMED_ITEM`: one item, with everything a client needs to draw it.
+///
+/// **It has no fixed size**, and its two counted fields count differently: the name is a `u16` count of
+/// code units and the modifier list is a **one-byte** count of dwords. That second one is the trap: the
+/// reference's `pack_msg` reaches a `TYPE_NESTED_STRUCT` field and writes a `u8` there while every other
+/// counted field in both families is a `u16` (`msgpack.c`), which is why `sizeof(GameSrv_CreateNamedItem)`
+/// is 425 bytes and the message that carries a cupcake is 36. Measured against the capture
+/// (`game::default_inventory`), which is what the byte-equality test compares.
+///
+/// The fixed part is 33 bytes after the header: 4 + 4 + 1 + 1 + 2 + 2 + 1 + 4 + 4 + 4 + 4 + 2, then
+/// `2 * name.len()`, then 1, then `4 * modifiers.len()`.
+pub fn create_named_item(item: &NamedItem) -> crate::client::Frame {
+    Builder::new(CREATE_NAMED_ITEM)
+        .u32(item.id)
+        .u32(item.file_id)
+        .u8(item.item_type)
+        .u8(item.dye_tint)
+        .u16(item.dye_colors)
+        .u16(item.materials)
+        .u8(item.unk1)
+        .u32(item.flags)
+        .u32(item.value)
+        .u32(item.model_id)
+        .u32(item.quantity)
+        .units(&item.name, 64)
+        .nested_dwords(&item.modifiers)
+        .frame()
+}
+
+/// `GAME_SMSG_ITEM_MOVE_TO_LOCATION`: where an item sits, which is what puts it in a bag slot.
+pub fn item_move_to_location(
+    stream: u16,
+    item_id: u32,
+    bag_id: u16,
+    slot: u8,
+) -> crate::client::Frame {
+    Builder::new(ITEM_MOVE_TO_LOCATION)
+        .u16(stream)
+        .u32(item_id)
+        .u16(bag_id)
+        .u8(slot)
+        .frame()
+}
+
+/// `GAME_SMSG_ITEM_SET_PROFESSION`: the profession an item was made for. The reference only sends it
+/// when the item's profession is not `Profession_None`.
+pub fn item_set_profession(item_id: u32, profession: u8) -> crate::client::Frame {
+    Builder::new(ITEM_SET_PROFESSION)
+        .u32(item_id)
+        .u8(profession)
+        .frame()
+}
 
 /// `GAME_SMSG_ITEM_WEAPON_SET`: the items in one weapon slot. The reference sends four of these, one
 /// per slot, all empty.
@@ -698,6 +790,23 @@ pub fn player_create(
         .frame()
 }
 
+/// One agent, in the field order `GAME_SMSG_WORLD_CREATE_AGENT` writes it.
+///
+/// `agent_type` is the only field that differs between a player (`AgentType_Living`) and an item on the
+/// ground (`AgentType_Item`); everything else is what the reference fills from its `GmAgent`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CreateAgent {
+    pub agent_id: u32,
+    pub model_id: u32,
+    /// `AgentType_Living` (1) for a player, `AgentType_Item` (4) for a dropped item.
+    pub agent_type: u8,
+    pub position: (f32, f32),
+    pub plane: u16,
+    pub direction: (f32, f32),
+    pub speed_base: f32,
+    pub player_team_token: u32,
+}
+
 /// The 99-byte `GAME_SMSG_WORLD_CREATE_AGENT`, field for field as the reference builds it
 /// (`GameSrv_BuildCreateAgentMsg`).
 ///
@@ -705,30 +814,22 @@ pub fn player_create(
 /// constants; the two `HUGE_VALF` pairs are what it sends for the unmodelled vectors. They are copied
 /// rather than reasoned about, because a client that reads them differently will still read them the
 /// same way as it does from GWPS.
-pub fn world_create_agent(
-    agent_id: u32,
-    model_id: u32,
-    position: (f32, f32),
-    plane: u16,
-    direction: (f32, f32),
-    speed_base: f32,
-    player_team_token: u32,
-) -> crate::client::Frame {
+pub fn world_create_agent(agent: &CreateAgent) -> crate::client::Frame {
     let mut builder = Builder::new(WORLD_CREATE_AGENT)
-        .u32(agent_id)
-        .u32(model_id)
-        .u8(AGENT_TYPE_LIVING)
+        .u32(agent.agent_id)
+        .u32(agent.model_id)
+        .u8(agent.agent_type)
         .u8(5) // h000B
-        .f32(position.0)
-        .f32(position.1)
-        .u16(plane)
-        .f32(direction.0)
-        .f32(direction.1)
+        .f32(agent.position.0)
+        .f32(agent.position.1)
+        .u16(agent.plane)
+        .f32(agent.direction.0)
+        .f32(agent.direction.1)
         .u8(1) // h001E
-        .f32(speed_base)
+        .f32(agent.speed_base)
         .f32(1.0) // h0023
         .u32(0x4140_0000) // h0027: 12.0 reinterpreted, exactly as the reference writes it
-        .u32(player_team_token)
+        .u32(agent.player_team_token)
         .u32(0) // h002F
         .u32(0) // h0033
         .u32(0) // h0037
@@ -912,6 +1013,8 @@ mod tests {
         assert_eq!(wire(&item_set_active_weapon_set(1, 0)), 5);
         assert_eq!(wire(&item_weapon_set(1, 0, 0, 0)), 13);
         assert_eq!(wire(&inventory_create_bag(1, 1, 0, 1, 20, 0)), 13);
+        assert_eq!(wire(&item_move_to_location(1, 2, 1, 0)), 11);
+        assert_eq!(wire(&item_set_profession(3, 1)), 7);
         assert_eq!(wire(&update_gold_storage(1, 0)), 8);
         assert_eq!(wire(&faction_max(FACTION_MAX_KURZICK, 0)), 6);
         assert_eq!(wire(&hard_mode_unlocked(1)), 3);
@@ -933,15 +1036,16 @@ mod tests {
         assert_eq!(wire(&player_update_unlocked_professions(1, 0)), 10);
         assert_eq!(wire(&world_update_load_time(0)), 6);
         assert_eq!(
-            wire(&world_create_agent(
-                1,
-                0x3000_0001,
-                (0.0, 0.0),
-                0,
-                (1.0, 0.0),
-                288.0,
-                1
-            )),
+            wire(&world_create_agent(&CreateAgent {
+                agent_id: 1,
+                model_id: 0x3000_0001,
+                agent_type: AGENT_TYPE_LIVING,
+                position: (0.0, 0.0),
+                plane: 0,
+                direction: (1.0, 0.0),
+                speed_base: 288.0,
+                player_team_token: 1,
+            })),
             99
         );
         assert_eq!(
@@ -1009,6 +1113,66 @@ mod tests {
             24,
             "each list is a count plus its dwords"
         );
+    }
+
+    /// The one `CREATE_NAMED_ITEM` in the capture that has both a name and a modifier — the backpack's
+    /// own item — built from its field values. It is the message that pins both counted fields, and it is
+    /// compared against the captured bytes rather than against a size, because a name at the wrong
+    /// offset and a modifier counted in the wrong width are both the wrong length *and* wrong content.
+    #[test]
+    fn a_named_item_is_the_reference_capture() {
+        let (header, captured) = default_inventory::REFERENCE_ITEM_MESSAGES[0];
+        assert_eq!(
+            header, CREATE_NAMED_ITEM,
+            "the bag item is the first message"
+        );
+        let built = create_named_item(&NamedItem {
+            id: 1,
+            file_id: 0x8001_B536,
+            item_type: 3, // ItemType_Bag
+            dye_tint: 1,
+            dye_colors: 0,
+            materials: 0,
+            unk1: 0,
+            flags: 0x2000_1000,
+            value: 5,
+            model_id: 32,
+            quantity: 1,
+            name: vec![0x21A8, 0xD157, 0xB58F, 0x166F],
+            modifiers: vec![0x2448_1400],
+        })
+        .encode();
+
+        let mut expected = header.to_le_bytes().to_vec();
+        expected.extend_from_slice(captured);
+        assert_eq!(
+            built.len(),
+            48,
+            "33 fixed bytes, a four-unit name, one modifier"
+        );
+        assert_eq!(built, expected);
+    }
+
+    #[test]
+    fn an_items_modifier_count_is_one_byte() {
+        // `TYPE_NESTED_STRUCT` is the one counted field the reference's packer counts with a `u8`
+        // (`msgpack.c`). Writing two bytes shifts every modifier and the rest of the message with it.
+        let bytes = create_named_item(&NamedItem {
+            modifiers: vec![0xAA_BB_CC_DD],
+            ..NamedItem::default()
+        })
+        .encode();
+        // 2 header + 31 fixed + 2 for an empty name = 35, and then the count.
+        assert_eq!(bytes.len(), 2 + 31 + 2 + 1 + 4);
+        assert_eq!(bytes[35], 1, "one byte of count, not two");
+        assert_eq!(&bytes[36..40], &[0xDD, 0xCC, 0xBB, 0xAA]);
+    }
+
+    #[test]
+    fn an_item_with_no_name_and_no_modifiers_is_thirty_six_bytes() {
+        // The cupcake, which is most of what the reference sends: a client that dies in its inventory
+        // is a client given one of these at the wrong size.
+        assert_eq!(wire(&create_named_item(&NamedItem::default())), 36);
     }
 
     #[test]

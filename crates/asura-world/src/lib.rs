@@ -22,11 +22,13 @@
 //! What exists today, and what does not -- `docs/07-status.md` is generated from the same comparison
 //! as the parity report, and is the place to check:
 //!
-//! * one agent, the character the transfer named, standing where the map's spawn says, whose position
-//!   this server follows within the reference's movement budget (`agent`);
-//! * the reference's default inventory, replayed from its trace: bags and items are *sent*, but nothing
-//!   can be equipped, moved, dropped or bought;
-//! * no NPCs, no other players, no combat, no quests, no persistence.
+//! * one agent, the character the transfer named, standing where the map's spawn says — or where it
+//!   stood when it last left, which is saved and read back (`asura_db::game::record_position`);
+//! * the character's inventory, read from rows and built into the reference's messages, including the
+//!   nine items `UPDATE_AGENT_VISUAL_EQUIPMENT` puts on the model (`asura_db::inventory`);
+//! * `GAME_CMSG_DROP_ITEM`, which puts an item agent on the ground — and, as in the reference, does not
+//!   take the item out of the bag;
+//! * no NPCs, no other players, no combat, no quests, no picking anything up.
 //!
 //! The load messages go out even for the parts that are not simulated, because a client that does not
 //! receive them never leaves the loading screen.
@@ -36,14 +38,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use asura_db::game as db_game;
-use asura_db::{placement, PgPool};
+use asura_db::inventory::{self as db_inventory, Inventory};
+use asura_db::{placement, PgPool, Uuid};
 use asura_protocol::client::game::GameVersion;
 use asura_protocol::client::handshake::{self, Established, CLIENT_SEED_LEN, MASTER_SECRET_LEN};
 use asura_protocol::client::version::{self, GAME_CMSG_VERSION_LEN};
 use asura_protocol::client::{Frame, FrameError};
 use asura_protocol::game;
 
-use crate::agent::AgentState;
+use crate::agent::Agents;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -116,6 +119,43 @@ pub struct World {
     /// ones this server builds (see the `replay` module). A bisection tool: if a client survives a
     /// replay and dies against the built blocks, the difference is payload content.
     pub replay: Option<crate::replay::Replay>,
+}
+
+/// Where a character stands as it enters a map.
+///
+/// Two sources, and which one applies is the whole of the persistence rule: the position the character
+/// was saved at when it last left **if it was saved in this map**, and otherwise the map's own spawn
+/// point. A character that has never been played has no saved position, and one that was saved in a
+/// different map is arriving here for the first time (`asura_db::game::position`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Standing {
+    pub position: (f32, f32),
+    pub plane: u16,
+}
+
+impl Standing {
+    /// The map's own spawn point: where the map row says a character arrives.
+    pub fn from_map(map: &MapEntry) -> Standing {
+        Standing {
+            position: map.spawn,
+            plane: map.spawn_plane,
+        }
+    }
+
+    /// This character's standing, from what the database remembers about it.
+    ///
+    /// The saved position is used only when it is a position *in this map*: a character saved in another
+    /// map has no coordinate here, and using one would put it somewhere the map's geometry does not
+    /// contain. `None` is a character that has never been saved, which is every character's first visit.
+    pub fn resume(map: &MapEntry, saved: Option<db_game::Position>) -> Standing {
+        match saved {
+            Some(saved) if saved.map_id == map.map_id => Standing {
+                position: (saved.x, saved.y),
+                plane: saved.plane.max(0) as u16,
+            },
+            _ => Standing::from_map(map),
+        }
+    }
 }
 
 impl World {
@@ -307,10 +347,49 @@ pub async fn handle_connection(
         return Err(GameError::UnknownCharacter);
     };
 
+    // ---- the character's inventory ------------------------------------------------------------
+    // A character with no bags has never been played, and the reference gives it the default set before
+    // it sends anything (`GameSrv_CreateDefaultBags`). A client with no inventory model dies when it draws
+    // the character it was just given, so this happens before the load block and not lazily.
+    let mut inventory = db_inventory::load(&world.pool, transfer.character_id)
+        .await
+        .map_err(GameError::Database)?;
+    if inventory.bags.is_empty() {
+        let seeded = db_inventory::seed_default(&world.pool, transfer.character_id)
+            .await
+            .map_err(GameError::Database)?;
+        if seeded {
+            inventory = db_inventory::load(&world.pool, transfer.character_id)
+                .await
+                .map_err(GameError::Database)?;
+            if trace {
+                eprintln!(
+                    "world: seeded the default inventory for {name:?} ({} bags, {} items)",
+                    inventory.bags.len(),
+                    inventory.items.len()
+                );
+            }
+        }
+    }
+
+    // Where the character stands: where it left, if it left from this map.
+    let saved = db_game::position(&world.pool, transfer.character_id)
+        .await
+        .map_err(GameError::Database)?;
+    let standing = Standing::resume(&map, saved);
+
     if trace {
         eprintln!(
-            "world: {name:?} joined map {} (file id {}) on world {}",
-            map.map_id, map.map_file_id, world.world_id
+            "world: {name:?} joined map {} (file id {}) on world {}, standing at ({:.1}, {:.1}) plane \
+             {} with {} bag(s) and {} item(s)",
+            map.map_id,
+            map.map_file_id,
+            world.world_id,
+            standing.position.0,
+            standing.position.1,
+            standing.plane,
+            inventory.bags.len(),
+            inventory.items.len()
         );
     }
 
@@ -327,24 +406,79 @@ pub async fn handle_connection(
     }
 
     let mut session = Session::new(established);
-    // The one agent this world has: the character the transfer named, standing at the map's spawn.
-    let mut agent = AgentState::new(
-        AGENT_ID,
-        map.spawn,
-        map.spawn_plane,
-        game::PLAYER_SPEED_BASE,
-    );
+    // What this connection knows about itself: whose character it is, where it stands, and the agents it
+    // has created.
+    let mut play = Play {
+        character: transfer.character_id,
+        map,
+        name,
+        inventory,
+        agents: Agents::new(
+            AGENT_ID,
+            standing.position,
+            standing.plane,
+            game::PLAYER_SPEED_BASE,
+        ),
+        started: Instant::now(),
+    };
 
     // ---- 5. the load block ------------------------------------------------------------------
     // The reference sends these four the moment it has the connection, without waiting to be asked.
     let block = match &world.replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Load) => replay.load.clone(),
-        _ => load_block(&map, &name),
+        _ => load_block(&play.map, &play.name),
     };
     send(&mut stream, &mut session, block, trace).await?;
 
     // ---- 6/7. the asks, then the session ----------------------------------------------------
-    let started = Instant::now();
+    // Run to its end however it ends. A session that dies of a framing error is still a player that left,
+    // and both things that happen on the way out — the position and the pool slot — belong to the leaving
+    // and not to the ending: skipping them for the untidy exits would leak a slot until the reaper and
+    // lose where the character stood.
+    let outcome = run(&mut stream, &mut session, world, &mut play, trace).await;
+
+    // Where the player was when it left is what it comes back to. Written *before* the lease goes back,
+    // and best-effort: a failed save must not turn an ordinary logout into an error, and losing a
+    // position is cheaper than refusing a player its way out.
+    let left = play.agents.player.position;
+    let left_plane = play.agents.player.plane;
+    if let Err(err) = db_game::record_position(
+        &world.pool,
+        play.character,
+        play.map.map_id,
+        left.0,
+        left.1,
+        left_plane as i16,
+    )
+    .await
+    {
+        eprintln!("world: could not save the position of the leaving player: {err}");
+    }
+
+    // The player left. The slot goes back to the pool now rather than when a reaper notices: the
+    // player is gone, and a pool that only empties on a reaper would refuse a legitimate travel after
+    // an ordinary logout.
+    if let Err(err) = placement::release(&world.pool, transfer.session_id).await {
+        eprintln!("world: could not release the lease of the leaving player: {err}");
+    }
+    if trace {
+        eprintln!(
+            "world: {:?} left map {} from ({:.1}, {:.1}) plane {left_plane}, saved",
+            play.name, play.map.map_id, left.0, left.1
+        );
+    }
+    outcome
+}
+
+/// The conversation itself: answer what arrives until the client goes away, a message cannot be framed,
+/// or the socket fails.
+async fn run(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    world: &World,
+    play: &mut Play,
+    trace: bool,
+) -> Result<(), GameError> {
     let mut tick = tokio::time::interval(TICK_INTERVAL);
     let mut ping = tokio::time::interval(PING_INTERVAL);
     let mut buffer = [0u8; 8192];
@@ -375,19 +509,7 @@ pub async fn handle_connection(
                                     hex_preview(&frame.encode())
                                 );
                             }
-                            if !answer(
-                                &mut stream,
-                                &mut session,
-                                frame,
-                                &map,
-                                &name,
-                                started,
-                                &mut agent,
-                                world.replay.as_ref(),
-                                trace,
-                            )
-                            .await?
-                            {
+                            if !answer(stream, session, frame, world, play, trace).await? {
                                 break 'session;
                             }
                         }
@@ -399,25 +521,42 @@ pub async fn handle_connection(
 
             _ = tick.tick() => {
                 let delta = TICK_INTERVAL.as_millis() as u32;
-                send(&mut stream, &mut session, vec![game::world_simulation_tick(delta)], trace).await?;
+                send(stream, session, vec![game::world_simulation_tick(delta)], trace).await?;
             }
 
             _ = ping.tick() => {
-                send(&mut stream, &mut session, vec![game::ping_request()], trace).await?;
+                send(stream, session, vec![game::ping_request()], trace).await?;
             }
         }
     }
-
-    // The player left. The slot goes back to the pool now rather than when a reaper notices: the
-    // player is gone, and a pool that only empties on a reaper would refuse a legitimate travel after
-    // an ordinary logout.
-    if let Err(err) = placement::release(&world.pool, transfer.session_id).await {
-        eprintln!("world: could not release the lease of the leaving player: {err}");
-    }
-    if trace {
-        eprintln!("world: {name:?} left map {}", map.map_id);
-    }
     Ok(())
+}
+
+/// What one gameplay connection knows about itself.
+///
+/// Assembled after the token pair is believed and before the load block, so that everything the blocks
+/// need — whose character this is, where it stands, what it carries — is decided in one place rather than
+/// read again in the middle of a conversation.
+struct Play {
+    /// The character the transfer named. Every write on the way out is scoped to it.
+    character: Uuid,
+    map: MapEntry,
+    name: String,
+    inventory: Inventory,
+    agents: Agents,
+    /// When the connection began, for the load time the reference reports.
+    started: Instant,
+}
+
+impl Play {
+    /// Where the agent is **now**, which is what the reference answers the spawn and players requests
+    /// with (`agent->position`): after the client has walked, that is no longer where it entered.
+    fn standing(&self) -> Standing {
+        Standing {
+            position: self.agents.player.position,
+            plane: self.agents.player.plane,
+        }
+    }
 }
 
 /// Whether chat is sent at all, from `ASURA_CHAT` (`1`, `true`, `yes`).
@@ -453,27 +592,22 @@ fn hex_preview(bytes: &[u8]) -> String {
 
 /// The answer to the client's item request (`GameSrv_HandleInstanceLoadRequestItems`).
 ///
-/// A pure function of the map so that `examples/dump-load.rs` can print exactly what a client would
-/// receive, byte for byte, without a socket â€” which is how this stream is compared against the
-/// reference's own log.
-pub fn items_block(map: &MapEntry) -> Vec<Frame> {
+/// A pure function of the map and the character's inventory so that `examples/dump-load.rs` can print
+/// exactly what a client would receive, byte for byte, without a socket — which is how this stream is
+/// compared against the reference's own log.
+pub fn items_block(map: &MapEntry, inventory: &Inventory) -> Vec<Frame> {
     let mut frames = vec![
-        game::item_stream_create(1, 0),
-        game::item_set_active_weapon_set(1, 0),
+        game::item_stream_create(ITEM_STREAM, 0),
+        game::item_set_active_weapon_set(ITEM_STREAM, 0),
     ];
-    // The inventory. The reference seeds every character it loads with a fixed set -- a backpack with
-    // its bag item, a cupcake, and six pieces of equipment -- and a client given no items at all has no
-    // inventory model: it dies when it draws the character it has just created. Those messages are
-    // copied verbatim from a trace of the reference working (`game::default_inventory`), because every
-    // field in them (file ids, models, names) is its data and not something this project can derive.
-    for (header, body) in game::default_inventory::DEFAULT_INVENTORY {
-        frames.push(Frame::new(*header, body.to_vec()));
-    }
+    // The inventory itself, from the character's rows. It is the reference's own walk: for every bag, the
+    // item that *is* the bag, the bag, and then its items with their placements.
+    frames.extend(inventory_block(inventory));
     // Four empty weapon slots, exactly as `GameSrv_SendWeaponSlots` sends them.
     for slot in 0..4u8 {
-        frames.push(game::item_weapon_set(1, slot, 0, 0));
+        frames.push(game::item_weapon_set(ITEM_STREAM, slot, 0, 0));
     }
-    frames.push(game::update_gold_storage(1, 0));
+    frames.push(game::update_gold_storage(ITEM_STREAM, 0));
     for faction in [
         game::FACTION_MAX_KURZICK,
         game::FACTION_MAX_LUXON,
@@ -493,13 +627,106 @@ pub fn items_block(map: &MapEntry) -> Vec<Frame> {
     frames
 }
 
+/// The item stream's id. The reference hardcodes `1` in every message that carries one
+/// (`GameSrv_SendInventory`, `GameSrv_SendBagItems`), and a second stream is a thing it never opens.
+pub const ITEM_STREAM: u16 = 1;
+
+/// The inventory itself (`GameSrv_SendInventory`), built from rows instead of replayed bytes.
+///
+/// The order is the reference's and it matters twice over:
+///
+/// * **bags, by model id** — its `GmBagArray` is walked in declaration order, which is backpack, belt
+///   pouch, bags, equipment pack, material storage, unclaimed items, storage, equipped items. That is
+///   not the order the bag ids were handed out in (the capture's bags are 1, 2, 6, 3, 4, 5), so a server
+///   that sorts by id sends a different stream;
+/// * **a bag's own item before the bag** — `GameSrv_SendInventory` sends `bag_item_id` first, because the
+///   bag message names it.
+///
+/// Within a bag, items go out by slot, each followed by where it sits and, if it was made for a
+/// profession, what profession (`GameSrv_SendBagItems`). A missing row for a bag's own item is logged and
+/// skipped rather than fatal, exactly as the reference's `GameSrv_SendItemById` logs and returns.
+pub fn inventory_block(inventory: &Inventory) -> Vec<Frame> {
+    let mut frames = Vec::with_capacity(inventory.bags.len() * 2 + inventory.items.len() * 3);
+    for bag in &inventory.bags {
+        if bag.assoc_item_id != 0 {
+            match inventory.item(bag.assoc_item_id) {
+                Some(item) => frames.push(game::create_named_item(&named_item(item))),
+                None => eprintln!(
+                    "world: bag {} names item {} as its own, and no such item exists",
+                    bag.bag_id, bag.assoc_item_id
+                ),
+            }
+        }
+
+        frames.push(game::inventory_create_bag(
+            ITEM_STREAM,
+            wire_u8(bag.bag_type),
+            wire_u8(bag.bag_model_id),
+            wire_u16(bag.bag_id),
+            wire_u8(bag.slot_count),
+            wire_u32(bag.assoc_item_id),
+        ));
+
+        for item in inventory.items_in(bag.bag_id) {
+            frames.push(game::create_named_item(&named_item(item)));
+            if item.profession != 0 {
+                frames.push(game::item_set_profession(
+                    wire_u32(item.id),
+                    wire_u8(item.profession),
+                ));
+            }
+            frames.push(game::item_move_to_location(
+                ITEM_STREAM,
+                wire_u32(item.id),
+                wire_u16(bag.bag_id),
+                wire_u8(item.slot.unwrap_or(0)),
+            ));
+        }
+    }
+    frames
+}
+
+/// One row as the wire's field widths. Every value here comes from a row this schema wrote, so a
+/// narrowing that cannot fail is the only kind that can occur; a value that somehow does is clamped
+/// rather than panicking a live connection.
+fn wire_u8(value: i32) -> u8 {
+    u8::try_from(value).unwrap_or(0)
+}
+
+fn wire_u16(value: i32) -> u16 {
+    u16::try_from(value).unwrap_or(0)
+}
+
+fn wire_u32(value: i32) -> u32 {
+    u32::try_from(value).unwrap_or(0)
+}
+
+/// A row as `CREATE_NAMED_ITEM` carries it.
+fn named_item(item: &db_inventory::Item) -> game::NamedItem {
+    game::NamedItem {
+        id: wire_u32(item.id),
+        file_id: u32::try_from(item.file_id).unwrap_or(0),
+        item_type: wire_u8(item.item_type),
+        dye_tint: wire_u8(item.dye_tint),
+        dye_colors: u16::try_from(item.dye_colors).unwrap_or(0),
+        materials: u16::try_from(item.materials).unwrap_or(0),
+        unk1: wire_u8(item.unk1),
+        flags: u32::try_from(item.flags).unwrap_or(0),
+        value: wire_u32(item.value),
+        model_id: wire_u32(item.model_id),
+        quantity: wire_u32(item.quantity),
+        name: item.name_units(),
+        modifiers: item.modifier_dwords(),
+    }
+}
+
 /// The answer to the client's spawn request: the map blob, and where to stand inside it.
-pub fn spawn_block(map: &MapEntry) -> Vec<Frame> {
+pub fn spawn_block(map: &MapEntry, standing: Standing) -> Vec<Frame> {
     vec![game::instance_load_spawn_point(
         map.map_file_id,
-        map.spawn.0,
-        map.spawn.1,
-        map.spawn_plane,
+        standing.position.0,
+        standing.position.1,
+        standing.plane,
     )]
 }
 
@@ -539,19 +766,15 @@ async fn send(
 }
 
 /// Answer one client message. `Ok(false)` finishes the session.
-#[allow(clippy::too_many_arguments)]
 async fn answer(
     stream: &mut TcpStream,
     session: &mut Session,
     frame: Frame,
-    map: &MapEntry,
-    name: &str,
-    started: Instant,
-    agent: &mut AgentState,
-    replay: Option<&crate::replay::Replay>,
+    world: &World,
+    play: &mut Play,
     trace: bool,
 ) -> Result<bool, GameError> {
-    let _ = &frame.body; // no message here carries a field this world reads yet
+    let replay = world.replay.as_ref();
     match frame.header {
         // The client asks for the item stream. The reference answers with the inventory, the weapon
         // slots, the gold, the faction caps, the character info, the map, the spawn readiness and the
@@ -561,7 +784,7 @@ async fn answer(
                 Some(replay) if replay.pick.wants(crate::replay::BlockName::Items) => {
                     replay.items.clone()
                 }
-                _ => items_block(map),
+                _ => items_block(&play.map, &play.inventory),
             };
             send(stream, session, block, trace).await?;
             Ok(true)
@@ -574,7 +797,7 @@ async fn answer(
                 Some(replay) if replay.pick.wants(crate::replay::BlockName::Spawn) => {
                     replay.spawn.clone()
                 }
-                _ => spawn_block(map),
+                _ => spawn_block(&play.map, play.standing()),
             };
             send(stream, session, block, trace).await?;
             Ok(true)
@@ -587,7 +810,7 @@ async fn answer(
                 Some(replay) if replay.pick.wants(crate::replay::BlockName::Players) => {
                     replay.players.clone()
                 }
-                _ => player_block(name, map, started),
+                _ => player_block(&play.name, play.standing(), &play.inventory, play.started),
             };
             send(stream, session, block, trace).await?;
             Ok(true)
@@ -621,17 +844,17 @@ async fn answer(
             if trace {
                 eprintln!(
                     "world: agent {} walks to ({:.1}, {:.1}) plane {plane}",
-                    agent.agent_id, destination.0, destination.1
+                    play.agents.player.agent_id, destination.0, destination.1
                 );
             }
             send(
                 stream,
                 session,
                 vec![game::agent_move_to_point(
-                    agent.agent_id,
+                    play.agents.player.agent_id,
                     destination,
                     plane,
-                    agent.plane,
+                    play.agents.player.plane,
                 )],
                 trace,
             )
@@ -654,12 +877,15 @@ async fn answer(
             let plane =
                 u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]])
                     as u16;
-            let adopted = agent.adopt_report(position, plane, Instant::now());
+            let adopted = play
+                .agents
+                .player
+                .adopt_report(position, plane, Instant::now());
             if trace {
                 eprintln!(
                     "world: agent {} reported ({:.1}, {:.1}) plane {plane}: {adopted:?} -> ({:.1}, \
                      {:.1})",
-                    agent.agent_id, position.0, position.1, agent.position.0, agent.position.1
+                    play.agents.player.agent_id, position.0, position.1, play.agents.player.position.0, play.agents.player.position.1
                 );
             }
             Ok(true)
@@ -671,7 +897,7 @@ async fn answer(
             send(
                 stream,
                 session,
-                vec![game::agent_stop_moving(agent.agent_id)],
+                vec![game::agent_stop_moving(play.agents.player.agent_id)],
                 trace,
             )
             .await?;
@@ -692,11 +918,11 @@ async fn answer(
             let plane =
                 u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]])
                     as u16;
-            let taken = agent.adopt_correction(position, plane);
+            let taken = play.agents.player.adopt_correction(position, plane);
             if trace {
                 eprintln!(
                     "world: agent {} correction to ({:.1}, {:.1}) plane {plane}: {}",
-                    agent.agent_id,
+                    play.agents.player.agent_id,
                     position.0,
                     position.1,
                     if taken { "taken" } else { "refused" }
@@ -769,7 +995,7 @@ async fn answer(
                         send(
                             stream,
                             session,
-                            vec![game::agent_stop_moving(agent.agent_id)],
+                            vec![game::agent_stop_moving(play.agents.player.agent_id)],
                             trace,
                         )
                         .await?;
@@ -793,6 +1019,36 @@ async fn answer(
         // The client is going away.
         0x8008 => Ok(false),
 
+        // The client drops an item (`GameSrv_HandleDropItem`, `0x802C`: `{item_id: u32, count: u8}`).
+        //
+        // Copied from the reference rule for rule, including the two things it does *not* do, because a
+        // port that quietly fixes them is a port that no longer agrees with the thing it is measured
+        // against (`docs/07-status.md`):
+        //
+        // * **the item stays in its bag.** The reference finds it, checks it, and then creates an agent
+        //   for it -- without removing it from the slot, without freeing the item id, and without sending
+        //   `ITEM_REMOVE`. Dropping a cupcake therefore puts a cupcake on the ground and leaves the
+        //   original in the backpack. Its handler is plainly unfinished: the partial-stack branch below is
+        //   a `TODO` in its own source;
+        // * **the item agent's model id is the item's id**, not the item's model (`item_agent->model_id =
+        //   item->item_id`), which is not the model the dropped thing is drawn with. Copied for the same
+        //   reason, and noted here so nobody spends an afternoon finding it again.
+        //
+        // What it does do, and this does too: item id 0, an item in no bag, an item that is not in the
+        // bags it searches (backpack to bag 2), a count larger than the stack and a count smaller than it
+        // are all refused -- logged and then ignored, with nothing sent to the client, which is what the
+        // reference's `ERR_OK` returns amount to.
+        0x802C => {
+            let body = &frame.body;
+            if body.len() < 5 {
+                return Err(GameError::Framing(FrameError::Incomplete { needed: 7 }));
+            }
+            let item_id = i32::from_le_bytes([body[0], body[1], body[2], body[3]]);
+            let count = i32::from(body[4]);
+            drop_item(stream, session, world, play, item_id, count, trace).await?;
+            Ok(true)
+        }
+
         // A message this world can frame but does not act on. Framing already happened, so ignoring it
         // is safe and is what the reference does for most of them.
         other => {
@@ -803,6 +1059,94 @@ async fn answer(
         }
     }
 }
+
+/// `GameSrv_HandleDropItem`: put an item agent on the ground, and tell everyone in the instance.
+///
+/// See the match arm above for what the reference does *not* do. The agent's fields are the reference's
+/// own choices, unaltered: the player's position offset by (30, 30), the same plane, facing x, an agent
+/// left at zero for everything `GameSrv_CreateAgent`'s `memset` covers -- which is its speed and its team
+/// token. The broadcast includes the dropping player, because `GameSrv_BroadcastMessage` walks every
+/// connection without filtering the sender; with one connection in the world that is this one, which is
+/// why this writes to the socket it was given instead of keeping a list of connections.
+async fn drop_item(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    world: &World,
+    play: &mut Play,
+    item_id: i32,
+    count: i32,
+    trace: bool,
+) -> Result<(), GameError> {
+    if item_id == 0 {
+        eprintln!(
+            "world: a drop names item 0, which is not an item; ignored as the reference ignores it"
+        );
+        return Ok(());
+    }
+
+    let Some(item) = db_inventory::find_in_carrying_bags(&world.pool, play.character, item_id)
+        .await
+        .map_err(GameError::Database)?
+    else {
+        eprintln!(
+            "world: a drop names item {item_id}, which {0:?} does not carry; ignored",
+            play.name
+        );
+        return Ok(());
+    };
+
+    if item.quantity < count {
+        eprintln!(
+            "world: a drop of {count} of item {item_id} is more than the {} it holds; ignored",
+            item.quantity
+        );
+        return Ok(());
+    }
+    if count < item.quantity {
+        // The reference's own `TODO`: a partial stack is not implemented, and its handler returns before
+        // doing anything at all.
+        eprintln!(
+            "world: a partial drop ({count} of item {item_id} of {}) is not implemented, in the reference \
+             or here; ignored",
+            item.quantity
+        );
+        return Ok(());
+    }
+
+    let agent_id = play.agents.allocate();
+    let player = &play.agents.player;
+    let agent = game::CreateAgent {
+        agent_id,
+        // The reference's own line: `item_agent->model_id = item->item_id`. The item's *model* is the
+        // field it should have used; see the note on the handler.
+        model_id: wire_u32(item.id),
+        agent_type: game::AGENT_TYPE_ITEM,
+        position: (
+            player.position.0 + DROP_OFFSET,
+            player.position.1 + DROP_OFFSET,
+        ),
+        plane: player.plane,
+        direction: (1.0, 0.0),
+        speed_base: 0.0,
+        player_team_token: 0,
+    };
+    if trace {
+        eprintln!(
+            "world: {} dropped item {item_id} at ({:.1}, {:.1}), agent {agent_id}",
+            play.name, agent.position.0, agent.position.1
+        );
+    }
+    send(
+        stream,
+        session,
+        vec![game::world_create_agent(&agent)],
+        trace,
+    )
+    .await
+}
+
+/// How far from the player the reference puts an item it drops: `Vec2fAdd(position, (30, 30))`.
+const DROP_OFFSET: f32 = 30.0;
 
 /// The reference's `MapId_Count`: the sentinel the first manifest `DONE` carries, meaning "every map
 /// up to here". Its value is 877 (`0x036D`), read off the reference's own send log
@@ -845,7 +1189,17 @@ const PHASE_DONE: u8 = 2;
 
 /// Everything the client is told about the players in the instance, in the reference's order
 /// (`GameSrv_HandleInstanceLoadRequestPlayers`).
-pub fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> {
+///
+/// Two parameters are there for the two things this block no longer takes from a constant: `standing`,
+/// which places the agent where the character actually is (`WORLD_CREATE_AGENT`), and `inventory`, which
+/// says what the agent is wearing (`UPDATE_AGENT_VISUAL_EQUIPMENT`) — the nine ids read out of the
+/// equipped-items bag, because they belong to *this* character's items.
+pub fn player_block(
+    name: &str,
+    standing: Standing,
+    inventory: &Inventory,
+    started: Instant,
+) -> Vec<Frame> {
     let mut frames = Vec::with_capacity(30);
 
     // The PvP unlocks. The reference sends its own fixed table of 387 unlockable items
@@ -930,15 +1284,16 @@ pub fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> 
         0,
         0,
     ));
-    frames.push(game::world_create_agent(
-        AGENT_ID,
-        game::CHAR_CLASS_PLAYER_BASE | PLAYER_ID,
-        map.spawn,
-        map.spawn_plane,
-        (1.0, 0.0),
-        game::PLAYER_SPEED_BASE,
-        PLAYER_TEAM_TOKEN,
-    ));
+    frames.push(game::world_create_agent(&game::CreateAgent {
+        agent_id: AGENT_ID,
+        model_id: game::CHAR_CLASS_PLAYER_BASE | PLAYER_ID,
+        agent_type: game::AGENT_TYPE_LIVING,
+        position: standing.position,
+        plane: standing.plane,
+        direction: (1.0, 0.0),
+        speed_base: game::PLAYER_SPEED_BASE,
+        player_team_token: PLAYER_TEAM_TOKEN,
+    }));
     // Health and energy in the reference's order, then the regeneration rate and the public level.
     // The reference's own values, read off its send log: energy 25, health 400, regeneration 0.0 and
     // level 0 (it never sets `energy_per_sec` or `level` on a fresh agent).
@@ -965,7 +1320,7 @@ pub fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> 
     frames.push(game::agent_initial_effects(AGENT_ID, 0));
     frames.push(game::update_agent_visual_equipment(
         AGENT_ID,
-        game::default_inventory::EQUIPPED_ITEM_IDS,
+        inventory.equipped_item_ids(),
     ));
     frames.push(game::agent_display_cape(AGENT_ID, 1));
     frames.push(game::world_update_controlled_agent(AGENT_ID, 3));
@@ -1064,7 +1419,12 @@ mod tests {
 
     #[test]
     fn the_block_ends_with_the_message_that_leaves_the_loading_screen() {
-        let frames = player_block("Asura", &test_map(), Instant::now());
+        let frames = player_block(
+            "Asura",
+            Standing::from_map(&test_map()),
+            &db_inventory::default_inventory(),
+            Instant::now(),
+        );
         assert_eq!(
             frames.last().expect("a block").header,
             game::INSTANCE_LOAD_FINISH
@@ -1092,7 +1452,12 @@ mod tests {
 
     #[test]
     fn the_player_block_carries_the_name_in_the_two_messages_that_name_a_character() {
-        let frames = player_block("Asura", &test_map(), Instant::now());
+        let frames = player_block(
+            "Asura",
+            Standing::from_map(&test_map()),
+            &db_inventory::default_inventory(),
+            Instant::now(),
+        );
         let named: Vec<u16> = frames
             .iter()
             .filter(|frame| {
@@ -1106,5 +1471,244 @@ mod tests {
             vec![game::PLAYER_CREATE],
             "only PLAYER_CREATE is in this block; the load name went out earlier"
         );
+    }
+
+    /// The inventory the reference's capture describes, as rows.
+    fn reference_inventory() -> Inventory {
+        db_inventory::default_inventory()
+    }
+
+    /// The whole point of building the item block from rows: from rows, it is the reference's stream.
+    ///
+    /// The capture (`asura_protocol::game::default_inventory::REFERENCE_ITEM_MESSAGES`) is GWPS answering
+    /// the same request for its default character. Every message in it, in its order, byte for byte, is
+    /// what this server now writes out of six bag rows and nine item rows — including the ids, which come
+    /// out of the rows rather than out of a byte table.
+    #[test]
+    fn the_item_block_from_rows_is_the_capture_byte_for_byte() {
+        let built: Vec<Vec<u8>> = inventory_block(&reference_inventory())
+            .iter()
+            .map(Frame::encode)
+            .collect();
+
+        let captured: Vec<Vec<u8>> = game::default_inventory::REFERENCE_ITEM_MESSAGES
+            .iter()
+            .map(|(header, body)| {
+                let mut whole = header.to_le_bytes().to_vec();
+                whole.extend_from_slice(body);
+                whole
+            })
+            .collect();
+
+        assert_eq!(
+            built.len(),
+            captured.len(),
+            "the reference sent {} messages for its inventory, the rows produce {}",
+            captured.len(),
+            built.len()
+        );
+        for (index, (ours, theirs)) in built.iter().zip(captured.iter()).enumerate() {
+            assert_eq!(
+                ours,
+                theirs,
+                "message {index} of the item block ({:#06X}) is not what the reference sent",
+                u16::from_le_bytes([theirs[0], theirs[1]])
+            );
+        }
+    }
+
+    #[test]
+    fn the_item_block_opens_with_the_stream_and_carries_the_capture() {
+        let frames = items_block(&test_map(), &reference_inventory());
+        assert_eq!(frames[0].header, game::ITEM_STREAM_CREATE);
+        assert_eq!(frames[1].header, game::ITEM_SET_ACTIVE_WEAPON_SET);
+        assert_eq!(
+            frames.last().expect("a block").header,
+            game::INSTANCE_MANIFEST_DONE,
+            "the answer ends with the download manifest, as the reference's does"
+        );
+        assert!(
+            frames
+                .iter()
+                .any(|frame| frame.header == game::CREATE_NAMED_ITEM),
+            "the items are in it"
+        );
+        assert!(
+            frames
+                .iter()
+                .any(|frame| frame.header == game::ITEM_MOVE_TO_LOCATION),
+            "and where they sit"
+        );
+    }
+
+    #[test]
+    fn the_bags_go_out_in_model_order_not_id_order() {
+        // The trap the rows are read in the wrong order by: the capture's bags are ids 1, 2, 6, 3, 4, 5,
+        // because the reference walks its bag *array*. Sorting by id sends a different stream, and a
+        // client that reads the equipped-items bag before the backpack has nowhere to put the armour.
+        let frames = inventory_block(&reference_inventory());
+        let bags: Vec<u16> = frames
+            .iter()
+            .filter(|frame| frame.header == game::INVENTORY_CREATE_BAG)
+            .map(|frame| u16::from_le_bytes([frame.body[4], frame.body[5]]))
+            .collect();
+        assert_eq!(bags, vec![1, 2, 6, 3, 4, 5]);
+    }
+
+    #[test]
+    fn the_equipment_on_the_model_is_what_the_equipped_bag_holds() {
+        let frames = player_block(
+            "Asura",
+            Standing::from_map(&test_map()),
+            &reference_inventory(),
+            Instant::now(),
+        );
+        let worn = frames
+            .iter()
+            .find(|frame| frame.header == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
+            .expect("the visual equipment");
+        let ids: Vec<u32> = (0..9)
+            .map(|slot| {
+                let at = 4 + slot * 4;
+                u32::from_le_bytes([
+                    worn.body[at],
+                    worn.body[at + 1],
+                    worn.body[at + 2],
+                    worn.body[at + 3],
+                ])
+            })
+            .collect();
+        assert_eq!(
+            ids,
+            game::default_inventory::REFERENCE_EQUIPPED_ITEM_IDS.to_vec(),
+            "the nine ids the capture carries, read out of the equipped-items bag"
+        );
+    }
+
+    #[test]
+    fn an_agent_with_no_inventory_still_gets_a_well_formed_block() {
+        // A character whose bags have not been written yet: the client must not be told about items that
+        // do not exist, and the block must still end where the loading screen ends.
+        let frames = items_block(&test_map(), &Inventory::default());
+        assert_eq!(frames[0].header, game::ITEM_STREAM_CREATE);
+        assert!(!frames
+            .iter()
+            .any(|frame| frame.header == game::CREATE_NAMED_ITEM));
+        assert_eq!(
+            frames.last().expect("a block").header,
+            game::INSTANCE_MANIFEST_DONE
+        );
+    }
+
+    #[test]
+    fn a_character_stands_where_it_left_and_nowhere_else() {
+        let map = test_map();
+        // Never saved: the map's own spawn.
+        assert_eq!(Standing::resume(&map, None), Standing::from_map(&map));
+
+        // Saved here: that position, on that plane.
+        let saved = db_game::Position {
+            map_id: map.map_id,
+            x: 6700.0,
+            y: 4400.0,
+            plane: 3,
+        };
+        assert_eq!(
+            Standing::resume(&map, Some(saved)),
+            Standing {
+                position: (6700.0, 4400.0),
+                plane: 3
+            }
+        );
+
+        // Saved in another map: this one's spawn, because that coordinate is not in this map.
+        let elsewhere = db_game::Position {
+            map_id: map.map_id + 1,
+            x: 6700.0,
+            y: 4400.0,
+            plane: 3,
+        };
+        assert_eq!(
+            Standing::resume(&map, Some(elsewhere)),
+            Standing::from_map(&map),
+            "a position is only usable on the map it was taken in"
+        );
+    }
+
+    #[test]
+    fn the_spawn_point_is_the_standing_position() {
+        let map = test_map();
+        let standing = Standing {
+            position: (6700.0, 4400.0),
+            plane: 2,
+        };
+        let frames = spawn_block(&map, standing);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0].header,
+            game::INSTANCE_LOAD_SPAWN_POINT,
+            "the client is told the same coordinate the load info and the agent were built from"
+        );
+        assert_eq!(
+            f32::from_le_bytes([
+                frames[0].body[4],
+                frames[0].body[5],
+                frames[0].body[6],
+                frames[0].body[7]
+            ]),
+            6700.0
+        );
+    }
+
+    #[test]
+    fn a_dropped_item_becomes_an_item_agent_a_hundred_and_eighty_units_away() {
+        // `GameSrv_HandleDropItem`: an agent of type 4 at the player's position plus (30, 30), facing x,
+        // with the item's *id* as its model (the reference's own line, which is noted in the handler).
+        let player =
+            crate::agent::AgentState::new(AGENT_ID, (6602.0, 4485.0), 0, game::PLAYER_SPEED_BASE);
+        let agent = game::CreateAgent {
+            agent_id: 2,
+            model_id: 2,
+            agent_type: game::AGENT_TYPE_ITEM,
+            position: (
+                player.position.0 + DROP_OFFSET,
+                player.position.1 + DROP_OFFSET,
+            ),
+            plane: player.plane,
+            direction: (1.0, 0.0),
+            speed_base: 0.0,
+            player_team_token: 0,
+        };
+        let bytes = game::world_create_agent(&agent).encode();
+        assert_eq!(bytes.len(), 99, "the reference's fixed agent message");
+        // header(2) agent_id(4) model_id(4) agent_type(1) h000B(1) position(8) plane(2) ...
+        assert_eq!(
+            u32::from_le_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]),
+            2,
+            "the item id is the model id, as the reference writes it"
+        );
+        assert_eq!(bytes[10], game::AGENT_TYPE_ITEM, "AgentType_Item");
+        assert_eq!(
+            f32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+            6632.0,
+            "the player's x plus 30"
+        );
+        assert_eq!(
+            f32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]),
+            4515.0,
+            "and the player's y plus 30"
+        );
+    }
+
+    #[test]
+    fn agent_ids_do_not_collide() {
+        // A player's agent and a dropped item's are told apart: two agents sharing an id is one agent the
+        // client draws and one it does not.
+        let mut agents = Agents::new(AGENT_ID, (0.0, 0.0), 0, game::PLAYER_SPEED_BASE);
+        let first = agents.allocate();
+        let second = agents.allocate();
+        assert_eq!(first, AGENT_ID + 1, "the player's id is taken");
+        assert_ne!(first, second);
+        assert_ne!(first, agents.player.agent_id);
     }
 }
