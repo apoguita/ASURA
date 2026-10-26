@@ -8,16 +8,16 @@ State of the project as of the last commit, so a new session can begin without r
   crate now owns registration, the atomic reservation, the lease ledger, the reaper and the
   reconciler; `asura-fakeworld` runs the whole sequence as a harness; the acceptance suite passes
   repeatedly (`.\tools\m2-verify.ps1`). No game client was involved — that was the point.
-- **M3 is nearly done, and the service runs.** `asura-auth` is a real program now: it reads its
-  configuration, connects, verifies the schema version, binds a socket, classifies each connection,
-  runs the key exchange with real randomness, scrambles both directions with ARC4, takes the login
-  message, validates the identity pair against the database, and answers with the character list —
-  with a per-message trace behind `ASURA_TRACE=1` that prints direction, header, name, size and the
-  first bytes, the way GWPS does. A reference client (`asura-protocol::client::peer`) and
-  `cargo run -p asura-auth --example login` drive it without the game.
-  **93 tests pass** (`cargo test --workspace`), `.\tools\m3-verify.ps1` runs the whole path in one
-  command (five steps, ending with a client logging in over a socket against the live database), and
-  clippy plus `cargo fmt --check` are clean.
+- **M3 is delivered: the patched client reaches the character list against this service.** Measured
+  2026-10-26: build 39112 logged in as `user1@example.com`, took the EULA, and reached character select.
+  `docs/06-reference-session.md` holds the whole session — both directions, every header and size — and
+  `asura-auth` reproduced it line for line up to the client's travel request, which it refuses because
+  no world server exists yet. The service runs: it reads its configuration, refuses a stale schema,
+  binds a socket, classifies each connection, performs the key exchange with real randomness, answers
+  the file check, the computer-info preamble and the session salt, validates the identity pair, and
+  sends the reference's five-message login batch. `ASURA_TRACE=1` logs every message both ways.
+  **105 tests pass** (`cargo test --workspace`), `.\tools\m3-verify.ps1` runs the whole path in one
+  command, and clippy plus `cargo fmt --check` are clean.
 - **What the pieces are:** classification from the first four bytes, framing by the table's fixed size
   per header with no length field, the key exchange (ARC4, the fixed-constant Diffie–Hellman, the
   protocol's own key derivation, pinned by fixtures **compiled from the reference's own C**), typed
@@ -143,27 +143,29 @@ where a UTF-8 em dash decodes to a smart quote and breaks the parse at a line fa
 | AzerothCore is the design authority (structure); deviations are recorded | `docs/adr/0006-azerothcore-is-the-reference.md` |
 | The one rule: never send a client to something that is not already answering | `docs/02-architecture.md` |
 
-## Next session: M3's acceptance — point the real client at it
+## Next session: M4 — the game connection
 
-The service answers a client end to end, with the reference's full login batch. What remains is the
-part only the game client can settle.
+M3 is delivered. The client logs in against this service, takes the EULA, and reaches character select.
+What it asks for next is a **world**, and there is none.
 
-1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **93 passing** (7 of
+1. **Verify the baseline** (2 minutes): `cargo test --workspace --offline` → **105 passing** (9 of
    them end-to-end over a socket, 6 live-database login tests, 4 live-database placement tests). Then
    `.\tools\m3-verify.ps1`. If a count changed, read `git log` before assuming it is broken.
-2. **Capture the reference trace.** Run GWPS with `GWPS_TRACE=1`, log in to the character list, and
-   keep that trace as the reference side of the diff. Then run this service with `ASURA_TRACE=1` and
-   diff the two. This is M3's acceptance criterion (`docs/roadmap.md`).
-3. **Point the patched client at the service.** `.\tools\seed-dev.ps1`, then
-   `cargo run -p asura-auth` (6112 by default, which is where the reference binds), then start the
-   game. The rig's portal DLL presents `fa520ee2-…`/`d8b9bf5d-…` for `user1@example.com`.
-   If the client stops at an error, the two traces say where — that is what the trace exists for.
-4. **Answer anything else the client uploads.** `AUTH_CMSG_SETTING_UPDATE_SIZE` and `..._CONTENT` are
-   already acknowledged; if the capture shows other requests, acknowledge those too. An
-   unacknowledged upload is a hang, and it is the trap the reference's own history is built on
-   (`docs/03-protocol.md` §6).
-5. **M4 — end-to-end travel** stays blocked on M3 and on a world server that accepts its own
-   gameplay connections (`docs/04-from-gwps.md`, step 1).
+2. **Answer the travel request.** `REQUEST_GAME_INSTANCE` (`0x8029`, 26 bytes: request, map type, map
+   id, region, district) must be answered with `GAME_SERVER_INFO` (`0x0009`, **42 bytes**: request id,
+   map token, map id, `host[24]` holding family/port/address, player token) and then a request
+   response — that is step 21 of `docs/06-reference-session.md`, with GWPS's own bytes for reference.
+   This is `AUTH_SMSG_GAME_SERVER_INFO`, and the message table already carries its layout.
+3. **Then something has to be listening at that address** and able to accept a `GAME_CMSG_VERSION`
+   connection — the second connection in the reference session (step 23). That is the world server,
+   and it is the boundary this project drew on purpose (`docs/adr/0003-simulation-in-scope.md`): the
+   auth service's job ends at the redirect.
+4. **Use the reference session as the spec.** `docs/06-reference-session.md` is the whole working
+   login, both directions; `tools/patch-gwps-auth-trace.py` reproduces the logging that produced it,
+   and `tools/compare-replies.py` diffs two servers' replies field by field. Reading the reference's C
+   was not enough to get the message shapes right twice; the measurement was.
+5. **M4 proper — end-to-end travel** stays blocked on a world server that accepts its own gameplay
+   connections (`docs/04-from-gwps.md`, step 1).
 
 **Decided, and not to be re-opened without a reason:**
 

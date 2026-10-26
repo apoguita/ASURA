@@ -62,20 +62,25 @@ handshake produces traffic that diffs clean against the GWPS reference for the s
 **Risk:** the highest in the project. Failure is an opaque client error (`007`), so keep the packet
 trace and compare every message. This is why the reference implementation stays runnable.
 
-**Nearly done; what remains is the real client.** The service runs and answers a login end to end, with
-the reference's complete batch. Delivered: connection classification from the first four bytes,
-framing with the fixed size per header (no length field — the document had that wrong, see
-`docs/03-protocol.md` §1), the full auth message table generated out of the GWPS reference, the key
-exchange (ARC4, the fixed-constant Diffie–Hellman, the protocol's own key derivation — pinned by
-fixtures **compiled from the reference's own C**, `docs/adr/0009-crypto-primitives.md`), typed layouts
-for every message the login path uses including the 591-byte settings blob (parsed out of the
-reference, not retyped), a reference client, the login decision against the database, and the listener
-that puts them together with a per-message trace behind `ASURA_TRACE=1`.
-`crates/asura-auth/tests/login.rs` proves it over a socket: a client logs in and gets characters,
-settings, friend-stream end, account info and a success response in that order, is refused when the
-pair does not resolve, and can log in again with the same pair. Remaining: the packet-trace diff against
-GWPS with the real client, which is the acceptance criterion. `tools/m3-verify.ps1` covers everything
-that can be checked without one.
+**Delivered 2026-10-26.** The patched client (build 39112) logged in against this service, took the
+EULA and reached character select. `docs/06-reference-session.md` records the whole session from both
+servers — every direction, header and size — and `asura-auth` reproduced it line for line up to the
+client's travel request, which it refuses because no world server exists: `REQUEST_GAME_INSTANCE`
+(`0x8029`) needs `GAME_SERVER_INFO` (`0x0009`, 42 bytes: address, port, tokens) and then a second
+connection speaking the game protocol, which is M4.
+
+The pieces behind that: connection classification from the first four bytes; framing by walking each
+message's field layout (u16 counts, no padding — the wire is variable-length in **both** directions,
+which the table's sizes do not describe; see `docs/03-protocol.md` §1); the full auth message table
+generated out of the GWPS reference; the key exchange (ARC4, the fixed-constant Diffie–Hellman, the
+protocol's own key derivation, pinned by fixtures **compiled from the reference's own C**,
+`docs/adr/0009-crypto-primitives.md`); the file check; typed layouts for every message on the login
+path, including the 591-byte settings blob and the 62-byte character settings block copied from a live
+reply; the login decision against the database; and the listener that puts them together with a
+per-message trace behind `ASURA_TRACE=1`. `crates/asura-auth/tests/login.rs` proves it over a socket
+without a game, `tools/m3-verify.ps1` runs the whole path in one command, and the comparison tools
+(`probe`, `tools/compare-replies.py`, `tools/inspect-reply.py`) are what settled the shapes when
+reading the reference was not enough.
 
 ## M4 — End-to-end travel
 

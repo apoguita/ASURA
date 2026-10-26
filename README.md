@@ -20,12 +20,12 @@ process does them all.
 There is no single program called "ASURA". When a document means the login side it says **auth
 service**; when it means a map-running process it says **world server**.
 
-- **Status:** M2 delivered — placement is safe and proven against the live database
-  (`tools/m2-verify.ps1`). M3 (the auth endpoint) runs: `asura-auth` binds a socket, classifies the
-  connection, performs the key exchange, and answers a login with the character list — proven over a
-  real socket against the live database (`.\tools\m3-verify.ps1`). What remains for M3 is the packet
-  trace diff against the real game client, plus two messages of the login batch. `docs/HANDOFF.md`
-  states the current state.
+- **Status:** **M3 delivered.** The patched client (build 39112) logs in against `asura-auth`, accepts
+  the EULA, and reaches character select; `docs/06-reference-session.md` records the whole working
+  session from both servers, message by message. What it asks for next — a world to enter — is M4, and
+  no world server exists yet. M2's placement stays proven against the live database
+  (`tools/m2-verify.ps1`), and `.\tools\m3-verify.ps1` re-proves the login path in one command without
+  a client. `docs/HANDOFF.md` states the current state.
 - **Design authority:** where a structural question arises, the default answer is *what AzerothCore
   does* (`docs/adr/0006-azerothcore-is-the-reference.md`). GWPS is research material, not a target; the
   client rig is Reforged plus the stealth hooks.
