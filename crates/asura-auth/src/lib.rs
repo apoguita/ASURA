@@ -479,6 +479,31 @@ async fn dispatch(
             Ok(true)
         }
 
+        // `AuthSrv_HandleAddAccessKey`: the reference decodes the key to a string, **logs it and stores
+        // nothing**, then answers the request with status 0. Parity means exactly that — an access key
+        // that vanished after being logged. Giving it storage would invent behaviour GWPS does not have.
+        tables::AUTH_CMSG_ADD_ACCESS_KEY => {
+            let request = request_id(&frame);
+            if trace.on() {
+                eprintln!(
+                    "auth <- access key, {} key unit(s) (the reference logs it and keeps nothing)",
+                    access_key_len(&frame.body)
+                );
+            }
+            send_frames(
+                stream,
+                session,
+                vec![RequestResponse {
+                    request,
+                    status: STATUS_OK,
+                }
+                .frame()],
+                trace,
+            )
+            .await?;
+            Ok(true)
+        }
+
         // The reference keeps the client's player status on the connection and sends nothing.
         tables::AUTH_CMSG_SET_PLAYER_STATUS | tables::AUTH_CMSG_ACCEPT_EULA => Ok(true),
 
@@ -516,6 +541,17 @@ async fn dispatch(
             Ok(true)
         }
     }
+}
+
+/// The number of UTF-16 units in an `AUTH_CMSG_ADD_ACCESS_KEY` body, after its request id.
+///
+/// The reference decodes the same field into a string and logs it (`AuthSrv_HandleAddAccessKey`); this
+/// service only counts it, because it stores nothing and a key in a log is a secret in a log.
+fn access_key_len(body: &[u8]) -> usize {
+    if body.len() < 6 {
+        return 0;
+    }
+    u16::from_le_bytes([body[4], body[5]]) as usize
 }
 
 /// The request id a message carries in its first four body bytes.
