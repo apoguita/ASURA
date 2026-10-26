@@ -587,6 +587,13 @@ async fn answer(
 /// (`... 01 02 6D 03 00 00 00 00`).
 const MAP_ID_COUNT: u16 = 877;
 
+/// A zero-filled bitmap of the length the reference uses for a character with no progress: 31 words.
+///
+/// Copied from its trace, not chosen: `GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST` there carries two lists of
+/// 31 zero dwords (`02 00 00 00` twice, then 31 words of zeros, twice more). Sending the lists empty
+/// instead changes the *length* of a bitmap the client indexes by map id.
+const UNLOCKED_MAP_ZEROS: &[u32] = &[0u32; 31];
+
 /// The six-message manifest the reference sends after `READY_FOR_MAP_SPAWN`
 /// (`GameSrv_SendDownloadManifest`).
 ///
@@ -644,11 +651,15 @@ pub fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> 
         frames.push(game::account_feature(feature, param1, param2));
     }
 
+    // The unlocked-map list. The three bitmaps a character can have progress in are sent at their
+    // **full length, zero-filled**, because that is what the reference sends for a character with no
+    // progress: 31 words each for the two hard-mode lists, and nothing for the two normal-mode ones.
+    // An empty list is not the same message — it is an array the client can index past the end of.
     frames.push(game::map_update_unlocked_list([
         &[][..],
         &[],
-        &[],
-        &[],
+        UNLOCKED_MAP_ZEROS,
+        UNLOCKED_MAP_ZEROS,
         &[],
     ]));
     frames.push(game::instance_loaded(PLAYER_TEAM_TOKEN));
@@ -685,6 +696,17 @@ pub fn player_block(name: &str, map: &MapEntry, started: Instant) -> Vec<Frame> 
         AGENT_ID,
         game::Appearance::REFERENCE_DEFAULT.pack(),
         name,
+    ));
+    // The profession goes out **twice** in the reference: once with the skills and attributes, and
+    // again here, immediately after the player is created and before the agent exists
+    // (`GameSrv_HandleInstanceLoadRequestPlayers`: `BroadcastPlayerCreate` then
+    // `SendPlayerProfession`). It is the second one that gives the freshly created player the
+    // profession its model is built from — without it the client draws an agent it has no model for.
+    frames.push(game::player_update_profession(
+        AGENT_ID,
+        DEFAULT_PRIMARY_PROFESSION,
+        0,
+        0,
     ));
     frames.push(game::world_create_agent(
         AGENT_ID,

@@ -147,6 +147,22 @@ def main():
             problems += 1
 
     trailing = len(reference_stream) - cursor
+
+    # Order matters as much as content, and the per-message walk above cannot see it: matching each of
+    # our messages to the next reference message with the same header tolerates any reordering. A
+    # message that arrives in the wrong place is a client that builds its model before it is told what
+    # the model is, which is exactly the kind of bug this script exists to catch.
+    our_order = [entry[0] for entry in our_stream]
+    our_set = set(our_order)
+    reference_order = [
+        entry[0] for entry in reference_stream if entry[0] in our_set
+    ]
+    if our_order != reference_order:
+        print("ORDER differs:")
+        print("  ours:      %s" % " ".join("%04X" % header for header in our_order))
+        print("  reference: %s" % " ".join("%04X" % header for header in reference_order))
+        problems += 1
+
     print()
     print("matched %d message(s), %d problem(s)" % (matched, problems))
     print(
