@@ -19,10 +19,17 @@
 //! 7. keep-alive        a world tick every 500 ms and a ping every 5 s, forever
 //! ```
 //!
-//! What this module deliberately does **not** do yet: simulate anything. There is one player, no
-//! NPCs, no items, no combat â€” the entity that exists is the character the transfer named, standing
-//! where the map's spawn name says. Everything else arrives with the milestones that own it, and the
-//! messages are sent anyway because a client that does not get them never leaves the loading screen.
+//! What exists today, and what does not -- `docs/07-status.md` is generated from the same comparison
+//! as the parity report, and is the place to check:
+//!
+//! * one agent, the character the transfer named, standing where the map's spawn says, whose position
+//!   this server follows within the reference's movement budget (`agent`);
+//! * the reference's default inventory, replayed from its trace: bags and items are *sent*, but nothing
+//!   can be equipped, moved, dropped or bought;
+//! * no NPCs, no other players, no combat, no quests, no persistence.
+//!
+//! The load messages go out even for the parts that are not simulated, because a client that does not
+//! receive them never leaves the loading screen.
 
 use std::io;
 use std::sync::Arc;
