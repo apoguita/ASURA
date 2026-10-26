@@ -232,6 +232,20 @@ pub fn default_inventory() -> Inventory {
     }
 }
 
+/// The item columns, in the order [`ItemRow`] expects. One list, so no query can select a shape the
+/// row type does not decode.
+const ITEM_COLUMNS: &str = "id, bag_id, slot, file_id, item_type, model_id, dye_tint, dye_colors, \
+                            materials, unk1, flags, value, quantity, profession, name, modifiers";
+
+/// The same columns, qualified for a query that has more than one table in it.
+fn item_columns(alias: &str) -> String {
+    ITEM_COLUMNS
+        .split(',')
+        .map(|column| format!("{alias}.{}", column.trim()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// One item row as both queries select it, in the order they select it (`load` and
 /// [`find_in_carrying_bags`] share the column list so the two cannot drift apart).
 type ItemRow = (
@@ -307,12 +321,10 @@ pub async fn load(pool: &PgPool, character: Uuid) -> sqlx::Result<Inventory> {
     .fetch_all(pool)
     .await?;
 
-    let items: Vec<ItemRow> = sqlx::query_as(
-        "SELECT id, bag_id, slot, file_id, item_type, model_id, dye_tint, dye_colors, materials,
-                unk1, flags, value, quantity, profession, name, modifiers
-           FROM item WHERE character_id = $1
-          ORDER BY bag_id NULLS FIRST, slot, id",
-    )
+    let items: Vec<ItemRow> = sqlx::query_as(&format!(
+        "SELECT {ITEM_COLUMNS} FROM item WHERE character_id = $1
+          ORDER BY bag_id NULLS FIRST, slot, id"
+    ))
     .bind(character)
     .fetch_all(pool)
     .await?;
@@ -455,16 +467,14 @@ pub async fn find_in_carrying_bags(
     character: Uuid,
     item_id: i32,
 ) -> sqlx::Result<Option<Item>> {
-    let row: Option<ItemRow> = sqlx::query_as(
-        "SELECT i.id, i.bag_id, i.slot, i.file_id, i.item_type, i.model_id, i.dye_tint,
-                i.dye_colors, i.materials, i.unk1, i.flags, i.value, i.quantity, i.profession,
-                i.name, i.modifiers
-           FROM item i
+    let row: Option<ItemRow> = sqlx::query_as(&format!(
+        "SELECT {} FROM item i
            JOIN bag b ON b.character_id = i.character_id AND b.bag_id = i.bag_id
           WHERE i.character_id = $1
             AND i.id = $2
             AND b.bag_model_id BETWEEN $3 AND $4",
-    )
+        item_columns("i")
+    ))
     .bind(character)
     .bind(item_id)
     .bind(BACKPACK_MODEL)
@@ -473,6 +483,223 @@ pub async fn find_in_carrying_bags(
     .await?;
 
     Ok(row.map(item_from_row))
+}
+
+/// What came off a stack.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Taken {
+    /// The item as it was before part of it was taken, so a caller can build the thing on the ground
+    /// from the same fields the client knows it by.
+    pub item: Item,
+    /// What is left in the bag: 0 means the row is gone.
+    pub remaining: i32,
+}
+
+/// Take `count` of an item out of its stack, and say what is left.
+///
+/// **This is the half the reference never wrote.** `GameSrv_HandleDropItem` bails out with
+/// `TODO: we must still implement this` as soon as `count < quantity`, so a stacked item cannot be
+/// dropped there at all — and the client sends `count = 1` for a stack of a hundred, which is why
+/// dropping the reference's own cupcake never did anything.
+///
+/// `Ok(None)` means nothing was taken: no such item, not in a slot (a bag's own item is not litter), or
+/// fewer than `count` in the stack.
+pub async fn take_from_stack(
+    pool: &PgPool,
+    character: Uuid,
+    item_id: i32,
+    count: i32,
+) -> sqlx::Result<Option<Taken>> {
+    if count <= 0 {
+        return Ok(None);
+    }
+
+    let mut tx = pool.begin().await?;
+    let row: Option<ItemRow> = sqlx::query_as(&format!(
+        "SELECT {ITEM_COLUMNS} FROM item WHERE character_id = $1 AND id = $2 FOR UPDATE"
+    ))
+    .bind(character)
+    .bind(item_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some(item) = row.map(item_from_row) else {
+        return Ok(None);
+    };
+    if item.bag_id.is_none() || item.quantity < count {
+        return Ok(None);
+    }
+
+    let remaining = item.quantity - count;
+    if remaining == 0 {
+        sqlx::query("DELETE FROM item WHERE character_id = $1 AND id = $2")
+            .bind(character)
+            .bind(item_id)
+            .execute(&mut *tx)
+            .await?;
+    } else {
+        sqlx::query("UPDATE item SET quantity = $3 WHERE character_id = $1 AND id = $2")
+            .bind(character)
+            .bind(item_id)
+            .bind(remaining)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
+    Ok(Some(Taken { item, remaining }))
+}
+
+/// Why an item was not moved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refused {
+    /// No such item for this character.
+    NoSuchItem,
+    /// It is not in a slot — a bag's own item, which is part of the bag rather than an item in it.
+    NotInASlot,
+    /// No such bag for this character.
+    NoSuchBag,
+    /// The slot is outside the bag: slots are `0..slot_count`.
+    OutOfRange,
+    /// Something else is in that slot. Equipping evicts; a move does not.
+    Occupied,
+}
+
+/// What an attempt to put an item somewhere did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MoveOutcome {
+    /// It is now at `(bag_id, slot)`.
+    At { item: Item, bag_id: i32, slot: i32 },
+    /// It was already there; nothing was written.
+    Unchanged { item: Item },
+    /// Nothing happened, and `item` is where it actually is — a caller uses that to put the client's
+    /// own model back, because the client moves the item optimistically before it asks.
+    Refused { item: Option<Item>, reason: Refused },
+}
+
+/// Move an item to a slot in one of its character's bags.
+///
+/// The rules are the ones a client can be held to, and no more: the bag must exist and be this
+/// character's, the slot must be inside it, and the slot must be free. Equipping is a move into the
+/// equipped-items bag, so it goes through here too.
+pub async fn move_item(
+    pool: &PgPool,
+    character: Uuid,
+    item_id: i32,
+    bag_id: i32,
+    slot: i32,
+) -> sqlx::Result<MoveOutcome> {
+    let mut tx = pool.begin().await?;
+    let row: Option<ItemRow> = sqlx::query_as(&format!(
+        "SELECT {ITEM_COLUMNS} FROM item WHERE character_id = $1 AND id = $2 FOR UPDATE"
+    ))
+    .bind(character)
+    .bind(item_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some(item) = row.map(item_from_row) else {
+        return Ok(MoveOutcome::Refused {
+            item: None,
+            reason: Refused::NoSuchItem,
+        });
+    };
+    if item.slot.is_none() || item.bag_id.is_none() {
+        return Ok(MoveOutcome::Refused {
+            item: Some(item),
+            reason: Refused::NotInASlot,
+        });
+    }
+    if item.bag_id == Some(bag_id) && item.slot == Some(slot) {
+        return Ok(MoveOutcome::Unchanged { item });
+    }
+
+    let bag: Option<(i32,)> =
+        sqlx::query_as("SELECT slot_count FROM bag WHERE character_id = $1 AND bag_id = $2")
+            .bind(character)
+            .bind(bag_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some((slot_count,)) = bag else {
+        return Ok(MoveOutcome::Refused {
+            item: Some(item),
+            reason: Refused::NoSuchBag,
+        });
+    };
+    if slot < 0 || slot >= slot_count {
+        return Ok(MoveOutcome::Refused {
+            item: Some(item),
+            reason: Refused::OutOfRange,
+        });
+    }
+
+    let occupant: Option<i32> = sqlx::query_scalar(
+        "SELECT id FROM item
+          WHERE character_id = $1 AND bag_id = $2 AND slot = $3 AND id <> $4",
+    )
+    .bind(character)
+    .bind(bag_id)
+    .bind(slot)
+    .bind(item_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if occupant.is_some() {
+        return Ok(MoveOutcome::Refused {
+            item: Some(item),
+            reason: Refused::Occupied,
+        });
+    }
+
+    sqlx::query("UPDATE item SET bag_id = $3, slot = $4 WHERE character_id = $1 AND id = $2")
+        .bind(character)
+        .bind(item_id)
+        .bind(bag_id)
+        .bind(slot)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    Ok(MoveOutcome::At {
+        item: Item {
+            bag_id: Some(bag_id),
+            slot: Some(slot),
+            ..item
+        },
+        bag_id,
+        slot,
+    })
+}
+
+/// The first free slot in the bags a player carries, backpack first.
+///
+/// The reference has the same idea (`GmBag_TryAddToBag`) and the same bug — its loop tests
+/// `items[idx] != 0` where it means `== 0`, so it overwrites an occupied slot instead of finding an
+/// empty one. This is the intent, not the bug: unequipping something has to have somewhere to put it.
+pub async fn first_free_carrying_slot(
+    pool: &PgPool,
+    character: Uuid,
+) -> sqlx::Result<Option<(i32, i32)>> {
+    let row: Option<(i32, i32)> = sqlx::query_as(
+        "SELECT b.bag_id, free.slot
+           FROM bag b
+           CROSS JOIN LATERAL generate_series(0, b.slot_count - 1) AS free(slot)
+          WHERE b.character_id = $1
+            AND b.bag_model_id BETWEEN $2 AND $3
+            AND NOT EXISTS (
+                SELECT 1 FROM item i
+                 WHERE i.character_id = b.character_id
+                   AND i.bag_id = b.bag_id
+                   AND i.slot = free.slot
+            )
+          ORDER BY b.bag_model_id, b.bag_id, free.slot
+          LIMIT 1",
+    )
+    .bind(character)
+    .bind(BACKPACK_MODEL)
+    .bind(LAST_CARRYING_MODEL)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
 }
 
 #[cfg(test)]

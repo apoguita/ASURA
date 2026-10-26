@@ -214,6 +214,222 @@ async fn a_drop_finds_only_what_the_reference_would_find() {
 }
 
 #[tokio::test]
+async fn a_stack_can_be_split_and_emptied() {
+    let Some(pool) = pool().await else {
+        return skip();
+    };
+    let (name, character) = character(&pool, "stack").await;
+    db::seed_default(&pool, character).await.expect("seed");
+    let inventory = db::load(&pool, character).await.expect("load");
+    let cupcake = inventory.items_in(1)[0].clone();
+    assert_eq!(cupcake.quantity, 100, "the reference's cupcake is a stack");
+
+    // One out of the stack -- which is what a client asks for and what the reference refuses.
+    let taken = db::take_from_stack(&pool, character, cupcake.id, 1)
+        .await
+        .expect("take")
+        .expect("one of a hundred can be taken");
+    assert_eq!(taken.remaining, 99);
+    assert_eq!(taken.item.quantity, 100, "the item as it was");
+    assert_eq!(taken.item.model_id, 22269, "and what it is drawn as");
+
+    let after = db::load(&pool, character).await.expect("load");
+    let left = after.item(cupcake.id).expect("still there");
+    assert_eq!(left.quantity, 99);
+    assert_eq!(left.slot, cupcake.slot, "in the slot it was in");
+
+    // More than the stack is refused, and changes nothing.
+    assert_eq!(
+        db::take_from_stack(&pool, character, cupcake.id, 100)
+            .await
+            .expect("take"),
+        None
+    );
+
+    // The rest empties the row.
+    let rest = db::take_from_stack(&pool, character, cupcake.id, 99)
+        .await
+        .expect("take")
+        .expect("the rest can be taken");
+    assert_eq!(rest.remaining, 0);
+    let emptied = db::load(&pool, character).await.expect("load");
+    assert_eq!(emptied.item(cupcake.id), None, "the row went with it");
+
+    // Nothing left: a second attempt finds nothing, and is not an error.
+    assert_eq!(
+        db::take_from_stack(&pool, character, cupcake.id, 1)
+            .await
+            .expect("take"),
+        None
+    );
+
+    // A bag's own item is not litter: it has no slot, so it cannot be taken.
+    let own = emptied.bags[0].assoc_item_id;
+    assert_eq!(
+        db::take_from_stack(&pool, character, own, 1)
+            .await
+            .expect("take"),
+        None,
+        "a bag is not a stack"
+    );
+
+    asura_db::login::remove_account(&pool, &name)
+        .await
+        .expect("clean up");
+}
+
+#[tokio::test]
+async fn an_item_moves_between_slots_and_refuses_the_impossible_ones() {
+    let Some(pool) = pool().await else {
+        return skip();
+    };
+    let (name, character) = character(&pool, "move").await;
+    db::seed_default(&pool, character).await.expect("seed");
+    let inventory = db::load(&pool, character).await.expect("load");
+    let cupcake = inventory.items_in(1)[0].clone();
+    let other = inventory.items_in(1)[1].clone();
+
+    // Into a free slot.
+    match db::move_item(&pool, character, cupcake.id, 1, 5)
+        .await
+        .expect("move")
+    {
+        db::MoveOutcome::At { bag_id, slot, item } => {
+            assert_eq!((bag_id, slot), (1, 5));
+            assert_eq!(item.slot, Some(5), "the row it returns is the moved one");
+        }
+        other => panic!("expected a move, got {other:?}"),
+    }
+    let moved = db::load(&pool, character).await.expect("load");
+    assert_eq!(moved.item(cupcake.id).and_then(|item| item.slot), Some(5));
+
+    // Onto an occupied slot: refused, and the item is handed back where it really is.
+    match db::move_item(&pool, character, cupcake.id, 1, other.slot.unwrap())
+        .await
+        .expect("move")
+    {
+        db::MoveOutcome::Refused {
+            item: Some(item),
+            reason,
+        } => {
+            assert_eq!(reason, db::Refused::Occupied);
+            assert_eq!(item.slot, Some(5), "where it actually is");
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+
+    // Where it already is: nothing written.
+    assert!(matches!(
+        db::move_item(&pool, character, cupcake.id, 1, 5)
+            .await
+            .expect("move"),
+        db::MoveOutcome::Unchanged { .. }
+    ));
+
+    // Outside the bag, a bag that is not this character's, an item that is not in a slot, and an item
+    // that does not exist.
+    assert!(matches!(
+        db::move_item(&pool, character, cupcake.id, 1, 20)
+            .await
+            .expect("move"),
+        db::MoveOutcome::Refused {
+            reason: db::Refused::OutOfRange,
+            ..
+        }
+    ));
+    assert!(matches!(
+        db::move_item(&pool, character, cupcake.id, 9999, 0)
+            .await
+            .expect("move"),
+        db::MoveOutcome::Refused {
+            reason: db::Refused::NoSuchBag,
+            ..
+        }
+    ));
+    assert!(matches!(
+        db::move_item(&pool, character, inventory.bags[0].assoc_item_id, 1, 0)
+            .await
+            .expect("move"),
+        db::MoveOutcome::Refused {
+            reason: db::Refused::NotInASlot,
+            ..
+        }
+    ));
+    assert!(matches!(
+        db::move_item(&pool, character, 999_999, 1, 0)
+            .await
+            .expect("move"),
+        db::MoveOutcome::Refused {
+            item: None,
+            reason: db::Refused::NoSuchItem,
+        }
+    ));
+
+    // The equipped-items bag is a bag like any other here: wearing something is a move into it, and
+    // taking it off is a move out of it.
+    let equipped = inventory
+        .bags
+        .iter()
+        .find(|bag| bag.bag_model_id == db::EQUIPPED_ITEMS_MODEL)
+        .expect("the equipped bag")
+        .bag_id;
+    let weapon = inventory
+        .items_in(equipped)
+        .into_iter()
+        .find(|item| item.slot == Some(0))
+        .cloned()
+        .expect("something in the weapon slot");
+    assert!(
+        matches!(
+            db::move_item(&pool, character, weapon.id, 1, 6)
+                .await
+                .expect("move"),
+            db::MoveOutcome::At { .. }
+        ),
+        "taking the weapon off is a move"
+    );
+
+    asura_db::login::remove_account(&pool, &name)
+        .await
+        .expect("clean up");
+}
+
+#[tokio::test]
+async fn the_first_free_carrying_slot_is_the_backpack_first() {
+    let Some(pool) = pool().await else {
+        return skip();
+    };
+    let (name, character) = character(&pool, "free").await;
+    db::seed_default(&pool, character).await.expect("seed");
+
+    // The backpack's first two slots hold the two cupcakes, so the third is the first free one.
+    assert_eq!(
+        db::first_free_carrying_slot(&pool, character)
+            .await
+            .expect("find"),
+        Some((1, 2))
+    );
+
+    // Move a cupcake into that slot and the next free one is the slot it left.
+    let inventory = db::load(&pool, character).await.expect("load");
+    let cupcake = inventory.items_in(1)[0].clone();
+    db::move_item(&pool, character, cupcake.id, 1, 2)
+        .await
+        .expect("move");
+    assert_eq!(
+        db::first_free_carrying_slot(&pool, character)
+            .await
+            .expect("find"),
+        Some((1, 0)),
+        "the slot the cupcake left is free again, and it comes first"
+    );
+
+    asura_db::login::remove_account(&pool, &name)
+        .await
+        .expect("clean up");
+}
+
+#[tokio::test]
 async fn a_position_is_saved_and_read_back_and_a_new_character_has_none() {
     let Some(pool) = pool().await else {
         return skip();

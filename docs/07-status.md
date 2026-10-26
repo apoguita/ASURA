@@ -8,7 +8,7 @@ It compares this repository with the GWPS reference's own dispatch switches, so 
 
 ## Implemented handlers
 
-27 of the reference's client-message handlers are present in this repository.
+28 of the reference's client-message handlers are present in this repository.
 
 ## No-ops in the reference itself
 
@@ -36,18 +36,24 @@ that nobody reads the table above as more than it says:
 - **world state** is one agent: no NPCs, no other players, no combat, no quests;
 - **items** are rows (`asura_db::inventory`), and the block sent for them is the reference's own
   down to the byte (`crates/asura-world/src/lib.rs`, the byte-equality test against the capture).
-  What is *not* there: nothing can be equipped, moved between bags, bought or picked up. The one
-  item message the reference acts on, `DROP_ITEM`, is implemented exactly as it behaves there --
-  which means **the dropped item stays in its bag**: the reference creates an agent for it and
-  never removes it, never frees its id and never sends `ITEM_REMOVE`. Its handler is unfinished in
-  its own source (a `TODO` for partial stacks), and this port copies the behaviour rather than
-  inventing the missing half;
+  What works: dropping (with the stack actually deducted, which the reference never does), moving
+  an item between slots, and wearing one. What does not: buying, selling, salvaging, identifying,
+  splitting a stack by hand (a drop splits; nothing else does), and **picking anything up** -- the
+  reference has no pick-up handler and this one has none either, so a dropped item is litter for
+  the rest of the session. `DROP_ITEM` is the one item message the reference's dispatch acts on;
+  its handler is unfinished there (a `TODO` for partial stacks, no removal) and this port finishes
+  it -- a recorded deviation, argued in `docs/08-next-inventory-model.md`. `ITEM_MOVE` and
+  `EQUIP_ITEM` are messages the reference does not dispatch at all, so their behaviour here is
+  this project's; `UNEQUIP_ITEM` (`0x804F`) is not implemented because its layout carries no item
+  id and no capture has shown what it means (dragging an item out of the equipped bag arrives as
+  `ITEM_MOVE` and works);
 - **instances** are prebuilt per map and never created on demand, and only outposts are hosted;
 - **persistence** saves where a character stood when it leaves and puts it back there when it
   returns (`asura_db::game::record_position`). That is a thing the reference does *not* do -- it
   keeps a character's last map and re-spawns at the map's own spawn point every session -- so a
-  character's position is a deliberate addition, recorded in `0006_inventory.sql`. Nothing else
-  about a character is saved yet: no level, no profession, no equipment changes, no gold;
+  character's position is a deliberate addition, recorded in `0006_inventory.sql`. The inventory is
+  durable too, because it is rows: a drop, a move and an equip all survive a relog. Nothing else
+  about a character is saved yet: no level, no profession, no gold, no quest state;
 - **character creation** (the four `CHAR_CREATION_*` handlers) needs two things this server does
   not have. The reference only offers it inside a *character-creation* instance (its
   `MapType_CharacterCreation`), and this world hosts outposts only; and
@@ -64,8 +70,13 @@ that nobody reads the table above as more than it says:
 Parity with GWPS includes matching what it *disables*, not only what it implements. From its own
 source:
 
-- **chat sending** is gated (`GameSrv_ChatSendingEnabled`, `GWPS_CHAT=1` to enable) and off by
-  default. Its comment records why: an unconditional send put a message on the wire the client
-  could not parse, `GameSrv_SendInvalidCommand` above all, **and it crashed the client**. A port
-  that sends chat by default would be less faithful than one that does not;
-- **GM commands** (`/tp`, `/maps`) exist behind the same gate.
+- **chat sending** is gated (`GameSrv_ChatSendingEnabled`, `GWPS_CHAT=1` to enable). Its comment
+  records why: an unconditional send put a message on the wire the client could not parse,
+  `GameSrv_SendInvalidCommand` above all, **and it crashed the client**. The gate covers the text
+  the *server* generates -- GM answers and "unknown command" -- and not what a player types: a
+  player's `!`/`#`/`$` line is broadcast ungated. This port matches that split (`ASURA_CHAT=1`
+  turns the server's own answers back on);
+- **GM commands**: the reference has `/tp`, `/teleport` and `/maps`, all behind that gate. `/maps`
+  is here (it can only list the maps this world hosts); `/tp` is not, because the reference
+  teleports by asking the auth service for a world and having the client reconnect, and this world
+  cannot start a travel on its own.

@@ -4,21 +4,22 @@ State of the project as of the last commit, so a new session can begin without r
 
 ## Where this stands
 
-- **M5's inventory is delivered: a character has items, and they are rows.** The item block a client
-  receives is no longer the reference's messages replayed — it is built from `bag` and `item` rows, and
-  a test compares the result to the capture **byte for byte**
-  (`crates/asura-world/src/lib.rs`, `the_item_block_from_rows_is_the_capture_byte_for_byte`). The
-  default inventory is the reference's own six bags and nine items, generated from the capture into
-  `crates/asura-db/src/inventory/seed.rs` and written for any character that has none.
-  `GAME_CMSG_DROP_ITEM` (`0x802C`) is implemented, and — this is the part that matters — implemented as
-  the reference behaves, which is *badly*: the item stays in its bag and an item agent appears on the
-  ground. `docs/08-next-inventory-model.md` records that and the three other places the measurement
-  changed the plan. **175 tests pass** (`cargo test --workspace`), and clippy plus `cargo fmt --check`
-  are clean.
-- **A character's position survives a session.** Written when the player leaves, read when it returns,
-  and used only in the map it was taken in (`Standing::resume`). The reference does *not* do this — it
-  keeps a character's last map and re-spawns at the spawn point — so this is a recorded deviation, named
-  in `0006_inventory.sql` and in `docs/07-status.md`.
+- **Items work on a live client.** Dropping takes the stack down (`count = 1` of a hundred is what a
+  client sends, and the reference refuses exactly that), the ground agent wears the item's *model*, moving
+  an item between slots is answered and persisted, and wearing one moves it into the equipped bag and
+  re-sends `UPDATE_AGENT_VISUAL_EQUIPMENT`. Chat speaks on `!`/`#`/`$` ungated, as the reference does, and
+  `/stuck` and `/maps` answer. `docs/08-next-inventory-model.md` records what the reference got wrong and
+  which parts of this are therefore this project's own.
+- **What the live session taught, in one line each**: the reference's `count < quantity` bail-out means a
+  stacked item cannot be dropped there at all; its item agent carries the item's *id* where a model id
+  belongs; the client sends `ITEM_MOVE` when an item is dragged and the reference cannot answer it; and the
+  client's ping reply is `0x8009`, not `0x800C` (which is the heartbeat). The trace used to call all of
+  those "ignored".
+- **M5's inventory is otherwise as it was**: the item block is built from rows and a test compares it to
+  the capture **byte for byte** (`the_item_block_from_rows_is_the_capture_byte_for_byte`), the default
+  inventory is the reference's own six bags and nine items generated into
+  `crates/asura-db/src/inventory/seed.rs`, and a character's position survives a session
+  (`Standing::resume`).
 - **What is left of the reference's dispatch is the four `CHAR_CREATION_*` handlers**, and they are
   blocked on two things: a character-creation *instance* (its `MapType_CharacterCreation`, which this
   world does not host) and the default-equipment table `GetDefaultEquipments` answers with. The second
@@ -179,11 +180,12 @@ carries an inventory and comes back where it logged out.
    porting the default-equipment table `GetDefaultEquipments` answers with (`GmDefaultArmors.c`, 2820
    lines of it). The second is now generation work rather than design: `tools/gen-pvp-items.py` and
    `tools/gen-default-inventory.py` are the two shapes to copy, and equipment is item rows.
-3. **Then the things the reference never wrote**, which a working outpost needs: picking a dropped item
-   back up (`ITEM_REMOVE` — the message the drop path is missing, and the reason a drop duplicates),
-   moving an item between bags, equipping one, and buying. Each starts with a *measurement* of what the
-   client sends; the reference's C has now been insufficient three times and the capture sufficient
-   every time.
+3. **Then the things the reference never wrote**: picking a dropped item back up
+   (`GAME_CMSG_INTERACT_ITEM`, `0x803F` — the last piece that makes a drop reversible), splitting a
+   stack by hand (`0x8075`), buying and selling (`GAME_CMSG_TRANSACT_ITEMS`, `0x804D`), swapping two
+   items in one move, and `UNEQUIP_ITEM` (`0x804F`), whose layout is still unmeasured. Each starts with
+   a *measurement* of what the client sends; the reference's C has now been insufficient four times, and
+   a live trace sufficient every time.
 4. **Use the reference session as the spec.** `docs/06-reference-session.md` is the whole working login,
    both directions; `tools/patch-gwps-auth-trace.py` reproduces the logging that produced it,
    `tools/compare-replies.py` diffs two servers' replies field by field, and `tools/compare-load.py`
@@ -203,12 +205,16 @@ carries an inventory and comes back where it logged out.
   or a stale sweep, not for a disconnect.
 - **A connection this service does not understand is closed, not guessed at**, and a pair that does
   not resolve is answered with the client's auth error (`11`) rather than silence.
-- **A dropped item stays in its bag.** The reference's `GameSrv_HandleDropItem` creates an agent for the
-  item and returns; it never removes the row, never frees the id, and never sends `ITEM_REMOVE`. That is
-  a duplication bug, and this port copies it deliberately: a port that fixes it sends a message the
-  reference never sends, and the message it would need does not exist in this codebase yet
-  (`docs/08-next-inventory-model.md`, `docs/07-status.md`). Fixing it is the *item pickup* milestone,
-  not a tidy-up.
+- **A dropped item becomes litter.** It is off the stack and on the ground for the rest of the session:
+  the reference has no pick-up handler and this one has none either. `GAME_CMSG_INTERACT_ITEM` (`0x803F`)
+  exists in the generated table, and what it means is one measurement away (drop one, interact with it,
+  read the header out of the trace).
+- **A move that would swap two items is refused**, not swapped: an occupied slot is `Refused::Occupied`
+  and the client is told where the item really is. The reference has no move handler at all, so there
+  was nothing to copy — swapping is a decision nobody has made yet.
+- **`UNEQUIP_ITEM` is not implemented.** Its 6 bytes (`u8, u16, u8`) carry no item id and no capture has
+  shown what it means; taking an item off by dragging it out of the equipped bag arrives as `ITEM_MOVE`
+  and works.
 - **The item block is built from rows and compared to the capture byte for byte.** Either side changing
   alone fails `the_item_block_from_rows_is_the_capture_byte_for_byte`, which is the point: the rows and
   the capture are two descriptions of one thing, and the test is what keeps them one thing.
@@ -224,7 +230,8 @@ carries an inventory and comes back where it logged out.
 | one generator for both halves: the seed rows and the captured bytes | `tools/gen-default-inventory.py` |
 | `CREATE_NAMED_ITEM`, `ITEM_MOVE_TO_LOCATION`, `ITEM_SET_PROFESSION` | `crates/asura-protocol/src/game/mod.rs` |
 | the item block from rows, the bags in model order, the worn ids from the equipped bag | `crates/asura-world/src/lib.rs` (`inventory_block`, `items_block`, `player_block`) |
-| `DROP_ITEM`, copied from the reference including what it does not do | `crates/asura-world/src/lib.rs` (`0x802C`, `drop_item`) |
+| `DROP_ITEM`, finished rather than copied: the stack is taken down, the agent wears the item's model | `crates/asura-world/src/lib.rs` (`0x802C`, `drop_item`, `drop_messages`) |
+| `ITEM_MOVE` and `EQUIP_ITEM`, which the reference does not dispatch at all | same file (`0x8072`, `0x8030`) + `asura_db::inventory::{move_item, first_free_carrying_slot, take_from_stack}` |
 | the position saved on leaving and resumed on entering | `asura_db::game::record_position`/`position`, `Standing::resume` |
 | the live-database proof: seeding, round trip, drop scoping, position | `crates/asura-db/tests/inventory.rs` |
 
@@ -280,9 +287,9 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
   against a capture of the reference working, and the database round trip is proved against the live
   database, but "the character draws with its armour on and its backpack full" is still a claim about a
   capture rather than a claim about a window. `tools/play.ps1` is how it stops being one.
-- **No item mutation at all**: nothing is picked up, moved between bags, equipped, bought or sold. A drop
-  creates an agent and changes no row (`docs/07-status.md`), which is what the reference does and the
-  reason a drop duplicates its item.
+- **No trade, no salvage, no pick-up**: an item can be dropped, moved and worn, and nothing else. A
+  dropped item stays on the ground for the rest of the session because nothing picks it up — the
+  reference has no handler for that either (`docs/07-status.md`).
 - **No character creation**: the four `CHAR_CREATION_*` handlers need a creation instance and the default
   equipment table.
 - **One agent, one player**: no NPCs, no other players, no combat, no quests, and no session registry in

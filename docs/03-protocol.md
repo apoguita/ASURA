@@ -410,19 +410,36 @@ requests above, the ping, the heartbeat, and a disconnect. The two that carry st
 | message | header | size | layout |
 |---|---|---|---|
 | `DROP_ITEM` | `0x802C` | 7 | `u32 item_id, u8 count` |
+| `ITEM_MOVE` | `0x8072` | 9 | `u32 item_id, u16 bag_id, u8 slot` |
+| `EQUIP_ITEM` | `0x8030` | 6 | `u32 item_id` |
+| `UNEQUIP_ITEM` | `0x804F` | 6 | `u8, u16, u8` — no item id, and never seen from a live client |
 | `POSITION_UPDATE` | `0x803D` | 26 | `Vec2f position, u32 plane, Vec2f unk0, u32 unk1` |
 
 `POSITION_UPDATE` is 26 bytes even though the position is in its first twelve: the framer wants the whole
 message, and a port that reads twelve and stops leaves the connection waiting for a message it has already
 been given.
 
-`DROP_ITEM` is answered by an item appearing, not by the bag changing: the reference creates an agent of
-type `AgentType_Item` (`4`) at the player's position plus `(30, 30)`, on the player's plane, facing x, and
-broadcasts `WORLD_CREATE_AGENT` (`0x0020`, 99 bytes) — to every connection, the dropper included. It does
-**not** remove the item from its slot, free its id, or send `ITEM_REMOVE`. Three answers change nothing at
-all and send nothing: item id `0`, an item that is not in the backpack/belt pouch/bag 1/bag 2
-(`GmBag_FindItem` looks no further, so storage is not droppable), and a count that does not equal the
-whole stack — the last one is a `TODO` in the reference's own source.
+`ITEM_MOVE` is the exact inverse of `ITEM_MOVE_TO_LOCATION` (`0x013E`) and is what a live client sent, twice,
+when an item was dragged between slots. `EQUIP_ITEM` carries only an item id: which slot it goes in follows
+from the item's type (`EquippedItemSlot`, `GmInventory.h`). `UNEQUIP_ITEM`'s three fields hold no item id, so
+what it means is not known — unequipping by dragging arrives as `ITEM_MOVE`.
+
+`DROP_ITEM` is answered by an item appearing **and the stack shrinking**: the client sends `count = 1` for
+a stack of a hundred, so the server takes that many off the row, tells the client its stack was removed and
+re-creates it at what is left (`ITEM_REMOVE` `0x014D`, 8 bytes, then `CREATE_NAMED_ITEM` +
+`ITEM_MOVE_TO_LOCATION`), and then broadcasts `WORLD_CREATE_AGENT` (`0x0020`, 99 bytes) for an agent of type
+`AgentType_Item` (`4`) at the player's position plus `(30, 30)`, wearing the item's **model** — to every
+connection, the dropper included.
+
+The reference does none of the deduction: its handler creates the agent and returns, and it gives up
+entirely when `count != quantity`, which is every drop of a stack. What this port does instead is recorded
+in `docs/07-status.md` and `docs/08-next-inventory-model.md`.
+
+Three answers change nothing and send nothing: item id `0`, an item that is not in the backpack/belt
+pouch/bag 1/bag 2 (`GmBag_FindItem` looks no further, so storage is not droppable), and a count larger than
+the stack. A move is refused when the bag is not the character's, the slot is outside it, or the slot is
+occupied — and a refused move is answered with `ITEM_MOVE_TO_LOCATION` for where the item really is, because
+the client has already moved it in its own model.
 
 ### 11.6 Keeping the session alive
 

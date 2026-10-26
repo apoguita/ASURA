@@ -65,6 +65,12 @@ pub const INVENTORY_CREATE_BAG: u16 = 0x013F;
 pub const CREATE_NAMED_ITEM: u16 = 0x0161;
 /// `GAME_SMSG_ITEM_MOVE_TO_LOCATION` (`0x013E`): 11 bytes.
 pub const ITEM_MOVE_TO_LOCATION: u16 = 0x013E;
+/// `GAME_SMSG_ITEM_REMOVE` (`0x014D`): 8 bytes. Takes an item out of the client's inventory model.
+///
+/// The reference has this message and uses it when it frees a bag (`GameSrv_FreeBagItems`); it is not
+/// used anywhere near a drop, because its drop handler never removes the item. A port that does remove
+/// one has to tell the client, and this is the message that does it.
+pub const ITEM_REMOVE: u16 = 0x014D;
 /// `GAME_SMSG_ITEM_SET_PROFESSION` (`0x015A`): 7 bytes.
 pub const ITEM_SET_PROFESSION: u16 = 0x015A;
 /// `GAME_SMSG_ITEM_SET_ACTIVE_WEAPON_SET` (`0x0148`): 5 bytes.
@@ -142,10 +148,19 @@ pub const CHARACTER_UPDATE_PARTY: u16 = 0x01B3;
 
 /// `GAME_SMSG_CHAT_MESSAGE_CORE` (`0x005D`): the text of a chat message, `2 + 2 + 2n`.
 pub const CHAT_MESSAGE_CORE: u16 = 0x005D;
+/// `GAME_SMSG_CHAT_MESSAGE_SERVER` (`0x005E`): 10 bytes. The server speaking on a channel — what the
+/// reference answers a command with, because a core message on its own renders nothing.
+pub const CHAT_MESSAGE_SERVER: u16 = 0x005E;
 /// `GAME_SMSG_CHAT_MESSAGE_LOCAL` (`0x0061`): which player spoke, on which channel. 10 bytes.
 pub const CHAT_MESSAGE_LOCAL: u16 = 0x0061;
 /// `Channel_All` in the client's own enum (`GmChat.h`): the channel `!` speaks on.
 pub const CHANNEL_ALL: u32 = 3;
+/// `Channel_Group`: the channel `#` speaks on.
+pub const CHANNEL_GROUP: u32 = 11;
+/// `Channel_Trade`: the channel `$` speaks on.
+pub const CHANNEL_TRADE: u32 = 12;
+/// `Channel_Warning`: the middle-of-the-screen channel the reference answers a command on.
+pub const CHANNEL_WARNING: u32 = 7;
 
 /// `GAME_SMSG_CHAT_MESSAGE_CORE`: the text of one chat message.
 pub fn chat_message_core(text: &str) -> crate::client::Frame {
@@ -158,6 +173,59 @@ pub fn chat_message_local(player_id: u32, channel: u32) -> crate::client::Frame 
         .u32(player_id)
         .u32(channel)
         .frame()
+}
+
+/// `GAME_SMSG_CHAT_MESSAGE_SERVER`: the server itself speaking on a channel.
+///
+/// The second dword is not in the reference's struct and is zero on the wire; the table declares the
+/// message at 10 bytes, and a client given 6 reads two bytes of the next message as part of this one.
+pub fn chat_message_server(channel: u32) -> crate::client::Frame {
+    Builder::new(CHAT_MESSAGE_SERVER)
+        .u32(channel)
+        .u32(0)
+        .frame()
+}
+
+/// `EquippedItemSlot` (`GmInventory.h`): the equipped-items bag slot an item of this `ItemType`
+/// (`GmItem.h`) is worn in.
+///
+/// Six of these are measured — the reference's default character carries a hammer (`15` → weapon), a
+/// body, legs, head, boots and gloves, and the capture places each of them in the slot below. The rest
+/// follow the client's own enum names rather than a measurement, which is worth saying: a weapon is a
+/// weapon, but whether a `Present` or a `Minipet` is equippable at all is a guess answered by *no* here
+/// rather than by a slot.
+///
+/// `None` means "this is not something you wear"; the caller refuses the equip rather than inventing a
+/// slot for it.
+pub fn equipped_slot(item_type: u8) -> Option<u8> {
+    /// `EquippedItemSlot_Weapon` and friends, in the client's order.
+    const WEAPON: u8 = 0;
+    const OFF_HAND: u8 = 1;
+    const BODY: u8 = 2;
+    const LEGS: u8 = 3;
+    const HEAD: u8 = 4;
+    const BOOTS: u8 = 5;
+    const GLOVES: u8 = 6;
+    const COSTUME_BODY: u8 = 7;
+    const COSTUME_HEAD: u8 = 8;
+
+    let slot = match item_type {
+        // `ItemType_Leadhand`, `Axe`, `Bow`, `Hammer`, `Wand`, `Staff`, `Sword`, `Daggers`, `Scythe`,
+        // `Spear`. A leadhand is the focus/hand pair's weapon half, and the reference's own default
+        // character wears the hammer in slot 0.
+        1 | 2 | 5 | 15 | 22 | 26 | 27 | 32 | 35 | 36 => WEAPON,
+        // `ItemType_Focus`, `Shield`.
+        12 | 24 => OFF_HAND,
+        7 => BODY,
+        19 => LEGS,
+        16 => HEAD,
+        4 => BOOTS,
+        13 => GLOVES,
+        44 => COSTUME_BODY,
+        45 => COSTUME_HEAD,
+        _ => return None,
+    };
+    Some(slot)
 }
 
 /// `GAME_SMSG_WORLD_SIMULATION_TICK` (`0x001E`): 6 bytes.
@@ -560,6 +628,15 @@ pub fn item_set_profession(item_id: u32, profession: u8) -> crate::client::Frame
         .u32(item_id)
         .u8(profession)
         .frame()
+}
+
+/// `GAME_SMSG_ITEM_REMOVE`: the client drops an item out of its inventory model.
+///
+/// There is no "this item's quantity changed" message in either family, so changing a stack is this
+/// message followed by the item re-created at its new quantity and moved back into its slot — which is
+/// exactly what the reference does when it (re)sends a bag's items.
+pub fn item_remove(stream: u16, item_id: u32) -> crate::client::Frame {
+    Builder::new(ITEM_REMOVE).u16(stream).u32(item_id).frame()
 }
 
 /// `GAME_SMSG_ITEM_WEAPON_SET`: the items in one weapon slot. The reference sends four of these, one
@@ -1014,7 +1091,10 @@ mod tests {
         assert_eq!(wire(&item_weapon_set(1, 0, 0, 0)), 13);
         assert_eq!(wire(&inventory_create_bag(1, 1, 0, 1, 20, 0)), 13);
         assert_eq!(wire(&item_move_to_location(1, 2, 1, 0)), 11);
+        assert_eq!(wire(&item_remove(1, 2)), 8);
         assert_eq!(wire(&item_set_profession(3, 1)), 7);
+        assert_eq!(wire(&chat_message_local(1, CHANNEL_ALL)), 10);
+        assert_eq!(wire(&chat_message_server(CHANNEL_WARNING)), 10);
         assert_eq!(wire(&update_gold_storage(1, 0)), 8);
         assert_eq!(wire(&faction_max(FACTION_MAX_KURZICK, 0)), 6);
         assert_eq!(wire(&hard_mode_unlocked(1)), 3);
@@ -1173,6 +1253,30 @@ mod tests {
         // The cupcake, which is most of what the reference sends: a client that dies in its inventory
         // is a client given one of these at the wrong size.
         assert_eq!(wire(&create_named_item(&NamedItem::default())), 36);
+    }
+
+    #[test]
+    fn an_items_type_says_which_equipped_slot_it_belongs_in() {
+        // The six the capture carries: the reference's default character wears a hammer, a body, legs,
+        // a head, boots and gloves, and `ITEM_MOVED_TO_LOCATION` puts each in the slot below.
+        assert_eq!(equipped_slot(15), Some(0), "ItemType_Hammer -> weapon");
+        assert_eq!(equipped_slot(7), Some(2), "ItemType_Body -> body");
+        assert_eq!(equipped_slot(19), Some(3), "ItemType_Legs -> legs");
+        assert_eq!(equipped_slot(16), Some(4), "ItemType_Head -> head");
+        assert_eq!(equipped_slot(4), Some(5), "ItemType_Boots -> boots");
+        assert_eq!(equipped_slot(13), Some(6), "ItemType_Gloves -> gloves");
+
+        // The rest are the client's own enum names, not a measurement.
+        assert_eq!(equipped_slot(27), Some(0), "Sword");
+        assert_eq!(equipped_slot(24), Some(1), "Shield is the off hand");
+        assert_eq!(equipped_slot(12), Some(1), "Focus is the off hand");
+        assert_eq!(equipped_slot(44), Some(7), "CostumeBody");
+        assert_eq!(equipped_slot(45), Some(8), "CostumeHead");
+
+        // A cupcake is not something a character wears, and a slot is not invented for it.
+        assert_eq!(equipped_slot(9), None, "ItemType_Consumable");
+        assert_eq!(equipped_slot(3), None, "ItemType_Bag");
+        assert_eq!(equipped_slot(20), None, "ItemType_Coins");
     }
 
     #[test]

@@ -35,12 +35,16 @@ in the status document, rather than a guess someone would have to rediscover.
    creates an agent for it at the player's position plus (30, 30) and returns. It never touches the bag,
    never frees the item id, and never sends `ITEM_REMOVE` — so a dropped cupcake is a second cupcake
    standing on the ground while the first stays in the backpack. The function is plainly unfinished (its
-   partial-stack branch is a `TODO` in its own comment), and this port copies it. Removing the item would
-   be inventing the half the reference never wrote, and the honest place for that is an item-removal
-   message that does not exist yet.
+   partial-stack branch is a `TODO` in its own comment).
+   **This port finishes it instead of copying it** — `crates/asura-db/src/inventory.rs`,
+   `take_from_stack` — because a *measured* live session settled the argument: the client sends
+   `DROP_ITEM` with `count = 1` for a stack of a hundred, so the reference's rule (`count` must equal the
+   whole stack) means the reference's own default cupcake cannot be dropped **at all**, and a live client
+   asked three times and got nothing. Copying that is copying a dead end.
 2. **An item agent's model id is the item's id**, not the item's model id (`item_agent->model_id =
-   item->item_id`). Copied as well, with the note in the handler, because a client given a different
-   model id draws a different thing and "we fixed their bug" is a parity claim nobody can check.
+   item->item_id`), which is why the live session saw nothing on the ground once a drop did get through.
+   This port sends the item's `model_id`; the reference's line is kept in the handler's comment so the
+   difference is not a mystery.
 3. **`CREATE_NAMED_ITEM`'s modifier count is one byte, not two.** Every other counted field in both
    message families is a `u16`; `TYPE_NESTED_STRUCT` in the reference's own packer writes a `u8`
    (`msgpack.c`). That is why the cupcake's message is 36 bytes and `sizeof(GameSrv_CreateNamedItem)` is
@@ -51,12 +55,22 @@ in the status document, rather than a guess someone would have to rediscover.
    from the reference's in message order alone — which `tools/compare-load.py` would have reported as an
    ordering fault in a block whose bytes were all correct.
 
-**And one thing that is deliberately not the reference's.** The reference keeps a character's last *map*
-(`characters.last_outpost`) and re-spawns it at that map's spawn point on every session; it never stores a
-coordinate. `0006_inventory.sql` stores one, the world writes it when the player leaves and reads it when
-the player returns, and `Standing::resume` uses it only in the map it was taken in. This is a recorded
-deviation, not drift: `docs/07-status.md` says so, and the column's comment says why (`pos_plane IS NULL`
-is what "never saved" means, because (0, 0) is a legal coordinate).
+**And two things that are deliberately not the reference's**, both now implemented and both recorded in
+`docs/07-status.md`:
+
+- **moving an item and wearing one.** `GAME_CMSG_ITEM_MOVE` (`0x8072`, measured: `{item_id u32, bag_id
+  u16, slot u8}`, the inverse of the `ITEM_MOVE_TO_LOCATION` we send) and `GAME_CMSG_EQUIP_ITEM`
+  (`0x8030`) are messages the reference does not dispatch at all — its whole client-message list is 18
+  cases and none of them touch an item. So this behaviour is this project's: a move is checked against
+  the bag, the slot and its occupant, and a refused move is answered by telling the client where the item
+  really is, because the client moves it in its own model before it asks. Wearing something moves it into
+  the equipped-items bag slot its `ItemType` belongs to (`game::equipped_slot`) and re-sends
+  `UPDATE_AGENT_VISUAL_EQUIPMENT`.
+- **a character's position.** The reference keeps a character's last *map* (`characters.last_outpost`) and
+  re-spawns it at that map's spawn point on every session; it never stores a coordinate.
+  `0006_inventory.sql` stores one, the world writes it when the player leaves and reads it when the
+  player returns, and `Standing::resume` uses it only in the map it was taken in. `pos_plane IS NULL` is
+  what "never saved" means, because (0, 0) is a legal coordinate.
 
 ## The traps this left behind
 
@@ -78,6 +92,13 @@ is what "never saved" means, because (0, 0) is a legal coordinate).
   LoadRequestSpawn` sends `agent->position`, so a client that asks after it has walked gets the walked
   position back — and it is the same number `WORLD_CREATE_AGENT` carries. That was invisible while the
   server kept no position at all; it is the first thing that makes a stored position observable.
+- **There is no "this stack changed" message.** Neither family has one, so a stack that loses something
+  is removed from the client's model (`ITEM_REMOVE`, `0x014D`) and re-created at what is left, in the slot
+  it was in. `GameSrv_SendBagItems` is the same rebuild — create, then move — which is where the pattern
+  comes from.
+- **The client moves an item in its own model before it asks.** A refused `ITEM_MOVE` that answers with
+  silence leaves the two sides disagreeing until the next inventory reload, so a refusal sends
+  `ITEM_MOVE_TO_LOCATION` for where the item actually is.
 
 ## What is next
 
@@ -86,3 +107,9 @@ they need the two things `docs/08` named: a character-creation instance, and the
 that `GetDefaultEquipments` answers with. The equipment half is now cheap — an item row is a row, and the
 table that `GmDefaultArmors.c` carries is 2820 lines of it — so the instance type is what is actually
 missing.
+
+What the inventory still cannot do, in the order a player would notice it: **pick a dropped item back up**
+(`GAME_CMSG_INTERACT_ITEM`, `0x803F` — the reference has no handler, so this is a measurement away: drop
+one, interact with one, read the header out of the trace); split a stack by hand
+(`GAME_CMSG_ITEM_SPLIT_STACK`, `0x8075`); buy and sell (`GAME_CMSG_TRANSACT_ITEMS`, `0x804D`); and
+`UNEQUIP_ITEM` (`0x804F`), whose 6-byte layout carries no item id and has never been seen from a client.

@@ -816,9 +816,6 @@ async fn answer(
             Ok(true)
         }
 
-        // The client answered our ping. Nothing to do: the reference parses it and discards it.
-        0x800C => Ok(true),
-
         // The client asks to be pinged back.
         0x800D => {
             send(stream, session, vec![game::ping_reply(PING_VALUE)], trace).await?;
@@ -932,10 +929,13 @@ async fn answer(
         }
 
         // The client speaks (`GameSrv_HandleChatMessage`). The first unit of the message is the channel:
-        // `!` is local/general, `/` is a command, and the reference refuses anything else as bad user
-        // data. Its *sending* is gated off by default (`GameSrv_ChatSendingEnabled`) because an
-        // unconditional send once put a message on the wire the client could not parse and crashed it,
-        // so this port has the same gate and the same default.
+        // `!` is local/general, `#` group, `$` trade, `/` a command, and the reference answers anything
+        // else with bad user data.
+        //
+        // **A player's message is sent ungated**, exactly as the reference sends it: its
+        // `GameSrv_ChatSendingEnabled` gate covers the text the *server* generates (GM answers, "unknown
+        // command"), not a line a player typed. This port had the gate on everything, which is why a
+        // `!` line went nowhere; `chat_enabled` is now consulted only where the reference consults it.
         0x8064 => {
             let body = &frame.body;
             if body.len() < 6 {
@@ -959,30 +959,24 @@ async fn answer(
                 .collect();
 
             match u8::try_from(channel).unwrap_or(0) as char {
-                '!' | '#' | '$' => {
-                    if !chat_enabled() {
-                        if trace {
-                            eprintln!("world: chat {spoken:?} dropped (sending is off; ASURA_CHAT=1 to send)");
-                        }
-                        return Ok(true);
-                    }
-                    // Channel values other than `Channel_All` are not implemented yet: the reference
-                    // maps `#` to group and `$` to trade, and those enum values have to be read out of
-                    // its headers rather than guessed, so only `!` speaks today.
-                    if u8::try_from(channel).unwrap_or(0) as char != '!' {
-                        if trace {
-                            eprintln!(
-                                "world: channel {channel:#X} not implemented; message dropped"
-                            );
-                        }
-                        return Ok(true);
+                // `Channel_All`, `Channel_Group`, `Channel_Trade`: the three channels the reference
+                // speaks on. A lone player hears all three, and the message is echoed back the way the
+                // reference echoes it -- one message carrying the text, one saying who said it.
+                speaker @ ('!' | '#' | '$') => {
+                    let channel = match speaker {
+                        '#' => game::CHANNEL_GROUP,
+                        '$' => game::CHANNEL_TRADE,
+                        _ => game::CHANNEL_ALL,
+                    };
+                    if trace {
+                        eprintln!("world: {speaker} {spoken:?} on channel {channel}");
                     }
                     send(
                         stream,
                         session,
                         vec![
                             game::chat_message_core(&spoken),
-                            game::chat_message_local(PLAYER_ID, game::CHANNEL_ALL),
+                            game::chat_message_local(PLAYER_ID, channel),
                         ],
                         trace,
                     )
@@ -990,8 +984,13 @@ async fn answer(
                     Ok(true)
                 }
                 '/' => {
-                    // The only command that does not need the GM machinery: `/stuck` stops the agent.
-                    if spoken.trim() == "stuck" {
+                    // `/stuck` is the command that needs no other machinery. `/maps` is the one the
+                    // reference's GM file has that this world can answer honestly, because it knows
+                    // exactly which maps it hosts. `/tp` is not here: the reference teleports by asking
+                    // the auth service for a world and having the client reconnect, which is a travel
+                    // this server cannot start on its own.
+                    let command = spoken.trim();
+                    if command == "stuck" {
                         send(
                             stream,
                             session,
@@ -1000,14 +999,51 @@ async fn answer(
                         )
                         .await?;
                         Ok(true)
-                    } else {
-                        if trace {
-                            eprintln!("world: unknown command {spoken:?}");
+                    } else if command == "maps" {
+                        let answer = format!(
+                            "Maps on world {}: {}",
+                            world.world_id,
+                            world
+                                .maps
+                                .iter()
+                                .map(|map| format!("{} ({} slots)", map.map_id, map.map_type))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                        // The reference gates its own text: a GM answer is a message the *server* puts
+                        // on the wire, and `GWPS_CHAT`/`ASURA_CHAT` is what decides whether it does.
+                        if !chat_enabled() {
+                            eprintln!(
+                                "world: /maps answer not sent (ASURA_CHAT=1 to send): {answer}"
+                            );
+                            return Ok(true);
                         }
+                        send(
+                            stream,
+                            session,
+                            vec![
+                                game::chat_message_core(&answer),
+                                game::chat_message_server(game::CHANNEL_WARNING),
+                            ],
+                            trace,
+                        )
+                        .await?;
+                        Ok(true)
+                    } else {
+                        eprintln!("world: unknown command {spoken:?}");
                         Ok(true)
                     }
                 }
                 other => {
+                    // `@`, `%` and `"` are ignored by the reference; anything else it refuses.
+                    if matches!(other, '@' | '%' | '"') {
+                        if trace {
+                            eprintln!(
+                                "world: channel {other:?} ignored, as the reference ignores it"
+                            );
+                        }
+                        return Ok(true);
+                    }
                     eprintln!(
                         "world: chat on channel {other:?} refused, as the reference refuses it"
                     );
@@ -1021,23 +1057,17 @@ async fn answer(
 
         // The client drops an item (`GameSrv_HandleDropItem`, `0x802C`: `{item_id: u32, count: u8}`).
         //
-        // Copied from the reference rule for rule, including the two things it does *not* do, because a
-        // port that quietly fixes them is a port that no longer agrees with the thing it is measured
-        // against (`docs/07-status.md`):
+        // **This is where this port leaves the reference behind, deliberately.** The reference's handler
+        // creates an agent for the item and returns: it never removes the item from its bag, never
+        // frees its id, never sends `ITEM_REMOVE`, and bails out entirely when the count is smaller than
+        // the stack (`TODO: we must still implement this`) -- so dropping a stacked item there does
+        // nothing at all, and the client always sends `count = 1` for a stack. Its item agent also
+        // carries the item's *id* as its model id, so the thing on the ground is drawn as nothing. A
+        // measured live session (`docs/08-next-inventory-model.md`) showed all three in one log.
         //
-        // * **the item stays in its bag.** The reference finds it, checks it, and then creates an agent
-        //   for it -- without removing it from the slot, without freeing the item id, and without sending
-        //   `ITEM_REMOVE`. Dropping a cupcake therefore puts a cupcake on the ground and leaves the
-        //   original in the backpack. Its handler is plainly unfinished: the partial-stack branch below is
-        //   a `TODO` in its own source;
-        // * **the item agent's model id is the item's id**, not the item's model (`item_agent->model_id =
-        //   item->item_id`), which is not the model the dropped thing is drawn with. Copied for the same
-        //   reason, and noted here so nobody spends an afternoon finding it again.
-        //
-        // What it does do, and this does too: item id 0, an item in no bag, an item that is not in the
-        // bags it searches (backpack to bag 2), a count larger than the stack and a count smaller than it
-        // are all refused -- logged and then ignored, with nothing sent to the client, which is what the
-        // reference's `ERR_OK` returns amount to.
+        // What this does instead: take `count` off the stack for real, put the item on the ground with
+        // its own model, and tell the client what happened to its inventory. The deviations are recorded
+        // in `docs/07-status.md` and `docs/08-next-inventory-model.md`.
         0x802C => {
             let body = &frame.body;
             if body.len() < 5 {
@@ -1049,25 +1079,93 @@ async fn answer(
             Ok(true)
         }
 
+        // The client moves an item to a slot (`GAME_CMSG_ITEM_MOVE`, `0x8072`: `{item_id: u32,
+        // bag_id: u16, slot: u8}` -- the exact inverse of the `ITEM_MOVE_TO_LOCATION` we send). Measured
+        // from a live client: dragging an item produced two of these and nothing else.
+        //
+        // The client has already moved the item in its own model by the time it asks, so a refusal is
+        // answered by telling it where the item really is rather than by silence.
+        0x8072 => {
+            let body = &frame.body;
+            if body.len() < 7 {
+                return Err(GameError::Framing(FrameError::Incomplete { needed: 9 }));
+            }
+            let item_id = i32::from_le_bytes([body[0], body[1], body[2], body[3]]);
+            let bag_id = i32::from(u16::from_le_bytes([body[4], body[5]]));
+            let slot = i32::from(body[6]);
+            move_item(
+                stream,
+                session,
+                world,
+                play,
+                Placement {
+                    item_id,
+                    bag_id,
+                    slot,
+                },
+                trace,
+            )
+            .await?;
+            Ok(true)
+        }
+
+        // The client equips an item (`GAME_CMSG_EQUIP_ITEM`, `0x8030`: `{item_id: u32}`).
+        //
+        // The reference has no handler for this at all, so the behaviour here is this project's: the
+        // item moves into the equipped-items bag slot its type belongs to, whatever was worn there goes
+        // into the first free carrying slot, and the client is told what it is now wearing. The
+        // type-to-slot table is `game::equipped_slot`.
+        0x8030 => {
+            let body = &frame.body;
+            if body.len() < 4 {
+                return Err(GameError::Framing(FrameError::Incomplete { needed: 6 }));
+            }
+            let item_id = i32::from_le_bytes([body[0], body[1], body[2], body[3]]);
+            equip_item(stream, session, world, play, item_id, trace).await?;
+            Ok(true)
+        }
+
+        // `GAME_CMSG_UNEQUIP_ITEM` (`0x804F`, 6 bytes: `{u8, u16, u8}`). Its layout carries no item id,
+        // and nothing here has seen a live one, so this does not guess: unequipping by dragging an item
+        // out of the equipped-items bag arrives as `ITEM_MOVE` above and is handled there.
+        0x804F => {
+            eprintln!(
+                "world: 0x804F (unequip) is not implemented: it carries no item id and no live capture \
+                 has shown what it means; dragging the item out of the equipped bag works instead"
+            );
+            Ok(true)
+        }
+
+        // The client answered one of our pings (`GAME_CMSG_PING_REPLY`, `0x8009`, 10 bytes). Nothing to
+        // do: the reference discards it. Named rather than ignored, because a trace that says "ignored"
+        // twenty-nine times reads like a bug.
+        0x8009 => Ok(true),
+
+        // `GAME_CMSG_HEARTBEAT` (`0x800C`, 2 bytes). The other keep-alive, likewise discarded.
+        0x800C => Ok(true),
+
         // A message this world can frame but does not act on. Framing already happened, so ignoring it
-        // is safe and is what the reference does for most of them.
+        // is safe and is what the reference does for most of them. The name is in the trace when the
+        // generated table has one: "0x8072 ignored" is a riddle, "GAME_CMSG_ITEM_MOVE ignored" is a
+        // to-do.
         other => {
             if trace {
-                eprintln!("world: {other:#06X} ignored");
+                let name = asura_protocol::client::game_tables::lookup(other, true)
+                    .and_then(|entry| entry.name)
+                    .unwrap_or("unnamed");
+                eprintln!("world: {other:#06X} {name} ignored");
             }
             Ok(true)
         }
     }
 }
 
-/// `GameSrv_HandleDropItem`: put an item agent on the ground, and tell everyone in the instance.
+/// `GameSrv_HandleDropItem`, finished: take the items off the stack for real and put one on the ground.
 ///
-/// See the match arm above for what the reference does *not* do. The agent's fields are the reference's
-/// own choices, unaltered: the player's position offset by (30, 30), the same plane, facing x, an agent
-/// left at zero for everything `GameSrv_CreateAgent`'s `memset` covers -- which is its speed and its team
-/// token. The broadcast includes the dropping player, because `GameSrv_BroadcastMessage` walks every
-/// connection without filtering the sender; with one connection in the world that is this one, which is
-/// why this writes to the socket it was given instead of keeping a list of connections.
+/// The agent is the reference's own shape -- the player's position plus (30, 30), the same plane, facing
+/// x, an agent left at zero for everything `GameSrv_CreateAgent`'s `memset` covers, which is its speed
+/// and its team token. Its model is the item's *model*, which is the one field the reference gets wrong
+/// in a way a client can see.
 async fn drop_item(
     stream: &mut TcpStream,
     session: &mut Session,
@@ -1077,10 +1175,8 @@ async fn drop_item(
     count: i32,
     trace: bool,
 ) -> Result<(), GameError> {
-    if item_id == 0 {
-        eprintln!(
-            "world: a drop names item 0, which is not an item; ignored as the reference ignores it"
-        );
+    if item_id <= 0 || count <= 0 {
+        eprintln!("world: a drop of {count} of item {item_id} names something that is not an item");
         return Ok(());
     }
 
@@ -1094,32 +1190,67 @@ async fn drop_item(
         );
         return Ok(());
     };
-
-    if item.quantity < count {
+    if count > item.quantity {
         eprintln!(
             "world: a drop of {count} of item {item_id} is more than the {} it holds; ignored",
             item.quantity
         );
         return Ok(());
     }
-    if count < item.quantity {
-        // The reference's own `TODO`: a partial stack is not implemented, and its handler returns before
-        // doing anything at all.
-        eprintln!(
-            "world: a partial drop ({count} of item {item_id} of {}) is not implemented, in the reference \
-             or here; ignored",
-            item.quantity
-        );
+
+    let Some(taken) = db_inventory::take_from_stack(&world.pool, play.character, item_id, count)
+        .await
+        .map_err(GameError::Database)?
+    else {
+        eprintln!("world: item {item_id} could not be taken out of its stack; ignored");
         return Ok(());
-    }
+    };
 
     let agent_id = play.agents.allocate();
-    let player = &play.agents.player;
-    let agent = game::CreateAgent {
+    let frames = drop_messages(agent_id, &taken, &play.agents.player);
+    if trace {
+        eprintln!(
+            "world: {} dropped {count} of item {item_id} at ({:.1}, {:.1}) on agent {agent_id}, {} left",
+            play.name,
+            play.agents.player.position.0 + DROP_OFFSET,
+            play.agents.player.position.1 + DROP_OFFSET,
+            taken.remaining
+        );
+    }
+    send(stream, session, frames, trace).await?;
+    reload(world, play).await
+}
+
+/// The messages a drop puts on the wire, in the order the client needs them.
+///
+/// **`ITEM_REMOVE` and then the item again**: neither message family has a "this item's quantity
+/// changed", so a stack that lost something is removed from the client's model and re-created at what is
+/// left, in the slot it was in. That is the same rebuild the reference does when it resends a bag
+/// (`GameSrv_SendBagItems`: create, then move).
+pub fn drop_messages(
+    agent_id: u32,
+    taken: &db_inventory::Taken,
+    player: &crate::agent::AgentState,
+) -> Vec<Frame> {
+    let item = &taken.item;
+    let mut frames = Vec::with_capacity(4);
+    frames.push(game::item_remove(ITEM_STREAM, wire_u32(item.id)));
+    if taken.remaining > 0 {
+        let mut left = item.clone();
+        left.quantity = taken.remaining;
+        frames.push(game::create_named_item(&named_item(&left)));
+        if let (Some(bag), Some(slot)) = (left.bag_id, left.slot) {
+            frames.push(game::item_move_to_location(
+                ITEM_STREAM,
+                wire_u32(left.id),
+                wire_u16(bag),
+                wire_u8(slot),
+            ));
+        }
+    }
+    frames.push(game::world_create_agent(&game::CreateAgent {
         agent_id,
-        // The reference's own line: `item_agent->model_id = item->item_id`. The item's *model* is the
-        // field it should have used; see the note on the handler.
-        model_id: wire_u32(item.id),
+        model_id: wire_u32(item.model_id),
         agent_type: game::AGENT_TYPE_ITEM,
         position: (
             player.position.0 + DROP_OFFSET,
@@ -1129,20 +1260,211 @@ async fn drop_item(
         direction: (1.0, 0.0),
         speed_base: 0.0,
         player_team_token: 0,
-    };
-    if trace {
-        eprintln!(
-            "world: {} dropped item {item_id} at ({:.1}, {:.1}), agent {agent_id}",
-            play.name, agent.position.0, agent.position.1
-        );
+    }));
+    frames
+}
+
+/// An item and where it is being put: the three fields `GAME_CMSG_ITEM_MOVE` carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Placement {
+    item_id: i32,
+    bag_id: i32,
+    slot: i32,
+}
+
+/// `GAME_CMSG_ITEM_MOVE`: put an item in a slot, and tell the client where it ended up.
+async fn move_item(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    world: &World,
+    play: &mut Play,
+    placement: Placement,
+    trace: bool,
+) -> Result<(), GameError> {
+    let Placement {
+        item_id,
+        bag_id,
+        slot,
+    } = placement;
+    let before = play.inventory.equipped_item_ids();
+    let outcome = db_inventory::move_item(&world.pool, play.character, item_id, bag_id, slot)
+        .await
+        .map_err(GameError::Database)?;
+
+    let mut frames = Vec::with_capacity(2);
+    match outcome {
+        db_inventory::MoveOutcome::At { bag_id, slot, .. } => {
+            if trace {
+                eprintln!("world: item {item_id} moved to bag {bag_id} slot {slot}");
+            }
+            frames.push(game::item_move_to_location(
+                ITEM_STREAM,
+                wire_u32(item_id),
+                wire_u16(bag_id),
+                wire_u8(slot),
+            ));
+            reload(world, play).await?;
+        }
+        db_inventory::MoveOutcome::Unchanged { .. } => return Ok(()),
+        db_inventory::MoveOutcome::Refused { item, reason } => {
+            eprintln!("world: item {item_id} to bag {bag_id} slot {slot} refused: {reason:?}");
+            // The client moved it in its own model before asking, so put it back where it really is.
+            if let Some(item) = item {
+                if let (Some(bag), Some(slot)) = (item.bag_id, item.slot) {
+                    frames.push(game::item_move_to_location(
+                        ITEM_STREAM,
+                        wire_u32(item_id),
+                        wire_u16(bag),
+                        wire_u8(slot),
+                    ));
+                }
+            }
+        }
     }
-    send(
-        stream,
-        session,
-        vec![game::world_create_agent(&agent)],
-        trace,
-    )
-    .await
+
+    if play.inventory.equipped_item_ids() != before {
+        frames.push(equipment_frame(play));
+    }
+    send(stream, session, frames, trace).await
+}
+
+/// `GAME_CMSG_EQUIP_ITEM`: wear an item, evicting whatever the equipped slot already held.
+async fn equip_item(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    world: &World,
+    play: &mut Play,
+    item_id: i32,
+    trace: bool,
+) -> Result<(), GameError> {
+    let Some(item) = play.inventory.item(item_id).cloned() else {
+        eprintln!(
+            "world: an equip names item {item_id}, which {0:?} does not have",
+            play.name
+        );
+        return Ok(());
+    };
+    let Some(slot) = game::equipped_slot(wire_u8(item.item_type)) else {
+        eprintln!(
+            "world: item {item_id} (type {}) is not something a character wears; equip ignored",
+            item.item_type
+        );
+        return Ok(());
+    };
+    let Some(bag) = play
+        .inventory
+        .bags
+        .iter()
+        .find(|bag| bag.bag_model_id == db_inventory::EQUIPPED_ITEMS_MODEL)
+        .copied()
+    else {
+        eprintln!(
+            "world: {0:?} has no equipped-items bag; equip ignored",
+            play.name
+        );
+        return Ok(());
+    };
+
+    let slot = i32::from(slot);
+    let before = play.inventory.equipped_item_ids();
+    let mut frames = Vec::with_capacity(3);
+
+    // Whatever is worn in that slot has to come off first, and there has to be somewhere to put it.
+    let occupant = play
+        .inventory
+        .items_in(bag.bag_id)
+        .into_iter()
+        .find(|item| item.slot == Some(slot) && item.id != item_id)
+        .cloned();
+    if let Some(occupant) = occupant {
+        let Some((to_bag, to_slot)) =
+            db_inventory::first_free_carrying_slot(&world.pool, play.character)
+                .await
+                .map_err(GameError::Database)?
+        else {
+            eprintln!(
+                "world: no free carrying slot to take item {} off, so item {item_id} cannot be worn",
+                occupant.id
+            );
+            return Ok(());
+        };
+        match db_inventory::move_item(&world.pool, play.character, occupant.id, to_bag, to_slot)
+            .await
+            .map_err(GameError::Database)?
+        {
+            db_inventory::MoveOutcome::At { bag_id, slot, .. } => {
+                if trace {
+                    eprintln!(
+                        "world: item {} taken off to bag {bag_id} slot {slot}",
+                        occupant.id
+                    );
+                }
+                frames.push(game::item_move_to_location(
+                    ITEM_STREAM,
+                    wire_u32(occupant.id),
+                    wire_u16(bag_id),
+                    wire_u8(slot),
+                ));
+            }
+            outcome => {
+                eprintln!(
+                    "world: could not take item {} off to make room for {item_id}: {outcome:?}",
+                    occupant.id
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    match db_inventory::move_item(&world.pool, play.character, item_id, bag.bag_id, slot)
+        .await
+        .map_err(GameError::Database)?
+    {
+        db_inventory::MoveOutcome::At { bag_id, slot, .. } => {
+            if trace {
+                eprintln!("world: item {item_id} worn in equipped slot {slot}");
+            }
+            frames.push(game::item_move_to_location(
+                ITEM_STREAM,
+                wire_u32(item_id),
+                wire_u16(bag_id),
+                wire_u8(slot),
+            ));
+        }
+        db_inventory::MoveOutcome::Unchanged { .. } => {}
+        db_inventory::MoveOutcome::Refused { item, reason } => {
+            eprintln!("world: equipping item {item_id} refused: {reason:?}");
+            if let Some(item) = item {
+                if let (Some(bag), Some(slot)) = (item.bag_id, item.slot) {
+                    frames.push(game::item_move_to_location(
+                        ITEM_STREAM,
+                        wire_u32(item_id),
+                        wire_u16(bag),
+                        wire_u8(slot),
+                    ));
+                }
+            }
+        }
+    }
+
+    reload(world, play).await?;
+    if play.inventory.equipped_item_ids() != before {
+        frames.push(equipment_frame(play));
+    }
+    send(stream, session, frames, trace).await
+}
+
+/// `UPDATE_AGENT_VISUAL_EQUIPMENT`: what the agent is wearing, read out of the equipped-items bag.
+fn equipment_frame(play: &Play) -> Frame {
+    game::update_agent_visual_equipment(AGENT_ID, play.inventory.equipped_item_ids())
+}
+
+/// Re-read the inventory after a change, so the next message built from it is the new truth.
+async fn reload(world: &World, play: &mut Play) -> Result<(), GameError> {
+    play.inventory = db_inventory::load(&world.pool, play.character)
+        .await
+        .map_err(GameError::Database)?;
+    Ok(())
 }
 
 /// How far from the player the reference puts an item it drops: `Vec2fAdd(position, (30, 30))`.
@@ -1660,44 +1982,133 @@ mod tests {
         );
     }
 
+    /// A cupcake as the reference's own inventory carries it: a stack in the backpack's first slot.
+    fn cupcake(quantity: i32) -> db_inventory::Item {
+        db_inventory::Item {
+            id: 750,
+            bag_id: Some(1),
+            slot: Some(0),
+            file_id: 0x47C34,
+            item_type: 9, // ItemType_Consumable
+            model_id: 22269,
+            dye_tint: 0,
+            dye_colors: 0,
+            materials: 0,
+            unk1: 0,
+            flags: 0x2108_0201,
+            value: 0,
+            quantity,
+            profession: 0,
+            name: Vec::new(),
+            modifiers: Vec::new(),
+        }
+    }
+
     #[test]
-    fn a_dropped_item_becomes_an_item_agent_a_hundred_and_eighty_units_away() {
-        // `GameSrv_HandleDropItem`: an agent of type 4 at the player's position plus (30, 30), facing x,
-        // with the item's *id* as its model (the reference's own line, which is noted in the handler).
+    fn a_drop_of_one_out_of_a_stack_deducts_one_and_shows_a_cupcake() {
+        // The live session's own numbers: the client asks to drop 1 of a stack of 100, and the reference
+        // answers nothing at all because its partial-stack branch is a `TODO`. This is what should have
+        // happened -- the stack is rebuilt at 99, and the thing on the ground is the item's *model*.
         let player =
             crate::agent::AgentState::new(AGENT_ID, (6602.0, 4485.0), 0, game::PLAYER_SPEED_BASE);
-        let agent = game::CreateAgent {
-            agent_id: 2,
-            model_id: 2,
-            agent_type: game::AGENT_TYPE_ITEM,
-            position: (
-                player.position.0 + DROP_OFFSET,
-                player.position.1 + DROP_OFFSET,
-            ),
-            plane: player.plane,
-            direction: (1.0, 0.0),
-            speed_base: 0.0,
-            player_team_token: 0,
+        let taken = db_inventory::Taken {
+            item: cupcake(100),
+            remaining: 99,
         };
-        let bytes = game::world_create_agent(&agent).encode();
-        assert_eq!(bytes.len(), 99, "the reference's fixed agent message");
-        // header(2) agent_id(4) model_id(4) agent_type(1) h000B(1) position(8) plane(2) ...
+        let frames = drop_messages(2, &taken, &player);
+        let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
         assert_eq!(
-            u32::from_le_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]),
-            2,
-            "the item id is the model id, as the reference writes it"
+            headers,
+            vec![
+                game::ITEM_REMOVE,
+                game::CREATE_NAMED_ITEM,
+                game::ITEM_MOVE_TO_LOCATION,
+                game::WORLD_CREATE_AGENT
+            ],
+            "the stack is removed, re-created at what is left, put back in its slot, then the agent"
         );
-        assert_eq!(bytes[10], game::AGENT_TYPE_ITEM, "AgentType_Item");
+
+        // The item leaves the client's model first, by id.
+        let removed = &frames[0].body;
         assert_eq!(
-            f32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+            u32::from_le_bytes([removed[2], removed[3], removed[4], removed[5]]),
+            750
+        );
+
+        // Re-created at 99: quantity is the eleventh dword of the message's fixed part.
+        let rebuilt = &frames[1].body;
+        assert_eq!(
+            u32::from_le_bytes([rebuilt[27], rebuilt[28], rebuilt[29], rebuilt[30]]),
+            99,
+            "what is left of the stack"
+        );
+
+        // The agent carries the model, not the item id.
+        let agent = &frames[3].body;
+        assert_eq!(
+            u32::from_le_bytes([agent[4], agent[5], agent[6], agent[7]]),
+            22269,
+            "a cupcake's model, which is what the client can draw"
+        );
+        assert_eq!(agent[8], game::AGENT_TYPE_ITEM, "AgentType_Item");
+        assert_eq!(
+            f32::from_le_bytes([agent[10], agent[11], agent[12], agent[13]]),
             6632.0,
             "the player's x plus 30"
         );
         assert_eq!(
-            f32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]),
+            f32::from_le_bytes([agent[14], agent[15], agent[16], agent[17]]),
             4515.0,
             "and the player's y plus 30"
         );
+    }
+
+    #[test]
+    fn a_drop_of_a_whole_stack_removes_it_and_never_re_creates_it() {
+        let player =
+            crate::agent::AgentState::new(AGENT_ID, (6602.0, 4485.0), 0, game::PLAYER_SPEED_BASE);
+        let taken = db_inventory::Taken {
+            item: cupcake(100),
+            remaining: 0,
+        };
+        let headers: Vec<u16> = drop_messages(2, &taken, &player)
+            .iter()
+            .map(|frame| frame.header)
+            .collect();
+        assert_eq!(
+            headers,
+            vec![game::ITEM_REMOVE, game::WORLD_CREATE_AGENT],
+            "nothing is left to put back"
+        );
+    }
+
+    #[test]
+    fn the_chat_messages_a_line_produces_are_the_references_pair() {
+        // The reference answers a spoken line with the text and then the speaker (`GameSrv_HandleLocal
+        // Message`); it gates the text *it* generates, not the text a player types, which is why the gate
+        // is not consulted for this pair.
+        let frames = [
+            game::chat_message_core("hello"),
+            game::chat_message_local(PLAYER_ID, game::CHANNEL_ALL),
+        ];
+        assert_eq!(frames[0].header, game::CHAT_MESSAGE_CORE);
+        assert_eq!(
+            frames[0].len(),
+            2 + 2 + 2 * 5,
+            "five code units: a count, then the text"
+        );
+        assert_eq!(frames[1].len(), 10);
+        assert_eq!(
+            u32::from_le_bytes([
+                frames[1].body[4],
+                frames[1].body[5],
+                frames[1].body[6],
+                frames[1].body[7]
+            ]),
+            game::CHANNEL_ALL
+        );
+        assert_eq!(game::CHANNEL_GROUP, 11, "Channel_Group");
+        assert_eq!(game::CHANNEL_TRADE, 12, "Channel_Trade");
     }
 
     #[test]

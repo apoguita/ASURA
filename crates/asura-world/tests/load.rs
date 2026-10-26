@@ -548,7 +548,7 @@ async fn say(stream: &mut TcpStream, client: &mut ReferenceClient, header: u16, 
 }
 
 #[tokio::test]
-async fn a_dropped_item_becomes_an_agent_and_stays_in_the_bag() {
+async fn a_dropped_item_leaves_the_stack_and_lands_on_the_ground() {
     if skip() {
         return;
     }
@@ -575,19 +575,28 @@ async fn a_dropped_item_becomes_an_agent_and_stays_in_the_bag() {
     let cupcake = inventory.items_in(1)[0].clone();
     assert_eq!(cupcake.slot, Some(0));
     assert_eq!(cupcake.quantity, 100);
+    assert_eq!(cupcake.model_id, 22269, "the cupcake's own model");
 
-    // `GAME_CMSG_DROP_ITEM`: `{item_id: u32, count: u8}`. The whole stack, which is the only thing the
-    // reference implements.
+    // `GAME_CMSG_DROP_ITEM`: `{item_id: u32, count: u8}`. **One** of a stack of a hundred, which is what
+    // a real client sends when an item is dragged out of the bag -- and what the reference refuses,
+    // because its partial-stack branch is a `TODO`.
     let mut body = Vec::new();
     body.extend_from_slice(&(cupcake.id as u32).to_le_bytes());
-    body.push(100);
+    body.push(1);
     say(&mut stream, &mut client, 0x802C, &body).await;
 
     let frames = read_until(&mut stream, &mut client, game::WORLD_CREATE_AGENT).await;
-    let agent = frames
+    let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
+    let agent_at = headers
         .iter()
-        .find(|frame| frame.header == game::WORLD_CREATE_AGENT)
+        .position(|header| *header == game::WORLD_CREATE_AGENT)
         .expect("the drop created an agent");
+    assert!(
+        headers[..agent_at].contains(&game::ITEM_REMOVE),
+        "the stack left the client's model before the new one appeared"
+    );
+
+    let agent = &frames[agent_at];
     assert_eq!(agent.len(), 99, "the reference's fixed agent message");
     assert_eq!(
         agent.body[8],
@@ -596,19 +605,31 @@ async fn a_dropped_item_becomes_an_agent_and_stays_in_the_bag() {
     );
     assert_eq!(
         u32::from_le_bytes([agent.body[4], agent.body[5], agent.body[6], agent.body[7]]),
-        cupcake.id as u32,
-        "and its model id is the item's id, which is what the reference writes"
+        cupcake.model_id as u32,
+        "and the agent draws the item's model -- not its id, which is what the reference sends"
     );
 
-    // The reference does not take the item out of the bag, and neither does this: a drop is a second
-    // copy of the item standing on the ground, which is the reference's own unfinished handler.
+    // It was one of a hundred, so ninety-nine are left, in the slot they were in.
     let after = db_inventory::load(&harness.pool, harness.character)
         .await
         .expect("read the inventory");
+    let left = after.item(cupcake.id).expect("the stack is still there");
+    assert_eq!(left.quantity, 99, "one cupcake went to the ground");
+    assert_eq!(left.slot, Some(0), "and the rest stayed where they were");
+
+    // Dropping the rest empties the row: the item is gone, and nothing re-creates it.
+    let mut body = (cupcake.id as u32).to_le_bytes().to_vec();
+    body.push(99);
+    say(&mut stream, &mut client, 0x802C, &body).await;
+    ask(&mut stream, &mut client, 0x800D, 2).await;
+    read_until(&mut stream, &mut client, game::PING_REPLY).await;
+    let emptied = db_inventory::load(&harness.pool, harness.character)
+        .await
+        .expect("read the inventory");
     assert_eq!(
-        after.items_in(1)[0].id,
-        cupcake.id,
-        "the dropped item is still in the backpack, as the reference leaves it"
+        emptied.item(cupcake.id),
+        None,
+        "the last of the stack went to the ground and the row with it"
     );
 
     // A drop of something that is not carried is answered with nothing at all, and does not end the
@@ -623,6 +644,227 @@ async fn a_dropped_item_becomes_an_agent_and_stays_in_the_bag() {
             .iter()
             .any(|frame| frame.header == game::WORLD_CREATE_AGENT),
         "an item nobody carries creates no agent"
+    );
+
+    drop(stream);
+    assert!(harness.slot_released().await, "the slot went back");
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
+#[tokio::test]
+async fn an_item_can_be_moved_between_slots_and_the_server_agrees() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    let version = harness.version(harness.player_token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused a token the auth service had just issued");
+    };
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_INFO).await;
+
+    let inventory = db_inventory::load(&harness.pool, harness.character)
+        .await
+        .expect("read the inventory");
+    let cupcake = inventory.items_in(1)[0].clone();
+    assert_eq!(cupcake.slot, Some(0));
+
+    // `GAME_CMSG_ITEM_MOVE`: `{item_id: u32, bag_id: u16, slot: u8}` -- what a live client sent when an
+    // item was dragged, twice, and this server used to ignore.
+    let move_to = |bag_id: u16, slot: u8, item: i32| {
+        let mut body = (item as u32).to_le_bytes().to_vec();
+        body.extend_from_slice(&bag_id.to_le_bytes());
+        body.push(slot);
+        body
+    };
+    say(&mut stream, &mut client, 0x8072, &move_to(1, 5, cupcake.id)).await;
+    let frames = read_until(&mut stream, &mut client, game::ITEM_MOVE_TO_LOCATION).await;
+    let echo = frames
+        .iter()
+        .rev()
+        .find(|frame| frame.header == game::ITEM_MOVE_TO_LOCATION)
+        .expect("the move is echoed");
+    assert_eq!(
+        u32::from_le_bytes([echo.body[2], echo.body[3], echo.body[4], echo.body[5]]),
+        cupcake.id as u32
+    );
+    assert_eq!(
+        u16::from_le_bytes([echo.body[6], echo.body[7]]),
+        1,
+        "the bag the client asked for"
+    );
+    assert_eq!(echo.body[8], 5, "and the slot");
+
+    let moved = db_inventory::load(&harness.pool, harness.character)
+        .await
+        .expect("read the inventory");
+    assert_eq!(
+        moved.item(cupcake.id).and_then(|item| item.slot),
+        Some(5),
+        "and the row moved with it"
+    );
+
+    // Moving onto an occupied slot is refused, and the client is *told where the item really is* --
+    // it has already moved it in its own model by the time it asks.
+    let occupied = inventory
+        .items_in(1)
+        .into_iter()
+        .find(|item| item.id != cupcake.id)
+        .map(|item| item.slot.unwrap_or(1))
+        .expect("a second cupcake in the backpack");
+    say(
+        &mut stream,
+        &mut client,
+        0x8072,
+        &move_to(1, occupied as u8, cupcake.id),
+    )
+    .await;
+    ask(&mut stream, &mut client, 0x800D, 2).await;
+    let frames = read_until(&mut stream, &mut client, game::PING_REPLY).await;
+    let snap_back = frames
+        .iter()
+        .rev()
+        .find(|frame| frame.header == game::ITEM_MOVE_TO_LOCATION)
+        .expect("a refusal puts the client's model back");
+    assert_eq!(snap_back.body[8], 5, "still in the slot it really is in");
+    let unchanged = db_inventory::load(&harness.pool, harness.character)
+        .await
+        .expect("read the inventory");
+    assert_eq!(
+        unchanged.item(cupcake.id).and_then(|item| item.slot),
+        Some(5),
+        "and nothing was written"
+    );
+
+    drop(stream);
+    assert!(harness.slot_released().await, "the slot went back");
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
+#[tokio::test]
+async fn an_item_can_be_taken_off_and_worn_again() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    let version = harness.version(harness.player_token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused a token the auth service had just issued");
+    };
+    // The players block is where the agent's equipment is sent, so read to the end of the load.
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_INFO).await;
+    ask(&mut stream, &mut client, 0x8090, 19).await;
+    let frames = read_until(&mut stream, &mut client, game::INSTANCE_LOAD_FINISH).await;
+
+    // The ids are this character's own (the sequence's), not the capture's: the capture's 1..9 only
+    // happen in a database where nothing has been seeded before.
+    let inventory = db_inventory::load(&harness.pool, harness.character)
+        .await
+        .expect("read the inventory");
+    let worn_ids = inventory.equipped_item_ids();
+    let worn = frames
+        .iter()
+        .find(|frame| frame.header == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
+        .expect("the visual equipment");
+    assert_eq!(
+        u32::from_le_bytes([worn.body[4], worn.body[5], worn.body[6], worn.body[7]]),
+        worn_ids[0],
+        "the weapon slot holds the item the equipped bag says it does"
+    );
+    assert_ne!(worn_ids[0], 0, "and the character is dressed");
+
+    let equipped_bag = inventory
+        .bags
+        .iter()
+        .find(|bag| bag.bag_model_id == db_inventory::EQUIPPED_ITEMS_MODEL)
+        .expect("the equipped-items bag")
+        .bag_id;
+    let weapon = inventory
+        .items_in(equipped_bag)
+        .into_iter()
+        .find(|item| item.slot == Some(0))
+        .cloned()
+        .expect("the hammer in the weapon slot");
+
+    // Take it off by dragging it out of the equipped bag: `ITEM_MOVE` into a free carrying slot.
+    let free = db_inventory::first_free_carrying_slot(&harness.pool, harness.character)
+        .await
+        .expect("find a free slot")
+        .expect("the backpack has room");
+    let mut body = (weapon.id as u32).to_le_bytes().to_vec();
+    body.extend_from_slice(&(free.0 as u16).to_le_bytes());
+    body.push(free.1 as u8);
+    say(&mut stream, &mut client, 0x8072, &body).await;
+    let frames = read_until(
+        &mut stream,
+        &mut client,
+        game::UPDATE_AGENT_VISUAL_EQUIPMENT,
+    )
+    .await;
+    let now_wearing = frames
+        .iter()
+        .rev()
+        .find(|frame| frame.header == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
+        .expect("taking the weapon off changes what the agent wears");
+    assert_eq!(
+        u32::from_le_bytes([
+            now_wearing.body[4],
+            now_wearing.body[5],
+            now_wearing.body[6],
+            now_wearing.body[7]
+        ]),
+        0,
+        "the weapon slot is empty now"
+    );
+
+    // Put it back on: `GAME_CMSG_EQUIP_ITEM`, `{item_id: u32}`.
+    say(
+        &mut stream,
+        &mut client,
+        0x8030,
+        &(weapon.id as u32).to_le_bytes(),
+    )
+    .await;
+    let frames = read_until(
+        &mut stream,
+        &mut client,
+        game::UPDATE_AGENT_VISUAL_EQUIPMENT,
+    )
+    .await;
+    let wearing_again = frames
+        .iter()
+        .rev()
+        .find(|frame| frame.header == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
+        .expect("equipping changes what the agent wears");
+    assert_eq!(
+        u32::from_le_bytes([
+            wearing_again.body[4],
+            wearing_again.body[5],
+            wearing_again.body[6],
+            wearing_again.body[7]
+        ]),
+        weapon.id as u32,
+        "and the hammer is back in the weapon slot"
+    );
+    let after = db_inventory::load(&harness.pool, harness.character)
+        .await
+        .expect("read the inventory");
+    assert_eq!(
+        after.item(weapon.id).and_then(|item| item.bag_id),
+        Some(equipped_bag),
+        "the row is in the equipped bag again"
     );
 
     drop(stream);
