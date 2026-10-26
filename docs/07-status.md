@@ -39,6 +39,13 @@ that nobody reads the table above as more than it says:
   moved, dropped or bought (`game::default_inventory`);
 - **instances** are prebuilt per map and never created on demand, and only outposts are hosted;
 - **persistence** does not exist yet: a character's position is not written when it leaves;
+- **character creation** (the four `CHAR_CREATION_*` handlers) needs two things this server does
+  not have. The reference only offers it inside a *character-creation* instance (its
+  `MapType_CharacterCreation`), and this world hosts outposts only; and
+  `GameSrv_HandleCharCreationChangeProf` answers with the default equipment for the chosen
+  campaign and profession (`GetDefaultEquipments`), a table this project has not ported. Doing
+  the handlers without those two would send a creation screen the client cannot leave with a
+  character it cannot equip;
 - **the game connection's front door** is a byte-copy router; the reference hands the socket
   itself to the game server, which needs one process and is not what this does
   (`crates/asura-auth/src/frontdoor.rs`).
