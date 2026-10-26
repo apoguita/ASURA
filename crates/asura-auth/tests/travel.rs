@@ -261,16 +261,18 @@ async fn a_travel_request_is_answered_with_a_reachable_world() {
     assert_eq!(dword(8), map_id as u32, "the map is the one asked for");
     assert_ne!(dword(36), 0, "a player token was issued");
 
-    // The host blob: AF_INET little endian, port big endian, then the address bytes.
+    // The host blob: AF_INET little endian, port big endian, then the address bytes. It names the
+    // **auth** address, because that is where a client dials its game connection (measured, not
+    // assumed) and where this service routes it onwards.
     assert_eq!(&info.body[12..14], &[0x02, 0x00], "AF_INET, little endian");
     assert_eq!(
         &info.body[14..16],
-        &(world_address.port()).to_be_bytes(),
-        "the port is big endian"
+        &(harness.address.port()).to_be_bytes(),
+        "the port is big endian, and it is the auth port"
     );
-    let advertised = match world_address.ip() {
+    let advertised = match harness.address.ip() {
         std::net::IpAddr::V4(v4) => v4.octets(),
-        std::net::IpAddr::V6(_) => panic!("the test world binds IPv4"),
+        std::net::IpAddr::V6(_) => panic!("the test listener binds IPv4"),
     };
     assert_eq!(&info.body[16..20], &advertised, "and the address itself");
 

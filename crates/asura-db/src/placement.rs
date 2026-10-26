@@ -327,6 +327,48 @@ pub struct WorldCandidate {
     pub capacity: i32,
 }
 
+/// Where a world server can be reached: what it registered, and whether it is still saying it is alive.
+///
+/// The auth service needs this for two different jobs, which is why it is not folded into
+/// [`find_worlds`]: offering a world to a client is a *placement* question (is there a pool, is there
+/// room), while routing the client's game connection is a *routing* question (which world did it
+/// name, and where does that world actually live). A world can answer the second while being ineligible
+/// for the first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorldEndpoint {
+    pub world_id: i32,
+    pub name: String,
+    pub address: String,
+    pub port: i32,
+    pub fresh: bool,
+}
+
+/// The world with this id, if it was ever registered.
+pub async fn world_endpoint(
+    pool: &PgPool,
+    world_id: i32,
+    max_age_secs: f64,
+) -> sqlx::Result<Option<WorldEndpoint>> {
+    let row: Option<(i32, String, String, i32, bool)> = sqlx::query_as(
+        "SELECT id, name, address, port,
+                heartbeat_at > now() - make_interval(secs => $2::float8)
+           FROM world WHERE id = $1",
+    )
+    .bind(world_id)
+    .bind(max_age_secs)
+    .fetch_optional(pool)
+    .await?;
+    Ok(
+        row.map(|(world_id, name, address, port, fresh)| WorldEndpoint {
+            world_id,
+            name,
+            address,
+            port,
+            fresh,
+        }),
+    )
+}
+
 /// Every world that could serve `map_id` right now, best first.
 ///
 /// "Could" is deliberately four conditions, and each one is a way a naive lookup goes wrong:

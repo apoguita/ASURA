@@ -99,6 +99,7 @@ pub async fn answer(
     account_id: Option<Uuid>,
     character_id: Option<Uuid>,
     request: GameInstanceRequest,
+    advertised: SocketAddr,
     trace: bool,
 ) -> Result<Vec<Frame>, ConnectionError> {
     let map_id = i32::try_from(request.map_id).unwrap_or(-1);
@@ -216,7 +217,7 @@ pub async fn answer(
         if trace {
             eprintln!(
                 "auth: travel to map {map_id} placed on world {} ({}) at {address}, player token \
-                 {player_token:#010X}",
+                 {player_token:#010X}; the client is told to dial {advertised}",
                 candidate.world_id, candidate.name
             );
         }
@@ -226,7 +227,11 @@ pub async fn answer(
                 request.request,
                 candidate.world_id as u32,
                 map_id as u32,
-                messages::host_for(address),
+                // What the client dials, which is this service: the game connection arrives at the
+                // auth port and is routed to `address` (`frontdoor`). Advertising the world's own
+                // address would be a lie the client cannot act on — measured: it dials the auth
+                // address regardless of what this field says.
+                messages::host_for(advertised),
                 player_token,
             ),
             RequestResponse {

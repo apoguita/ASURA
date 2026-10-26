@@ -26,6 +26,7 @@
 //!   the session stays closed (`asura_db::login::find_session` returns `None`).
 
 use std::io;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use asura_db::login as db_login;
@@ -42,6 +43,10 @@ use uuid::Uuid;
 
 /// Answering `AUTH_CMSG_REQUEST_GAME_INSTANCE`: which world, and whether there is one at all.
 pub mod travel;
+
+/// The game connection's front door: a client that was told where to play connects *here*, and this
+/// service routes it to the world it named.
+pub mod frontdoor;
 
 /// How long a connection may sit without sending anything before it is dropped.
 ///
@@ -100,6 +105,9 @@ pub enum ConnectionError {
     Idle,
     /// The database failed.
     Database(asura_db::DatabaseError),
+    /// A game connection could not be routed to the world that client named. The client's socket is
+    /// closed without a message, which is what the reference does when it cannot place a connection.
+    GameRoute(String),
 }
 
 impl core::fmt::Display for ConnectionError {
@@ -118,6 +126,7 @@ impl core::fmt::Display for ConnectionError {
             ConnectionError::Message(err) => write!(f, "message: {err}"),
             ConnectionError::Idle => write!(f, "connection was idle"),
             ConnectionError::Database(err) => write!(f, "database: {err}"),
+            ConnectionError::GameRoute(reason) => write!(f, "game connection not routed: {reason}"),
         }
     }
 }
@@ -158,7 +167,15 @@ pub use asura_protocol::Trace;
 /// (`docs/02-architecture.md`, "Startup order").
 pub async fn serve(listener: TcpListener, pool: PgPool, trace: Trace) -> io::Result<()> {
     let address = listener.local_addr()?;
+    // What a client is told to dial for its game connection. It is this service's own address,
+    // because that is where a real client dials — measured, not assumed: a client answered
+    // `GAME_SERVER_INFO` naming port 6113 by connecting to this port anyway, exactly as it does
+    // against the reference, whose info message names its own auth address.
+    let advertised = advertised_address(address);
     eprintln!("asura-auth: listening on {address}");
+    if advertised != address {
+        eprintln!("asura-auth: advertising {advertised} to clients for game connections");
+    }
     if trace.on() {
         eprintln!("asura-auth: per-message trace on (ASURA_TRACE)");
     }
@@ -167,7 +184,7 @@ pub async fn serve(listener: TcpListener, pool: PgPool, trace: Trace) -> io::Res
         let (stream, peer) = listener.accept().await?;
         let pool = pool.clone();
         tokio::spawn(async move {
-            match handle_connection(stream, &pool, trace).await {
+            match handle_connection(stream, &pool, trace, advertised).await {
                 Ok(()) => {
                     if trace.on() {
                         eprintln!("auth: {peer} closed");
@@ -179,11 +196,32 @@ pub async fn serve(listener: TcpListener, pool: PgPool, trace: Trace) -> io::Res
     }
 }
 
+/// The address to hand a client for its game connection: `ASURA_AUTH_PUBLIC` when it is set, otherwise
+/// the address this service is bound to.
+///
+/// A server behind a NAT is the reason this is configurable: it listens on a private address and is
+/// reached at a public one, and the client needs the second.
+fn advertised_address(bind: SocketAddr) -> SocketAddr {
+    match std::env::var("ASURA_AUTH_PUBLIC") {
+        Ok(value) if !value.trim().is_empty() => match value.trim().parse() {
+            Ok(address) => address,
+            Err(err) => {
+                eprintln!(
+                    "auth: ASURA_AUTH_PUBLIC {value:?} is not an address ({err}); using {bind}"
+                );
+                bind
+            }
+        },
+        _ => bind,
+    }
+}
+
 /// Drive one connection from the first byte to the close.
 pub async fn handle_connection(
     mut stream: TcpStream,
     pool: &PgPool,
     trace: Trace,
+    advertised: SocketAddr,
 ) -> Result<(), ConnectionError> {
     let mut buffer = Vec::with_capacity(READ_CHUNK);
 
@@ -215,9 +253,15 @@ pub async fn handle_connection(
     // message of their own.
     read_until(&mut stream, &mut buffer, 4).await?;
     let kind = version::classify(&buffer).map_err(ConnectionError::UnknownConnection)?;
+    if kind == version::ConnectionKind::Game {
+        // The client's gameplay connection arrives here, at the auth address it was told to use. The
+        // reference hands the socket to a game server over its control channel; this service routes
+        // the bytes to the world the client named instead (`frontdoor`).
+        return frontdoor::route(stream, std::mem::take(&mut buffer), pool, trace.on()).await;
+    }
     if kind != version::ConnectionKind::Auth {
-        // A game or control connection belongs to a world server, not here. Refusing it is the whole
-        // point of classifying before anything else.
+        // A control connection belongs to another program. Refusing it by name is the whole point of
+        // classifying before anything else.
         return Err(ConnectionError::NotAnAuthConnection { kind });
     }
 
@@ -275,7 +319,8 @@ pub async fn handle_connection(
     loop {
         match next_frame(&mut stream, &mut session, trace).await {
             Ok(Some(frame)) => {
-                let keep_going = dispatch(&mut stream, &mut session, pool, frame, trace).await?;
+                let keep_going =
+                    dispatch(&mut stream, &mut session, pool, frame, trace, advertised).await?;
                 if !keep_going {
                     break;
                 }
@@ -294,6 +339,7 @@ async fn dispatch(
     pool: &PgPool,
     frame: Frame,
     trace: Trace,
+    advertised: SocketAddr,
 ) -> Result<bool, ConnectionError> {
     if trace.on() {
         trace_frame("<-", &frame);
@@ -448,6 +494,7 @@ async fn dispatch(
                 session.account,
                 session.character,
                 request,
+                advertised,
                 trace.on(),
             )
             .await?;

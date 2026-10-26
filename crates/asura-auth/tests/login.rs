@@ -347,9 +347,12 @@ async fn a_closed_session_cannot_log_in() {
 }
 
 #[tokio::test]
-async fn a_game_connection_is_not_accepted_here() {
-    // A gameplay connection belongs to a world server. The listener classifies before anything else,
-    // and refusing here is what keeps a game client from being negotiated by the wrong program.
+async fn a_game_connection_for_an_unknown_world_is_closed() {
+    // A gameplay connection arrives at this port -- that is measured, not assumed: a real client dials
+    // the auth address for its second connection whatever `GAME_SERVER_INFO` says. This service routes
+    // it to the world the client named (`frontdoor`), so a game connection naming a world that was
+    // never registered has nowhere to go and is closed without a word. What must not happen is a game
+    // connection being negotiated as a login.
     if skip() {
         return;
     }
@@ -358,17 +361,25 @@ async fn a_game_connection_is_not_accepted_here() {
     };
 
     let mut stream = harness.connect().await;
+    // A complete 64-byte version message for a world id no database has.
+    let mut message = vec![0u8; asura_protocol::client::version::GAME_CMSG_VERSION_LEN];
+    message[0..4]
+        .copy_from_slice(&asura_protocol::client::version::GAME_CMSG_VERSION_HEADER.to_le_bytes());
+    message[12..16].copy_from_slice(&0x7FFF_FFF0u32.to_le_bytes()); // an unregistered world id
     stream
-        .write_all(&asura_protocol::client::version::GAME_CMSG_VERSION_HEADER.to_le_bytes())
+        .write_all(&message)
         .await
-        .expect("write the game version header");
+        .expect("write the game version message");
 
     let mut buffer = [0u8; 16];
     let read = tokio::time::timeout(TIMEOUT, stream.read(&mut buffer))
         .await
         .expect("the server closes the connection before the timeout")
         .expect("read");
-    assert_eq!(read, 0, "the server closes rather than negotiating");
+    assert_eq!(
+        read, 0,
+        "there is no world to route to, so the client is closed"
+    );
 
     harness.stop();
 }

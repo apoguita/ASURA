@@ -221,14 +221,23 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
     assert_eq!(reply.status, messages::STATUS_OK, "and with success");
 
     // ---- the address, read the way a client reads it -----------------------------------------
+    //
+    // The client is told to dial the **auth** address: that is what a real client does (measured — it
+    // ignored the port in this same message and dialled the address it was launched with), and it is
+    // what the reference does, whose auth port receives game connections and hands them to a game
+    // server. This service routes the connection onwards (`asura_auth::frontdoor`).
     let host = &info.body[12..36];
     assert_eq!(&host[0..2], &[2, 0], "AF_INET");
     let port = u16::from_be_bytes([host[2], host[3]]);
     let ip = std::net::Ipv4Addr::new(host[4], host[5], host[6], host[7]);
     let game_address = SocketAddr::from((ip, port));
     assert_eq!(
-        game_address, world_address,
-        "the client is sent to the port the world is actually listening on"
+        game_address, auth_address,
+        "the client is sent to the auth service, which routes the game connection onwards"
+    );
+    assert_ne!(
+        auth_address, world_address,
+        "and that is a different socket from the world's own (the routing is not accidental)"
     );
 
     let map_token = u32::from_le_bytes([info.body[4], info.body[5], info.body[6], info.body[7]]);
