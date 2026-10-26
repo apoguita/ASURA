@@ -255,10 +255,25 @@ async fn main() -> ExitCode {
         );
     }
 
-    // What a drop is allowed to send. `ASURA_DROP` exists because the inventory messages a drop used to
-    // send are the ones a live client crashed on; see `asura_world::DropMessages`.
+    // What a drop is allowed to send, and what a dropped item's agent carries. `ASURA_DROP` exists
+    // because both candidate messages a drop could send crashed a live client; see
+    // `asura_world::DropMessages` and `asura_world::DropModel`.
     let drop_messages = match asura_world::DropMessages::from_environment() {
         Ok(mode) => mode,
+        Err(err) => {
+            eprintln!("asura-world: {err}");
+            return ExitCode::from(5);
+        }
+    };
+    let drop_model = match asura_world::DropModel::from_environment() {
+        Ok(model) => model,
+        Err(err) => {
+            eprintln!("asura-world: {err}");
+            return ExitCode::from(5);
+        }
+    };
+    let move_echo = match asura_world::MoveEcho::from_environment() {
+        Ok(echo) => echo,
         Err(err) => {
             eprintln!("asura-world: {err}");
             return ExitCode::from(5);
@@ -267,6 +282,14 @@ async fn main() -> ExitCode {
     if drop_messages != asura_world::DropMessages::default() {
         eprintln!("asura-world: drop messages set to {drop_messages:?} (ASURA_DROP)");
     }
+    if drop_model != asura_world::DropModel::default() {
+        eprintln!(
+            "asura-world: dropped items carry {drop_model:?} as their model (ASURA_DROP_MODEL)"
+        );
+    }
+    if move_echo != asura_world::MoveEcho::default() {
+        eprintln!("asura-world: accepted moves are {move_echo:?} (ASURA_ITEM_MOVE)");
+    }
 
     let world = Arc::new(World {
         pool,
@@ -274,6 +297,8 @@ async fn main() -> ExitCode {
         maps,
         replay,
         drop_messages,
+        drop_model,
+        move_echo,
     });
     if let Err(err) = serve(listener, world, trace.on()).await {
         eprintln!("asura-world: the listener stopped: {err}");

@@ -71,6 +71,12 @@ struct Harness {
 impl Harness {
     /// Start a world serving one map, and place a player in it the way the auth service would.
     async fn start() -> Option<Harness> {
+        Harness::start_dropping(asura_world::DropMessages::default()).await
+    }
+
+    /// The same, with a given drop mode: the switch exists because a live client crashed on both
+    /// candidate messages, so both paths are worth a test and only one of them is the default.
+    async fn start_dropping(drop_messages: asura_world::DropMessages) -> Option<Harness> {
         let url = asura_db::config::database_url()?;
         let pool = placement::connect(&url, 4)
             .await
@@ -95,7 +101,9 @@ impl Harness {
                 spawn_plane: 0,
             }],
             replay: None,
-            drop_messages: asura_world::DropMessages::Agent,
+            drop_messages,
+            drop_model: asura_world::DropModel::default(),
+            move_echo: asura_world::MoveEcho::default(),
         });
         let server = tokio::spawn(async move {
             let _ = serve(listener, world, true).await;
@@ -198,8 +206,12 @@ impl Harness {
 
     /// Wait for the slot a travel took to go back to the pool, which the world does when the client
     /// leaves. Returns whether it happened.
+    ///
+    /// The window is generous on purpose: leaving writes the character's position *and* releases the
+    /// lease, and a whole test suite hammering one database can make two round trips take longer than a
+    /// couple of seconds — which produced a flake before this comment existed.
     async fn slot_released(&self) -> bool {
-        for _ in 0..60 {
+        for _ in 0..100 {
             tokio::time::sleep(Duration::from_millis(50)).await;
             if placement::pool_counts(&self.pool, self.world_id, self.map_id)
                 .await
@@ -452,19 +464,8 @@ async fn a_placed_client_is_loaded_into_its_map() {
 
     // ---- leaving releases the slot ----------------------------------------------------------
     drop(stream);
-    let mut released = false;
-    for _ in 0..40 {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        let counts = placement::pool_counts(&harness.pool, harness.world_id, harness.map_id)
-            .await
-            .expect("read the counter");
-        if counts == Some((2, 0)) {
-            released = true;
-            break;
-        }
-    }
     assert!(
-        released,
+        harness.slot_released().await,
         "the player's slot went back to the pool when it left"
     );
 
@@ -549,10 +550,11 @@ async fn say(stream: &mut TcpStream, client: &mut ReferenceClient, header: u16, 
 }
 
 #[tokio::test]
-async fn a_dropped_item_leaves_the_stack_and_lands_on_the_ground() {
+async fn a_drop_deducts_the_stack_and_says_nothing() {
     if skip() {
         return;
     }
+    // The default mode: no message at all, because both candidate messages crashed a live client.
     let Some(harness) = Harness::start().await else {
         return;
     };
@@ -586,29 +588,20 @@ async fn a_dropped_item_leaves_the_stack_and_lands_on_the_ground() {
     body.push(1);
     say(&mut stream, &mut client, 0x802C, &body).await;
 
-    let frames = read_until(&mut stream, &mut client, game::WORLD_CREATE_AGENT).await;
-    assert!(
-        !frames
-            .iter()
-            .any(|frame| frame.header == game::ITEM_REMOVE),
-        "a drop sends none of the inventory messages a live client crashed on: ITEM_REMOVE is in no \
-         capture, so the deduction stays server-side and the client is told about the ground agent only"
-    );
-    let agent = frames
-        .iter()
-        .find(|frame| frame.header == game::WORLD_CREATE_AGENT)
-        .expect("the drop created an agent");
-    assert_eq!(agent.len(), 99, "the reference's fixed agent message");
-    assert_eq!(
-        agent.body[8],
-        game::AGENT_TYPE_ITEM,
-        "an item agent, not a living one"
-    );
-    assert_eq!(
-        u32::from_le_bytes([agent.body[4], agent.body[5], agent.body[6], agent.body[7]]),
-        cupcake.model_id as u32,
-        "and the agent draws the item's model -- not its id, which is what the reference sends"
-    );
+    // A ping is how this test knows the server has read the drop, since the drop itself answers nothing.
+    ask(&mut stream, &mut client, 0x800D, 2).await;
+    let frames = read_until(&mut stream, &mut client, game::PING_REPLY).await;
+    for forbidden in [
+        game::ITEM_REMOVE,
+        game::CREATE_NAMED_ITEM,
+        game::WORLD_CREATE_AGENT,
+    ] {
+        assert!(
+            !frames.iter().any(|frame| frame.header == forbidden),
+            "{forbidden:#06X} must not be sent by a drop: a live client crashed on two of these and \
+             no capture of any of them exists"
+        );
+    }
 
     // It was one of a hundred, so ninety-nine are left, in the slot they were in.
     let after = db_inventory::load(&harness.pool, harness.character)
@@ -685,17 +678,25 @@ async fn an_item_can_be_moved_between_slots_and_the_server_agrees() {
         body
     };
     say(&mut stream, &mut client, 0x8072, &move_to(1, 5, cupcake.id)).await;
-    // **Nothing comes back.** The client moves the item in its own model before it asks, so an
-    // `ITEM_MOVE_TO_LOCATION` here is a second copy of an already-moved item -- which a live session
-    // showed as an item cloning itself in the inventory window.
-    ask(&mut stream, &mut client, 0x800D, 2).await;
-    let frames = read_until(&mut stream, &mut client, game::PING_REPLY).await;
-    assert!(
-        !frames
-            .iter()
-            .any(|frame| frame.header == game::ITEM_MOVE_TO_LOCATION),
-        "a move the server agrees with is answered with silence, not with the item moved again"
+    // With the echo (the default) the client is told where the item ended up. A silent answer left a
+    // live client's item back where it started, which is why the echo is the default and `silent` is the
+    // switch nobody has needed yet.
+    let frames = read_until(&mut stream, &mut client, game::ITEM_MOVE_TO_LOCATION).await;
+    let echo = frames
+        .iter()
+        .rev()
+        .find(|frame| frame.header == game::ITEM_MOVE_TO_LOCATION)
+        .expect("an accepted move is echoed");
+    assert_eq!(
+        u32::from_le_bytes([echo.body[2], echo.body[3], echo.body[4], echo.body[5]]),
+        cupcake.id as u32
     );
+    assert_eq!(
+        u16::from_le_bytes([echo.body[6], echo.body[7]]),
+        1,
+        "the bag the client asked for"
+    );
+    assert_eq!(echo.body[8], 5, "and the slot");
 
     let moved = db_inventory::load(&harness.pool, harness.character)
         .await

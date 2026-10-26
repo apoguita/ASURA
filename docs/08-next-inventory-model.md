@@ -74,25 +74,22 @@ in the status document, rather than a guess someone would have to rediscover.
 
 ## The traps this left behind
 
-- **A message nobody has measured will crash a client, and one did — twice.** The first finished drop
-  sent `ITEM_REMOVE` (`0x014D`) and re-created the item at what was left; a live client died on it.
-  Then chat was un-gated on the theory that the reference gates only its own text, and `!hello` crashed
-  the client too. Both messages are **absent from the capture** — `0x014D`, `0x005D`, `0x005E`, `0x0061`
-  appear zero times — and the reference's own comment predicted the second one exactly: *"sending chat
-  crashed the client twice … the header width is still unsettled and every message we send is a guess"*.
-  A drop now sends the ground agent and nothing else (`ASURA_DROP=agent`, the default), chat sends
-  nothing unless `ASURA_CHAT=1`, and `ASURA_DROP=full` keeps the crashing variant for the bisection.
-  **The rule this leaves behind, in one line: a message that is in no capture is a message that can wait
-  for one.**
-- **The client moves an item in its own model before it asks, and it also decrements its own stack.** Two
-  measurements, one from each report: echoing `ITEM_MOVE_TO_LOCATION` after a move the server accepted
-  made the item *clone* itself in the inventory window (one in each slot), so a successful move is
-  answered with silence and only a refusal is corrected; and a drop with no inventory messages at all
-  still showed the stack going down, so the client had already done the subtraction itself. That second
-  one is why the default drop mode is not a compromise — it is the correct behaviour.
-- **A connection that panics must say so.** The accept loop now reaps each connection and prints the
-  panic's own message, because a task that dies of a panic leaves the process alive and from outside
-  "the server crashed" and "one connection panicked" look identical.
+- **A message nobody has measured will crash a client, and three did — one per guess.** `ITEM_REMOVE`
+  (`0x014D`) and the item re-creation crashed it; the ground agent (`0x0020` with `AgentType_Item`)
+  crashed it; `!hello` crashed it. None of `0x014D`, the item-agent form of `0x0020`, `0x005D`, `0x005E`
+  or `0x0061` appears in the capture, and the reference's own comments predicted the chat one exactly
+  (*"sending chat crashed the client twice … every message we send is a guess"*). What survived is what a
+  capture or a client measured: a drop that sends **nothing** (the client does its own subtraction, and
+  the stack went down in a live session with no message at all), and chat that sends nothing unless
+  `ASURA_CHAT=1`. **The rule, in one line: a message that is in no capture waits for one.**
+- **The move's confirmation is still open, and both answers were reported.** With the echo (`0x013E`,
+  which *is* in the capture — eight times, in the inventory block) a live client moved the item; with
+  silence, the item sprang back and the move did nothing. So the echo is the default. The same session
+  also reported a clone, but that build was re-creating items on a drop, so the clone's cause is not
+  settled: `ASURA_ITEM_MOVE=silent` and `ASURA_DROP=none` separate them in two runs.
+- **A connection that panics must say so.** The accept loop reaps each connection and prints the panic's
+  own message, because a task that dies of a panic leaves the process alive, so from outside "the server
+  crashed" and "one connection panicked" look identical.
 - **An item id is a runtime allocation, not a row number.** The reference hands them out with
   `GameSrv_AllocateItem` and a client only needs them to be consistent within a session. ASURA writes them
   from `item_id_seq`, so the seed's capture ids (1..9) are renumbered as they are written and two
