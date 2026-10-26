@@ -401,6 +401,97 @@ pub async fn note_session_world(
     Ok(done.rows_affected() > 0)
 }
 
+/// A pending travel: what the auth service issued, and what a world server must match before it
+/// believes a connecting client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Transfer {
+    pub player_token: i64,
+    pub world_id: i32,
+    pub map_id: i32,
+    pub session_id: uuid::Uuid,
+    pub account_id: uuid::Uuid,
+    pub character_id: uuid::Uuid,
+}
+
+/// Write the pending transfer for a travel that is about to be announced.
+///
+/// Called *before* the reply goes out, so a client that reconnects the instant it is told where to go
+/// finds the row already there. The token is the auth service's random `u32`; the row is what makes
+/// that number mean something to the world server.
+pub async fn begin_transfer(
+    pool: &PgPool,
+    player_token: u32,
+    world_id: i32,
+    map_id: i32,
+    session_id: uuid::Uuid,
+    account_id: uuid::Uuid,
+    character_id: uuid::Uuid,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO transfer
+             (player_token, world_id, map_id, session_id, account_id, character_id, created_at,
+              claimed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now(), NULL)",
+    )
+    .bind(i64::from(player_token))
+    .bind(world_id)
+    .bind(map_id)
+    .bind(session_id)
+    .bind(account_id)
+    .bind(character_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Claim the pending transfer a connecting client presented, and return it.
+///
+/// The claim is one statement: `UPDATE ... WHERE claimed_at IS NULL RETURNING`, so two connections
+/// presenting the same token cannot both be told it was theirs. `None` means one of
+///
+/// * no such token for this world,
+/// * the token was already claimed (a replay),
+/// * the token is for another world.
+///
+/// All three are the same answer to the client — this token is not yours — and no attempt is made to
+/// tell them apart on the wire.
+pub async fn claim_transfer(
+    pool: &PgPool,
+    world_id: i32,
+    player_token: u32,
+) -> sqlx::Result<Option<Transfer>> {
+    let row: Option<(i64, i32, i32, uuid::Uuid, uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
+        "UPDATE transfer SET claimed_at = now()
+          WHERE player_token = $1 AND world_id = $2 AND claimed_at IS NULL
+          RETURNING player_token, world_id, map_id, session_id, account_id, character_id",
+    )
+    .bind(i64::from(player_token))
+    .bind(world_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(
+        |(player_token, world_id, map_id, session_id, account_id, character_id)| Transfer {
+            player_token,
+            world_id,
+            map_id,
+            session_id,
+            account_id,
+            character_id,
+        },
+    ))
+}
+
+/// Forget a transfer nobody claimed. Used when a travel is refused after the row was written, and by
+/// the tests; a stale pending row would let a token be used long after the attempt it belonged to.
+pub async fn cancel_transfer(pool: &PgPool, player_token: u32) -> sqlx::Result<bool> {
+    let done = sqlx::query("DELETE FROM transfer WHERE player_token = $1 AND claimed_at IS NULL")
+        .bind(i64::from(player_token))
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
 /// Test support only: write a pool counter value directly, to simulate the drift a crash can leave
 /// behind (counter and ledger disagree). The reconciler is the code that repairs such drift; this is
 /// how a test creates the fault it repairs. No service calls this.

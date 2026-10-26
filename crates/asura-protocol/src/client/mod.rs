@@ -25,6 +25,7 @@
 pub mod arc4;
 pub mod filecheck;
 pub mod frame;
+pub mod game;
 pub mod handshake;
 pub mod messages;
 pub mod peer;

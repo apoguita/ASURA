@@ -17,7 +17,7 @@
 //! * each migration is applied inside one transaction, so a failure part-way leaves neither the
 //!   change nor the record of it. `tools/` use `psql -1` for the same reason.
 
-use crate::{PgPool, SCHEMA_V1, SCHEMA_V2, SCHEMA_V3};
+use crate::{PgPool, SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4};
 
 /// One migration: a version number (its file's number) and its statements.
 #[derive(Debug, Clone, Copy)]
@@ -41,10 +41,14 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 3,
         sql: SCHEMA_V3,
     },
+    Migration {
+        version: 4,
+        sql: SCHEMA_V4,
+    },
 ];
 
 /// The newest version this build knows about. A database reporting less is behind the code.
-pub const LATEST_VERSION: i32 = 3;
+pub const LATEST_VERSION: i32 = 4;
 
 /// What [`apply_pending`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]

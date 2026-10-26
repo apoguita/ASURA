@@ -288,6 +288,33 @@ async fn a_travel_request_is_answered_with_a_reachable_world() {
         .expect("read the counter");
     assert_eq!(counts, Some((2, 1)), "one slot is leased by the travel");
 
+    // And the world can now believe that token: the pending transfer names this world, this map, this
+    // account and this character. A token nobody claims is worthless; a token claimed twice is a
+    // replay, and the second claim must come back empty.
+    let player_token = dword(36);
+    let transfer = placement::claim_transfer(&harness.pool, world_id, player_token)
+        .await
+        .expect("claim the transfer")
+        .expect("the transfer the travel just issued");
+    assert_eq!(transfer.map_id, map_id);
+    assert_eq!(transfer.session_id, seeded.session);
+    assert_eq!(transfer.account_id, seeded.account);
+    assert_eq!(transfer.character_id, seeded.character);
+    assert_eq!(
+        placement::claim_transfer(&harness.pool, world_id, player_token)
+            .await
+            .expect("claim again"),
+        None,
+        "the same token cannot be claimed twice"
+    );
+    assert_eq!(
+        placement::claim_transfer(&harness.pool, world_id + 1, player_token)
+            .await
+            .expect("claim at another world"),
+        None,
+        "and not by a world it was not issued for"
+    );
+
     let freed = placement::release(&harness.pool, seeded.session)
         .await
         .expect("release");

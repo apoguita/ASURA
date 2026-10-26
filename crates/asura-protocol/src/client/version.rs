@@ -84,6 +84,34 @@ impl core::fmt::Display for VersionError {
 
 impl std::error::Error for VersionError {}
 
+/// Why a `GAME_CMSG_VERSION` could not be read.
+///
+/// Separate from [`VersionError`] because the two failures mean different things: an unknown header is
+/// "this socket is not mine", while a short body is "keep reading". A world server has to tell them
+/// apart to log the first and wait for the second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameVersionError {
+    /// The message has not fully arrived yet.
+    Incomplete { needed: usize },
+    /// The header names a connection that is not a game connection.
+    NotAGameVersion { header: u32 },
+}
+
+impl core::fmt::Display for GameVersionError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            GameVersionError::Incomplete { needed } => {
+                write!(f, "incomplete: {needed} more bytes needed")
+            }
+            GameVersionError::NotAGameVersion { header } => {
+                write!(f, "{header:#010X} is not a game version header")
+            }
+        }
+    }
+}
+
+impl std::error::Error for GameVersionError {}
+
 /// Classify a connection from its first four bytes.
 ///
 /// Returns [`VersionError::Incomplete`] until four bytes have arrived; the caller keeps reading.

@@ -115,6 +115,11 @@ impl Frame {
 /// not here yet (the game/world family).
 pub mod client;
 
+/// The game protocol: what a world server sends a client that has just been placed in a map, and the
+/// table of client messages it must read. Separate from [`client`] because the two families collide on
+/// header values: `0x8000 | n` names a different message in each.
+pub mod game;
+
 #[cfg(test)]
 mod tests {
     use super::*;

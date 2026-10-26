@@ -23,9 +23,13 @@ pub const SCHEMA_V2: &str = include_str!("../migrations/0002_leases.sql");
 /// because the login lookup matches both. See the migration for why it is NOT NULL.
 pub const SCHEMA_V3: &str = include_str!("../migrations/0003_portal_identity.sql");
 
+/// The pending transfer (M4): the token the auth service issues and the world server claims. See the
+/// migration for why the coordination is a row rather than a handed-over socket.
+pub const SCHEMA_V4: &str = include_str!("../migrations/0004_transfers.sql");
+
 /// Every migration, in application order. A developer applying the schema gets one string per
 /// migration file, so a new file is picked up without editing the tooling.
-pub const SCHEMA: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
+pub const SCHEMA: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4];
 
 /// The tables the coordination model depends on. Used by the startup check: a service refuses to run
 /// against a database that is older than the code, loudly, rather than failing on the first query.

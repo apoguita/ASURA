@@ -132,8 +132,13 @@ struct Session {
     plaintext: Vec<u8>,
     /// The account this connection resolved to, once the identity pair was accepted.
     account: Option<Uuid>,
-    /// The session row the pair named, kept so a character selection can be recorded on it.
+    /// The session row the pair named, kept so a character selection can be recorded on it and a
+    /// travel can lease against it.
     session_id: Option<Uuid>,
+    /// The character this connection last selected, if any: the one a travel puts in the map, and the
+    /// one the account info names. The reference keeps the same value per connection
+    /// (`conn->account.char_id`).
+    character: Option<Uuid>,
     /// The salt sent in `AUTH_SMSG_SESSION_INFO`, kept for the trace and for later messages that
     /// sign against it. The reference keeps it per connection for the same reason.
     server_salt: u32,
@@ -288,6 +293,7 @@ pub async fn handle_connection(
         plaintext: buffer,
         account: None,
         session_id: None,
+        character: None,
         server_salt: 0,
     };
 
@@ -413,6 +419,8 @@ async fn dispatch(
                     if let Some(session_id) = session.session_id {
                         let _ = db_login::select_character(pool, session_id, character.id).await;
                     }
+                    // The connection now has a character, which is what a travel request needs.
+                    session.character = Some(character.id);
                     if trace.on() {
                         eprintln!("auth: character {name:?} selected");
                     }
@@ -459,7 +467,15 @@ async fn dispatch(
         tables::AUTH_CMSG_REQUEST_GAME_INSTANCE => {
             let request = messages::GameInstanceRequest::decode(&frame.body)
                 .map_err(ConnectionError::Message)?;
-            let replies = travel::answer(pool, session.session_id, request, trace.on()).await?;
+            let replies = travel::answer(
+                pool,
+                session.session_id,
+                session.account,
+                session.character,
+                request,
+                trace.on(),
+            )
+            .await?;
             send_frames(stream, session, replies, trace).await?;
             Ok(true)
         }
@@ -557,6 +573,10 @@ async fn answer_login(
     let selected = resolved
         .character
         .or_else(|| characters.first().map(|character| character.id));
+    // The reference falls back the same way when a session records no character: the first character
+    // on the account is what a travel would put in a map, and refusing to pick one leaves the client
+    // at character select with a travel it cannot complete.
+    session.character = selected;
     let mut replies = Vec::with_capacity(characters.len() + 4);
     for character in &characters {
         replies.push(

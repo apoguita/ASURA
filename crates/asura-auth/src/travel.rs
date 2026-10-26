@@ -96,6 +96,8 @@ async fn port_answers(address: SocketAddr) -> bool {
 pub async fn answer(
     pool: &PgPool,
     session_id: Option<Uuid>,
+    account_id: Option<Uuid>,
+    character_id: Option<Uuid>,
     request: GameInstanceRequest,
     trace: bool,
 ) -> Result<Vec<Frame>, ConnectionError> {
@@ -113,6 +115,16 @@ pub async fn answer(
         // nothing a lease could belong to. The reference refuses the same case (`!conn->connected`).
         if trace {
             eprintln!("auth: travel to map {map_id} refused: the connection has no session");
+        }
+        return Ok(request_frames(STATUS_NETWORK_ERROR));
+    };
+
+    // A travel without a character is refused for the reference's own reason: there is nothing to put
+    // in the map. (`AuthSrv_HandleRequestGameInstance`: "Client tried to join a server without a
+    // selected character".)
+    let (Some(account_id), Some(character_id)) = (account_id, character_id) else {
+        if trace {
+            eprintln!("auth: travel to map {map_id} refused: no account or character is selected");
         }
         return Ok(request_frames(STATUS_NETWORK_ERROR));
     };
@@ -172,6 +184,27 @@ pub async fn answer(
         };
 
         let player_token = crate::random_u32()?;
+
+        // The pending transfer, written *before* the reply: the client may reconnect the instant it
+        // is told where to go, and the world server's answer to that connection is a lookup in this
+        // table. A row that could not be written is a travel that cannot be completed, so it is a
+        // refusal -- and the lease taken above is handed back, because the slot is not in use.
+        if let Err(err) = placement::begin_transfer(
+            pool,
+            player_token,
+            candidate.world_id,
+            map_id,
+            session_id,
+            account_id,
+            character_id,
+        )
+        .await
+        {
+            eprintln!("auth: could not record the pending transfer: {err}");
+            let _ = placement::release(pool, session_id).await;
+            return Ok(request_frames(STATUS_NETWORK_ERROR));
+        }
+
         if let Err(err) =
             placement::note_session_world(pool, session_id, reserved_world, map_id).await
         {
