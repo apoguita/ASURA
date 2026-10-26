@@ -20,3 +20,14 @@
 .idea/
 Thumbs.db
 desktop.ini
+
+# Probe and comparison artifacts: captures of what a server sent, written by the diagnostics in
+# tools/ and crates/asura-auth/examples/probe.rs. Reproducible in a minute, so they do not belong in
+# the history -- the reference *session* they were distilled into is docs/06-reference-session.md.
+.reply-*.bin
+.gwps-reply.bin
+.our-reply.bin
+.probe-*.txt
+.reference-session.txt
+.gwps-session.log
+*.err
