@@ -46,6 +46,13 @@ use uuid::Uuid;
 /// that stalls holds a task and a pool connection, and losing it is free: the client reconnects.
 pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// How often a quiet connection is sent a heartbeat.
+///
+/// The reference sends AUTH_SMSG_HEARTBEAT on a connection that has gone quiet, and a real client
+/// waits for it after the login batch. The exact interval is not recorded anywhere readable, so this is
+/// five seconds: comfortably inside any client's patience, and cheap.
+pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+
 /// The idle timeout in force, from `ASURA_IDLE_TIMEOUT_SECS` when it is set.
 ///
 /// It is adjustable because the timeout is a *policy*, and the two policies disagree: a production

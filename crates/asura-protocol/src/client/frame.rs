@@ -204,16 +204,7 @@ impl Frame {
         let entry = tables::entry(header).ok_or(FrameError::UnknownHeader { header })?;
 
         let mut position = HEADER_LEN;
-        let field_count = entry.fields.len();
-        for (index, field) in entry.fields.iter().enumerate() {
-            // Measured exception, 2026-10-26: the reference's own `AUTH_SMSG_ACCOUNT_INFO` does not
-            // carry its final field at all. Its message is 77 bytes and ends at the eula byte; the
-            // `03 00` that follows is the *next* message's header, not a field of this one. The table's
-            // twelve fields describe the reference's struct; the wire has eleven. Reading the twelfth
-            // desynchronises the stream by four bytes and the client reports nothing at all.
-            if entry.header == tables::AUTH_SMSG_ACCOUNT_INFO && index == field_count - 1 {
-                continue;
-            }
+        for field in entry.fields.iter() {
             // The header field is the two bytes already consumed.
             if matches!(field.kind, tables::FieldKind::MsgHeader) {
                 continue;

@@ -136,6 +136,21 @@ async fn main() -> ExitCode {
             println!("# login sent");
             login_sent = true;
         }
+
+        // A server that keeps a connection alive with heartbeats never goes quiet, so waiting for
+        // silence would wait forever: stop two messages after the login is answered, which is enough
+        // to see whether anything follows it.
+        if login_sent {
+            if let Some(response_at) = frame_stream(&raw.clone())
+                .iter()
+                .position(|frame| frame.header == tables::AUTH_SMSG_REQUEST_RESPONSE)
+            {
+                if frame_stream(&raw.clone()).len() > response_at + 2 {
+                    println!("# stopping: the login was answered");
+                    break;
+                }
+            }
+        }
     }
 
     // The stream itself, saved, so a fixture can be taken from it rather than typed.

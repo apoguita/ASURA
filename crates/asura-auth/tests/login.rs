@@ -191,7 +191,7 @@ async fn a_client_logs_in_and_receives_the_whole_login_batch() {
         599,
         "the settings message is the reference's measured size"
     );
-    assert_eq!(frames[3].len(), 77, "so is the account info");
+    assert_eq!(frames[3].len(), 81, "so is the account info");
     assert_eq!(
         &frames[3].body[28..44],
         &seeded.account.to_bytes_le(),

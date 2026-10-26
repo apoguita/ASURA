@@ -501,9 +501,11 @@ pub fn account_info(request: u32, account: [u8; 16], character: Option<[u8; 16]>
     writer.u16(FEATURES.len() as u16); // n_unk4
     writer.bytes.extend_from_slice(&FEATURES);
     writer.bytes.push(24); // eula_accepted
-                           // No trailing field: measured, the message ends here. The reference struct has one more dword
-                           // (`unk5`), and its own output does not carry it -- `03 00` after this point is the header of the
-                           // next message, not a field of this one. The whole message is 77 bytes.
+                           // `unk5` **is** on the wire, and getting this wrong is what desynchronised a real client:
+                           // the `03 00` after the eula byte is the first half of this dword, not the next
+                           // message's header. Measured: the reference reply is 812 bytes in total —
+                           // 10 + 102 + 599 + 10 + 81 + 10 — and this is the 81.
+    writer.u32(3); // unk5
     Frame::new(tables::AUTH_SMSG_ACCOUNT_INFO, writer.into_body())
 }
 
@@ -533,7 +535,7 @@ mod tests {
         let settings = account_settings(7);
         assert_eq!(settings.len(), 599);
         let info = account_info(7, [0x44; 16], Some([0x55; 16]));
-        assert_eq!(info.len(), 77);
+        assert_eq!(info.len(), 81);
 
         assert_eq!(friend_stream_end(7).len(), 10);
         assert_eq!(session_info(1, 0).len(), 10);
