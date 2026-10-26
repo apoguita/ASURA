@@ -74,16 +74,25 @@ in the status document, rather than a guess someone would have to rediscover.
 
 ## The traps this left behind
 
-- **A message nobody has measured will crash a client, and one did.** The first finished drop sent
-  `ITEM_REMOVE` (`0x014D`) and then re-created the item at what was left. A live client died on it.
-  `ITEM_REMOVE` appears **zero** times in the capture — its 8-byte width is `sizeof(GameSrv_ItemRemove)`
-  and nothing else that can be checked — which is the mistake `docs/03-protocol.md` §1 records for the
-  auth path, made again by someone who had read the section. A drop now sends the ground agent and
-  nothing else (`ASURA_DROP=agent`, the default); the inventory update is behind `ASURA_DROP=full` so the
-  question "the inventory messages or the agent" is one run away from an answer.
-  **And the question that decides whether the default is right**: does the client decrement its own stack
-  when it sends `DROP_ITEM`? If it does, the default is correct and this is closed; if it does not, the
-  client shows the old count until the next load and something *measured* has to close the gap.
+- **A message nobody has measured will crash a client, and one did — twice.** The first finished drop
+  sent `ITEM_REMOVE` (`0x014D`) and re-created the item at what was left; a live client died on it.
+  Then chat was un-gated on the theory that the reference gates only its own text, and `!hello` crashed
+  the client too. Both messages are **absent from the capture** — `0x014D`, `0x005D`, `0x005E`, `0x0061`
+  appear zero times — and the reference's own comment predicted the second one exactly: *"sending chat
+  crashed the client twice … the header width is still unsettled and every message we send is a guess"*.
+  A drop now sends the ground agent and nothing else (`ASURA_DROP=agent`, the default), chat sends
+  nothing unless `ASURA_CHAT=1`, and `ASURA_DROP=full` keeps the crashing variant for the bisection.
+  **The rule this leaves behind, in one line: a message that is in no capture is a message that can wait
+  for one.**
+- **The client moves an item in its own model before it asks, and it also decrements its own stack.** Two
+  measurements, one from each report: echoing `ITEM_MOVE_TO_LOCATION` after a move the server accepted
+  made the item *clone* itself in the inventory window (one in each slot), so a successful move is
+  answered with silence and only a refusal is corrected; and a drop with no inventory messages at all
+  still showed the stack going down, so the client had already done the subtraction itself. That second
+  one is why the default drop mode is not a compromise — it is the correct behaviour.
+- **A connection that panics must say so.** The accept loop now reaps each connection and prints the
+  panic's own message, because a task that dies of a panic leaves the process alive and from outside
+  "the server crashed" and "one connection panicked" look identical.
 - **An item id is a runtime allocation, not a row number.** The reference hands them out with
   `GameSrv_AllocateItem` and a client only needs them to be consistent within a session. ASURA writes them
   from `item_id_seq`, so the seed's capture ids (1..9) are renumbered as they are written and two

@@ -685,22 +685,17 @@ async fn an_item_can_be_moved_between_slots_and_the_server_agrees() {
         body
     };
     say(&mut stream, &mut client, 0x8072, &move_to(1, 5, cupcake.id)).await;
-    let frames = read_until(&mut stream, &mut client, game::ITEM_MOVE_TO_LOCATION).await;
-    let echo = frames
-        .iter()
-        .rev()
-        .find(|frame| frame.header == game::ITEM_MOVE_TO_LOCATION)
-        .expect("the move is echoed");
-    assert_eq!(
-        u32::from_le_bytes([echo.body[2], echo.body[3], echo.body[4], echo.body[5]]),
-        cupcake.id as u32
+    // **Nothing comes back.** The client moves the item in its own model before it asks, so an
+    // `ITEM_MOVE_TO_LOCATION` here is a second copy of an already-moved item -- which a live session
+    // showed as an item cloning itself in the inventory window.
+    ask(&mut stream, &mut client, 0x800D, 2).await;
+    let frames = read_until(&mut stream, &mut client, game::PING_REPLY).await;
+    assert!(
+        !frames
+            .iter()
+            .any(|frame| frame.header == game::ITEM_MOVE_TO_LOCATION),
+        "a move the server agrees with is answered with silence, not with the item moved again"
     );
-    assert_eq!(
-        u16::from_le_bytes([echo.body[6], echo.body[7]]),
-        1,
-        "the bag the client asked for"
-    );
-    assert_eq!(echo.body[8], 5, "and the slot");
 
     let moved = db_inventory::load(&harness.pool, harness.character)
         .await
@@ -726,8 +721,7 @@ async fn an_item_can_be_moved_between_slots_and_the_server_agrees() {
         &move_to(1, occupied as u8, cupcake.id),
     )
     .await;
-    ask(&mut stream, &mut client, 0x800D, 2).await;
-    let frames = read_until(&mut stream, &mut client, game::PING_REPLY).await;
+    let frames = read_until(&mut stream, &mut client, game::ITEM_MOVE_TO_LOCATION).await;
     let snap_back = frames
         .iter()
         .rev()

@@ -420,9 +420,17 @@ message, and a port that reads twelve and stops leaves the connection waiting fo
 been given.
 
 `ITEM_MOVE` is the exact inverse of `ITEM_MOVE_TO_LOCATION` (`0x013E`) and is what a live client sent, twice,
-when an item was dragged between slots. `EQUIP_ITEM` carries only an item id: which slot it goes in follows
-from the item's type (`EquippedItemSlot`, `GmInventory.h`). `UNEQUIP_ITEM`'s three fields hold no item id, so
-what it means is not known — unequipping by dragging arrives as `ITEM_MOVE`.
+when an item was dragged between slots. **It is answered with nothing.** The client moves the item in its own
+model before it asks — a live session proved that by cloning the item in the inventory window when the server
+echoed the move — so a move the server accepts needs no message, and only a refusal does, where
+`ITEM_MOVE_TO_LOCATION` puts the client's model back on the item's real slot.
+
+`EQUIP_ITEM` carries only an item id: which slot it goes in follows from the item's type (`EquippedItemSlot`,
+`GmInventory.h`). Wearing something moves the row, takes whatever was worn there off into the first free
+carrying slot (and *that* move is echoed, because the client did not make it), and re-sends
+`UPDATE_AGENT_VISUAL_EQUIPMENT` — the one thing the client cannot work out for itself.
+`UNEQUIP_ITEM`'s three fields hold no item id, so what it means is not known — unequipping by dragging arrives
+as `ITEM_MOVE`.
 
 `DROP_ITEM` is answered by an item appearing **and the stack shrinking**: the client sends `count = 1` for
 a stack of a hundred, so the server takes that many off the row and broadcasts `WORLD_CREATE_AGENT`
@@ -439,9 +447,23 @@ question can be answered by a run instead of an argument:
 
 | `ASURA_DROP` | what a drop sends |
 |---|---|
-| `agent` (default) | `WORLD_CREATE_AGENT` only. The stack shrinks in the database; the client's copy catches up at the next load |
+| `agent` (default) | `WORLD_CREATE_AGENT` only. The stack shrinks in the database **and in the client**, which does its own subtraction — measured |
 | `full` | `ITEM_REMOVE`, `CREATE_NAMED_ITEM`, `ITEM_MOVE_TO_LOCATION`, then the agent — what crashed a client |
 | `none` | nothing at all; the deduction is server-side only |
+
+### Chat, and why nothing is sent by default
+
+`GAME_CMSG_SEND_CHAT_MESSAGE` (`0x8064`) is `{agent_id u32, text String16}`; the first unit of the text is
+the channel: `!` all, `#` group, `$` trade, `/` a command, and `@`/`%`/`"` are dropped, as the reference
+drops them. The *reply* is two messages — `CHAT_MESSAGE_CORE` (`0x005D`) with the text and
+`CHAT_MESSAGE_LOCAL` (`0x0061`) with the speaker and channel — or `CHAT_MESSAGE_SERVER` (`0x005E`, 10
+bytes) when the server speaks on its own behalf.
+
+**None of those three appears in the capture**, and a live client crashed on the first `!hello` this port
+sent. That is the reference's own experience too: its `GameSrv_ChatSendingEnabled` comment records chat
+crashing its client twice and concludes that "every message we send is a guess". So player chat is parsed,
+logged and **not sent** unless `ASURA_CHAT=1`, `/maps` answers only under the same switch, and `/stuck`
+(which sends `AGENT_STOP_MOVING`, a message the load path already uses) works regardless.
 
 Three answers change nothing and send nothing: item id `0`, an item that is not in the backpack/belt
 pouch/bag 1/bag 2 (`GmBag_FindItem` looks no further, so storage is not droppable), and a count larger than

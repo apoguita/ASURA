@@ -288,17 +288,42 @@ pub async fn serve(listener: TcpListener, world: Arc<World>, trace: bool) -> io:
     loop {
         let (stream, peer) = listener.accept().await?;
         let world = Arc::clone(&world);
+        let connection =
+            tokio::spawn(async move { handle_connection(stream, &world, trace).await });
+        // The connection is reaped rather than detached. A task that dies of a *panic* leaves this
+        // process alive, so from outside "the server crashed" and "one connection panicked" look the
+        // same — and the panic's own message is the only thing that says which it was.
         tokio::spawn(async move {
-            match handle_connection(stream, &world, trace).await {
-                Ok(()) => {
+            match connection.await {
+                Ok(Ok(())) => {
                     if trace {
                         eprintln!("world: {peer} left");
                     }
                 }
-                Err(err) => eprintln!("world: {peer}: {err}"),
+                Ok(Err(err)) => eprintln!("world: {peer}: {err}"),
+                Err(err) => {
+                    if err.is_panic() {
+                        eprintln!(
+                            "world: {peer}: connection task PANICKED: {}",
+                            panic_message(err)
+                        );
+                    } else {
+                        eprintln!("world: {peer}: connection task ended: {err}");
+                    }
+                }
             }
         });
     }
+}
+
+/// The message a panicking task carried, if it carried one a human can read.
+fn panic_message(err: tokio::task::JoinError) -> String {
+    let payload = err.into_panic();
+    payload
+        .downcast_ref::<&str>()
+        .map(|message| (*message).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic with no message".to_string())
 }
 
 /// One connection's cipher state and the decrypted bytes not yet framed.
@@ -609,11 +634,17 @@ impl Play {
     }
 }
 
-/// Whether chat is sent at all, from `ASURA_CHAT` (`1`, `true`, `yes`).
+/// Whether the server may put its own chat text on the wire, from `ASURA_CHAT` (`1`, `true`, `yes`).
 ///
-/// The same gate as the reference's `GameSrv_ChatSendingEnabled`/`GWPS_CHAT`, and off for the same
-/// reason it is off there: its own comment records that an unconditional send put a message on the wire
-/// the client could not parse, `GameSrv_SendInvalidCommand` above all, and crashed it.
+/// **Off by default, and that is the reference's decision, not caution invented here.** Its own comment
+/// on `GameSrv_ChatSendingEnabled` records that sending chat crashed the client twice, that the message
+/// layouts were only ever checked against a header file which is known to disagree with the wire
+/// (`PING_REQUEST` is 4 bytes where the struct implies 8), and that "every message we send is a guess".
+/// A live client then crashed on this port's `!hello`, which is that prediction coming true: none of the
+/// three chat messages (`0x005D`, `0x005E`, `0x0061`) appears in the capture this project measures
+/// against, so they are guesses exactly like `ITEM_REMOVE` was.
+///
+/// `ASURA_CHAT=1` turns them back on for experimenting with a client that is expected to survive it.
 fn chat_enabled() -> bool {
     static VALUE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *VALUE.get_or_init(|| {
@@ -1010,9 +1041,19 @@ async fn answer(
 
             match u8::try_from(channel).unwrap_or(0) as char {
                 // `Channel_All`, `Channel_Group`, `Channel_Trade`: the three channels the reference
-                // speaks on. A lone player hears all three, and the message is echoed back the way the
-                // reference echoes it -- one message carrying the text, one saying who said it.
+                // speaks on. **Gated, because a live client crashed on this.** The reference gates the
+                // text it generates and sends a player's line ungated, but that distinction is only
+                // safe when the wire format is known, and none of the three chat messages appears in
+                // any capture (`chat_enabled` records the rest).
                 speaker @ ('!' | '#' | '$') => {
+                    if !chat_enabled() {
+                        eprintln!(
+                            "world: chat {spoken:?} on {speaker} not sent: no chat message in this \
+                             port has ever been seen on the wire, and a live client crashed on one. \
+                             ASURA_CHAT=1 sends it anyway"
+                        );
+                        return Ok(true);
+                    }
                     let channel = match speaker {
                         '#' => game::CHANNEL_GROUP,
                         '$' => game::CHANNEL_TRADE,
@@ -1355,12 +1396,10 @@ async fn move_item(
             if trace {
                 eprintln!("world: item {item_id} moved to bag {bag_id} slot {slot}");
             }
-            frames.push(game::item_move_to_location(
-                ITEM_STREAM,
-                wire_u32(item_id),
-                wire_u16(bag_id),
-                wire_u8(slot),
-            ));
+            // **Nothing is echoed.** The client moves the item in its own model *before* it asks, so a
+            // `ITEM_MOVE_TO_LOCATION` here is a second copy of an already-moved item -- which is what a
+            // live session showed as an item cloning itself in the inventory window. The server's job is
+            // the row; the client's own model is already right. Only a refusal has anything to say.
             reload(world, play).await?;
         }
         db_inventory::MoveOutcome::Unchanged { .. } => return Ok(()),
@@ -1478,16 +1517,13 @@ async fn equip_item(
         .await
         .map_err(GameError::Database)?
     {
-        db_inventory::MoveOutcome::At { bag_id, slot, .. } => {
+        db_inventory::MoveOutcome::At { slot, .. } => {
             if trace {
                 eprintln!("world: item {item_id} worn in equipped slot {slot}");
             }
-            frames.push(game::item_move_to_location(
-                ITEM_STREAM,
-                wire_u32(item_id),
-                wire_u16(bag_id),
-                wire_u8(slot),
-            ));
+            // As with a plain move: the client has already put the item where it belongs in its own
+            // model, so echoing the move would clone it. What it cannot know by itself is what the
+            // agent now wears, and that is sent below.
         }
         db_inventory::MoveOutcome::Unchanged { .. } => {}
         db_inventory::MoveOutcome::Refused { item, reason } => {
