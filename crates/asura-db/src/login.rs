@@ -104,6 +104,20 @@ pub async fn select_character(pool: &PgPool, session: Uuid, character: Uuid) -> 
     Ok(done.rows_affected() > 0)
 }
 
+/// Delete one character, scoped to the account that owns it.
+///
+/// The `account_id` in the `WHERE` is what makes the reference's rule
+/// (`AuthSrv_HandleDeleteCharacter` matches the name against *that account's* characters) hold at the
+/// storage layer too: a wrong account id deletes nothing rather than someone else's character.
+pub async fn delete_character(pool: &PgPool, account: Uuid, character: Uuid) -> sqlx::Result<bool> {
+    let done = sqlx::query("DELETE FROM characters WHERE account_id = $1 AND id = $2")
+        .bind(account)
+        .bind(character)
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
 /// Close a session, so it can never resolve again. Idempotent: closing a closed session is a no-op,
 /// which is what makes it safe to run on every disconnect and again on a stale sweep.
 pub async fn close_session(pool: &PgPool, session: Uuid) -> sqlx::Result<bool> {

@@ -22,6 +22,11 @@ use super::tables;
 pub const STATUS_OK: u32 = 0;
 /// The status field of a refusal: the pair did not resolve (`GM_ERROR_AUTH_ERROR`, GWPS `GmErrors.h`).
 pub const STATUS_AUTH_ERROR: u32 = 11;
+/// `GM_ERROR_NETWORK_ERROR`: what the reference answers when it cannot place or read something.
+pub const STATUS_NETWORK_ERROR: u32 = 2;
+/// `GM_ERROR_INVALID_CHARNAME`: the name the client sent is not one of the account's characters
+/// (`AuthSrv_HandleDeleteCharacter`).
+pub const STATUS_INVALID_CHARNAME: u32 = 23;
 
 /// Why a message body could not be read or built.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -504,6 +504,54 @@ async fn dispatch(
             Ok(true)
         }
 
+        // `AuthSrv_HandleDeleteCharacter`: the name must be one of *this account's* characters, then the
+        // row goes and the request is answered with status 0. The reference answers 23
+        // (`GM_ERROR_INVALID_CHARNAME`) for a name it does not know, and 2 if the delete itself fails,
+        // and it does **not** re-send the character list.
+        tables::AUTH_CMSG_DELETE_CHARACTER => {
+            let request = request_id(&frame);
+            let status = match session.account {
+                None => messages::STATUS_NETWORK_ERROR,
+                Some(account) => {
+                    let name = messages::decode_change_character(&frame.body)
+                        .map_err(ConnectionError::Message)?;
+                    let characters = db_login::characters(pool, account)
+                        .await
+                        .map_err(ConnectionError::Database)?;
+                    match characters.iter().find(|character| character.name == name) {
+                        None => {
+                            if trace.on() {
+                                eprintln!("auth: no character {name:?} to delete on this account");
+                            }
+                            messages::STATUS_INVALID_CHARNAME
+                        }
+                        Some(character) => {
+                            match db_login::delete_character(pool, account, character.id).await {
+                                Ok(_) => {
+                                    if trace.on() {
+                                        eprintln!("auth: character {name:?} deleted");
+                                    }
+                                    STATUS_OK
+                                }
+                                Err(err) => {
+                                    eprintln!("auth: could not delete {name:?}: {err}");
+                                    messages::STATUS_NETWORK_ERROR
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            send_frames(
+                stream,
+                session,
+                vec![RequestResponse { request, status }.frame()],
+                trace,
+            )
+            .await?;
+            Ok(true)
+        }
+
         // The reference keeps the client's player status on the connection and sends nothing.
         tables::AUTH_CMSG_SET_PLAYER_STATUS | tables::AUTH_CMSG_ACCEPT_EULA => Ok(true),
 
