@@ -36,8 +36,6 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const DEFAULT_WORLD_ID: i32 = 8001;
 const DEFAULT_BIND: &str = "127.0.0.1:6113";
 const DEFAULT_CAPACITY: i32 = 8;
-/// The map a fresh development database starts in: the reference rig's outpost.
-const DEFAULT_MAP: i32 = 146;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -92,8 +90,12 @@ async fn main() -> ExitCode {
         .and_then(|value| value.parse::<i32>().ok())
         .unwrap_or(DEFAULT_CAPACITY);
 
-    let maps_arg: Vec<i32> = match argument(&args, "--maps") {
-        Some(value) => value
+    // `--maps` names a subset; without it the world hosts **every** map the catalogue has, which is what
+    // the reference does (one server per map, all of them pre-spawned at startup). Pinning this to a single
+    // map made `/maps` show one alias and `/tp` answer "not hosted" for the other eleven -- a map list is a
+    // deployment detail, not something a player should have to know.
+    let maps_arg: Option<Vec<i32>> = argument(&args, "--maps").map(|value| {
+        value
             .split(',')
             .filter(|part| !part.trim().is_empty())
             .filter_map(|part| match part.trim().parse::<i32>() {
@@ -103,10 +105,9 @@ async fn main() -> ExitCode {
                     None
                 }
             })
-            .collect(),
-        None => vec![DEFAULT_MAP],
-    };
-    if maps_arg.is_empty() {
+            .collect::<Vec<i32>>()
+    });
+    if maps_arg.as_ref().is_some_and(|maps| maps.is_empty()) {
         eprintln!("asura-world: --maps named no map");
         return ExitCode::from(2);
     }
@@ -154,8 +155,33 @@ async fn main() -> ExitCode {
 
     // The maps, with what a client needs to load them. A map named on the command line that the
     // database does not describe is a map a client would load forever, so it is fatal here.
+    let map_ids = match maps_arg {
+        Some(explicit) => explicit,
+        None => match db_game::configured_map_ids(&pool).await {
+            Ok(ids) if !ids.is_empty() => {
+                eprintln!(
+                    "asura-world: no --maps given, so every map in the catalogue is hosted ({} of them, \
+                     the reference's own list)",
+                    ids.len()
+                );
+                ids
+            }
+            Ok(_) => {
+                eprintln!(
+                    "asura-world: map_config is empty, so there is no map to host; run \
+                     tools/seed-map.ps1 to write the reference's catalogue"
+                );
+                return ExitCode::from(4);
+            }
+            Err(err) => {
+                eprintln!("asura-world: could not read the map catalogue: {err}");
+                return ExitCode::FAILURE;
+            }
+        },
+    };
+
     let mut maps = Vec::new();
-    for map_id in &maps_arg {
+    for map_id in &map_ids {
         match db_game::spawn_map(&pool, *map_id).await {
             Ok(Some(configured)) => {
                 let map_file_id = u32::try_from(configured.map_file_id).unwrap_or(0);
@@ -362,7 +388,13 @@ fn print_help() {
         "    --public ADDRESS  the address to advertise to clients (default: the bind address,"
     );
     println!("                      or ASURA_WORLD_PUBLIC)");
-    println!("    --maps LIST       comma-separated map ids to host (default {DEFAULT_MAP})");
+    println!(
+        "    --maps LIST       comma-separated map ids, to host a subset instead of the whole"
+    );
+    println!(
+        "                      catalogue (default: every map in map_config -- the reference starts"
+    );
+    println!("                      a server per configured map, so /maps lists them all and /tp reaches them)");
     println!("    --capacity N      slots per map (default {DEFAULT_CAPACITY})");
     println!("    --gwdat PATH      the client archive the path graphs come from (default: ASURA_GW_DAT,");
     println!("                      then Gw.dat, then ..\\PreSearing\\Gw.dat)");

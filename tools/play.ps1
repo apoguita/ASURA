@@ -44,7 +44,7 @@
 #>
 
 param(
-    [string] $Maps = "146",
+    [string] $Maps = "",
     [int] $World = 8001,
     [int] $Capacity = 8,
     # Per-message tracing is OFF by default. A world tick every 500 ms and a ping every 5 s means a traced
@@ -131,8 +131,11 @@ Write-Host "== auth service on 127.0.0.1:6112"
 $auth = Start-Process -FilePath $authExe -ArgumentList "--bind", "127.0.0.1:6112" -NoNewWindow -PassThru -RedirectStandardError $authLog
 Start-Sleep -Milliseconds 700
 
-Write-Host "== world server id $World on 127.0.0.1:6113, maps $Maps"
-$worldArgs = @("--world", "$World", "--maps", $Maps, "--capacity", "$Capacity", "--public", "127.0.0.1:6113")
+Write-Host "== world server id $World on 127.0.0.1:6113, maps $(if ($Maps) { $Maps } else { 'every map in the catalogue' })"
+# `--maps` only when it was asked for: without it the world hosts the reference's whole catalogue, which is
+# what `/maps` lists and what `/tp` can reach. Pinning 146 here is what made both answer for one map.
+$worldArgs = @("--world", "$World", "--capacity", "$Capacity", "--public", "127.0.0.1:6113")
+if ($Maps) { $worldArgs += @("--maps", $Maps) }
 $worldProc = Start-Process -FilePath $worldExe -ArgumentList $worldArgs -NoNewWindow -PassThru -RedirectStandardError $worldLog
 Start-Sleep -Milliseconds 700
 

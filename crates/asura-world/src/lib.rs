@@ -2263,69 +2263,89 @@ async fn equip_item(
     send(stream, session, frames, trace).await
 }
 
-/// The reference's `/maps`, line for line (`GmCommands_ListTargets`).
+/// The reference's `/maps`, line for line (`GmCommand_ListTargets`).
 ///
-/// It prints two things and they are not the same text. The **chat** side is a list of aliases to type
-/// ("Maps: ascalon, lakeside, ...", wrapped inside one chat fragment, then "Use: /tp <name>, e.g. /tp
-/// lakeside county"). The **log** side is a table of every alias with the map it names, in the reference's
-/// own column widths:
+/// It prints two things and they are **not the same text**, which is the part I had wrong until a client
+/// tester pointed out that the list no longer showed every map:
+///
+/// * the **chat** side is one alias per map -- the first in the table, because that is the one to type --
+///   comma-separated and wrapped inside one chat fragment, then the reference's fixed
+///   "`Use: /tp <name>, e.g. /tp lakeside county`";
+/// * the **log** side is **every alias**, one row each, with the map it names, in the reference's own column
+///   widths and in its table order:
 ///
 /// ```text
 /// Teleport targets (20 aliases, every one with a map config):
-///   /tp ascalon          -> map 146  Ascalon City (pre-Searing)
+///   /tp ascalon          -> map 148  Ascalon City (pre-Searing)
+///   /tp ascalon city     -> map 148  Ascalon City (pre-Searing)
 /// ```
 ///
-/// The table is what a person reads, and it is the half that has always worked: no chat text has ever
-/// reached a client's screen, in the reference or here, and GWPS's own chat gate leaves the chat half in
-/// its log with the rest. So this returns the log lines, in that format, and `/maps` prints them. The chat
-/// fragments are built too, because they are the answer's other half and a caller may one day have a
-/// channel that renders them -- but `/maps` does not send them: sending chat crashed a live client here.
+/// The header's count is the **alias** count, not the map count, and the loop below prints a row per alias:
+/// collapsing it to one row per map (which is what the chat half does) is how `/maps` stopped naming the
+/// aliases a tester has to type.
 ///
-/// An alias is the map's name, lower-cased, as the reference's aliases are (`lakeside county`). A map with
-/// no name has no alias to type, so it prints its id and says so rather than inventing a name for it.
+/// The table is what a person reads, and it is the half that has always worked: no chat text has ever
+/// reached a client's screen, in the reference or here, and GWPS's own chat gate leaves the chat half in its
+/// log with the rest. So this returns the log lines, in that format, and `/maps` prints them. The chat
+/// fragments are built too, because they are the answer's other half and a caller may one day have a channel
+/// that renders them -- but `/maps` does not send them: sending chat crashed a live client here.
+///
+/// Only the aliases of maps **this world hosts** are listed, so a narrowed `--maps` does not advertise a
+/// target `/tp` would refuse. With the default (the whole catalogue) that is the reference's whole table.
+/// A map the reference's table does not name gets one row of its own, named by its id, rather than vanishing.
 pub fn maps_answer(maps: &[MapEntry]) -> MappedMaps {
-    // The aliases, from the reference's own table: one entry per map, and the entry is the **first** alias
-    // it lists for that map (`GmCommand_ListTargets`: "One entry per map, not per alias: the first alias is
-    // the one to type"). Reading them off the generated table rather than off the map's name matters --
-    // the reference's first alias for map 146 is `lakeside`, not `lakeside county`.
-    let aliases: Vec<String> = maps
-        .iter()
-        .map(|map| {
-            travel_targets::TRAVEL_TARGETS
-                .iter()
-                .find(|target| target.map_id == map.map_id)
-                .map(|target| target.alias.to_string())
-                .unwrap_or_else(|| map.alias())
-        })
-        .collect();
+    let hosted: Vec<i32> = maps.iter().map(|map| map.map_id).collect();
 
-    // The chat line, split the way the reference splits it: one line per 100 characters, continuation
-    // lines indented by six spaces, each entry followed by a comma.
+    // The rows, in the reference's table order: one per alias.
+    let mut rows: Vec<(String, i32, String)> = Vec::new();
+    let mut chat: Vec<String> = Vec::new();
+    let mut seen: Vec<i32> = Vec::new();
+    for target in travel_targets::TRAVEL_TARGETS {
+        if !hosted.contains(&target.map_id) {
+            continue;
+        }
+        rows.push((
+            target.alias.to_string(),
+            target.map_id,
+            target.label.to_string(),
+        ));
+        if !seen.contains(&target.map_id) {
+            seen.push(target.map_id);
+            chat.push(target.alias.to_string());
+        }
+    }
+    for map in maps {
+        if seen.contains(&map.map_id) {
+            continue;
+        }
+        seen.push(map.map_id);
+        let alias = map.alias();
+        chat.push(alias.clone());
+        rows.push((alias, map.map_id, map.name.clone()));
+    }
+
+    // The chat line, split the way the reference splits it: `100 <= used + needed` starts a continuation
+    // line indented by six spaces, each entry followed by a comma.
     let mut lines: Vec<String> = Vec::new();
     let mut current = String::from("Maps:");
-    for alias in &aliases {
-        if current.len() + alias.len() + 3 > 100 {
+    for alias in &chat {
+        if 100 <= current.len() + alias.len() + 3 {
             lines.push(current);
             current = String::from("      ");
         }
         current.push_str(&format!(" {alias},"));
     }
     lines.push(current);
-    lines.push(format!(
-        "Use: /tp <name>, e.g. /tp {}",
-        aliases.first().map(String::as_str).unwrap_or("<name>")
-    ));
+    // The reference's own sentence, literal: it names `lakeside county` whatever is in the table.
+    lines.push("Use: /tp <name>, e.g. /tp lakeside county".to_string());
 
-    // The table the log gets.
+    // The table the log gets: the alias count in the header, then every alias.
     let mut table = vec![format!(
         "Teleport targets ({} aliases, every one with a map config):",
-        maps.len()
+        rows.len()
     )];
-    for (map, alias) in maps.iter().zip(&aliases) {
-        table.push(format!(
-            "  /tp {:<15} -> map {:>3}  {}",
-            alias, map.map_id, map.name
-        ));
+    for (alias, map_id, label) in &rows {
+        table.push(format!("  /tp {alias:<15} -> map {map_id:>3}  {label}"));
     }
 
     MappedMaps { chat: lines, table }
@@ -3423,32 +3443,37 @@ mod tests {
 
     #[test]
     fn maps_prints_the_references_table_and_nothing_else() {
-        // `GmCommands_ListTargets` prints two things: chat aliases to type, and a table in its log. The
-        // table is the half a person reads, and it is asserted here field for field -- `%-15s` for the
-        // alias and `%3d` for the map id, because a format that drifts is a format nobody can compare.
+        // `GmCommand_ListTargets` prints two things, and they are *not* the same list:
         //
-        // The alias is the reference's own first alias for the map (`lakeside`), not the map's label
-        // (`lakeside county`): `GmCommand_ListTargets` prints "one entry per map, not per alias: the first
-        // alias is the one to type".
+        //   the chat half     one alias per map -- the first in the table, the one to type -- comma-separated
+        //                     and wrapped, then the reference's fixed "Use: /tp <name>, e.g. /tp lakeside
+        //                     county";
+        //   the log table     **every alias**, one row each, header counting aliases. `%-15s` for the alias
+        //                     and `%3d` for the map id, because a format that drifts is a format nobody can
+        //                     compare.
+        //
+        // Collapsing the table to one row per map (a mistake this test used to pin) is exactly what made
+        // `/maps` stop naming the aliases a tester has to type: map 146 has two, and both are answers.
         let answer = maps_answer(&[test_map()]);
         assert_eq!(
             answer.table,
             vec![
-                "Teleport targets (1 aliases, every one with a map config):".to_string(),
+                "Teleport targets (2 aliases, every one with a map config):".to_string(),
                 "  /tp lakeside        -> map 146  Lakeside County".to_string(),
+                "  /tp lakeside county -> map 146  Lakeside County".to_string(),
             ],
-            "the reference's header and row shape"
+            "the reference's header (counting aliases) and one row per alias"
         );
         assert_eq!(
             answer.chat,
             vec![
                 "Maps: lakeside,".to_string(),
-                "Use: /tp <name>, e.g. /tp lakeside".to_string(),
+                "Use: /tp <name>, e.g. /tp lakeside county".to_string(),
             ],
-            "and its chat half: aliases to type, then how to use them"
+            "and its chat half: the first alias of each map, then the reference's own sentence"
         );
 
-        // Two maps: the rows line up in the reference's columns, and the aliases are lower-case names.
+        // Two maps: every alias of both, in the reference's table order (148 comes first in its table).
         let second = MapEntry {
             map_id: 148,
             name: "Ascalon City".to_string(),
@@ -3456,16 +3481,19 @@ mod tests {
         };
         let both = maps_answer(&[test_map(), second]);
         assert_eq!(
-            both.table[1..],
-            [
+            both.table,
+            vec![
+                "Teleport targets (4 aliases, every one with a map config):".to_string(),
+                "  /tp ascalon         -> map 148  Ascalon City (pre-Searing)".to_string(),
+                "  /tp ascalon city    -> map 148  Ascalon City (pre-Searing)".to_string(),
                 "  /tp lakeside        -> map 146  Lakeside County".to_string(),
-                "  /tp ascalon         -> map 148  Ascalon City".to_string(),
+                "  /tp lakeside county -> map 146  Lakeside County".to_string(),
             ],
-            "the alias column is 15 wide, so 148's row is padded differently to 146's"
+            "table order, and the alias column is 15 wide"
         );
         assert_eq!(
-            both.chat[0], "Maps: lakeside, ascalon,",
-            "one chat line, aliases comma-separated"
+            both.chat[0], "Maps: ascalon, lakeside,",
+            "one chat line, one alias per map, comma-separated"
         );
 
         // A map with no name and no row in the reference's table has no alias to type; it prints its id
@@ -3475,9 +3503,13 @@ mod tests {
             name: String::new(),
             ..test_map()
         };
+        let odd = maps_answer(&[unnamed]);
         assert_eq!(
-            maps_answer(&[unnamed]).table[1],
-            "  /tp map 50146       -> map 50146  ",
+            odd.table,
+            vec![
+                "Teleport targets (1 aliases, every one with a map config):".to_string(),
+                "  /tp map 50146       -> map 50146  ".to_string(),
+            ],
             "an unnamed, uncatalogued map is named by its id"
         );
     }

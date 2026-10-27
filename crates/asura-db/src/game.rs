@@ -63,6 +63,18 @@ pub async fn spawn_map(pool: &PgPool, map_id: i32) -> sqlx::Result<Option<SpawnM
     Ok(row.map(spawn_map_from_row))
 }
 
+/// Every map the catalogue describes, in id order.
+///
+/// What a world hosts when it is not told otherwise: the reference pre-spawns one server per configured
+/// map, so a freshly started world here serves the same set. `--maps` narrows it on purpose (a soak, a
+/// single-map test), never by default — a world hosting one map answers `/tp` with "not hosted" for the
+/// rest, and `/maps` prints one alias.
+pub async fn configured_map_ids(pool: &PgPool) -> sqlx::Result<Vec<i32>> {
+    sqlx::query_scalar("SELECT map_id FROM map_config ORDER BY map_id")
+        .fetch_all(pool)
+        .await
+}
+
 /// A character's name, as the client should see it in the map.
 pub async fn character_name(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<String>> {
     sqlx::query_scalar("SELECT name FROM characters WHERE id = $1")

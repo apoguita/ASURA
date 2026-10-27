@@ -26,7 +26,8 @@
     ASCII only, like every script in tools/.
 
 .PARAMETER Maps
-    Comma-separated map ids the world hosts. Default 146 (Lakeside County).
+    Comma-separated map ids the world hosts. Default: every map in the catalogue (the reference's own
+    twelve), so /maps lists all of them and /tp can reach all of them. Narrow it to test one map.
 
 .PARAMETER World
     The world id the servers register under. Default 8001.
@@ -60,7 +61,7 @@
 #>
 
 param(
-    [string] $Maps = "146",
+    [string] $Maps = "",
     [int]    $World = 8001,
     [int]    $Capacity = 8,
     [switch] $Trace,
@@ -184,7 +185,9 @@ try {
     Write-Host "== 3. the services (play.ps1: seed, build, auth :6112, world :6113)"
     Write-Host ""
     $playArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "play.ps1"),
-        "-Maps", $Maps, "-World", "$World", "-Capacity", "$Capacity")
+        "-World", "$World", "-Capacity", "$Capacity")
+    # Only forward `-Maps` when the caller named one: the default is the whole catalogue.
+    if ($Maps) { $playArgs += @("-Maps", $Maps) }
     if ($Trace) { $playArgs += "-Trace" }
     & (Get-Command powershell).Source @playArgs
     $code = $LASTEXITCODE

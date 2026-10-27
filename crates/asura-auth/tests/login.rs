@@ -417,6 +417,93 @@ async fn a_game_connection_for_an_unknown_world_is_closed() {
     harness.stop();
 }
 
+/// The step a real client takes after `/tp`: it reconnects to the **auth** address with the world id it was
+/// handed, and this service routes that connection to the world and copies bytes both ways.
+///
+/// This is the half of a teleport no in-process world test can cover: the world tests dial the world
+/// directly, while a client always dials the auth address (`frontdoor`). The only front-door test before
+/// this one was the refusal -- a world nobody registered -- so the positive path, the one a teleport depends
+/// on, was untested. The "world" here is a bare listener: what is being asserted is the **router** (the
+/// bytes forwarded verbatim, the reply copied back), not the world's protocol.
+#[tokio::test]
+async fn a_game_connection_is_routed_to_the_world_it_names() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    // A stand-in world: accept one connection, read what arrives, answer with a marker.
+    let world = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a world port");
+    let world_address = world.local_addr().expect("world address");
+    let world_id = 20_000 + (Uuid::new_v4().as_u128() % 10_000) as i32;
+    asura_db::placement::register_world(
+        &harness.pool,
+        world_id,
+        "frontdoor-test",
+        &world_address.ip().to_string(),
+        i32::from(world_address.port()),
+        "frontdoor-test",
+        &[],
+    )
+    .await
+    .expect("register the world");
+
+    let stand_in = tokio::spawn(async move {
+        let (mut socket, _) = world.accept().await.expect("the router dials the world");
+        let mut received = vec![0u8; asura_protocol::client::version::GAME_CMSG_VERSION_LEN];
+        socket
+            .read_exact(&mut received)
+            .await
+            .expect("the version message arrives whole");
+        socket
+            .write_all(b"world-speaks")
+            .await
+            .expect("write the answer");
+        received
+    });
+
+    // The client: a complete version message naming that world, sent to the auth address.
+    let mut stream = harness.connect().await;
+    let mut message = vec![0u8; asura_protocol::client::version::GAME_CMSG_VERSION_LEN];
+    message[0..4]
+        .copy_from_slice(&asura_protocol::client::version::GAME_CMSG_VERSION_HEADER.to_le_bytes());
+    message[12..16].copy_from_slice(&(world_id as u32).to_le_bytes());
+    stream
+        .write_all(&message)
+        .await
+        .expect("write the game version message");
+
+    // Forwarded verbatim: the world sees exactly the bytes the client sent, header included.
+    let forwarded = tokio::time::timeout(TIMEOUT, stand_in)
+        .await
+        .expect("the world receives the connection before the timeout")
+        .expect("the stand-in world did not panic");
+    assert_eq!(
+        forwarded, message,
+        "the router forwards the game connection's bytes unchanged"
+    );
+
+    // And the answer comes back through the same socket the client is holding.
+    let mut buffer = [0u8; 12];
+    tokio::time::timeout(TIMEOUT, stream.read_exact(&mut buffer))
+        .await
+        .expect("the world's answer arrives before the timeout")
+        .expect("read the answer");
+    assert_eq!(
+        &buffer, b"world-speaks",
+        "the world's bytes are copied back to the client"
+    );
+
+    asura_db::placement::remove_world(&harness.pool, world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
 #[tokio::test]
 async fn garbage_before_the_version_message_closes_the_connection() {
     if skip() {

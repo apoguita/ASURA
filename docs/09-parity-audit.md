@@ -235,7 +235,14 @@ loading.
 That correction exposed a second liberty: this world refused to host explorables at all, on the theory that
 it "cannot spawn anything into one". A world server does not spawn content — it hands the client the blob and
 the spawn point, which is what the reference does with 146. Explorable hosting is allowed now (types 0, 1 and
-11), and a world started with `--maps 146` registers and listens.
+11), and a world hosts **every map in the catalogue** by default: the reference pre-spawns one server per
+configured map (`AuthSrv_PreSpawnMapServers`), so `/maps` lists all twelve and `/tp` reaches all twelve
+without a flag. `--maps` narrows the set on purpose — a soak, a single-map test — and is never required.
+
+That default was wrong for a long time in a way nobody had written down: `asura-world` without `--maps`
+hosted **one** map (146, the constant from the first single-map server), so `/maps` printed one alias and
+`/tp` to any other map was refused. The reference has no such state. The regression test
+`the_default_map_list_is_the_whole_catalogue_and_tp_reaches_it` holds that line now.
 
 ## 7. World hosting & map config
 
