@@ -286,27 +286,25 @@ GWPS keeps twelve fields per player (`GmPlayer.h:21-33`). ASURA keeps six (`Play
 | agent id | `GmPlayer.agent_id` | `Agents.player.agent_id` | 1:1 |
 | connection | `GmPlayer.conn_token` | the connection is the task; no id | 1:1 (effect) |
 | **character id** | `GmPlayer.char_id` | `Play.character` | 1:1 |
-| **account id** | `GmPlayer.account_id` — used 63 times on the game side, including every bag and item read (`GameSrv.c:1136`, `GameSrv.c:1174`) and the transfer request (`GameSrv.c:1456`) | **not kept**: read from the claimed transfer and dropped | **BEHIND** — and it is exactly what `/tp` cannot write without |
+| **account id** | `GmPlayer.account_id` — used 63 times on the game side, including every bag and item read (`GameSrv.c:1136`, `GameSrv.c:1174`) and the transfer request (`GameSrv.c:1456`) | `Play.account_id`, kept from the claimed transfer; every bag and item query and the `/tp` transfer name it | 1:1 — it was the one real liberty in this table until `/tp` needed it |
 | character row | `GmPlayer.character` (a whole `DbCharacter`: ~44 columns) | the columns a message reads — `appearance`, `primary_profession`, `unlocked_professions`, `gold` (migration 0008) and `level`, `campaign`, `is_pvp`, `secondary_profession`, `helm_status` (migration 0009), plus the position this schema keeps for itself — and the settings blob built from them | **1:1 for what is sent, and it used to be worse**: until migration 0008 the load block sent the reference's *default* character to everyone, and until migration 0009 the login reply's character list sent **one captured 62-byte blob for every character** (a Warrior, level 1, outpost 146, five dyed armour pieces) instead of each character's own |
 | account row | `GmPlayer.account` (a whole `DbAccount`) | nothing; read per request | 1:1 (effect) |
 | bags | `GmPlayer.bags` (in memory, written once) | `Play.inventory` (rows, reloaded) | 1:1 (effect) |
-| campaign | `GmPlayer.char_creation_campaign` | none — no creation | BEHIND (the creation gap, §6) |
-| profession | `GmPlayer.primary_profession` | `DEFAULT_PRIMARY_PROFESSION` (1, Warrior — the reference's own default) | 1:1 (effect) |
+| campaign | `GmPlayer.char_creation_campaign` | `characters.campaign` (migration 0009), written by the creation confirm and carried in the settings blob | 1:1 |
+| profession | `GmPlayer.primary_profession` | `characters.primary_profession`: `PLAYER_UPDATE_PROFESSION` sends the row's, and the creation screen's choice is what the row holds | 1:1 |
 | team token | `GmPlayer.player_team_token` (an arbitrary constant) | `PLAYER_TEAM_TOKEN` | 1:1 (effect) |
 | party id | `GmPlayer.party_id` | `PARTY_ID` (1) | 1:1 (effect) |
 
 Two conclusions, and they are the answer to "why does this project take liberties":
 
-1. **Nine of the ten differences are storage, not behaviour** — ASURA derives from rows what GWPS
-   caches. That is legitimate, but only because it *is* recorded here: the rows are the same rows, read
-   from the same place, and nothing a client can see differs. Stated as a rule: **caching nothing is
-   fine; being unable to answer is not.**
-2. **One difference is a real liberty: `account_id`.** GWPS keeps it because work needs it — every bag
-   and item query is scoped by it, and the transfer request carries it (`GameSrv.c:1450-1472`:
-   `player_id`, `account_id`, `char_id`, `district`). ASURA scopes everything by character, which works
-   for every message the world sends today, and stops working the moment the world has to *originate* a
-   travel. It is not blocked by a missing capture (§4) and it is not an architecture objection: it is a
-   field that was never kept because nothing had needed it yet.
+1. **Almost every difference is storage, not behaviour** — ASURA derives from rows what GWPS caches. That is
+   legitimate, but only because it *is* recorded here: the rows are the same rows, read from the same place,
+   and nothing a client can see differs. Stated as a rule: **caching nothing is fine; being unable to answer
+   is not.**
+2. **The one liberty this table used to have — `account_id` — is gone.** GWPS keeps it because work needs it:
+   every bag and item query is scoped by it, and the transfer request carries it
+   (`GameSrv.c:1450-1472`: `player_id`, `account_id`, `char_id`, `district`). This server dropped it until
+   `/tp` needed exactly that, which is when it was kept; the rows above are the record of it.
 
 **What is still not stored, and why that is written down rather than fixed.** The reference's
 `DbCharacter` carries about forty-four columns. This server stores the one every message that exists reads:
