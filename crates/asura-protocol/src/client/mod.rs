@@ -51,14 +51,16 @@ pub use messages::{PortalAccountLogin, RequestResponse};
 pub use peer::ReferenceClient;
 pub use tables::Entry;
 
-/// Server → client: where to go. `{host[24], port, map_token, region, player_token,
-/// is_explorable, map_id}`. GWPS sends 46 bytes; live captures show 52. Field order matters.
+/// Server → client: where to go. `{header(4), host[24], map_token, region, map_id,
+/// is_explorable, player_token, 0}`. GWPS's own struct declares 46 bytes, but GWPS's own captured
+/// 0x01A6 — the one its source cites by map id — is 52 bytes with a four-byte header and this field
+/// order; a client sent the 46-byte struct answers 007. The capture is the port target.
 ///
 /// This is a *game* header, not an auth one, so it has no row in [`tables::AUTH_TABLE`] yet; the
 /// two constants below are the recorded evidence that it must not be treated as one size.
 pub const TRANSFER_GAME_SERVER_INFO: u16 = 0x01A6;
-/// See [`TRANSFER_GAME_SERVER_INFO`]; the size GWPS sends.
-pub const TRANSFER_GAME_SERVER_INFO_LEN: usize = 46;
+/// See [`TRANSFER_GAME_SERVER_INFO`]; the size GWPS's own capture shows the live client accepting.
+pub const TRANSFER_GAME_SERVER_INFO_LEN: usize = 52;
 
 /// Server → client: switch to this map now. `{header, 0, map_id, 0}`.
 pub const MAP_UPDATE_CURRENT: u16 = 0x0099;

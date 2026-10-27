@@ -185,17 +185,24 @@ This is the part the whole design exists to protect.
 2. **the auth service allocates.** It answers only from a world that has the map ready (`docs/02-architecture.md`).
 3. **the auth service issues a token.** A fresh player token plus the identity the client's *next* connection
    must present.
-4. **The client is redirected.** The response is `TRANSFER_GAME_SERVER_INFO` (`0x01A6`):
-   `{host[24], port, map_token, region, player_token, is_explorable, map_id}` — field order as
-   GWPS sends it; the captured live shape is 52 bytes where GWPS sends 46, and GWPS's 46-byte form
-   is accepted by the client, so the difference is padding rather than semantics. **Do not
-   reorder fields**: GWPS's order deliberately differs from the capture and works.
-   - `host` is a 24-byte string. GWPS always writes `127.0.0.1`; the auth service must write a real address.
-   - `is_explorable` describes the **destination** map type (1 for explorables, 0 for outposts).
+4. **The client is redirected.** The response is `TRANSFER_GAME_SERVER_INFO` (`0x01A6`): **52 bytes,
+   a four-byte game header, `host[24]`, then six dwords** — `map_token, region, map_id, is_explorable,
+   player_token, 0`. This is the shape GWPS's **own capture** shows a real client completing a load
+   with (`captures/zone-ref-005829.jsonl` seq 42 → 43 → 47 → 189 `INSTANCE_LOADED`, map 161,
+   `is_explorable = 1`; the same file's seq 424 has map 165, `0`). GWPS's C struct
+   (`GameMsg.h:659`, 46 bytes) declares a **different order** — `player_token` before
+   `is_explorable`/`map_id` — and that order is contradicted by GWPS's own capture; a client sent
+   the 46-byte struct reads the map id out of the token slot and answers `007` (the reference's
+   documented known limitation, `docs/08-gm-commands.md`). **The capture is the port target; do not
+   follow the struct.**
+   - `host` is 24 bytes: `AF_INET` little endian, port **big** endian, four address bytes, then zero.
+     GWPS always writes `127.0.0.1`; this server writes its advertised address (the auth front door).
+   - `is_explorable` describes the **destination** map type — `MapType_MainExplorable |
+     MissionExplorable | ArenaExplorable` (1/4/6, `GmMap.h:22-27`) are explorables.
      Deriving it from the source map was a bug that produced client error 005.
 5. **A map update follows immediately.** `MAP_UPDATE_CURRENT` (`0x0099`) is sent right after the
    redirect — in live captures the two appear in the same millisecond. 12 bytes:
-   `header, 0, map_id, 0`. See the size trap below.
+   `header, map_id, 0`. See the size trap below.
 6. **The client reconnects.** It drops the old connection and opens a new one to the address it was
    given, presenting the token. That reconnect is accepted only if it matches the recorded identity;
    a mismatch is client error 007.

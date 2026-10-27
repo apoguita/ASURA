@@ -805,12 +805,16 @@ pub fn map_update_current_redirect(map_id: u32) -> crate::client::Frame {
 
 /// `GAME_SMSG_TRANSFER_GAME_SERVER_INFO` (`0x01A6`): where the client should reconnect, and with what.
 ///
-/// Forty-six bytes, the form the reference sends and a client accepts: two-byte header, the 24-byte
-/// `sockaddr_in`, then `map_token`, `region`, `map_id`, `is_explorable`, `player_token`. The live
-/// capture is 52 bytes — the same fields with a four-byte header and a trailing dword
-/// (`captures/zone-ref-005829.jsonl` seq 42) — and `docs/03-protocol.md` §5 records that the client
-/// takes either. A hop from an explorable into an outpost once sent `is_explorable = 1` and the client
-/// answered `005`, which is why the flag describes the **destination** (`GameSrv.c:1394-1403`).
+/// **Fifty-two bytes, the live form**: a **four-byte** header, the 24-byte `sockaddr_in`, then **six**
+/// dwords — `map_token`, `region`, `map_id`, `is_explorable`, `player_token`, and a trailing zero.
+///
+/// This is the form measured off a real client that completed the whole load
+/// (`captures/zone-ref-005829.jsonl` seq 42 -> 43 -> 47 -> 189: `INSTANCE_LOADED`). The generated
+/// `msgdefs` table declares 46 bytes / two-byte header / five dwords — that is GWPS's own build, and a
+/// client sent *that* answers `007` or hangs on the loading screen: it reads every field one dword too
+/// early, the player token comes back as the map id, and the connection dies. So follow the capture, not
+/// the table. (`docs/03-protocol.md` §5 said the client "takes either"; the capture says otherwise, and
+/// captures beat tables.)
 ///
 /// `host` is the reference's own shape (`GameSrv.c:1406-1420`): family little endian, port **big**
 /// endian, four address bytes, then zero.
@@ -824,6 +828,7 @@ pub fn transfer_game_server_info(
     player_token: u32,
 ) -> crate::client::Frame {
     Builder::new(TRANSFER_GAME_SERVER_INFO)
+        .u16(0) // the upper half of the four-byte game header
         .u16(2) // AF_INET, little endian
         .raw(&port.to_be_bytes())
         .raw(&host)
@@ -833,6 +838,7 @@ pub fn transfer_game_server_info(
         .u32(map_id)
         .u32(is_explorable)
         .u32(player_token)
+        .u32(0) // the live form's sixth dword: zero
         .frame()
 }
 
@@ -1310,7 +1316,7 @@ mod tests {
         assert_eq!(wire(&hard_mode_unlocked(1)), 3);
         assert_eq!(wire(&map_update_current(146)), 5);
         assert_eq!(wire(&ready_for_map_spawn()), 6);
-        // The redirect pair, both measured from the capture: 46 and 12 bytes.
+        // The redirect pair, both measured from GWPS's own capture: 52 and 12 bytes.
         assert_eq!(
             wire(&transfer_game_server_info(
                 [127, 0, 0, 1],
@@ -1321,7 +1327,7 @@ mod tests {
                 0,
                 0x1234_5678
             )),
-            46
+            52
         );
         assert_eq!(wire(&map_update_current_redirect(146)), 12);
         assert_eq!(wire(&pvp_item_stream_end()), 2);
