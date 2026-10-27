@@ -1127,7 +1127,28 @@ async fn answer(
                 equipped: play.inventory.equipped_item_ids(),
             };
             if !others.is_empty() {
-                world.peers.broadcast(play.player_id, &introduction(&me));
+                // The introduction, then what the others need in order to draw this player:
+                // `GameSrv_BroadcastPlayerEquippedItems` (`GmItem.c:129-160`, the *unnamed* item form),
+                // then `GameSrv_BroadcastUpdateAgentVisualEquipment` and `GameSrv_BroadcastAgentDisplayCape`
+                // — the reference's own order in the same handler (`GameSrv.c:1643-1650`).
+                let mut mine = introduction(&me);
+                let equipped_bag = play
+                    .inventory
+                    .bags
+                    .iter()
+                    .find(|bag| bag.bag_type == 2)
+                    .map(|bag| bag.bag_id);
+                for item in play
+                    .inventory
+                    .items
+                    .iter()
+                    .filter(|item| item.bag_id == equipped_bag)
+                {
+                    mine.push(game::create_unnamed_item(&named_item(item)));
+                }
+                mine.push(equipment_frame(play));
+                mine.push(game::agent_display_cape(play.agents.player.agent_id, 1));
+                world.peers.broadcast(play.player_id, &mine);
             }
             send(stream, session, block, trace).await?;
             Ok(true)
@@ -1512,7 +1533,9 @@ async fn answer(
                 .iter()
                 .filter(|item| item.bag_id == equipped_bag)
             {
-                frames.push(game::create_named_item(&named_item(item)));
+                // GameSrv_SendItemsInBag sends the *unnamed* form here, not the named one the
+                // inventory stream uses (GmItem.c:111-127).
+                frames.push(game::create_unnamed_item(&named_item(item)));
                 if let (Some(bag), Some(slot)) = (item.bag_id, item.slot) {
                     frames.push(game::item_move_to_location(
                         ITEM_STREAM,

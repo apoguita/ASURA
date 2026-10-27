@@ -1230,6 +1230,26 @@ async fn a_second_player_is_introduced_to_the_first_and_withdrawn_again() {
             .any(|frame| frame.header == game::PLAYER_UPDATE_PARTY),
         "and its own party, as the reference sends it"
     );
+    // And what it takes to draw them: `GameSrv_BroadcastPlayerEquippedItems` sends the equipped items in
+    // their *unnamed* form, then the visual equipment and the cape (`GameSrv.c:1648-1650`).
+    assert!(
+        introduced
+            .iter()
+            .any(|frame| frame.header == game::CREATE_UNNAMED_ITEM),
+        "the newcomer's equipped items, unnamed"
+    );
+    assert!(
+        introduced
+            .iter()
+            .any(|frame| frame.header == game::UPDATE_AGENT_VISUAL_EQUIPMENT),
+        "the newcomer's visual equipment"
+    );
+    assert!(
+        introduced
+            .iter()
+            .any(|frame| frame.header == game::AGENT_DISPLAY_CAPE),
+        "and its cape"
+    );
 
     // T14: the second client goes away, and the first one's world loses the agent.
     drop(stream_b);
@@ -1482,10 +1502,12 @@ async fn a_character_is_created_in_a_creation_instance() {
     // 3. a profession change: Prophecies Ranger (campaign 1, profession 2).
     say(&mut stream, &mut client, 0x8060, &[1, 2]).await;
     let changed = read_until(&mut stream, &mut client, game::PLAYER_UPDATE_PROFESSION).await;
+    // `GameSrv_SendItemsInBag` sends the *unnamed* form for bag slots, not the named one the inventory
+    // stream uses (`GmItem.c:111-127`).
     assert!(
         changed
             .iter()
-            .any(|frame| frame.header == game::CREATE_NAMED_ITEM),
+            .any(|frame| frame.header == game::CREATE_UNNAMED_ITEM),
         "the new profession's equipment follows the profession"
     );
 

@@ -42,7 +42,7 @@ generated audits in the battery.
 | axis | how it is measured | current state |
 |---|---|---|
 | client → server dispatch | `tools/parity-report.py` vs `GameSrv.c`/`AuthSrv.c` switches | **complete**: auth **15/15**, game **18/18**; the battery reports "nothing missing" |
-| server → client emit | `tools/parity-emit.py` | reference **81**, ASURA **75**, **6 cannot** — **1 real** gap (`CREATE_UNNAMED_ITEM`) and 5 explained absences |
+| server → client emit | `tools/parity-emit.py` | **complete for every message the reference sends**: 76 of 81 reachable, **0 real gaps**, 5 explained absences |
 | state kept per player | `docs/09` §9, hand-checked against `GmPlayer.h:21-33` | 12 fields vs 6; `account_id` missing, which is what `/tp` needs |
 | schema | migrations vs `Db.c` queries | equivalent for what is used; no `friendships` table (the stream is empty anyway) |
 | the load block | `tools/parity-load.py` against the reference's own `GWPS_TRACE=1` log, as a generated fixture (`crates/asura-world/src/load_fixture.rs`) | **measured: 480 messages, 0 missing, 0 extra, 0 size disagreements** — it matches message for message |
@@ -156,10 +156,10 @@ it cannot reach. Evidence: `GmAgent.c:371-398`, `GmAgent.c:409-462`.
 `CREATE_UNNAMED_ITEM` cannot be emitted; the ground item cannot be sent; nothing picks anything up
 (GWPS has no pick-up handler either).
 
-| # | item | done when |
-|---|---|---|
-| E1 | decide the ground item on evidence: GWPS's own handler is unfinished, so the capture must come from live play or the item stays a log line (already recorded) | a written decision, with the capture if one exists |
-| E2 | `CREATE_UNNAMED_ITEM` for the paths that need it (creation, drops of generated items) | the emit diff stops naming it |
+**E2 landed.** `CREATE_UNNAMED_ITEM` turned out not to be a new feature but a *shape*: the reference has two item creators and uses both — `GameSrv_SendItemById` sends the named one for the inventory stream, and`GameSrv_SendItemsInBag` (`GmItem.c:111-127`) plus `GameSrv_BroadcastPlayerEquippedItems`
+(`GmItem.c:129-160`) send the unnamed one for bag slots and equipped items. This repo had used the named form everywhere, so the creation screen's profession change was sending the wrong message. Fixed at the builder and at both call sites; the multi-player introduction now also broadcasts a newcomer's equipped items, visual equipment and cape in the reference's own order (`GameSrv.c:1643-1650`).
+
+**E1 is decided, not done.** The ground item stays a log line: GWPS's own drop handler never removes the item and gives the ground agent the item's id as its model, and no capture contains a working drop. A capture is the only thing that would change this, and the reference cannot produce one — its handler is the unfinished one. Recorded in `docs/08-next-inventory-model.md`.
 
 ### F. The load block, byte-compared (T8, T15)
 

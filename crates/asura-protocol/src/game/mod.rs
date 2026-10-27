@@ -75,6 +75,10 @@ pub const ITEM_STREAM_CREATE: u16 = 0x0144;
 pub const INVENTORY_CREATE_BAG: u16 = 0x013F;
 /// `GAME_SMSG_CREATE_NAMED_ITEM` (`0x0161`): `34 + 2n + 4m`, and no fixed size — see the builder.
 pub const CREATE_NAMED_ITEM: u16 = 0x0161;
+/// `GAME_SMSG_CREATE_UNNAMED_ITEM` (`0x015F`): 25 bytes, the same item without its name. The reference
+/// sends this one for bag slots and equipped items (`GmItem.c:111-160`) and the named one for the
+/// inventory stream (`GameSrv_SendItemById`).
+pub const CREATE_UNNAMED_ITEM: u16 = 0x015F;
 /// `GAME_SMSG_ITEM_MOVE_TO_LOCATION` (`0x013E`): 11 bytes.
 pub const ITEM_MOVE_TO_LOCATION: u16 = 0x013E;
 /// `GAME_SMSG_ITEM_REMOVE` (`0x014D`): 8 bytes. Takes an item out of the client's inventory model.
@@ -649,6 +653,27 @@ pub struct NamedItem {
     pub name: Vec<u16>,
     /// The modifier list, at most 64 dwords.
     pub modifiers: Vec<u32>,
+}
+
+/// `GAME_SMSG_CREATE_UNNAMED_ITEM` (`0x015F`): an item **without** its name, 25 bytes.
+///
+/// The reference has two item creators and uses both: `GameSrv_SendItemById` sends the *named* one (the
+/// inventory stream, `0x0161`), while `GameSrv_SendItemsInBag` (`GmItem.c:111-127` — which the creation
+/// screen's profession change calls) and `GameSrv_BroadcastPlayerEquippedItems` (`GmItem.c:129-160`) send
+/// this one. The difference is the name: an item sitting in a bag slot is drawn from its model, so the
+/// client is not told a name it can already resolve.
+pub fn create_unnamed_item(item: &NamedItem) -> crate::client::Frame {
+    Builder::new(CREATE_UNNAMED_ITEM)
+        .u32(item.id)
+        .u32(item.file_id)
+        .u8(item.item_type)
+        .u8(item.dye_tint)
+        .u16(item.dye_colors)
+        .u16(item.materials)
+        .u8(item.unk1)
+        .u32(item.flags)
+        .u32(item.value)
+        .frame()
 }
 
 /// `GAME_SMSG_CREATE_NAMED_ITEM`: one item, with everything a client needs to draw it.
@@ -1275,6 +1300,8 @@ mod tests {
         assert_eq!(wire(&inventory_create_bag(1, 1, 0, 1, 20, 0)), 13);
         assert_eq!(wire(&item_move_to_location(1, 2, 1, 0)), 11);
         assert_eq!(wire(&item_remove(1, 2)), 8);
+        // The unnamed form is fixed at 25 bytes; the named one has no fixed size at all.
+        assert_eq!(wire(&create_unnamed_item(&NamedItem::default())), 25);
         assert_eq!(wire(&item_set_profession(3, 1)), 7);
         assert_eq!(wire(&chat_message_local(1, CHANNEL_ALL)), 10);
         assert_eq!(wire(&chat_message_server(CHANNEL_WARNING)), 10);
