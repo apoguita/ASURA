@@ -113,12 +113,12 @@ async fn main() -> ExitCode {
     eprintln!("asura-world {} starting", env!("CARGO_PKG_VERSION"));
     eprintln!("asura-world: database ready, connecting");
 
-    // Said once, and never gated again: chat is printed here and sent to the client, always. The printing
-    // is the half that has always worked -- the reference's `/maps` answered into its own log -- and this
-    // server does both, because a command whose only answer is on a screen nobody has ever seen is not a
-    // command.
+    // Said once, and never gated. Chat commands answer **here**, in this console, which is the half that
+    // has always worked: the reference's `/maps` printed its table to its own log, and no chat text has
+    // ever reached a client's screen in either server. Command answers are not sent -- sending them crashed
+    // a live client -- while a line a player *speaks* is sent, as the reference sends it.
     eprintln!(
-        "asura-world: chat is printed here and sent; /maps, /stuck and a spoken line all say what they did"
+        "asura-world: /maps, /stuck and unknown commands answer in this console; a spoken chat line is sent"
     );
 
     let Some(database_url) = asura_db::config::database_url() else {
@@ -163,12 +163,13 @@ async fn main() -> ExitCode {
                     return ExitCode::from(4);
                 }
                 if configured.map_type != 0 {
-                    // Explorable areas are a later milestone: an outpost is where a client lands,
-                    // and claiming to host an explorable would put a player in a map this server
-                    // cannot spawn anything into.
+                    // Everything but a main town is a later milestone: an outpost is where a
+                    // client lands, and claiming to host an explorable (or a character-creation
+                    // instance, type 11) would put a player in a map this server cannot spawn
+                    // anything into.
                     eprintln!(
-                        "asura-world: map {map_id} is an explorable area (type {}); only outposts \
-                         are hosted so far, skipping it",
+                        "asura-world: map {map_id} is type {} (only main towns are hosted so \
+                         far), skipping it",
                         configured.map_type
                     );
                     continue;

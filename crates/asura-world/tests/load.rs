@@ -864,6 +864,72 @@ async fn an_item_can_be_taken_off_and_worn_again() {
     harness.stop();
 }
 
+/// A spoken line: `GAME_CMSG_SEND_CHAT_MESSAGE` = `{agent_id u32, String16}`.
+fn chat_body(text: &str) -> Vec<u8> {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let mut body = 1u32.to_le_bytes().to_vec();
+    body.extend_from_slice(&(units.len() as u16).to_le_bytes());
+    for unit in units {
+        body.extend_from_slice(&unit.to_le_bytes());
+    }
+    body
+}
+
+#[tokio::test]
+async fn maps_prints_its_table_and_puts_nothing_on_the_wire() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    let version = harness.version(harness.player_token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused a token the auth service had just issued");
+    };
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_INFO).await;
+
+    // `/maps`, exactly as a client types it. The answer is the reference's table, printed in the server's
+    // console (`--nocapture` shows it); **nothing is sent**, which is what the reference does too: its
+    // `GameSrv_SendSystemChatMessage` returns before touching the socket unless `GWPS_CHAT` is set, so a
+    // client has nothing to receive and nothing to crash on.
+    say(&mut stream, &mut client, 0x8064, &chat_body("/maps")).await;
+
+    ask(&mut stream, &mut client, 0x800D, 2).await;
+    let frames = read_until(&mut stream, &mut client, game::PING_REPLY).await;
+    for forbidden in [
+        game::CHAT_MESSAGE_CORE,
+        game::CHAT_MESSAGE_SERVER,
+        game::CHAT_MESSAGE_LOCAL,
+    ] {
+        assert!(
+            !frames.iter().any(|frame| frame.header == forbidden),
+            "{forbidden:#06X} must not be sent for /maps: the reference answers into its own log, and \
+             sending chat crashed a live client here"
+        );
+    }
+
+    // An unknown command is the same: the reference's `GameSrv_SendInvalidCommand` logs "Unknown command"
+    // and returns without sending, under the same gate.
+    say(&mut stream, &mut client, 0x8064, &chat_body("/nonsense")).await;
+    ask(&mut stream, &mut client, 0x800D, 2).await;
+    let frames = read_until(&mut stream, &mut client, game::PING_REPLY).await;
+    assert!(
+        !frames
+            .iter()
+            .any(|frame| frame.header == game::CHAT_MESSAGE_CORE),
+        "an unknown command answers in the log, not on the wire"
+    );
+
+    drop(stream);
+    assert!(harness.slot_released().await, "the slot went back");
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
 #[tokio::test]
 async fn a_character_comes_back_where_it_left() {
     if skip() {

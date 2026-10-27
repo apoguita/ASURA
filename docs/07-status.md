@@ -77,37 +77,38 @@ out of `GmChat.c` and `GmCommands.c`:
 
 | typed | the reference | here |
 |---|---|---|
-| `!text` | `Channel_All`, sent | `Channel_All`, sent, and printed here |
-| `#text` | `Channel_Group`, sent | `Channel_Group`, sent, and printed here |
-| `$text` | `Channel_Trade`, sent | `Channel_Trade`, sent, and printed here |
+| `!text` | `Channel_All`, sent (`0x005D` + `0x0061`) | the same two messages |
+| `#text` | `Channel_Group`, sent | the same two messages, on the group channel |
+| `$text` | `Channel_Trade`, sent | the same two messages, on the trade channel |
 | `@`, `%`, `"` | ignored | ignored |
-| `/stuck` | cancels the movement and broadcasts the agent's position (`0x002C`) | the same, and printed here |
-| `/maps` | lists its configured maps **in its own log** | lists the maps this world hosts, in this log **and** on the wire |
+| `/stuck` | cancels the movement and broadcasts the agent's position (`0x002C`) | the same |
+| `/maps` | prints its table **in its own log**; its chat answer returns before the wire | prints the same table, line for line, in its own log; **nothing on the wire** |
 | `/tp <map>`, `/teleport <map>` | asks the auth service for a world and tells the client to reconnect | **not implemented**: this world cannot start a travel |
-| anything else after `/` | `Unknown command`, in its log and on the wire | the same, here and on the wire |
+| anything else after `/` | `Unknown command`, in its log (its sender returns before the wire too) | `world: Unknown command`, in this log |
 
-**Nothing is gated, and nothing must be.** No chat text has ever reached a client's screen in this
-project or in the reference -- the reference's `/maps` was useful because it printed its answer on
-the *server*, and so does this one -- so a switch that hid the answer would hide the only half that
-has ever worked. Both servers send these messages anyway; whether a client renders them is the open
-question, and none of the three chat messages appears in any capture. The one command that acts
-there and not here is `/tp`, which needs world-initiated travel: a slot reserved, a transfer row
-written, and `GAME_SMSG_TRANSFER_GAME_SERVER_INFO` sent -- a message that, like the three that have
-crashed a client, is in no capture yet.
+**A spoken line is sent; a generated answer is printed -- in both servers.** Every server-generated
+answer in the reference funnels through `GameSrv_SendSystemChatMessage` or
+`GameSrv_SendInvalidCommand`, and both return before touching the wire unless `GWPS_CHAT=1`; a
+player's line is not gated either way. So the reference's `/maps` is useful because it prints on the
+*server*, and this one prints in the same place, in the same format, and puts no byte on the wire --
+which is the same crash that made the reference's layouts settle: `0x005D`, `0x005E` and `0x0061`
+appear in no capture, and sending one here crashed a live client. The one command that acts there
+and not here is `/tp`, which needs world-initiated travel: a slot reserved, a transfer row written,
+and `GAME_SMSG_TRANSFER_GAME_SERVER_INFO` sent -- a message that, like the three that have crashed
+a client, is in no capture yet.
 
 ## Features the reference has but keeps switched off
 
 Parity with GWPS includes matching what it *disables*, not only what it implements. From its own
 source:
 
-- **chat sending** is gated in the reference (`GameSrv_ChatSendingEnabled`, `GWPS_CHAT=1`) and is
-  *not* gated here. Its comment records that an unconditional send put a message on the wire the
+- **server-generated chat** is gated in the reference (`GameSrv_ChatSendingEnabled`, `GWPS_CHAT=1`)
+  and this project has no such variable: its answers are printed and not sent, which is what the
+  reference does with the gate off, and is therefore the same observable behaviour with nothing
+  behind a variable. Its comment records that an unconditional send put a message on the wire the
   client could not parse, **and that it crashed the client**; this port tried the same thing and a
-  live client crashed on `!hello` too. What the gate is for differs, though: the reference used it
-  to protect its client, and this project concluded that hiding the answer serves nobody -- so both
-  halves happen (the answer is printed here, which always worked, and it is sent), and nothing sits
-  behind a variable. None of the three chat messages appears in any capture, which is why
-  *rendering* is unproven rather than why sending is switched off;
+  live client crashed on `!hello` too. A player's own line is not gated in either server -- it is
+  sent -- so the split is: spoken goes out, generated is printed;
 - **GM commands**: the reference has `/tp`, `/teleport` and `/maps`. `/maps` and `/stuck` are here
   (they can only describe what this world actually runs); `/tp` is not, because the reference
   teleports by asking the auth service for a world and having the client reconnect, and this world

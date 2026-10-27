@@ -235,7 +235,7 @@ where to go. Two fixed-size messages, and one row for each in the generated tabl
 | settings upload not acknowledged | hang correlated 7/7 with unacknowledged uploads | always answer `AUTH_CMSG_SETTING_UPDATE` with a request response |
 | a transfer replayed from a stale queue | client lands in the previous destination | clear the queue after completing one |
 | constructing a server during the hop | loading screen forever, zero packets after | the one rule, `docs/02-architecture.md` |
-| chart commands sent before the client allows chat | client crash | gate server-generated chat on the client's readiness |
+| "chart commands" — chat the **server** generates — sent instead of printed | client crash | print it: the reference returns before the wire for every server-generated answer (`GmChat.c:150-153`, `GmChat.c:209-212`), so printing is the behaviour to match, not a workaround |
 
 Each of these was diagnosed by logging every message at each hop, not by reading code. Keep that
 capability: a per-message trace with direction, header, size and first bytes, toggled by an
@@ -447,28 +447,32 @@ capture, and an *item* agent never can be — the single `0x0020` a capture carr
 and the one code path that would produce an item agent is the reference's own unfinished drop handler. The
 message a working drop needs is a measurement this project does not have yet.
 
-### Chat: answered here, sent, and nothing gated
+### Chat: what is sent, and what is only printed
 
 `GAME_CMSG_SEND_CHAT_MESSAGE` (`0x8064`) is `{agent_id u32, text String16}`; the first unit of the text is
 the channel: `!` all, `#` group, `$` trade, `/` a command, and `@`/`%`/`"` are dropped, as the reference
-drops them. The *reply* is two messages — `CHAT_MESSAGE_CORE` (`0x005D`) with the text and either
-`CHAT_MESSAGE_LOCAL` (`0x0061`, speaker and channel) for a player's line or `CHAT_MESSAGE_SERVER`
-(`0x005E`, 10 bytes) for the server's own answer.
+drops them. A player's line is answered with two messages — `CHAT_MESSAGE_CORE` (`0x005D`) carrying the text
+and `CHAT_MESSAGE_LOCAL` (`0x0061`, speaker and channel) — and that pair is **sent**, exactly as the
+reference sends it: `GmChat.c:259-277` is not behind the reference's chat switch.
 
-**Every one of those is sent, and every answer is also printed to this server's console. Nothing is behind a
-switch.** No chat text has ever reached a client's screen in this project *or* in the reference — the
-reference's `/maps` was useful because it printed its answer on the server, and so does this one — so a gate
-that hid the answer would hide the only half that has ever worked. Both servers send these messages anyway:
-the reference's own `GameSrv_ChatSendingEnabled` comment records chat crashing its client twice, and a live
-client crashed on this port's first `!hello`, so *rendering* is the unproven part, not sending. None of the
-three messages appears in any capture.
+The answers the *server* generates are the other half, and they are printed, not sent. Every GM answer and
+every "unknown command" in the reference funnels through `GameSrv_SendSystemChatMessage` or
+`GameSrv_SendInvalidCommand`, and both return before touching the wire unless `GWPS_CHAT=1`
+(`GmChat.c:150-153`, `GmChat.c:209-212`). So the reference's `/maps` answer is a log line; this server's
+`/maps` answer is a console line; neither puts a byte on the wire. That is parity, not a switch. No chat text
+has ever reached a screen in either server, and sending it here crashed a live client — `0x005D`, `0x005E`
+and `0x0061` appear in no capture, so the layouts are guesses.
+
+Nothing in this build is behind a switch (§11). The split above is what the reference does, not what this
+server enables: a spoken line goes out; a generated answer is printed.
 
 The commands, as the reference's `GmChat.c`/`GmCommands.c` define them: `/stuck` cancels the movement and
 broadcasts the agent's position (`0x002C`, **not** `AGENT_STOP_MOVING`, which is what `0x8028` answers);
-`/maps` lists the maps with names, kinds and slots; `/tp <map>` and `/teleport <map>` are **not implemented**,
-because they need world-initiated travel (reserve a slot, write a transfer row, send
-`GAME_SMSG_TRANSFER_GAME_SERVER_INFO`) and that message is in no capture either. An unknown command is
-answered with `Unknown command`, here and on the wire.
+`/maps` prints the reference's table verbatim — `Teleport targets (N aliases, every one with a map
+config):`, then one `  /tp <alias> -> map <id>  <name>` row per map — and sends nothing; `/tp <map>` and
+`/teleport <map>` are **not implemented**, because they need world-initiated travel (reserve a slot, write a
+transfer row, send `GAME_SMSG_TRANSFER_GAME_SERVER_INFO`) and that message is in no capture either. An
+unknown command prints `Unknown command`, which is the line the reference logs.
 
 Three answers change nothing and send nothing: item id `0`, an item that is not in the backpack/belt
 pouch/bag 1/bag 2 (`GmBag_FindItem` looks no further, so storage is not droppable), and a count larger than

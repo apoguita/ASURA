@@ -24,6 +24,10 @@ State of the project as of the last commit, so a new session can begin without r
   blocked on two things: a character-creation *instance* (its `MapType_CharacterCreation`, which this
   world does not host) and the default-equipment table `GetDefaultEquipments` answers with. The second
   is now cheap: equipment is item rows.
+- **The parity audit exists: `docs/09-parity-audit.md`.** Every GWPS behaviour and ASURA's counterpart,
+  row by row, with `file:line` on both sides and a verdict (1:1 / AHEAD / DEVIATION / BEHIND / STUB).
+  51 of 78 are indistinguishable, 10 are ASURA's own, 5 differ on purpose, 11 are behind but collapse
+  into three work items, and 1 is a stub in both. Read it before deciding that something is "missing".
 - **M2 delivered: placement is safe, and it is proven against the real database.** The `asura-db`
   crate now owns registration, the atomic reservation, the lease ledger, the reaper and the
   reconciler; `asura-fakeworld` runs the whole sequence as a harness; the acceptance suite passes

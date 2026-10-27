@@ -123,6 +123,19 @@ impl MapEntry {
         }
     }
 
+    /// The alias `/tp` would take for this map: the reference's aliases are lower-case names with single
+    /// spaces ("lakeside county"), so this is the name lower-cased. An unnamed map has no alias to type and
+    /// says so, rather than inventing one.
+    pub fn alias(&self) -> String {
+        let alias = self.name.to_lowercase();
+        let collapsed = alias.split_whitespace().collect::<Vec<_>>().join(" ");
+        if collapsed.is_empty() {
+            format!("map {}", self.map_id)
+        } else {
+            collapsed
+        }
+    }
+
     /// `0` and `1` are the reference's own `MapType` values; every other value it can carry is a kind of
     /// instance this world does not host.
     pub fn kind(&self) -> &'static str {
@@ -964,8 +977,9 @@ async fn answer(
         //
         // **A player's message is sent ungated**, exactly as the reference sends it: its
         // `GameSrv_ChatSendingEnabled` gate covers the text the *server* generates (GM answers, "unknown
-        // command"), not a line a player typed. This port had the gate on everything, which is why a
-        // `!` line went nowhere; `chat_enabled` is now consulted only where the reference consults it.
+        // command"), not a line a player typed. This port once had a switch on everything, which is why
+        // a `!` line went nowhere; the switch is gone (`docs/03` §11), so nothing here is gated and only
+        // the messages the reference never sends are withheld.
         0x8064 => {
             let body = &frame.body;
             if body.len() < 6 {
@@ -990,10 +1004,9 @@ async fn answer(
 
             match u8::try_from(channel).unwrap_or(0) as char {
                 // `Channel_All`, `Channel_Group`, `Channel_Trade`: the three channels the reference
-                // speaks on. **Gated, because a live client crashed on this.** The reference gates the
-                // text it generates and sends a player's line ungated, but that distinction is only
-                // safe when the wire format is known, and none of the three chat messages appears in
-                // any capture (`chat_enabled` records the rest).
+                // speaks on. Sent ungated, as the reference sends them. None of the three chat messages
+                // appears in any capture, and no chat text has ever rendered on screen in either server
+                // -- so what this path matches is the reference's *bytes*, not its visible result.
                 speaker @ ('!' | '#' | '$') => {
                     let channel = match speaker {
                         '#' => game::CHANNEL_GROUP,
@@ -1048,38 +1061,25 @@ async fn answer(
                         .await?;
                         Ok(true)
                     } else if command == "maps" {
+                        // `GmCommands_ListTargets`, as it behaves with the reference's own defaults: the
+                        // table goes to the log, and nothing goes on the wire. That is parity, not a
+                        // gate -- GWPS's chat gate is what leaves its chat half in its log too, and no
+                        // chat text has ever reached a screen in either server. Sending it here crashed a
+                        // live client, which is why the answer is printed and not sent.
                         let answer = maps_answer(&world.maps);
-                        // Answered on the wire **and** written here. The second half is the one that has
-                        // always worked: the reference's `/maps` printed its table to its own log, and no
-                        // chat text has ever reached a client's screen in either server. A command whose
-                        // answer exists only on a screen nobody has seen is not a command.
-                        eprintln!("world: /maps -> {answer}");
-                        send(
-                            stream,
-                            session,
-                            vec![
-                                game::chat_message_core(&answer),
-                                game::chat_message_server(game::CHANNEL_WARNING),
-                            ],
-                            trace,
-                        )
-                        .await?;
+                        for line in &answer.table {
+                            eprintln!("world: {line}");
+                        }
+                        if trace {
+                            for line in &answer.chat {
+                                eprintln!("world: /maps (chat, not sent): {line}");
+                            }
+                        }
                         Ok(true)
                     } else {
-                        // The reference answers an unknown command with "Unknown command", over the same
-                        // two messages, and logs it. Both halves here, like /maps.
-                        let answer = format!("Unknown command: {command}");
-                        eprintln!("world: {answer}");
-                        send(
-                            stream,
-                            session,
-                            vec![
-                                game::chat_message_core(&answer),
-                                game::chat_message_server(game::CHANNEL_WARNING),
-                            ],
-                            trace,
-                        )
-                        .await?;
+                        // `GameSrv_SendInvalidCommand`: the reference's text is "Unknown command", and with
+                        // its chat gate off that is a log line and nothing else. Same here.
+                        eprintln!("world: Unknown command");
                         Ok(true)
                     }
                 }
@@ -1209,12 +1209,13 @@ async fn answer(
     }
 }
 
-/// `GameSrv_HandleDropItem`, finished: take the items off the stack for real and put one on the ground.
+/// `GameSrv_HandleDropItem`: take the items off the stack for real, and reserve the agent id a ground
+/// item will use once a capture shows what a drop actually sends.
 ///
-/// The agent is the reference's own shape -- the player's position plus (30, 30), the same plane, facing
-/// x, an agent left at zero for everything `GameSrv_CreateAgent`'s `memset` covers, which is its speed
-/// and its team token. Its model is the item's *model*, which is the one field the reference gets wrong
-/// in a way a client can see.
+/// The shape that agent will have is the reference's own, recorded here so it is not re-derived later:
+/// the player's position plus (30, 30), the same plane, facing x, everything `GameSrv_CreateAgent`'s
+/// `memset` leaves at zero (speed, team token), and the item's *model* where the reference puts the
+/// item's *id*. Nothing is sent from here today: `drop_messages` carries the whole argument.
 async fn drop_item(
     world: &World,
     play: &mut Play,
@@ -1474,21 +1475,67 @@ async fn equip_item(
     send(stream, session, frames, trace).await
 }
 
-/// What `/maps` answers: the maps this world hosts, each by name, kind and how many slots it will place.
+/// The reference's `/maps`, line for line (`GmCommands_ListTargets`).
 ///
-/// The reference's version (`GmCommands_ListTargets`) prints its own compiled-in table of aliases and
-/// the full list to the log, in chat-sized fragments. This one answers with what the world is *actually*
-/// running — a player asking "where can I go" wants the maps that exist here, not the 900 the client
-/// has data for. A map with no name prints its id, because a list of numbers beats no list.
-pub fn maps_answer(maps: &[MapEntry]) -> String {
-    if maps.is_empty() {
-        return "Maps: none -- this world hosts nothing".to_string();
+/// It prints two things and they are not the same text. The **chat** side is a list of aliases to type
+/// ("Maps: ascalon, lakeside, ...", wrapped inside one chat fragment, then "Use: /tp <name>, e.g. /tp
+/// lakeside county"). The **log** side is a table of every alias with the map it names, in the reference's
+/// own column widths:
+///
+/// ```text
+/// Teleport targets (20 aliases, every one with a map config):
+///   /tp ascalon          -> map 146  Ascalon City (pre-Searing)
+/// ```
+///
+/// The table is what a person reads, and it is the half that has always worked: no chat text has ever
+/// reached a client's screen, in the reference or here, and GWPS's own chat gate leaves the chat half in
+/// its log with the rest. So this returns the log lines, in that format, and `/maps` prints them. The chat
+/// fragments are built too, because they are the answer's other half and a caller may one day have a
+/// channel that renders them -- but `/maps` does not send them: sending chat crashed a live client here.
+///
+/// An alias is the map's name, lower-cased, as the reference's aliases are (`lakeside county`). A map with
+/// no name has no alias to type, so it prints its id and says so rather than inventing a name for it.
+pub fn maps_answer(maps: &[MapEntry]) -> MappedMaps {
+    let aliases: Vec<String> = maps.iter().map(MapEntry::alias).collect();
+
+    // The chat line, split the way the reference splits it: one line per 100 characters, continuation
+    // lines indented by six spaces, each entry followed by a comma.
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::from("Maps:");
+    for alias in &aliases {
+        if current.len() + alias.len() + 3 > 100 {
+            lines.push(current);
+            current = String::from("      ");
+        }
+        current.push_str(&format!(" {alias},"));
     }
-    let listed: Vec<String> = maps
-        .iter()
-        .map(|map| format!("{} {}, {} slots", map.label(), map.kind(), map.capacity))
-        .collect();
-    format!("Maps: {}", listed.join("; "))
+    lines.push(current);
+    lines.push(format!(
+        "Use: /tp <name>, e.g. /tp {}",
+        aliases.first().map(String::as_str).unwrap_or("<name>")
+    ));
+
+    // The table the log gets.
+    let mut table = vec![format!(
+        "Teleport targets ({} aliases, every one with a map config):",
+        maps.len()
+    )];
+    for (map, alias) in maps.iter().zip(&aliases) {
+        table.push(format!(
+            "  /tp {:<15} -> map {:>3}  {}",
+            alias, map.map_id, map.name
+        ));
+    }
+
+    MappedMaps { chat: lines, table }
+}
+
+/// What `/maps` produces: the lines the reference would put on the chat channel, and the table it puts in
+/// its log. Two shapes, because the reference has two.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MappedMaps {
+    pub chat: Vec<String>,
+    pub table: Vec<String>,
 }
 
 /// `UPDATE_AGENT_VISUAL_EQUIPMENT`: what the agent is wearing, read out of the equipped-items bag.
@@ -2063,28 +2110,58 @@ mod tests {
     }
 
     #[test]
-    fn maps_answers_with_names_kinds_and_slots() {
-        // What a player typing /maps is told. The reference prints its own alias table; this prints what
-        // the world is running, which is the question a player is actually asking.
-        let answers = maps_answer(&[test_map()]);
+    fn maps_prints_the_references_table_and_nothing_else() {
+        // `GmCommands_ListTargets` prints two things: chat aliases to type, and a table in its log. The
+        // table is the half a person reads, and it is asserted here field for field -- `%-15s` for the
+        // alias and `%3d` for the map id, because a format that drifts is a format nobody can compare.
+        let answer = maps_answer(&[test_map()]);
         assert_eq!(
-            answers, "Maps: Lakeside County (146) outpost, 8 slots",
-            "name, id, kind and capacity -- not a bare list of integers"
+            answer.table,
+            vec![
+                "Teleport targets (1 aliases, every one with a map config):".to_string(),
+                "  /tp lakeside county -> map 146  Lakeside County".to_string(),
+            ],
+            "the reference's header and row shape"
+        );
+        assert_eq!(
+            answer.chat,
+            vec![
+                "Maps: lakeside county,".to_string(),
+                "Use: /tp <name>, e.g. /tp lakeside county".to_string(),
+            ],
+            "and its chat half: aliases to type, then how to use them"
         );
 
-        // A map nobody named still appears, by id: a worse answer, not a missing one.
+        // Two maps: the rows line up in the reference's columns, and the aliases are lower-case names.
+        let second = MapEntry {
+            map_id: 148,
+            name: "Ascalon City".to_string(),
+            ..test_map()
+        };
+        let both = maps_answer(&[test_map(), second]);
+        assert_eq!(
+            both.table[1..],
+            [
+                "  /tp lakeside county -> map 146  Lakeside County".to_string(),
+                "  /tp ascalon city    -> map 148  Ascalon City".to_string(),
+            ],
+            "the alias column is 15 wide, so 148's row is padded differently to 146's"
+        );
+        assert_eq!(
+            both.chat[0], "Maps: lakeside county, ascalon city,",
+            "one chat line, aliases comma-separated"
+        );
+
+        // A map with no name has no alias to type; it prints its id instead of inventing one.
         let unnamed = MapEntry {
             name: String::new(),
             ..test_map()
         };
         assert_eq!(
-            maps_answer(&[unnamed]),
-            "Maps: map 146 outpost, 8 slots",
-            "an unnamed map prints its id"
+            maps_answer(&[unnamed]).table[1],
+            "  /tp map 146         -> map 146  ",
+            "an unnamed map is named by its id, and the label is empty because there is no name"
         );
-
-        // And a world hosting nothing says so rather than printing an empty list.
-        assert_eq!(maps_answer(&[]), "Maps: none -- this world hosts nothing");
     }
 
     #[test]
