@@ -293,11 +293,52 @@ they are what the file holds.
 Pointers became array positions (`NodeRef`, `Option<usize>`, `Option<(plane, portal)>`) — the same graph
 without a self-referential struct.
 
-**D3's remaining half: the search.** `GmPaths.c` after line 52 is the A* — portal walking between planes,
-the `PathFindNode` heap (`GmPathHeap.c`), waypoint reduction, and its own fixed-point `PathReciproc`/
-`PathSqrt` lookup tables (256 entries each) instead of the FPU's. Nothing about it is blocked on a
-measurement any more: the graph, the oracle and the spawn points are all in hand, and
-`gwdat_pathing.exe --trapezoids` dumps per-trapezoid rows to compare against.
+**D3's other half landed: the search.** `crates/asura-world/src/pathfind.rs` is `GmPaths.c` and
+`GmPathHeap.c` ported — the A* itself, the corridor/walk builder that turns a chain of trapezoids into
+waypoints, the four neighbour visits and the two portal visits, and the heap. Its fixed-point
+`PathReciproc`/`PathSqrt` tables (256 entries each, float *bit patterns* combined with integer
+arithmetic) are generated from `GmPaths.c` by `tools/gen-path-tables.py`, because an A* fed by
+`1.0 / x` and `x.sqrt()` is the same algorithm with different tie-breaks and therefore a different
+walk.
+
+**How it is measured.** `tools/path-oracle.c` is a host tool that compiles the reference's single
+translation unit *unmodified* (`#define COMPILE_TOOLS 1`, the same trick the reference's own tools use)
+and calls `PathFinding` directly; `tools/build-path-oracle.ps1` compiles it with the MSVC the reference
+was built with, linking the static libraries its CMake build already produced. Nothing under
+`PreSearing/` is written to. Both sides then run the same 96 cases
+(`crates/asura-world/tests/fixtures/path-cases.txt`, generated from the map catalogue's spawn points) and
+print one CSV row per case with coordinates as raw IEEE-754 bit patterns:
+
+```
+the path finder matches the reference on 96 case(s): 41 walk(s) found,
+127 waypoint(s) identical, 1 case(s) compared on the answer alone
+```
+
+So 95 of 96 walks — found or refused — come back with the same `result`, the same waypoint count, and
+waypoints identical down to the last bit of every coordinate, including the paths that cross planes
+through portals. The case-by-case comparison is
+`every_case_produces_the_references_own_waypoints` (tests/pathfind.rs) against the committed answers, and
+`tools/parity-path.py --check` re-runs the reference itself.
+
+**The one case that cannot be pinned is a finding, not a gap.** `PathBuildAddWaypointAndReduce` reads `t`
+and `s` after `FindIntersectionPoint` *fails* — the two lines are parallel, the function leaves its
+outputs untouched, and the reference then branches on whatever was in those two stack slots. Exactly one
+of the 96 cases has a step parallel to its own start-to-destination line, and the reference answers it with
+11 waypoints on some runs and 12 on others (measured: two different answers for the same input, in the same
+binary, differing only in one waypoint's y). No port can match an undefined value; leaving `t` at zero
+reproduces the 11-waypoint answer byte for byte, so that is what the port does, and `tools/parity-path.py`
+compares that case on its `result` alone and says so in the fixture's header.
+
+Two other reference behaviours are kept for the same reason: `IsPointInTrap` runs its side tests on the
+*absolute position* rather than the offset from the edge — so the region it accepts is a wedge from the map
+origin, not the trapezoid's interior — and `PathAddNode` overwrites a trapezoid's node unconditionally and
+queues it again on every visit.
+
+**What D still owes the server.** The finder is measured but not yet *adopted*: `MOVE_TO_COORD` still echoes
+the client's destination, and the reference instead pathfinds, refuses what it cannot reach, and walks the
+agent waypoint by waypoint (`GmAgent.c:371-398`, `GmAgent.c:409-462`). Wiring it in changes behaviour the
+load tests and the movement tests already pin, so it is the next unit: the reference's handler shape, the
+refusal message (or silence) on a walk it cannot make, and the waypoint-by-waypoint tick.
 
 ### E. Item lifecycle (T12)
 
@@ -368,7 +409,8 @@ Recorded so nobody adds it later: matching GWPS where GWPS is unfinished or does
 2. **C1 → C4** — `/tp` is measured end to end and unblocks the second map without a rebuild.
 3. **F1 → F2** — the load block becomes provable, which is what keeps the rest honest.
 4. **B1 → B4** — character creation, the largest data port.
-5. **D1 → D2 → D3** (archive, decompressor, importer — landed) → **D3's search** → **E1/E2** → **H1/H2**.
+5. **D1 → D2 → D3** (archive, decompressor, importer, finder — landed) → **D4, adopting the finder in
+   `MOVE_TO_COORD`** → **E1/E2** → **H1/H2**.
 
 Each step lands with its test, and the audit documents are regenerated rather than edited:
 `python tools/parity-report.py --write docs/07-status.md`, `python tools/parity-emit.py`.

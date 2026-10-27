@@ -295,11 +295,30 @@ archive's index, its decompressor, and `GmMapDataImport.c`'s chunk reader. All t
 | the test that compares this repo's import to them, column by column | `crates/asura-world/tests/map_data.rs` |
 | the three-way check: reference binary, fixture, this repo | `tools/parity-pathing.py --check` |
 | the numbers, and what the reference does that a tidier reader would not | `docs/10-parity-queue.md`, item D |
+| the A*: neighbour and portal visits, the heap, the waypoint builder | `crates/asura-world/src/pathfind.rs` |
+| its fixed-point reciprocal and square-root tables, generated from `GmPaths.c` | `tools/gen-path-tables.py` -> `src/path_tables.rs` |
+| the walks both sides run: every catalogue spawn point and eight offsets from it | `tools/gen-path-cases.py` -> `tests/fixtures/path-cases.txt` |
+| the reference's own answers for them, waypoint bits included | `tools/parity-path.py --write` -> `tests/fixtures/path-results.csv` |
+| the reference's path finder as a runnable oracle (its translation unit, unmodified) | `tools/path-oracle.c`, built by `tools/build-path-oracle.ps1` |
+| the case-by-case comparison, and the four in-module tests | `crates/asura-world/tests/pathfind.rs`, `src/pathfind.rs` |
 
 The grep that matters is `python tools/parity-pathing.py --check`: it runs
 `..\PreSearing\build\RelWithDebInfo\gwdat_pathing.exe` over the catalogue's blobs, compares its output to
 the fixture, and compares both to this repo's importer. Any of the three drifting fails it. It skips (exit
 0) when `Gw.dat` or the built reference tool is absent, so it is safe on a machine without them.
+
+`python tools/parity-path.py --check` is the same shape for the search, with one difference: the reference
+has no tool of its own for `PathFinding`, so `tools/path-oracle.c` supplies one by compiling the reference's
+own translation unit and calling it. That needs MSVC and the libraries the reference's CMake build already
+produced, which is why `tools/build-path-oracle.ps1` exists and why the binary is gitignored — the fixture
+it produced is committed, and the tests run from the fixture without a compiler.
+
+One corner of that comparison is a reference defect rather than a port difference:
+`PathBuildAddWaypointAndReduce` reads its intersection parameters after `FindIntersectionPoint` has
+declined to write them (parallel lines), so the reference answers one of the 96 cases with a different
+waypoint list on different runs. `tools/parity-path.py` detects that by running the oracle three times,
+compares those cases on the answer alone, and lists them in the fixture's header. If a future case starts
+flapping, that is how it will show up.
 
 ## The pieces M3 added
 

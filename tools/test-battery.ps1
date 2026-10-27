@@ -16,7 +16,7 @@
       6. asura-auth: login over a socket, travel placed or refused, the game front door
       7. asura-world: the load, the movement rules, the full chain to INSTANCE_LOAD_FINISH
       8. the generated files still match the reference source
-      9. the map data: the importer against the reference's own fingerprints of the same blobs
+      9. the map data and the path finder: both ports against the reference's own answers
      10. the parity report (informational: what GWPS has that this does not)
      11. the real client (by hand -- printed, never automated)
 
@@ -198,7 +198,9 @@ if ($python) {
         @("tools/parity-load.py", @("--check", "crates/asura-world/src/load_fixture.rs"), "the reference's load stream"),
         @("tools/gen-default-equipment.py", @("--check"), "the default-equipment table"),
         @("tools/gen-map-config.py", @("--check"), "the map catalogue"),
-        @("tools/gen-fa-compress-tables.py", @("--check"), "the decompressor tables")
+        @("tools/gen-fa-compress-tables.py", @("--check"), "the decompressor tables"),
+        @("tools/gen-path-tables.py", @("--check"), "the path finder's tables"),
+        @("tools/gen-path-cases.py", @("--check"), "the path finder's cases")
     )
     foreach ($check in $checks) {
         $result = Invoke-Native $python (@($check[0]) + $check[1])
@@ -208,16 +210,25 @@ if ($python) {
     Write-Skip "python is not installed"
 }
 
-# --- 9. the map data -------------------------------------------------------------------------------
-# A map blob is geometry: `Gw.dat` holds it compressed, and `GmMapDataImport.c` turns it into the path
-# graph a walk is refused from. The only honest verdict on a port of that is the reference's own answer
-# for the same bytes, which `gwdat_pathing.exe` prints -- so this step compares the reference binary, the
-# committed fixture and this repo's importer, and fails if any two of them disagree.
-Write-Step 9 "the map data (a real Gw.dat, against the reference's own importer)"
+# --- 9. the map data and the path finder ----------------------------------------------------------
+# A map blob is geometry: `Gw.dat` holds it compressed, `GmMapDataImport.c` turns it into the path graph,
+# and `GmPaths.c` is the A* a walk is refused from. The only honest verdict on a port of either is the
+# reference's own answer for the same bytes and the same cases -- so this step compares the reference's
+# own tools, the committed fixtures and this repo, and fails if any two of them disagree.
+Write-Step 9 "the map data and the path finder (a real Gw.dat, against the reference's own code)"
 if ($python) {
     $result = Invoke-Native $python @("tools/parity-pathing.py", "--check")
     $detail = ($result.Output | Select-Object -Last 1) -join ""
     Write-Verdict ($result.ExitCode -eq 0) "the map importer" $detail
+    if ($result.ExitCode -ne 0) {
+        ($result.Output | Select-String -Pattern 'FAIL|reference:|this repo:' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
+    }
+
+    # The finder needs an oracle built out of the reference's sources (`tools/build-path-oracle.ps1`); with
+    # no oracle the tool says so and exits 0, and the tests still check the committed answers.
+    $result = Invoke-Native $python @("tools/parity-path.py", "--check")
+    $detail = ($result.Output | Select-Object -Last 1) -join ""
+    Write-Verdict ($result.ExitCode -eq 0) "the path finder" $detail
     if ($result.ExitCode -ne 0) {
         ($result.Output | Select-String -Pattern 'FAIL|reference:|this repo:' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
     }

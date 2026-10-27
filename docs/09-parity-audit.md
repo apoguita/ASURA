@@ -110,12 +110,15 @@ GWPS dispatch: `GameSrv.c:2007-2074`. ASURA dispatch: `crates/asura-world/src/li
 
 GWPS: `GmAgent.c` (564 lines) plus `GmPaths.c` (A*, 1057 lines) and `GmPathHeap.c`.
 ASURA: `crates/asura-world/src/lib.rs` arms + `Player::adopt_report`/`adopt_correction`, plus
-`crates/asura-world/src/gwdat.rs` + `fa_compress.rs` + `map_data.rs` for the graph itself.
+`crates/asura-world/src/gwdat.rs` + `fa_compress.rs` + `map_data.rs` + `pathfind.rs` for the graph and the
+search over it.
 
-The navmesh is no longer the unknown it was: `Gw.dat`'s index, its decompressor and
-`GmMapDataImport.c` are ported, and a map blob imported here carries the reference's own plane and
-trapezoid counts and bounding box (docs/10-parity-queue.md, item D). What is still missing is the
-*search* over that graph (`GmPaths.c`'s A*), so the walk verdict below does not change yet.
+The navmesh is no longer the unknown it was: `Gw.dat`'s index, its decompressor, `GmMapDataImport.c` and
+`GmPaths.c`'s A* are all ported and measured against the reference's own code (docs/10-parity-queue.md,
+item D) — 96 walks, 41 of them found, with every waypoint identical to the last bit except the one case the
+reference answers differently on different runs. What has not happened yet is *adoption*: `MOVE_TO_COORD`
+still echoes the client's destination instead of asking the finder, so the walk verdict below does not
+change yet.
 
 | Behaviour | GWPS | ASURA | Verdict |
 |---|---|---|---|
@@ -356,7 +359,8 @@ These are GWPS rows that look like features and are not. Matching them would be 
    the ground is drawn as nothing; and the item is never removed from the bag.
 3. **All server chat** — gated off by default because it crashed the client twice (`GmChat.c:129-143`).
 4. **`GmPaths.c` / `GmPathHeap.c`** — A* with no dispatch entry point; `GameSrv_HandleMoveToCoord` is its
-   only caller.
+   only caller. (Both are ported here regardless: the refusal is a behaviour a player notices, so the queue
+   adopts them — see item D.)
 5. **`GmParty.c`** (120 lines) — `GameSrv_`-prefixed writers with no `GAME_CMSG_PARTY_*` handler.
 6. **`GmDefaultArmors.c`** — a table with one caller, `CharCreationChangeProf`.
 

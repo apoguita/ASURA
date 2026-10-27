@@ -113,6 +113,9 @@ CHECKS = (
     ),
     ("the default-equipment table", ["tools/gen-default-equipment.py", "--check"]),
     ("the map catalogue", ["tools/gen-map-config.py", "--check"]),
+    ("the decompressor's tables", ["tools/gen-fa-compress-tables.py", "--check"]),
+    ("the path finder's tables", ["tools/gen-path-tables.py", "--check"]),
+    ("the path finder's cases", ["tools/gen-path-cases.py", "--check"]),
     (
         "the reference's load stream",
         ["tools/parity-load.py", "--check", "crates/asura-world/src/load_fixture.rs"],
@@ -138,6 +141,18 @@ def map_axis():
     source file.
     """
     code, output = run([sys.executable, os.path.join(REPO, "tools", "parity-pathing.py"), "--check"])
+    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
+    return {"ok": code == 0, "detail": lines[-1] if lines else "no output"}
+
+
+def path_axis():
+    """The path finder: the same cases through this repo's A* and through the reference's own.
+
+    Its yardstick is `tools/path-oracle.c`, which compiles the reference's translation unit unmodified and
+    calls `PathFinding`; without that binary the tool reports it and exits 0, so the axis says what it
+    could not measure rather than pretending.
+    """
+    code, output = run([sys.executable, os.path.join(REPO, "tools", "parity-path.py"), "--check"])
     lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
     return {"ok": code == 0, "detail": lines[-1] if lines else "no output"}
 
@@ -172,6 +187,7 @@ def main():
     emit = emit_axis()
     load = load_axis()
     maps = map_axis()
+    paths = path_axis()
     generated = generated_axis()
     tests = None if args.fast else test_axis()
 
@@ -248,6 +264,13 @@ def main():
         lines.append(
             "| the map data | `tools/parity-pathing.py --check` | **differs from the reference**: %s |"
             % maps["detail"]
+        )
+    if paths["ok"]:
+        lines.append("| the path finder | the same walks through both A*s, waypoint bits compared | **%s** |" % paths["detail"])
+    else:
+        lines.append(
+            "| the path finder | `tools/parity-path.py --check` | **differs from the reference**: %s |"
+            % paths["detail"]
         )
     if tests is not None:
         lines.append(
