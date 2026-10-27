@@ -185,18 +185,15 @@ This is the part the whole design exists to protect.
 2. **the auth service allocates.** It answers only from a world that has the map ready (`docs/02-architecture.md`).
 3. **the auth service issues a token.** A fresh player token plus the identity the client's *next* connection
    must present.
-4. **The client is redirected.** The response is `TRANSFER_GAME_SERVER_INFO` (`0x01A6`): **52 bytes,
-   a four-byte game header, `host[24]`, then six dwords** — `map_token, region, map_id, is_explorable,
-   player_token, 0`. This is the shape GWPS's **own capture** shows a real client completing a load
-   with (`captures/zone-ref-005829.jsonl` seq 42 → 43 → 47 → 189 `INSTANCE_LOADED`, map 161,
-   `is_explorable = 1`; the same file's seq 424 has map 165, `0`). GWPS's C struct
-   (`GameMsg.h:659`, 46 bytes) declares a **different order** — `player_token` before
-   `is_explorable`/`map_id` — and that order is contradicted by GWPS's own capture; a client sent
-   the 46-byte struct reads the map id out of the token slot and answers `007` (the reference's
-   documented known limitation, `docs/08-gm-commands.md`). **The capture is the port target; do not
-   follow the struct.**
+4. **The client is redirected.** The response is `TRANSFER_GAME_SERVER_INFO` (`0x01A6`): **GWPS's
+   exact struct** (`GameMsg.h:659`, sent as `sizeof(*msg2)`) — **46 bytes, a two-byte header,
+   `host[24]`, then five dwords in GWPS's order: `map_token, region, player_token, is_explorable,
+   map_id`.** The field order is GWPS's, not the live capture's: `player_token` comes before
+   `is_explorable`/`map_id`, and `map_id` is last. Measured against a real client: the captured
+   order in a 46-byte frame makes the client read the map id out of the token slot (`007`), and a
+   52-byte frame with a four-byte header makes it read `00 00` as the address family (`005`).
+   GWPS's bytes are the port target because they are what a working server sends.
    - `host` is 24 bytes: `AF_INET` little endian, port **big** endian, four address bytes, then zero.
-     GWPS always writes `127.0.0.1`; this server writes its advertised address (the auth front door).
    - `is_explorable` describes the **destination** map type — `MapType_MainExplorable |
      MissionExplorable | ArenaExplorable` (1/4/6, `GmMap.h:22-27`) are explorables.
      Deriving it from the source map was a bug that produced client error 005.

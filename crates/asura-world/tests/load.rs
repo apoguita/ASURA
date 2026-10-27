@@ -953,9 +953,9 @@ async fn an_item_can_be_taken_off_and_worn_again() {
 }
 
 /// A spoken line: `GAME_CMSG_SEND_CHAT_MESSAGE` = `{agent_id u32, String16}`.
-/// Read the redirect pair the way the live client frames it (GWPS's own zone capture,
-/// `captures/zone-ref-005829.jsonl` seq 42/43): 0x01A6 is 52 bytes (four-byte header, host[24], six
-/// dwords), followed by the 12-byte 0x0099. Both are found by scanning the decrypted stream.
+/// Read the redirect pair the way GWPS's own build frames it: 0x01A6 is 46 bytes (two-byte header,
+/// host[24], five dwords), followed by the 12-byte 0x0099. Both are found by scanning the decrypted
+/// stream.
 async fn read_redirect(stream: &mut TcpStream, client: &mut ReferenceClient) -> (Vec<u8>, Vec<u8>) {
     let mut plain: Vec<u8> = Vec::new();
     let mut buffer = [0u8; 8192];
@@ -972,10 +972,10 @@ async fn read_redirect(stream: &mut TcpStream, client: &mut ReferenceClient) -> 
         client.decrypt(&mut chunk);
         plain.extend_from_slice(&chunk);
         if let Some(at) = plain.windows(2).position(|window| window == [0xA6, 0x01]) {
-            if plain.len() >= at + 64 {
+            if plain.len() >= at + 58 {
                 return (
-                    plain[at..at + 52].to_vec(),
-                    plain[at + 52..at + 64].to_vec(),
+                    plain[at..at + 46].to_vec(),
+                    plain[at + 46..at + 58].to_vec(),
                 );
             }
         }
@@ -1512,42 +1512,37 @@ async fn a_teleport_redirects_to_the_target_map_and_keeps_its_seat() {
     let (transfer, update) = read_redirect(&mut stream, &mut client).await;
 
     assert_eq!(&transfer[0..2], &[0xA6, 0x01], "0x01A6 first");
-    assert_eq!(&transfer[2..4], &[0x00, 0x00], "a four-byte game header");
     assert_eq!(
         transfer.len(),
-        52,
-        "52 bytes, the size GWPS's own capture shows the live client accepting"
+        46,
+        "46 bytes, GWPS's own struct sent as sizeof(*msg2)"
     );
-    // host[24] at [4..28], then map_token, region, map_id, is_explorable, player_token, 0.
+    // host[24] at [2..26], then map_token, region, player_token, is_explorable, map_id.
     let dword = |at: usize, bytes: &[u8]| {
         u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
     };
-    assert_eq!(&transfer[4..6], &[2, 0], "AF_INET, little endian");
+    assert_eq!(&transfer[2..4], &[2, 0], "AF_INET, little endian");
     assert_eq!(
-        dword(28, &transfer),
+        dword(26, &transfer),
         harness.world_id as u32,
-        "the world to join"
+        "map_token: the world to join"
     );
     assert_eq!(
-        dword(32, &transfer),
+        dword(30, &transfer),
         0,
         "region: this server has none, and sends 0"
     );
+    let player_token = dword(34, &transfer);
+    assert_ne!(player_token, 0, "player_token: the token to reconnect with");
     assert_eq!(
-        dword(36, &transfer),
-        harness.other_map_id as u32,
-        "the destination map"
-    );
-    assert_eq!(
-        dword(40, &transfer),
+        dword(38, &transfer),
         0,
         "is_explorable: an outpost, and the flag describes the destination"
     );
-    let player_token = dword(44, &transfer);
     assert_eq!(
-        dword(48, &transfer),
-        0,
-        "the live form's sixth dword, as captured"
+        dword(42, &transfer),
+        harness.other_map_id as u32,
+        "map_id: the destination"
     );
 
     assert_eq!(&update[0..2], &[0x99, 0x00], "0x0099 follows");

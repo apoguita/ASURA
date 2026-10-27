@@ -805,19 +805,27 @@ pub fn map_update_current_redirect(map_id: u32) -> crate::client::Frame {
 
 /// `GAME_SMSG_TRANSFER_GAME_SERVER_INFO` (`0x01A6`): where the client should reconnect, and with what.
 ///
-/// **Fifty-two bytes, the live form**: a **four-byte** header, the 24-byte `sockaddr_in`, then **six**
-/// dwords — `map_token`, `region`, `map_id`, `is_explorable`, `player_token`, and a trailing zero.
+/// **A faithful port of GWPS's own struct** (`GameMsg.h:659`, sent as `sizeof(*msg2)`):
 ///
-/// This is the form measured off a real client that completed the whole load
-/// (`captures/zone-ref-005829.jsonl` seq 42 -> 43 -> 47 -> 189: `INSTANCE_LOADED`). The generated
-/// `msgdefs` table declares 46 bytes / two-byte header / five dwords — that is GWPS's own build, and a
-/// client sent *that* answers `007` or hangs on the loading screen: it reads every field one dword too
-/// early, the player token comes back as the map id, and the connection dies. So follow the capture, not
-/// the table. (`docs/03-protocol.md` §5 said the client "takes either"; the capture says otherwise, and
-/// captures beat tables.)
+/// ```c
+/// typedef struct GameSrv_TransferGameServerInfo {
+///     uint16_t header;      // two-byte header
+///     uint8_t  host[24];
+///     uint32_t map_token;   // token1: the world/server id
+///     uint32_t region;
+///     uint32_t player_token; // token2
+///     uint32_t is_explorable;
+///     uint32_t map_id;
+/// } // 46 bytes
+/// ```
 ///
-/// `host` is the reference's own shape (`GameSrv.c:1406-1420`): family little endian, port **big**
-/// endian, four address bytes, then zero.
+/// **The field order is GWPS's, not the live capture's**: `player_token` comes before
+/// `is_explorable`/`map_id`. Sending the captured order in a 46-byte frame made the client read the
+/// map id out of the token slot (`007`); sending a 52-byte frame with a four-byte header made it read
+/// `00 00` as the address family (`005`). GWPS's exact bytes are the port target.
+///
+/// `host` is GWPS's shape (`GameSrv.c:1406-1420`): family little endian, port **big** endian, four
+/// address bytes, then zero.
 pub fn transfer_game_server_info(
     host: [u8; 4],
     port: u16,
@@ -828,17 +836,15 @@ pub fn transfer_game_server_info(
     player_token: u32,
 ) -> crate::client::Frame {
     Builder::new(TRANSFER_GAME_SERVER_INFO)
-        .u16(0) // the upper half of the four-byte game header
         .u16(2) // AF_INET, little endian
         .raw(&port.to_be_bytes())
         .raw(&host)
         .raw(&[0u8; 16]) // the rest of the sockaddr_in
         .u32(map_token)
         .u32(region)
-        .u32(map_id)
+        .u32(player_token) // GWPS: token2 before is_explorable
         .u32(is_explorable)
-        .u32(player_token)
-        .u32(0) // the live form's sixth dword: zero
+        .u32(map_id) // GWPS: map_id last
         .frame()
 }
 
@@ -1316,18 +1322,40 @@ mod tests {
         assert_eq!(wire(&hard_mode_unlocked(1)), 3);
         assert_eq!(wire(&map_update_current(146)), 5);
         assert_eq!(wire(&ready_for_map_spawn()), 6);
-        // The redirect pair, both measured from GWPS's own capture: 52 and 12 bytes.
+        // The redirect pair, both measured from GWPS's own build: 46 and 12 bytes.
         assert_eq!(
             wire(&transfer_game_server_info(
                 [127, 0, 0, 1],
-                6113,
-                8001,
+                6112,
+                0x1111_1111,
                 0,
-                146,
+                0x0000_0094,
                 0,
-                0x1234_5678
+                0x2222_2222
             )),
-            52
+            46
+        );
+        // And byte for byte, GWPS's struct field order (`GameMsg.h:659`): header, host[24],
+        // map_token, region, player_token, is_explorable, map_id.
+        let mut expected = vec![0xA6, 0x01, 0x02, 0x00, 0x17, 0xE0, 0x7F, 0x00, 0x00, 0x01];
+        expected.extend_from_slice(&[0u8; 16]);
+        expected.extend_from_slice(&0x1111_1111u32.to_le_bytes()); // map_token
+        expected.extend_from_slice(&0u32.to_le_bytes()); // region
+        expected.extend_from_slice(&0x2222_2222u32.to_le_bytes()); // player_token
+        expected.extend_from_slice(&0u32.to_le_bytes()); // is_explorable
+        expected.extend_from_slice(&0x0000_0094u32.to_le_bytes()); // map_id
+        assert_eq!(
+            transfer_game_server_info(
+                [127, 0, 0, 1],
+                6112,
+                0x1111_1111,
+                0,
+                0x0000_0094,
+                0,
+                0x2222_2222
+            )
+            .encode(),
+            expected
         );
         assert_eq!(wire(&map_update_current_redirect(146)), 12);
         assert_eq!(wire(&pvp_item_stream_end()), 2);
