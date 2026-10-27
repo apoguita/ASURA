@@ -1157,10 +1157,26 @@ async fn answer(
                     // this server cannot start on its own.
                     let command = spoken.trim();
                     if command == "stuck" {
+                        // `GameSrv_HandleChatCommand`'s `stuck`: cancel the movement and broadcast where
+                        // the agent is now. **Not** `AGENT_STOP_MOVING` -- that is what
+                        // `HandleCancelMovement` (`0x8028`) answers, and the reference sends a position
+                        // update here instead. It also broadcasts a world tick first; the 500 ms ticker
+                        // covers that, so no second clock is invented.
+                        let player = &play.agents.player;
+                        if trace {
+                            eprintln!(
+                                "world: /stuck -- agent {} stands at ({:.1}, {:.1}) plane {}",
+                                player.agent_id, player.position.0, player.position.1, player.plane
+                            );
+                        }
                         send(
                             stream,
                             session,
-                            vec![game::agent_stop_moving(play.agents.player.agent_id)],
+                            vec![game::agent_update_position(
+                                player.agent_id,
+                                player.position,
+                                player.plane,
+                            )],
                             trace,
                         )
                         .await?;
@@ -2316,6 +2332,36 @@ mod tests {
         );
         assert_eq!(game::CHANNEL_GROUP, 11, "Channel_Group");
         assert_eq!(game::CHANNEL_TRADE, 12, "Channel_Trade");
+    }
+
+    #[test]
+    fn stopping_and_stucking_are_different_messages() {
+        // Two paths that look alike in a client and are not alike in the reference:
+        //   `GAME_CMSG_CANCEL_MOVEMENT` -> `GameSrv_BroadcastAgentStopMoving`  (0x0028)
+        //   `/stuck`                    -> `GameSrv_BroadcastAgentPosition`    (0x002C)
+        // Sending the wrong one is the sort of parity bug that looks fine until someone compares traces.
+        let stop = game::agent_stop_moving(1);
+        assert_eq!(stop.header, game::AGENT_STOP_MOVING);
+        assert_eq!(stop.len(), 6, "header, then the agent id");
+
+        let position = game::agent_update_position(1, (6602.0, 4485.0), 0);
+        assert_eq!(position.header, game::AGENT_UPDATE_POSITION);
+        assert_eq!(position.len(), 16, "header, agent id, two floats, plane");
+        assert_eq!(
+            f32::from_le_bytes([
+                position.body[4],
+                position.body[5],
+                position.body[6],
+                position.body[7]
+            ]),
+            6602.0,
+            "the x coordinate follows the agent id"
+        );
+        assert_eq!(
+            u16::from_le_bytes([position.body[12], position.body[13]]),
+            0,
+            "and the plane is the last field"
+        );
     }
 
     #[test]

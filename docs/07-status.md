@@ -70,6 +70,32 @@ that nobody reads the table above as more than it says:
   itself to the game server, which needs one process and is not what this does
   (`crates/asura-auth/src/frontdoor.rs`).
 
+## Chat and chat commands, command by command
+
+`GAME_CMSG_SEND_CHAT_MESSAGE` counts as *implemented* above because this repository has code for it,
+which is a lower bar than this table uses. What the two servers actually do with a typed line, read
+out of `GmChat.c` and `GmCommands.c`:
+
+| typed | the reference | here |
+|---|---|---|
+| `!text` | `Channel_All`, sent | `Channel_All`, **gated** (`ASURA_CHAT=1`) |
+| `#text` | `Channel_Group`, sent | `Channel_Group`, gated |
+| `$text` | `Channel_Trade`, sent | `Channel_Trade`, gated |
+| `@`, `%`, `"` | ignored | ignored |
+| `/stuck` | cancels the movement and broadcasts the agent's position (`0x002C`) | the same, and not gated |
+| `/maps` | lists its configured maps, answer gated by `GWPS_CHAT` | lists the maps this world hosts, answer gated by `ASURA_CHAT` |
+| `/tp <map>`, `/teleport <map>` | asks the auth service for a world and tells the client to reconnect | **not implemented**: this world cannot start a travel |
+| anything else after `/` | `Unknown command`, gated | logged, nothing sent |
+
+The gate is not this port being timid: the reference's own comment says sending chat crashed its
+client twice, and a live client here crashed on the first `!hello` too -- none of the three chat
+messages appears in any capture. **So with default settings both servers answer a typed line with a
+log line and nothing on the wire**, and a command that looks unimplemented because it is silent is
+behaving as GWPS does. The one command that acts there and not here is `/tp`, which needs
+world-initiated travel: a slot reserved, a transfer row written, and
+`GAME_SMSG_TRANSFER_GAME_SERVER_INFO` sent -- a message that, like the three that have crashed a
+client, is in no capture yet.
+
 ## Features the reference has but keeps switched off
 
 Parity with GWPS includes matching what it *disables*, not only what it implements. From its own
