@@ -53,7 +53,7 @@ param(
     # for the times a packet log is exactly what is wanted.
     [switch] $Trace,
     # The old spelling, kept so an existing command line does not break. It is the default now.
-    [switch] $Quiet
+    [switch] $Quiet,
 )
 
 $ErrorActionPreference = "Stop"
@@ -126,6 +126,7 @@ if ($Trace) {
 } else {
     Write-Host "per-message trace off: events only (who joined, what they did, what was refused). -Trace for packets"
 }
+Write-Host "chat: /maps, /stuck and a spoken line are answered here in this console -- where the reference's /maps worked too"
 Write-Host "== auth service on 127.0.0.1:6112"
 $auth = Start-Process -FilePath $authExe -ArgumentList "--bind", "127.0.0.1:6112" -NoNewWindow -PassThru -RedirectStandardError $authLog
 Start-Sleep -Milliseconds 700

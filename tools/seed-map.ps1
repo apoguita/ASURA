@@ -74,16 +74,17 @@ Write-Host "psql: $script:Psql"
 # (pre-Searing) and Ashford Abbey. Sharing a blob is the normal case, not a bug: the map id plus the
 # spawn point choose the place inside the region.
 $sql = @"
-INSERT INTO map_config (map_id, map_type, map_file_id, spawn_count, spawn_x, spawn_y, spawn_plane)
+INSERT INTO map_config (map_id, map_type, map_file_id, spawn_count, spawn_x, spawn_y, spawn_plane, name)
 VALUES
-    (146, 0, 113021, 1, 6602.0,    4485.0,    0),
-    (148, 0, 113021, 1, 9541.873,  4796.456,  0)
+    (146, 0, 113021, 1, 6602.0,    4485.0,    0, 'Lakeside County'),
+    (148, 0, 113021, 1, 9541.873,  4796.456,  0, 'Ascalon City')
 ON CONFLICT (map_id) DO UPDATE SET
     map_type    = EXCLUDED.map_type,
     map_file_id = EXCLUDED.map_file_id,
     spawn_count = EXCLUDED.spawn_count,
     spawn_x     = EXCLUDED.spawn_x,
     spawn_y     = EXCLUDED.spawn_y,
+    name        = EXCLUDED.name,
     spawn_plane = EXCLUDED.spawn_plane;
 "@
 

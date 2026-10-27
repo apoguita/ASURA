@@ -113,6 +113,14 @@ async fn main() -> ExitCode {
     eprintln!("asura-world {} starting", env!("CARGO_PKG_VERSION"));
     eprintln!("asura-world: database ready, connecting");
 
+    // Said once, and never gated again: chat is printed here and sent to the client, always. The printing
+    // is the half that has always worked -- the reference's `/maps` answered into its own log -- and this
+    // server does both, because a command whose only answer is on a screen nobody has ever seen is not a
+    // command.
+    eprintln!(
+        "asura-world: chat is printed here and sent; /maps, /stuck and a spoken line all say what they did"
+    );
+
     let Some(database_url) = asura_db::config::database_url() else {
         eprintln!(
             "asura-world: no {}. Set it, or copy .env.example to .env and run tools/db-setup.ps1.",
@@ -171,6 +179,8 @@ async fn main() -> ExitCode {
                     map_type: configured.map_type,
                     spawn: (configured.spawn_x, configured.spawn_y),
                     spawn_plane: configured.spawn_plane as u16,
+                    name: configured.name.clone(),
+                    capacity,
                 });
             }
             Ok(None) => {
@@ -255,50 +265,11 @@ async fn main() -> ExitCode {
         );
     }
 
-    // What a drop is allowed to send, and what a dropped item's agent carries. `ASURA_DROP` exists
-    // because both candidate messages a drop could send crashed a live client; see
-    // `asura_world::DropMessages` and `asura_world::DropModel`.
-    let drop_messages = match asura_world::DropMessages::from_environment() {
-        Ok(mode) => mode,
-        Err(err) => {
-            eprintln!("asura-world: {err}");
-            return ExitCode::from(5);
-        }
-    };
-    let drop_model = match asura_world::DropModel::from_environment() {
-        Ok(model) => model,
-        Err(err) => {
-            eprintln!("asura-world: {err}");
-            return ExitCode::from(5);
-        }
-    };
-    let move_echo = match asura_world::MoveEcho::from_environment() {
-        Ok(echo) => echo,
-        Err(err) => {
-            eprintln!("asura-world: {err}");
-            return ExitCode::from(5);
-        }
-    };
-    if drop_messages != asura_world::DropMessages::default() {
-        eprintln!("asura-world: drop messages set to {drop_messages:?} (ASURA_DROP)");
-    }
-    if drop_model != asura_world::DropModel::default() {
-        eprintln!(
-            "asura-world: dropped items carry {drop_model:?} as their model (ASURA_DROP_MODEL)"
-        );
-    }
-    if move_echo != asura_world::MoveEcho::default() {
-        eprintln!("asura-world: accepted moves are {move_echo:?} (ASURA_ITEM_MOVE)");
-    }
-
     let world = Arc::new(World {
         pool,
         world_id,
         maps,
         replay,
-        drop_messages,
-        drop_model,
-        move_echo,
     });
     if let Err(err) = serve(listener, world, trace.on()).await {
         eprintln!("asura-world: the listener stopped: {err}");

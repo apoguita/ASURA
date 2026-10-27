@@ -36,10 +36,13 @@ pub const SCHEMA_V5: &str = include_str!("../migrations/0005_map_spawns.sql");
 /// own `items`/`bags` tables are not copied verbatim.
 pub const SCHEMA_V6: &str = include_str!("../migrations/0006_inventory.sql");
 
+/// A map's name, so /maps can answer with something better than integers (M5.1).
+pub const SCHEMA_V7: &str = include_str!("../migrations/0007_map_names.sql");
+
 /// Every migration, in application order. A developer applying the schema gets one string per
 /// migration file, so a new file is picked up without editing the tooling.
 pub const SCHEMA: &[&str] = &[
-    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6,
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7,
 ];
 
 /// The tables the coordination model depends on. Used by the startup check: a service refuses to run

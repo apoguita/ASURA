@@ -420,11 +420,10 @@ message, and a port that reads twelve and stops leaves the connection waiting fo
 been given.
 
 `ITEM_MOVE` is the exact inverse of `ITEM_MOVE_TO_LOCATION` (`0x013E`) and is what a live client sent, twice,
-when an item was dragged between slots. Whether the client wants the move *confirmed* is not settled either:
-with the echo, a live client moved the item; with silence, the item sprang back and the move did nothing. So
-the echo is the default and `ASURA_ITEM_MOVE=silent` is the other side of the bisection. (The same session
-also reported a cloned item — but it was running a build that re-created items on a drop, so which of the two
-did it is still open, and `ASURA_DROP=none` now removes the other suspect.)
+when an item was dragged between slots. A move the server accepts is answered with `ITEM_MOVE_TO_LOCATION`
+for where the item ended up — with no answer at all the item sprang back and the move did nothing — and a
+refused move is answered with the same message naming the slot the item is really in, because the client has
+already moved it in its own model.
 
 `EQUIP_ITEM` carries only an item id: which slot it goes in follows from the item's type (`EquippedItemSlot`,
 `GmInventory.h`). Wearing something moves the row, takes whatever was worn there off into the first free
@@ -433,12 +432,9 @@ carrying slot (and *that* move is echoed, because the client did not make it), a
 `UNEQUIP_ITEM`'s three fields hold no item id, so what it means is not known — unequipping by dragging arrives
 as `ITEM_MOVE`.
 
-`DROP_ITEM` is answered by an item appearing **and the stack shrinking**: the client sends `count = 1` for
-a stack of a hundred, so the server takes that many off the row and broadcasts `WORLD_CREATE_AGENT`
-(`0x0020`, 99 bytes) for an agent of type `AgentType_Item` (`4`) at the player's position plus `(30, 30)`,
-wearing the item's **model** — to every connection, the dropper included.
-
-**What the client is told about its own stack is not settled.** Three versions have met a live client:
+`DROP_ITEM` is answered by **the stack shrinking and nothing else**: the client sends `count = 1` for a stack
+of a hundred, so the server takes that many off the row, writes it down, prints it, and sends no message at
+all. Three versions have met a live client:
 
 | what the server sent | what the client did |
 |---|---|
@@ -446,31 +442,33 @@ wearing the item's **model** — to every connection, the dropper included.
 | `WORLD_CREATE_AGENT` for an item agent only | **crashed** — the log's last line is `world -> 0x0020 (99 bytes)` |
 | nothing at all | survived, and the stack went down on its own: the client does its own subtraction |
 
-So the default is silence. `ASURA_DROP=none|agent|full` and `ASURA_DROP_MODEL=model|file|id` pick the
-variant, because the remaining question is what an *item* agent should look like and no capture has one:
-the single `0x0020` the capture carries is a **player's** (type 1), and the reference's own drop handler —
-which is where an item agent would have been observed — is the unfinished one. `ASURA_ITEM_MOVE=echo|silent`
-does the same for the move confirmation below.
+So a drop sends nothing, and there is no switch to turn the other two back on: both candidates are in no
+capture, and an *item* agent never can be — the single `0x0020` a capture carries is a **player's** (type 1),
+and the one code path that would produce an item agent is the reference's own unfinished drop handler. The
+message a working drop needs is a measurement this project does not have yet.
 
-| `ASURA_DROP` | what a drop sends |
-|---|---|
-| `none` (default) | nothing. The stack shrinks in the database **and in the client**, which does its own subtraction — measured |
-| `agent` | `WORLD_CREATE_AGENT` only, its model field chosen by `ASURA_DROP_MODEL` (`model` crashed a client; `file` and `id` are untried) |
-| `full` | `ITEM_REMOVE`, `CREATE_NAMED_ITEM`, `ITEM_MOVE_TO_LOCATION`, then the agent |
-
-### Chat, and why nothing is sent by default
+### Chat: answered here, sent, and nothing gated
 
 `GAME_CMSG_SEND_CHAT_MESSAGE` (`0x8064`) is `{agent_id u32, text String16}`; the first unit of the text is
 the channel: `!` all, `#` group, `$` trade, `/` a command, and `@`/`%`/`"` are dropped, as the reference
-drops them. The *reply* is two messages — `CHAT_MESSAGE_CORE` (`0x005D`) with the text and
-`CHAT_MESSAGE_LOCAL` (`0x0061`) with the speaker and channel — or `CHAT_MESSAGE_SERVER` (`0x005E`, 10
-bytes) when the server speaks on its own behalf.
+drops them. The *reply* is two messages — `CHAT_MESSAGE_CORE` (`0x005D`) with the text and either
+`CHAT_MESSAGE_LOCAL` (`0x0061`, speaker and channel) for a player's line or `CHAT_MESSAGE_SERVER`
+(`0x005E`, 10 bytes) for the server's own answer.
 
-**None of those three appears in the capture**, and a live client crashed on the first `!hello` this port
-sent. That is the reference's own experience too: its `GameSrv_ChatSendingEnabled` comment records chat
-crashing its client twice and concludes that "every message we send is a guess". So player chat is parsed,
-logged and **not sent** unless `ASURA_CHAT=1`, `/maps` answers only under the same switch, and `/stuck`
-(which sends `AGENT_STOP_MOVING`, a message the load path already uses) works regardless.
+**Every one of those is sent, and every answer is also printed to this server's console. Nothing is behind a
+switch.** No chat text has ever reached a client's screen in this project *or* in the reference — the
+reference's `/maps` was useful because it printed its answer on the server, and so does this one — so a gate
+that hid the answer would hide the only half that has ever worked. Both servers send these messages anyway:
+the reference's own `GameSrv_ChatSendingEnabled` comment records chat crashing its client twice, and a live
+client crashed on this port's first `!hello`, so *rendering* is the unproven part, not sending. None of the
+three messages appears in any capture.
+
+The commands, as the reference's `GmChat.c`/`GmCommands.c` define them: `/stuck` cancels the movement and
+broadcasts the agent's position (`0x002C`, **not** `AGENT_STOP_MOVING`, which is what `0x8028` answers);
+`/maps` lists the maps with names, kinds and slots; `/tp <map>` and `/teleport <map>` are **not implemented**,
+because they need world-initiated travel (reserve a slot, write a transfer row, send
+`GAME_SMSG_TRANSFER_GAME_SERVER_INFO`) and that message is in no capture either. An unknown command is
+answered with `Unknown command`, here and on the wire.
 
 Three answers change nothing and send nothing: item id `0`, an item that is not in the backpack/belt
 pouch/bag 1/bag 2 (`GmBag_FindItem` looks no further, so storage is not droppable), and a count larger than

@@ -43,11 +43,10 @@ that nobody reads the table above as more than it says:
   the rest of the session. `DROP_ITEM` is the one item message the reference's dispatch acts on;
   its handler is unfinished there (a `TODO` for partial stacks, no removal) and this port finishes
   it -- a recorded deviation, argued in `docs/08-next-inventory-model.md`. What a drop *sends* is
-  `ASURA_DROP`, and its default is **nothing**: `ITEM_REMOVE` (`0x014D`) and an item agent
-  (`0x0020` with `AgentType_Item`) are both in no capture, and a live client crashed on each of
-  them. Dropping still deducts -- the client does its own subtraction, measured. Whether the client
-  wants a move confirmed is open too: `ASURA_ITEM_MOVE=silent` is the other side of that bisection.
-  `ITEM_MOVE` and `EQUIP_ITEM` are
+  **nothing**, and that is not configurable: `ITEM_REMOVE` (`0x014D`) and an item agent (`0x0020`
+  with `AgentType_Item`) are both in no capture and a live client crashed on each of them. Dropping
+  still deducts, and the client does its own subtraction -- measured. A move is answered with
+  `ITEM_MOVE_TO_LOCATION` (`0x013E`), which is in the capture. `ITEM_MOVE` and `EQUIP_ITEM` are
   messages the reference does not dispatch at all, so their behaviour here is this project's;
   `UNEQUIP_ITEM` (`0x804F`) is not implemented because its layout carries no item id and no
   capture has shown what it means (dragging an item out of the equipped bag arrives as
@@ -78,37 +77,38 @@ out of `GmChat.c` and `GmCommands.c`:
 
 | typed | the reference | here |
 |---|---|---|
-| `!text` | `Channel_All`, sent | `Channel_All`, **gated** (`ASURA_CHAT=1`) |
-| `#text` | `Channel_Group`, sent | `Channel_Group`, gated |
-| `$text` | `Channel_Trade`, sent | `Channel_Trade`, gated |
+| `!text` | `Channel_All`, sent | `Channel_All`, sent, and printed here |
+| `#text` | `Channel_Group`, sent | `Channel_Group`, sent, and printed here |
+| `$text` | `Channel_Trade`, sent | `Channel_Trade`, sent, and printed here |
 | `@`, `%`, `"` | ignored | ignored |
-| `/stuck` | cancels the movement and broadcasts the agent's position (`0x002C`) | the same, and not gated |
-| `/maps` | lists its configured maps, answer gated by `GWPS_CHAT` | lists the maps this world hosts, answer gated by `ASURA_CHAT` |
+| `/stuck` | cancels the movement and broadcasts the agent's position (`0x002C`) | the same, and printed here |
+| `/maps` | lists its configured maps **in its own log** | lists the maps this world hosts, in this log **and** on the wire |
 | `/tp <map>`, `/teleport <map>` | asks the auth service for a world and tells the client to reconnect | **not implemented**: this world cannot start a travel |
-| anything else after `/` | `Unknown command`, gated | logged, nothing sent |
+| anything else after `/` | `Unknown command`, in its log and on the wire | the same, here and on the wire |
 
-The gate is not this port being timid: the reference's own comment says sending chat crashed its
-client twice, and a live client here crashed on the first `!hello` too -- none of the three chat
-messages appears in any capture. **So with default settings both servers answer a typed line with a
-log line and nothing on the wire**, and a command that looks unimplemented because it is silent is
-behaving as GWPS does. The one command that acts there and not here is `/tp`, which needs
-world-initiated travel: a slot reserved, a transfer row written, and
-`GAME_SMSG_TRANSFER_GAME_SERVER_INFO` sent -- a message that, like the three that have crashed a
-client, is in no capture yet.
+**Nothing is gated, and nothing must be.** No chat text has ever reached a client's screen in this
+project or in the reference -- the reference's `/maps` was useful because it printed its answer on
+the *server*, and so does this one -- so a switch that hid the answer would hide the only half that
+has ever worked. Both servers send these messages anyway; whether a client renders them is the open
+question, and none of the three chat messages appears in any capture. The one command that acts
+there and not here is `/tp`, which needs world-initiated travel: a slot reserved, a transfer row
+written, and `GAME_SMSG_TRANSFER_GAME_SERVER_INFO` sent -- a message that, like the three that have
+crashed a client, is in no capture yet.
 
 ## Features the reference has but keeps switched off
 
 Parity with GWPS includes matching what it *disables*, not only what it implements. From its own
 source:
 
-- **chat sending** is gated (`GameSrv_ChatSendingEnabled`, `GWPS_CHAT=1` to enable), and so is
-  this port's (`ASURA_CHAT=1`). Its comment records why: an unconditional send put a message on
-  the wire the client could not parse, `GameSrv_SendInvalidCommand` above all, **and it crashed
-  the client**. None of the three chat messages appears in any capture, and a live client crashed
-  on this port's first `!hello` -- so a player's line is parsed and logged and *not* sent, which
-  is stricter than the reference (it gates only its own text) and is what its own comment
-  recommends. `/maps` answers under the same switch;
-- **GM commands**: the reference has `/tp`, `/teleport` and `/maps`, all behind that gate. `/maps`
-  is here (it can only list the maps this world hosts); `/tp` is not, because the reference
+- **chat sending** is gated in the reference (`GameSrv_ChatSendingEnabled`, `GWPS_CHAT=1`) and is
+  *not* gated here. Its comment records that an unconditional send put a message on the wire the
+  client could not parse, **and that it crashed the client**; this port tried the same thing and a
+  live client crashed on `!hello` too. What the gate is for differs, though: the reference used it
+  to protect its client, and this project concluded that hiding the answer serves nobody -- so both
+  halves happen (the answer is printed here, which always worked, and it is sent), and nothing sits
+  behind a variable. None of the three chat messages appears in any capture, which is why
+  *rendering* is unproven rather than why sending is switched off;
+- **GM commands**: the reference has `/tp`, `/teleport` and `/maps`. `/maps` and `/stuck` are here
+  (they can only describe what this world actually runs); `/tp` is not, because the reference
   teleports by asking the auth service for a world and having the client reconnect, and this world
   cannot start a travel on its own.

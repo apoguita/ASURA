@@ -71,12 +71,6 @@ struct Harness {
 impl Harness {
     /// Start a world serving one map, and place a player in it the way the auth service would.
     async fn start() -> Option<Harness> {
-        Harness::start_dropping(asura_world::DropMessages::default()).await
-    }
-
-    /// The same, with a given drop mode: the switch exists because a live client crashed on both
-    /// candidate messages, so both paths are worth a test and only one of them is the default.
-    async fn start_dropping(drop_messages: asura_world::DropMessages) -> Option<Harness> {
         let url = asura_db::config::database_url()?;
         let pool = placement::connect(&url, 4)
             .await
@@ -99,11 +93,10 @@ impl Harness {
                 map_type: 0,
                 spawn: (6602.0, 4485.0),
                 spawn_plane: 0,
+                name: "Lakeside County".to_string(),
+                capacity: 2,
             }],
             replay: None,
-            drop_messages,
-            drop_model: asura_world::DropModel::default(),
-            move_echo: asura_world::MoveEcho::default(),
         });
         let server = tokio::spawn(async move {
             let _ = serve(listener, world, true).await;

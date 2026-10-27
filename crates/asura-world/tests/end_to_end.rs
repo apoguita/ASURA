@@ -122,11 +122,10 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
             map_type: 0,
             spawn: SPAWN,
             spawn_plane: 0,
+            name: "Lakeside County".to_string(),
+            capacity: 2,
         }],
         replay: None,
-        drop_messages: asura_world::DropMessages::default(),
-        drop_model: asura_world::DropModel::default(),
-        move_echo: asura_world::MoveEcho::default(),
     });
     let world_task = tokio::spawn(async move {
         let _ = serve_world(world_listener, world, true).await;

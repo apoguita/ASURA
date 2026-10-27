@@ -30,27 +30,37 @@ pub struct SpawnMap {
     pub spawn_y: f32,
     /// The plane inside the map blob, not a height: 0 for every pre-Searing map measured so far.
     pub spawn_plane: i16,
+    /// What to call it, so `/maps` and the log can name a map instead of printing its number. Empty when
+    /// the database has no name for it — a worse answer, not a broken one.
+    pub name: String,
+}
+
+/// A map row as [`SpawnMap`] reads it. One column list, used by both queries.
+type MapRow = (i32, i32, i64, f32, f32, i16, String);
+
+fn spawn_map_from_row(row: MapRow) -> SpawnMap {
+    let (map_id, map_type, map_file_id, spawn_x, spawn_y, spawn_plane, name) = row;
+    SpawnMap {
+        map_id,
+        map_type,
+        map_file_id,
+        spawn_x,
+        spawn_y,
+        spawn_plane,
+        name,
+    }
 }
 
 /// The configured map, if the database has it.
 pub async fn spawn_map(pool: &PgPool, map_id: i32) -> sqlx::Result<Option<SpawnMap>> {
-    let row: Option<(i32, i32, i64, f32, f32, i16)> = sqlx::query_as(
-        "SELECT map_id, map_type, map_file_id, spawn_x, spawn_y, spawn_plane
+    let row: Option<MapRow> = sqlx::query_as(
+        "SELECT map_id, map_type, map_file_id, spawn_x, spawn_y, spawn_plane, name
            FROM map_config WHERE map_id = $1",
     )
     .bind(map_id)
     .fetch_optional(pool)
     .await?;
-    Ok(row.map(
-        |(map_id, map_type, map_file_id, spawn_x, spawn_y, spawn_plane)| SpawnMap {
-            map_id,
-            map_type,
-            map_file_id,
-            spawn_x,
-            spawn_y,
-            spawn_plane,
-        },
-    ))
+    Ok(row.map(spawn_map_from_row))
 }
 
 /// A character's name, as the client should see it in the map.
@@ -124,25 +134,13 @@ pub async fn record_position(
 
 /// Every map the database knows, so a world server can publish a pool for each of them at startup.
 pub async fn all_maps(pool: &PgPool) -> sqlx::Result<Vec<SpawnMap>> {
-    let rows: Vec<(i32, i32, i64, f32, f32, i16)> = sqlx::query_as(
-        "SELECT map_id, map_type, map_file_id, spawn_x, spawn_y, spawn_plane
+    let rows: Vec<MapRow> = sqlx::query_as(
+        "SELECT map_id, map_type, map_file_id, spawn_x, spawn_y, spawn_plane, name
            FROM map_config ORDER BY map_id",
     )
     .fetch_all(pool)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(
-            |(map_id, map_type, map_file_id, spawn_x, spawn_y, spawn_plane)| SpawnMap {
-                map_id,
-                map_type,
-                map_file_id,
-                spawn_x,
-                spawn_y,
-                spawn_plane,
-            },
-        )
-        .collect())
+    Ok(rows.into_iter().map(spawn_map_from_row).collect())
 }
 
 #[cfg(test)]
@@ -161,8 +159,10 @@ mod tests {
             spawn_x: 6602.0,
             spawn_y: 4485.0,
             spawn_plane: 0,
+            name: "Lakeside County".to_string(),
         };
         assert_eq!(map.map_id, 146, "Lakeside County");
+        assert_eq!(map.name, "Lakeside County", "and it says so");
         assert_eq!(map.map_type, 0, "an outpost");
         assert_eq!(map.map_file_id, 113021, "the pre-Searing blob, 0x1B97D");
         assert_eq!(

@@ -104,129 +104,32 @@ pub struct MapEntry {
     pub spawn: (f32, f32),
     /// The plane inside the map blob.
     pub spawn_plane: u16,
+    /// What the map is called, for `/maps` and the log. Empty is allowed: a map without a name prints
+    /// its id, which is a worse answer than the reference's and not a broken one.
+    pub name: String,
+    /// How many players this world will place in it. `/maps` reports it because a player asking "where
+    /// can I go" wants to know what is running, not only what exists.
+    pub capacity: i32,
 }
 
-/// What a drop puts on the wire, from `ASURA_DROP`.
-///
-/// **Why this is a switch, and why the default sends nothing.** Two live-client reports, one per
-/// candidate message:
-///
-/// * the first version sent `ITEM_REMOVE` (`0x014D`) and the item re-created at what was left — the
-///   client crashed, and cloned items in a later run;
-/// * the second sent only the ground agent (`WORLD_CREATE_AGENT`, `0x0020`, type `AgentType_Item`), and
-///   the client crashed on it: the log's last line is that message;
-/// * the third is silence, which survived: the row is deducted and the client, which does its own
-///   subtraction, shows the stack going down with it.
-///
-/// `0x014D` is in no capture, and an *item* agent is in none either — the one `0x0020` the capture
-/// carries is a player's, type 1. Both candidates are therefore guesses, the client dies on at least one
-/// of them, and the honest default is the one that is a measurement: no message at all.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DropMessages {
-    /// Nothing on the wire. The deduction happens, and the client's own stack goes down with it.
-    #[default]
-    None,
-    /// The ground agent only, with [`DropModel`] saying what its model field carries.
-    Agent,
-    /// The inventory update as well — `ITEM_REMOVE`, the item at what is left, and its slot — plus the
-    /// agent. Nothing in it has ever been seen on the wire.
-    Full,
-}
-
-impl DropMessages {
-    /// `ASURA_DROP=none|agent|full`. An unknown value is refused rather than defaulted: a bisection that
-    /// silently tests something else is worse than one that stops.
-    pub fn from_environment() -> Result<DropMessages, String> {
-        let Ok(value) = std::env::var("ASURA_DROP") else {
-            return Ok(DropMessages::None);
-        };
-        match value.trim().to_ascii_lowercase().as_str() {
-            "" => Ok(DropMessages::None),
-            "none" => Ok(DropMessages::None),
-            "agent" => Ok(DropMessages::Agent),
-            "full" => Ok(DropMessages::Full),
-            other => Err(format!(
-                "ASURA_DROP: {other:?} is not one of none, agent, full"
-            )),
-        }
-    }
-}
-
-/// What a dropped item's agent carries in `model_id`, from `ASURA_DROP_MODEL`.
-///
-/// This is the open question about a ground item. The reference's own unfinished handler puts the item's
-/// **id** there (`item_agent->model_id = item->item_id`), which cannot be what a client draws an item
-/// from; an item has two other candidates — its `model_id` (what `CREATE_NAMED_ITEM` calls the model) and
-/// its `file_id` (the `Gw.dat` entry its appearance lives in). A live client crashed on `model`, so the
-/// other two are worth a run each rather than another argument.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DropModel {
-    /// `item.model_id` — the field `CREATE_NAMED_ITEM` carries as the model. Crashed a client.
-    #[default]
-    Model,
-    /// `item.file_id` — the `Gw.dat` entry.
-    File,
-    /// `item.id` — what the reference's unfinished handler sends.
-    Id,
-}
-
-impl DropModel {
-    /// `ASURA_DROP_MODEL=model|file|id`.
-    pub fn from_environment() -> Result<DropModel, String> {
-        let Ok(value) = std::env::var("ASURA_DROP_MODEL") else {
-            return Ok(DropModel::Model);
-        };
-        match value.trim().to_ascii_lowercase().as_str() {
-            "" => Ok(DropModel::Model),
-            "model" => Ok(DropModel::Model),
-            "file" => Ok(DropModel::File),
-            "id" => Ok(DropModel::Id),
-            other => Err(format!(
-                "ASURA_DROP_MODEL: {other:?} is not one of model, file, id"
-            )),
+impl MapEntry {
+    /// How the map is named in an answer or a log line: its name when it has one, its id when it does
+    /// not, and never an empty string.
+    pub fn label(&self) -> String {
+        if self.name.is_empty() {
+            format!("map {}", self.map_id)
+        } else {
+            format!("{} ({})", self.name, self.map_id)
         }
     }
 
-    /// The value this choice puts in the agent's `model_id`.
-    fn value(self, item: &db_inventory::Item) -> u32 {
-        match self {
-            DropModel::Model => wire_u32(item.model_id),
-            DropModel::File => wire_u32(i32::try_from(item.file_id).unwrap_or(0)),
-            DropModel::Id => wire_u32(item.id),
-        }
-    }
-}
-
-/// Whether a move the server accepts is echoed back, from `ASURA_ITEM_MOVE`.
-///
-/// `ITEM_MOVE_TO_LOCATION` (`0x013E`) *is* in the capture — eight times, in the inventory block — so the
-/// message is measured. What is not measured is whether the client wants it as a *confirmation*: with the
-/// echo a live client moved the item (and that session's report of a clone came from a build which was
-/// also re-creating items on a drop, so which of the two did it is not settled), and with silence the item
-/// sprang back and the move did nothing. Echo is the default; `silent` is one run away if the clone turns
-/// out to be the echo.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum MoveEcho {
-    /// Answer an accepted move with `ITEM_MOVE_TO_LOCATION` for where the item ended up.
-    #[default]
-    Echo,
-    /// Send nothing.
-    Silent,
-}
-
-impl MoveEcho {
-    /// `ASURA_ITEM_MOVE=echo|silent`.
-    pub fn from_environment() -> Result<MoveEcho, String> {
-        let Ok(value) = std::env::var("ASURA_ITEM_MOVE") else {
-            return Ok(MoveEcho::Echo);
-        };
-        match value.trim().to_ascii_lowercase().as_str() {
-            "" => Ok(MoveEcho::Echo),
-            "echo" => Ok(MoveEcho::Echo),
-            "silent" => Ok(MoveEcho::Silent),
-            other => Err(format!(
-                "ASURA_ITEM_MOVE: {other:?} is not one of echo, silent"
-            )),
+    /// `0` and `1` are the reference's own `MapType` values; every other value it can carry is a kind of
+    /// instance this world does not host.
+    pub fn kind(&self) -> &'static str {
+        match self.map_type {
+            0 => "outpost",
+            1 => "explorable",
+            _ => "other",
         }
     }
 }
@@ -244,12 +147,6 @@ pub struct World {
     /// ones this server builds (see the `replay` module). A bisection tool: if a client survives a
     /// replay and dies against the built blocks, the difference is payload content.
     pub replay: Option<crate::replay::Replay>,
-    /// What a drop is allowed to put on the wire: see [`DropMessages`].
-    pub drop_messages: DropMessages,
-    /// What a dropped item's agent carries as its model: see [`DropModel`].
-    pub drop_model: DropModel,
-    /// Whether an accepted move is echoed: see [`MoveEcho`].
-    pub move_echo: MoveEcho,
 }
 
 /// Where a character stands as it enters a map.
@@ -709,29 +606,6 @@ impl Play {
     }
 }
 
-/// Whether the server may put its own chat text on the wire, from `ASURA_CHAT` (`1`, `true`, `yes`).
-///
-/// **Off by default, and that is the reference's decision, not caution invented here.** Its own comment
-/// on `GameSrv_ChatSendingEnabled` records that sending chat crashed the client twice, that the message
-/// layouts were only ever checked against a header file which is known to disagree with the wire
-/// (`PING_REQUEST` is 4 bytes where the struct implies 8), and that "every message we send is a guess".
-/// A live client then crashed on this port's `!hello`, which is that prediction coming true: none of the
-/// three chat messages (`0x005D`, `0x005E`, `0x0061`) appears in the capture this project measures
-/// against, so they are guesses exactly like `ITEM_REMOVE` was.
-///
-/// `ASURA_CHAT=1` turns them back on for experimenting with a client that is expected to survive it.
-fn chat_enabled() -> bool {
-    static VALUE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *VALUE.get_or_init(|| {
-        std::env::var("ASURA_CHAT")
-            .map(|value| {
-                let value = value.trim().to_ascii_lowercase();
-                value == "1" || value == "true" || value == "yes"
-            })
-            .unwrap_or(false)
-    })
-}
-
 /// The first bytes of a message, as hex, for the trace.
 ///
 /// When a client dies mid-load, the only evidence left is what it sent and what it was sent. A header
@@ -1121,14 +995,6 @@ async fn answer(
                 // safe when the wire format is known, and none of the three chat messages appears in
                 // any capture (`chat_enabled` records the rest).
                 speaker @ ('!' | '#' | '$') => {
-                    if !chat_enabled() {
-                        eprintln!(
-                            "world: chat {spoken:?} on {speaker} not sent: no chat message in this \
-                             port has ever been seen on the wire, and a live client crashed on one. \
-                             ASURA_CHAT=1 sends it anyway"
-                        );
-                        return Ok(true);
-                    }
                     let channel = match speaker {
                         '#' => game::CHANNEL_GROUP,
                         '$' => game::CHANNEL_TRADE,
@@ -1182,24 +1048,12 @@ async fn answer(
                         .await?;
                         Ok(true)
                     } else if command == "maps" {
-                        let answer = format!(
-                            "Maps on world {}: {}",
-                            world.world_id,
-                            world
-                                .maps
-                                .iter()
-                                .map(|map| format!("{} ({} slots)", map.map_id, map.map_type))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        );
-                        // The reference gates its own text: a GM answer is a message the *server* puts
-                        // on the wire, and `GWPS_CHAT`/`ASURA_CHAT` is what decides whether it does.
-                        if !chat_enabled() {
-                            eprintln!(
-                                "world: /maps answer not sent (ASURA_CHAT=1 to send): {answer}"
-                            );
-                            return Ok(true);
-                        }
+                        let answer = maps_answer(&world.maps);
+                        // Answered on the wire **and** written here. The second half is the one that has
+                        // always worked: the reference's `/maps` printed its table to its own log, and no
+                        // chat text has ever reached a client's screen in either server. A command whose
+                        // answer exists only on a screen nobody has seen is not a command.
+                        eprintln!("world: /maps -> {answer}");
                         send(
                             stream,
                             session,
@@ -1212,7 +1066,20 @@ async fn answer(
                         .await?;
                         Ok(true)
                     } else {
-                        eprintln!("world: unknown command {spoken:?}");
+                        // The reference answers an unknown command with "Unknown command", over the same
+                        // two messages, and logs it. Both halves here, like /maps.
+                        let answer = format!("Unknown command: {command}");
+                        eprintln!("world: {answer}");
+                        send(
+                            stream,
+                            session,
+                            vec![
+                                game::chat_message_core(&answer),
+                                game::chat_message_server(game::CHANNEL_WARNING),
+                            ],
+                            trace,
+                        )
+                        .await?;
                         Ok(true)
                     }
                 }
@@ -1247,9 +1114,9 @@ async fn answer(
         // carries the item's *id* as its model id, so the thing on the ground is drawn as nothing. A
         // measured live session (`docs/08-next-inventory-model.md`) showed all three in one log.
         //
-        // What this does instead: take `count` off the stack for real, put the item on the ground with
-        // its own model, and tell the client what happened to its inventory. The deviations are recorded
-        // in `docs/07-status.md` and `docs/08-next-inventory-model.md`.
+        // What this does instead: take `count` off the stack for real, write it down, and say so in the
+        // log. It sends nothing -- both messages it could send (`ITEM_REMOVE` and an item agent) crashed a
+        // live client, and neither is in any capture. `drop_messages` carries the whole argument.
         0x802C => {
             let body = &frame.body;
             if body.len() < 5 {
@@ -1257,7 +1124,7 @@ async fn answer(
             }
             let item_id = i32::from_le_bytes([body[0], body[1], body[2], body[3]]);
             let count = i32::from(body[4]);
-            drop_item(stream, session, world, play, item_id, count, trace).await?;
+            drop_item(world, play, item_id, count).await?;
             Ok(true)
         }
 
@@ -1349,13 +1216,10 @@ async fn answer(
 /// and its team token. Its model is the item's *model*, which is the one field the reference gets wrong
 /// in a way a client can see.
 async fn drop_item(
-    stream: &mut TcpStream,
-    session: &mut Session,
     world: &World,
     play: &mut Play,
     item_id: i32,
     count: i32,
-    trace: bool,
 ) -> Result<(), GameError> {
     if item_id <= 0 || count <= 0 {
         eprintln!("world: a drop of {count} of item {item_id} names something that is not an item");
@@ -1389,74 +1253,34 @@ async fn drop_item(
     };
 
     let agent_id = play.agents.allocate();
-    let frames = drop_messages(
-        agent_id,
-        &taken,
-        &play.agents.player,
-        world.drop_messages,
-        world.drop_model,
-    );
     eprintln!(
-        "world: {} dropped {count} of item {item_id} at ({:.1}, {:.1}) on agent {agent_id}, {} left",
+        "world: {} dropped {count} of item {item_id} at ({:.1}, {:.1}), agent {agent_id} reserved, {} \
+         left in the bag -- and nothing is sent: both messages a drop could send have crashed a client",
         play.name,
         play.agents.player.position.0 + DROP_OFFSET,
         play.agents.player.position.1 + DROP_OFFSET,
         taken.remaining
     );
-    send(stream, session, frames, trace).await?;
     reload(world, play).await
 }
 
-/// The messages a drop puts on the wire, in the order the client needs them.
+/// The messages a drop puts on the wire: **none**.
 ///
-/// The agent is always last and, in the default mode, the only message: `RECEIVE`-side reality beats
-/// elegance, and `DropMessages` explains why the inventory update is not the default.
-pub fn drop_messages(
-    agent_id: u32,
-    taken: &db_inventory::Taken,
-    player: &crate::agent::AgentState,
-    mode: DropMessages,
-    model: DropModel,
-) -> Vec<Frame> {
-    let item = &taken.item;
-    let mut frames = Vec::with_capacity(4);
-    if mode == DropMessages::None {
-        // The row is deducted and the client is told nothing; it does its own subtraction.
-        return frames;
-    }
-    if mode == DropMessages::Full {
-        // The stack lost something and the client has no "quantity changed" message, so the item is
-        // removed and re-created at what is left -- the same rebuild `GameSrv_SendBagItems` does. This
-        // is the part that crashed a live client, so it is not the default.
-        frames.push(game::item_remove(ITEM_STREAM, wire_u32(item.id)));
-        if taken.remaining > 0 {
-            let mut left = item.clone();
-            left.quantity = taken.remaining;
-            frames.push(game::create_named_item(&named_item(&left)));
-            if let (Some(bag), Some(slot)) = (left.bag_id, left.slot) {
-                frames.push(game::item_move_to_location(
-                    ITEM_STREAM,
-                    wire_u32(left.id),
-                    wire_u16(bag),
-                    wire_u8(slot),
-                ));
-            }
-        }
-    }
-    frames.push(game::world_create_agent(&game::CreateAgent {
-        agent_id,
-        model_id: model.value(item),
-        agent_type: game::AGENT_TYPE_ITEM,
-        position: (
-            player.position.0 + DROP_OFFSET,
-            player.position.1 + DROP_OFFSET,
-        ),
-        plane: player.plane,
-        direction: (1.0, 0.0),
-        speed_base: 0.0,
-        player_team_token: 0,
-    }));
-    frames
+/// This is not caution and it is not a switch any more -- it is the whole of what has been measured. Both
+/// candidates put a live client on the floor:
+///
+/// * `ITEM_REMOVE` (`0x014D`) with the item re-created at what was left: the client crashed, and in
+///   another build cloned the item;
+/// * the ground agent (`WORLD_CREATE_AGENT`, `0x0020`, `AgentType_Item`): the client crashed, and the
+///   log's last line was that message.
+///
+/// Neither message appears in any capture, and an *item* agent never can: the only `0x0020` a capture
+/// carries is a player's (type 1), and the one code path that would have produced an item agent is the
+/// reference's own unfinished drop handler. So a drop deducts the stack, writes it down, says so in the
+/// log -- and sends nothing, because a client that is running is worth more than an item on the ground.
+/// When a capture of a working drop exists, this function grows the message it shows.
+pub fn drop_messages() -> Vec<Frame> {
+    Vec::new()
 }
 
 /// An item and where it is being put: the three fields `GAME_CMSG_ITEM_MOVE` carries.
@@ -1495,14 +1319,12 @@ async fn move_item(
             // a build that re-created items on a drop too), and with silence the item sprang back and the
             // move did nothing. `MoveEcho` keeps both, and defaults to the echo — the one a client was
             // seen to act on.
-            if world.move_echo == MoveEcho::Echo {
-                frames.push(game::item_move_to_location(
-                    ITEM_STREAM,
-                    wire_u32(item_id),
-                    wire_u16(bag_id),
-                    wire_u8(slot),
-                ));
-            }
+            frames.push(game::item_move_to_location(
+                ITEM_STREAM,
+                wire_u32(item_id),
+                wire_u16(bag_id),
+                wire_u8(slot),
+            ));
             reload(world, play).await?;
         }
         db_inventory::MoveOutcome::Unchanged { .. } => return Ok(()),
@@ -1622,14 +1444,12 @@ async fn equip_item(
             eprintln!("world: item {item_id} worn in equipped slot {slot}");
             // The same switch as a plain move, and the same open question. What the client cannot work
             // out by itself is what the agent now wears, and that is sent below either way.
-            if world.move_echo == MoveEcho::Echo {
-                frames.push(game::item_move_to_location(
-                    ITEM_STREAM,
-                    wire_u32(item_id),
-                    wire_u16(bag_id),
-                    wire_u8(slot),
-                ));
-            }
+            frames.push(game::item_move_to_location(
+                ITEM_STREAM,
+                wire_u32(item_id),
+                wire_u16(bag_id),
+                wire_u8(slot),
+            ));
         }
         db_inventory::MoveOutcome::Unchanged { .. } => {}
         db_inventory::MoveOutcome::Refused { item, reason } => {
@@ -1652,6 +1472,23 @@ async fn equip_item(
         frames.push(equipment_frame(play));
     }
     send(stream, session, frames, trace).await
+}
+
+/// What `/maps` answers: the maps this world hosts, each by name, kind and how many slots it will place.
+///
+/// The reference's version (`GmCommands_ListTargets`) prints its own compiled-in table of aliases and
+/// the full list to the log, in chat-sized fragments. This one answers with what the world is *actually*
+/// running — a player asking "where can I go" wants the maps that exist here, not the 900 the client
+/// has data for. A map with no name prints its id, because a list of numbers beats no list.
+pub fn maps_answer(maps: &[MapEntry]) -> String {
+    if maps.is_empty() {
+        return "Maps: none -- this world hosts nothing".to_string();
+    }
+    let listed: Vec<String> = maps
+        .iter()
+        .map(|map| format!("{} {}, {} slots", map.label(), map.kind(), map.capacity))
+        .collect();
+    format!("Maps: {}", listed.join("; "))
 }
 
 /// `UPDATE_AGENT_VISUAL_EQUIPMENT`: what the agent is wearing, read out of the equipped-items bag.
@@ -1869,6 +1706,8 @@ mod tests {
             map_type: 0,
             spawn: (6602.0, 4485.0),
             spawn_plane: 0,
+            name: "Lakeside County".to_string(),
+            capacity: 8,
         }
     }
 
@@ -2182,126 +2021,15 @@ mod tests {
         );
     }
 
-    /// A cupcake as the reference's own inventory carries it: a stack in the backpack's first slot.
-    fn cupcake(quantity: i32) -> db_inventory::Item {
-        db_inventory::Item {
-            id: 750,
-            bag_id: Some(1),
-            slot: Some(0),
-            file_id: 0x47C34,
-            item_type: 9, // ItemType_Consumable
-            model_id: 22269,
-            dye_tint: 0,
-            dye_colors: 0,
-            materials: 0,
-            unk1: 0,
-            flags: 0x2108_0201,
-            value: 0,
-            quantity,
-            profession: 0,
-            name: Vec::new(),
-            modifiers: Vec::new(),
-        }
-    }
-
     #[test]
-    fn a_drop_sends_the_agent_and_nothing_the_client_has_never_seen() {
-        // The default mode, and the one a live client survived: the ground agent alone. `ITEM_REMOVE`
-        // (`0x014D`) is not in it, because that message is in no capture and a client crashed on it.
-        let player =
-            crate::agent::AgentState::new(AGENT_ID, (6602.0, 4485.0), 0, game::PLAYER_SPEED_BASE);
-        let taken = db_inventory::Taken {
-            item: cupcake(100),
-            remaining: 99,
-        };
-        let frames = drop_messages(2, &taken, &player, DropMessages::Agent, DropModel::Model);
-        let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
-        assert_eq!(
-            headers,
-            vec![game::WORLD_CREATE_AGENT],
-            "the deduction is server truth; the client is told about the thing on the ground only"
-        );
-
-        // The agent carries the item's model, not its id.
-        let agent = &frames[0].body;
-        assert_eq!(
-            u32::from_le_bytes([agent[4], agent[5], agent[6], agent[7]]),
-            22269,
-            "a cupcake's model, which is what the client can draw"
-        );
-        assert_eq!(agent[8], game::AGENT_TYPE_ITEM, "AgentType_Item");
-        assert_eq!(
-            f32::from_le_bytes([agent[10], agent[11], agent[12], agent[13]]),
-            6632.0,
-            "the player's x plus 30"
-        );
-        assert_eq!(
-            f32::from_le_bytes([agent[14], agent[15], agent[16], agent[17]]),
-            4515.0,
-            "and the player's y plus 30"
-        );
-
-        // Nothing at all is another mode, and it sends nothing.
-        assert!(drop_messages(2, &taken, &player, DropMessages::None, DropModel::Model).is_empty());
-    }
-
-    #[test]
-    fn the_full_drop_update_is_kept_for_the_bisection() {
-        // What crashed a live client, kept so the question "inventory messages or agent" can be answered
-        // in one run: `ASURA_DROP=full`.
-        let player =
-            crate::agent::AgentState::new(AGENT_ID, (6602.0, 4485.0), 0, game::PLAYER_SPEED_BASE);
-        let taken = db_inventory::Taken {
-            item: cupcake(100),
-            remaining: 99,
-        };
-        let frames = drop_messages(2, &taken, &player, DropMessages::Full, DropModel::Model);
-        let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
-        assert_eq!(
-            headers,
-            vec![
-                game::ITEM_REMOVE,
-                game::CREATE_NAMED_ITEM,
-                game::ITEM_MOVE_TO_LOCATION,
-                game::WORLD_CREATE_AGENT
-            ],
-            "the stack is removed, re-created at what is left, put back in its slot, then the agent"
-        );
-
-        // The item leaves the client's model first, by id.
-        let removed = &frames[0].body;
-        assert_eq!(
-            u32::from_le_bytes([removed[2], removed[3], removed[4], removed[5]]),
-            750
-        );
-
-        // Re-created at 99: quantity is the eleventh dword of the message's fixed part.
-        let rebuilt = &frames[1].body;
-        assert_eq!(
-            u32::from_le_bytes([rebuilt[27], rebuilt[28], rebuilt[29], rebuilt[30]]),
-            99,
-            "what is left of the stack"
-        );
-    }
-
-    #[test]
-    fn a_whole_stack_drop_never_re_creates_the_item() {
-        // In the full mode the stack is removed and nothing puts it back, because nothing is left of it.
-        let player =
-            crate::agent::AgentState::new(AGENT_ID, (6602.0, 4485.0), 0, game::PLAYER_SPEED_BASE);
-        let taken = db_inventory::Taken {
-            item: cupcake(100),
-            remaining: 0,
-        };
-        let headers: Vec<u16> =
-            drop_messages(2, &taken, &player, DropMessages::Full, DropModel::Model)
-                .iter()
-                .map(|frame| frame.header)
-                .collect();
-        assert_eq!(
-            headers,
-            vec![game::ITEM_REMOVE, game::WORLD_CREATE_AGENT],
-            "nothing is left to put back"
+    fn a_drop_sends_nothing_because_both_candidates_crashed_a_client() {
+        // Not a placeholder: a tripwire. `ITEM_REMOVE` (`0x014D`) and an item agent (`0x0020`, type 4)
+        // each crashed a live client, and neither appears in any capture. If a message is ever added to
+        // this path, it has to arrive with a capture that shows it working -- so this test failing is the
+        // reminder, and the reason is in `drop_messages`' documentation.
+        assert!(
+            drop_messages().is_empty(),
+            "a drop must not put an unmeasured message on the wire"
         );
     }
 
@@ -2332,6 +2060,31 @@ mod tests {
         );
         assert_eq!(game::CHANNEL_GROUP, 11, "Channel_Group");
         assert_eq!(game::CHANNEL_TRADE, 12, "Channel_Trade");
+    }
+
+    #[test]
+    fn maps_answers_with_names_kinds_and_slots() {
+        // What a player typing /maps is told. The reference prints its own alias table; this prints what
+        // the world is running, which is the question a player is actually asking.
+        let answers = maps_answer(&[test_map()]);
+        assert_eq!(
+            answers, "Maps: Lakeside County (146) outpost, 8 slots",
+            "name, id, kind and capacity -- not a bare list of integers"
+        );
+
+        // A map nobody named still appears, by id: a worse answer, not a missing one.
+        let unnamed = MapEntry {
+            name: String::new(),
+            ..test_map()
+        };
+        assert_eq!(
+            maps_answer(&[unnamed]),
+            "Maps: map 146 outpost, 8 slots",
+            "an unnamed map prints its id"
+        );
+
+        // And a world hosting nothing says so rather than printing an empty list.
+        assert_eq!(maps_answer(&[]), "Maps: none -- this world hosts nothing");
     }
 
     #[test]

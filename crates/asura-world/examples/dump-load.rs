@@ -32,6 +32,8 @@ fn main() {
         map_type: 0,
         spawn: (6602.0, 4485.0),
         spawn_plane: 0,
+        name: "Lakeside County".to_string(),
+        capacity: 8,
     };
     let standing = Standing::from_map(&map);
     // The reference's default inventory, as rows: the same six bags and nine items the server seeds.
