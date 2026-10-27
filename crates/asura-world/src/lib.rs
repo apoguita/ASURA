@@ -165,6 +165,10 @@ pub struct World {
     /// no use for it, which is why this is new rather than recently-added: without a second player the
     /// list had nothing in it but the one client being served.
     pub peers: Peers,
+    /// The address to advertise to a client that is being redirected here (`--public`). A redirect
+    /// carries a `sockaddr_in`, and a world that hands out its *bind* address hands out the wrong one
+    /// whenever the two differ — which is the normal case behind a realmlist.
+    pub public: std::net::SocketAddr,
 }
 
 /// One player in the world, plus the channel that reaches its connection.
@@ -643,6 +647,9 @@ pub async fn handle_connection(
             standing.plane,
             game::PLAYER_SPEED_BASE,
         ),
+        session_id: transfer.session_id,
+        account_id: transfer.account_id,
+        moved: false,
         started: Instant::now(),
     };
 
@@ -698,7 +705,17 @@ pub async fn handle_connection(
     // The player left. The slot goes back to the pool now rather than when a reaper notices: the
     // player is gone, and a pool that only empties on a reaper would refuse a legitimate travel after
     // an ordinary logout.
-    if let Err(err) = placement::release(&world.pool, transfer.session_id).await {
+    //
+    // **Unless it was moved.** `/tp` reserves the *destination*'s seat for this session in the same
+    // transaction that gives up this one, so the only lease the session holds by the time this runs is
+    // the one the client is about to arrive on. Releasing it would free a seat a player is standing in —
+    // the reference's own mirror of this race is recorded in `PreSearing/docs/08-gm-commands.md`.
+    if play.moved {
+        eprintln!(
+            "world: {:?} was moved to map {}; the seat it holds is the destination's",
+            play.name, play.map.map_id
+        );
+    } else if let Err(err) = placement::release(&world.pool, transfer.session_id).await {
         eprintln!("world: could not release the lease of the leaving player: {err}");
     }
     eprintln!(
@@ -794,6 +811,17 @@ struct Play {
     name: String,
     inventory: Inventory,
     agents: Agents,
+    /// The login session and account the transfer named.
+    ///
+    /// The reference keeps both on its player (`GmPlayer.account_id`, `.char_id`) and uses them for every
+    /// bag and item query and for its transfer request (`GameSrv.c:1450-1472`). This server scoped its
+    /// writes by character alone, which is enough for everything it did until a *world* had to start a
+    /// travel: the transfer row is keyed by session and needs the account as well (`docs/09` §9).
+    session_id: Uuid,
+    account_id: Uuid,
+    /// Set when this connection has been redirected to another map. Its teardown must then leave the
+    /// lease alone: the seat it holds now belongs to the connection the client is about to open.
+    moved: bool,
     /// When the connection began, for the load time the reference reports.
     started: Instant,
 }
@@ -1306,6 +1334,20 @@ async fn answer(
                             }
                         }
                         Ok(true)
+                    } else if let Some(argument) = command
+                        .strip_prefix("tp ")
+                        .or_else(|| command.strip_prefix("teleport "))
+                    {
+                        // `GameSrv_HandleTeleportCommand`: a *server transfer*, which is what the game
+                        // itself does when a portal is walked through. Every byte of the redirect is
+                        // measured (`docs/03-protocol.md` §5) and the reference's refusals are here
+                        // verbatim, so this is a port rather than an invention.
+                        teleport(stream, session, world, play, argument.trim(), trace).await
+                    } else if command == "tp" || command == "teleport" {
+                        // `GmCommand_ToAscii` fails on an empty argument, and the reference's answer is
+                        // its "unknown command" line.
+                        eprintln!("world: Unknown command");
+                        Ok(true)
                     } else {
                         // `GameSrv_SendInvalidCommand`: the reference's text is "Unknown command", and with
                         // its chat gate off that is a log line and nothing else. Same here.
@@ -1769,6 +1811,129 @@ pub struct MappedMaps {
 }
 
 /// `UPDATE_AGENT_VISUAL_EQUIPMENT`: what the agent is wearing, read out of the equipped-items bag.
+/// How a map alias is compared: lower case, runs of spaces collapsed. The reference's own rule for
+/// `/tp` (`GmCommands.c:31`: "`/tp lakeside county` and `/tp LakesideCounty` both work").
+fn alias_key(text: &str) -> String {
+    text.to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A fresh `u32` for a player token. The auth service mints the same kind
+/// (`AuthSrv_HandleRequestGameInstance`; `crates/asura-auth/src/travel.rs:178` sends the field.
+fn random_u32() -> Result<u32, GameError> {
+    let mut bytes = [0u8; 4];
+    getrandom::getrandom(&mut bytes)
+        .map_err(|err| GameError::Io(io::Error::other(err.to_string())))?;
+    Ok(u32::from_le_bytes(bytes))
+}
+
+/// `/tp <alias>` and `/teleport <alias>`: `GameSrv_HandleTeleportCommand` (`GmCommands.c:155-216`).
+///
+/// A teleport is not a position change — it is a **server transfer**, the same cycle a portal starts.
+/// The reference asks its auth service for a game server on the target district; the auth service mints
+/// a player token and records the identity the client's *next* connection must present; the old server
+/// sends `TRANSFER_GAME_SERVER_INFO` and the client reconnects to be handed on
+/// (`PreSearing/docs/08-gm-commands.md`, "What a teleport actually does").
+///
+/// This is that cycle with this server's pieces: the seat is reserved for the destination (giving up the
+/// current one in the same transaction, `placement::reserve`), the transfer row is written *before* the
+/// redirect so a client that reconnects the instant it is told finds it, and the two messages are the
+/// five fields the capture shows. The limit is stated rather than hidden: this server never constructs
+/// another world, so the alias has to name a map it already hosts.
+async fn teleport(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    world: &World,
+    play: &mut Play,
+    argument: &str,
+    trace: bool,
+) -> Result<bool, GameError> {
+    let wanted = alias_key(argument);
+    if wanted.is_empty() {
+        // `GmCommand_ToAscii` refuses an empty argument, and the answer is the invalid-command line.
+        eprintln!("world: /tp without a map name");
+        return Ok(true);
+    }
+    let Some(target) = world
+        .maps
+        .iter()
+        .find(|map| alias_key(&map.alias()) == wanted)
+        .cloned()
+    else {
+        // `GmCommands.c:172-177`: "Unknown map name. Type /maps." through the gated chat sender, which
+        // with the gate off is a log line — the same shape as every other GM answer here.
+        eprintln!("world: Unknown map name. Type /maps.");
+        return Ok(true);
+    };
+    if target.map_id == play.map.map_id {
+        // `GmCommands.c:198-202`.
+        eprintln!("world: You are already here.");
+        return Ok(true);
+    }
+
+    // The seat on the destination. `reserve` gives up this session's current lease in the same
+    // transaction, which is exactly a transfer's accounting: one seat, moved.
+    let Some(world_id) =
+        placement::reserve(&world.pool, world.world_id, target.map_id, play.session_id)
+            .await
+            .map_err(GameError::Database)?
+    else {
+        eprintln!("world: {} has no free seat; /tp refused", target.label());
+        return Ok(true);
+    };
+
+    let player_token = random_u32()?;
+    placement::begin_transfer(
+        &world.pool,
+        player_token,
+        world_id,
+        target.map_id,
+        play.session_id,
+        play.account_id,
+        play.character,
+    )
+    .await
+    .map_err(GameError::Database)?;
+
+    let std::net::SocketAddr::V4(public) = world.public else {
+        eprintln!("world: /tp needs an IPv4 advertised address; refused");
+        return Ok(true);
+    };
+    // `GameSrv.c:1394-1403`: the flag describes the **destination**. 1 for an explorable area, 0 for an
+    // outpost, and getting it from the source map produced client error 005.
+    let is_explorable = match target.map_type {
+        1 | 4 | 6 => 1,
+        _ => 0,
+    };
+    let frames = vec![
+        game::transfer_game_server_info(
+            public.ip().octets(),
+            public.port(),
+            world_id as u32,
+            0, // region: the reference sends its district's region, and this server has no regions
+            target.map_id as u32,
+            is_explorable,
+            player_token,
+        ),
+        game::map_update_current_redirect(target.map_id as u32),
+    ];
+    send(stream, session, frames, trace).await?;
+    // From here the session's seat belongs to the connection the client is about to open, so its own
+    // teardown must not hand it back (see the release at the end of `handle_connection`).
+    play.moved = true;
+    eprintln!(
+        "world: {:?} teleporting: map {} -> map {} '{}', player token {player_token:#010X}, \
+         redirect to {public}",
+        play.name,
+        play.map.map_id,
+        target.map_id,
+        target.label()
+    );
+    Ok(true)
+}
+
 fn equipment_frame(play: &Play) -> Frame {
     game::update_agent_visual_equipment(
         play.agents.player.agent_id,

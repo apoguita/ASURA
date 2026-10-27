@@ -42,7 +42,7 @@ instead of work.
 | axis | how it is measured | current state |
 |---|---|---|
 | client → server dispatch | `tools/parity-report.py` vs `GameSrv.c`/`AuthSrv.c` switches | auth **15/15**, game **14/18** (the four `CHAR_CREATION_*`) |
-| server → client emit | `tools/parity-emit.py` | reference **81**, ASURA **71**, **10 cannot** — **5 real** gaps and 5 explained absences |
+| server → client emit | `tools/parity-emit.py` | reference **81**, ASURA **72**, **9 cannot** — **4 real** gaps and 5 explained absences |
 | state kept per player | `docs/09` §9, hand-checked against `GmPlayer.h:21-33` | 12 fields vs 6; `account_id` missing, which is what `/tp` needs |
 | schema | migrations vs `Db.c` queries | equivalent for what is used; no `friendships` table (the stream is empty anyway) |
 | the load block | **not measured** — only the item block is byte-compared | 2 messages missing on every map load (captures: 48 and 49 occurrences) |
@@ -112,6 +112,18 @@ The redirect is known: `TRANSFER_GAME_SERVER_INFO` (`0x01A6`, 46 bytes as GWPS s
 | C2 | a world-side `reserve` + `begin_transfer` for the target map | a transfer row appears with the right token and map |
 | C3 | send `0x01A6` + `0x0099`; mark the connection *moved* so its teardown does not release the new lease | `/tp lakeside → /tp ascalon` lands in Ascalon and the seat accounting is right |
 | C4 | alias resolution and the reference's three refusals (unknown, no config, already here) | `/tp nonsense` prints the reference's line and sends nothing |
+
+**C1–C4 landed.** `Play` carries the session and account, `/tp <alias>` (and `/teleport`) reserves the
+destination's seat, mints a token, writes the transfer row and sends the pair; the connection is marked
+*moved* so its teardown leaves the destination's seat alone. The test
+`a_teleport_redirects_to_the_target_map_and_keeps_its_seat` drives the whole cycle: two refusals that send
+nothing, the 46-byte redirect and 12-byte map update read by hand (the table's 5-byte form is the *login*
+shape — the reference's "size per context" trap), the seat moving from one map to the other, a reconnect
+with the handed-out token landing at the destination's own spawn point, and the old connection's exit
+leaving the seat taken.
+
+The one thing that is still this server's: it never constructs another world, so `/tp` reaches only the
+maps it already hosts. The reference's auth service can place a player on any pre-spawned map server.
 
 ### D. Movement: validation, not just echo (T10)
 

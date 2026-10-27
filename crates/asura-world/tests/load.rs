@@ -8,12 +8,12 @@
 //!   the third of them;
 //! * each of the three things a client asks for is answered, and the item request's answer ends with
 //!   the download manifest, whose last message names the map;
-//! * the spawn point tells the client the map blob and where to stand Ã¢â‚¬â€ the two numbers without which
+//! * the spawn point tells the client the map blob and where to stand ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the two numbers without which
 //!   the loading screen never ends;
 //! * the players request ends with `INSTANCE_LOAD_FINISH`, which is what takes a client off the loading
 //!   screen;
 //! * the world keeps the clock running without being asked, and answers a ping;
-//! * a dropped item becomes an agent of its own, and â€” as in the reference â€” stays in its bag;
+//! * a dropped item becomes an agent of its own, and Ã¢â‚¬â€ as in the reference Ã¢â‚¬â€ stays in its bag;
 //! * a character that leaves standing somewhere comes back standing there, and the slot it took goes
 //!   back to the pool both times.
 //!
@@ -58,6 +58,10 @@ struct Harness {
     pool: PgPool,
     world_id: i32,
     map_id: i32,
+    /// A second map the same world serves, so `/tp` has somewhere to go. The reference pre-spawns one
+    /// server per map; this world hosts several maps in one process, so a teleport here is a hop inside
+    /// one world -- the same messages, one fewer process.
+    other_map_id: i32,
     address: SocketAddr,
     session: Uuid,
     account: Uuid,
@@ -78,6 +82,7 @@ impl Harness {
 
         let world_id = unique_world();
         let map_id = unique_map();
+        let other_map_id = unique_map();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind a loopback port");
@@ -86,18 +91,30 @@ impl Harness {
         let world = Arc::new(World {
             pool: pool.clone(),
             world_id,
-            maps: vec![MapEntry {
-                map_id,
-                // The reference's blob for the pre-Searing region.
-                map_file_id: 0x1B97D,
-                map_type: 0,
-                spawn: (6602.0, 4485.0),
-                spawn_plane: 0,
-                name: "Lakeside County".to_string(),
-                capacity: 2,
-            }],
+            maps: vec![
+                MapEntry {
+                    map_id,
+                    // The reference's blob for the pre-Searing region.
+                    map_file_id: 0x1B97D,
+                    map_type: 0,
+                    spawn: (6602.0, 4485.0),
+                    spawn_plane: 0,
+                    name: "Lakeside County".to_string(),
+                    capacity: 2,
+                },
+                MapEntry {
+                    map_id: other_map_id,
+                    map_file_id: 0x1B97D,
+                    map_type: 0,
+                    spawn: (1.0, 2.0),
+                    spawn_plane: 0,
+                    name: "Ascalon City".to_string(),
+                    capacity: 2,
+                },
+            ],
             replay: None,
             peers: Default::default(),
+            public: address,
         });
         let server = tokio::spawn(async move {
             let _ = serve(listener, world, true).await;
@@ -123,7 +140,7 @@ impl Harness {
             &address.ip().to_string(),
             i32::from(address.port()),
             "m4-test",
-            &[(map_id, 2)],
+            &[(map_id, 2), (other_map_id, 2)],
         )
         .await
         .expect("register the world");
@@ -147,6 +164,7 @@ impl Harness {
             pool,
             world_id,
             map_id,
+            other_map_id,
             address,
             session: seeded.session,
             account: seeded.account,
@@ -177,7 +195,7 @@ impl Harness {
 
     /// Do what the auth service does for one travel: take a slot, then write the pending transfer.
     ///
-    /// A second call is how a test gets a second session for the same character â€” the first transfer is
+    /// A second call is how a test gets a second session for the same character Ã¢â‚¬â€ the first transfer is
     /// claimed by the first connection and cannot be presented twice.
     async fn transfer(&self) -> u32 {
         placement::reserve(&self.pool, self.world_id, self.map_id, self.session)
@@ -203,7 +221,7 @@ impl Harness {
     ///
     /// The window is generous on purpose: leaving writes the character's position *and* releases the
     /// lease, and a whole test suite hammering one database can make two round trips take longer than a
-    /// couple of seconds â€” which produced a flake before this comment existed.
+    /// couple of seconds Ã¢â‚¬â€ which produced a flake before this comment existed.
     async fn slot_released(&self) -> bool {
         for _ in 0..100 {
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -866,6 +884,34 @@ async fn an_item_can_be_taken_off_and_worn_again() {
 }
 
 /// A spoken line: `GAME_CMSG_SEND_CHAT_MESSAGE` = `{agent_id u32, String16}`.
+/// Read the redirect pair the way a client that knows about context would: 0x01A6 (46 bytes), then the
+/// 0x0099 that follows it (12 bytes), found by scanning the decrypted stream.
+async fn read_redirect(stream: &mut TcpStream, client: &mut ReferenceClient) -> (Vec<u8>, Vec<u8>) {
+    let mut plain: Vec<u8> = Vec::new();
+    let mut buffer = [0u8; 8192];
+    loop {
+        let read = tokio::time::timeout(TIMEOUT, stream.read(&mut buffer))
+            .await
+            .expect("read before the timeout")
+            .expect("read");
+        assert!(
+            read > 0,
+            "the world closed the connection before the redirect"
+        );
+        let mut chunk = buffer[..read].to_vec();
+        client.decrypt(&mut chunk);
+        plain.extend_from_slice(&chunk);
+        if let Some(at) = plain.windows(2).position(|window| window == [0xA6, 0x01]) {
+            if plain.len() >= at + 58 {
+                return (
+                    plain[at..at + 46].to_vec(),
+                    plain[at + 46..at + 58].to_vec(),
+                );
+            }
+        }
+    }
+}
+
 fn chat_body(text: &str) -> Vec<u8> {
     let units: Vec<u16> = text.encode_utf16().collect();
     let mut body = 1u32.to_le_bytes().to_vec();
@@ -1206,6 +1252,177 @@ async fn a_second_player_is_introduced_to_the_first_and_withdrawn_again() {
     );
 
     drop(stream_a);
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
+/// `/tp`: a server transfer, not a position change.
+///
+/// What the reference does (`PreSearing/docs/08-gm-commands.md`): reserve a seat on the destination,
+/// mint a player token and record the identity the next connection must present, send
+/// `TRANSFER_GAME_SERVER_INFO` then `MAP_UPDATE_CURRENT`, and let the client reconnect. The two messages
+/// are pinned to the capture; this test pins the cycle around them: the refusals, the redirect, the
+/// transfer row, and the seat accounting that a naive teardown gets wrong.
+#[tokio::test]
+async fn a_teleport_redirects_to_the_target_map_and_keeps_its_seat() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    let version = harness.version(harness.player_token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused a token the auth service had just issued");
+    };
+    ask(&mut stream, &mut client, 0x8088, 2).await;
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_SPAWN_POINT).await;
+    ask(&mut stream, &mut client, 0x8090, 19).await;
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_FINISH).await;
+
+    // The reference's first refusal: a name that is not a map. Nothing goes on the wire.
+    say(&mut stream, &mut client, 0x8064, &chat_body("/tp nowhere")).await;
+    // And the one that is already where it asked to go.
+    say(
+        &mut stream,
+        &mut client,
+        0x8064,
+        &chat_body("/tp lakeside county"),
+    )
+    .await;
+    // A ping is answered, and its reply is what proves the two refusals sent nothing before it: the
+    // frames that arrive are the ping's, not a redirect's.
+    ask(&mut stream, &mut client, 0x800D, 2).await;
+    let after_refusals = read_until(&mut stream, &mut client, game::PING_REPLY).await;
+    assert!(
+        !after_refusals
+            .iter()
+            .any(|frame| frame.header == game::TRANSFER_GAME_SERVER_INFO),
+        "a refused /tp sends no redirect"
+    );
+
+    // Now a real one. The pair is read by hand: the generated table says 0x0099 is five bytes,
+    // which is its login form, and a client that frames by the table cannot read the twelve-byte
+    // redirect form that follows a transfer -- the reference's own "size per context" trap
+    // (`docs/03-protocol.md` section 6).
+    say(
+        &mut stream,
+        &mut client,
+        0x8064,
+        &chat_body("/tp ascalon city"),
+    )
+    .await;
+    let (transfer, update) = read_redirect(&mut stream, &mut client).await;
+
+    assert_eq!(&transfer[0..2], &[0xA6, 0x01], "0x01A6 first");
+    assert_eq!(transfer.len(), 46, "46 bytes, the size the reference sends");
+    // host[24], then map_token, region, map_id, is_explorable, player_token.
+    let dword = |at: usize, bytes: &[u8]| {
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+    };
+    assert_eq!(&transfer[2..4], &[2, 0], "AF_INET, little endian");
+    assert_eq!(
+        dword(26, &transfer),
+        harness.world_id as u32,
+        "the world to join"
+    );
+    assert_eq!(
+        dword(30, &transfer),
+        0,
+        "region: this server has none, and sends 0"
+    );
+    assert_eq!(
+        dword(34, &transfer),
+        harness.other_map_id as u32,
+        "the destination map"
+    );
+    assert_eq!(
+        dword(38, &transfer),
+        0,
+        "is_explorable: an outpost, and the flag describes the destination"
+    );
+    let player_token = dword(42, &transfer);
+
+    assert_eq!(&update[0..2], &[0x99, 0x00], "0x0099 follows");
+    assert_eq!(update.len(), 12, "the redirect form is twelve bytes");
+    assert_eq!(
+        dword(4, &update),
+        harness.other_map_id as u32,
+        "and names the same destination"
+    );
+
+    // The seat moved: the old map's is free, the destination's is taken, in one transaction.
+    let counts = placement::pool_counts(&harness.pool, harness.world_id, harness.other_map_id)
+        .await
+        .expect("read the counter")
+        .expect("a pool row for the destination");
+    assert_eq!(counts.1, 1, "the destination seat is taken");
+
+    // The client reconnects with the token it was handed, and lands in the destination map.
+    let moved_version = GameVersion {
+        version: 39112,
+        h0008: 1,
+        map_token: harness.world_id as u32,
+        map_id: harness.other_map_id as u32,
+        player_token,
+        account: harness.account.to_bytes_le(),
+        character: harness.character.to_bytes_le(),
+        h0038: 0,
+        h003c: 0,
+    };
+    let Some((mut moved_stream, mut moved_client)) =
+        connect_properly(harness.address, &moved_version).await
+    else {
+        panic!("the world refused the token it had just issued");
+    };
+    ask(&mut moved_stream, &mut moved_client, 0x8088, 2).await;
+    let spawn = read_until(
+        &mut moved_stream,
+        &mut moved_client,
+        game::INSTANCE_LOAD_SPAWN_POINT,
+    )
+    .await;
+    let spawned = spawn
+        .iter()
+        .find(|frame| frame.header == game::INSTANCE_LOAD_SPAWN_POINT)
+        .expect("the spawn answer");
+    // The spawn message carries the blob id first, and both maps here share one, so the position is
+    // what says *which* map: the destination spawns at (1, 2) and the origin at (6602, 4485).
+    let x = f32::from_le_bytes([
+        spawned.body[4],
+        spawned.body[5],
+        spawned.body[6],
+        spawned.body[7],
+    ]);
+    let y = f32::from_le_bytes([
+        spawned.body[8],
+        spawned.body[9],
+        spawned.body[10],
+        spawned.body[11],
+    ]);
+    assert_eq!(
+        (x, y),
+        (1.0, 2.0),
+        "the new connection stands at the destination's own spawn point"
+    );
+
+    // The old connection now goes away. Its teardown must **not** hand back the seat, because the only
+    // lease the session holds is the destination's -- the one this connection is standing on.
+    drop(stream);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let counts = placement::pool_counts(&harness.pool, harness.world_id, harness.other_map_id)
+        .await
+        .expect("read the counter")
+        .expect("a pool row for the destination");
+    assert_eq!(
+        counts.1, 1,
+        "the moved connection's teardown left the destination seat alone"
+    );
+
+    drop(moved_stream);
     placement::remove_world(&harness.pool, harness.world_id)
         .await
         .expect("remove the world");

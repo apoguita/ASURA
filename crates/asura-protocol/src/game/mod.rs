@@ -52,6 +52,10 @@ pub const INSTANCE_MANIFEST_DONE: u16 = 0x0198;
 /// (`GameMsg.h`, `MapUpdateCurrent` comment) and getting them the wrong way round is the trap that
 /// costs a client error 007.
 pub const MAP_UPDATE_CURRENT: u16 = 0x0099;
+/// `GAME_SMSG_TRANSFER_GAME_SERVER_INFO` (`0x01A6`): the redirect a travel ends with. Re-exported from
+/// [`crate::client`], where the auth service's copy of the same message already lives — one constant, so
+/// the two connections cannot drift about which header a redirect uses.
+pub const TRANSFER_GAME_SERVER_INFO: u16 = crate::client::TRANSFER_GAME_SERVER_INFO;
 /// `GAME_SMSG_READY_FOR_MAP_SPAWN` (`0x01AC`): 6 bytes.
 pub const READY_FOR_MAP_SPAWN: u16 = 0x01AC;
 /// `GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST` (`0x0094`): five counted lists of dwords.
@@ -422,6 +426,13 @@ impl Builder {
         self
     }
 
+    /// Bytes that are not one of the format's fields: the `sockaddr_in` a redirect carries, whose port
+    /// is big endian and whose tail is padding, and the upper half of a four-byte game header.
+    fn raw(mut self, bytes: &[u8]) -> Self {
+        self.bytes.extend_from_slice(bytes);
+        self
+    }
+
     fn frame(self) -> crate::client::Frame {
         let header = u16::from_le_bytes([self.bytes[0], self.bytes[1]]);
         crate::client::Frame::new(header, self.bytes[2..].to_vec())
@@ -695,6 +706,55 @@ pub fn map_update_current(map_id: u16) -> crate::client::Frame {
 /// `GAME_SMSG_READY_FOR_MAP_SPAWN`: the client may place the agents.
 pub fn ready_for_map_spawn() -> crate::client::Frame {
     Builder::new(READY_FOR_MAP_SPAWN).u32(0).frame()
+}
+
+/// `GAME_SMSG_MAP_UPDATE_CURRENT` in the form that **follows a redirect**: twelve bytes, where the
+/// login batch's copy is five.
+///
+/// Captured in the same millisecond as every `TRANSFER_GAME_SERVER_INFO`, both times a live zone
+/// transition was recorded (`captures/zone-ref-005829.jsonl` seq 43 and 425):
+/// `99 00 00 00 | a1 00 00 00 | 00 00 00 00` — a four-byte header, the destination map, then zero. The
+/// reference documents the pair as deliberate (`GameSrv.c:1429-1432`: "in 10 of 10 captured transitions
+/// a 52-byte 0x01A6 is followed immediately ... by a 12-byte 0x0099").
+pub fn map_update_current_redirect(map_id: u32) -> crate::client::Frame {
+    Builder::new(MAP_UPDATE_CURRENT)
+        .u16(0) // the upper half of the four-byte game header
+        .u32(map_id)
+        .u32(0)
+        .frame()
+}
+
+/// `GAME_SMSG_TRANSFER_GAME_SERVER_INFO` (`0x01A6`): where the client should reconnect, and with what.
+///
+/// Forty-six bytes, the form the reference sends and a client accepts: two-byte header, the 24-byte
+/// `sockaddr_in`, then `map_token`, `region`, `map_id`, `is_explorable`, `player_token`. The live
+/// capture is 52 bytes — the same fields with a four-byte header and a trailing dword
+/// (`captures/zone-ref-005829.jsonl` seq 42) — and `docs/03-protocol.md` §5 records that the client
+/// takes either. A hop from an explorable into an outpost once sent `is_explorable = 1` and the client
+/// answered `005`, which is why the flag describes the **destination** (`GameSrv.c:1394-1403`).
+///
+/// `host` is the reference's own shape (`GameSrv.c:1406-1420`): family little endian, port **big**
+/// endian, four address bytes, then zero.
+pub fn transfer_game_server_info(
+    host: [u8; 4],
+    port: u16,
+    map_token: u32,
+    region: u32,
+    map_id: u32,
+    is_explorable: u32,
+    player_token: u32,
+) -> crate::client::Frame {
+    Builder::new(TRANSFER_GAME_SERVER_INFO)
+        .u16(2) // AF_INET, little endian
+        .raw(&port.to_be_bytes())
+        .raw(&host)
+        .raw(&[0u8; 16]) // the rest of the sockaddr_in
+        .u32(map_token)
+        .u32(region)
+        .u32(map_id)
+        .u32(is_explorable)
+        .u32(player_token)
+        .frame()
 }
 
 /// `GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST`: five counted lists — completed missions and bonuses on
@@ -1159,6 +1219,20 @@ mod tests {
         assert_eq!(wire(&hard_mode_unlocked(1)), 3);
         assert_eq!(wire(&map_update_current(146)), 5);
         assert_eq!(wire(&ready_for_map_spawn()), 6);
+        // The redirect pair, both measured from the capture: 46 and 12 bytes.
+        assert_eq!(
+            wire(&transfer_game_server_info(
+                [127, 0, 0, 1],
+                6113,
+                8001,
+                0,
+                146,
+                0,
+                0x1234_5678
+            )),
+            46
+        );
+        assert_eq!(wire(&map_update_current_redirect(146)), 12);
         assert_eq!(wire(&pvp_item_stream_end()), 2);
         // The reference's own sizes: 17 bytes for three parameters, 25 for five.
         assert_eq!(
