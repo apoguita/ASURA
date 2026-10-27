@@ -518,13 +518,11 @@ pub async fn handle_connection(
             inventory = db_inventory::load(&world.pool, transfer.character_id)
                 .await
                 .map_err(GameError::Database)?;
-            if trace {
-                eprintln!(
-                    "world: seeded the default inventory for {name:?} ({} bags, {} items)",
-                    inventory.bags.len(),
-                    inventory.items.len()
-                );
-            }
+            eprintln!(
+                "world: seeded the default inventory for {name:?} ({} bags, {} items)",
+                inventory.bags.len(),
+                inventory.items.len()
+            );
         }
     }
 
@@ -534,20 +532,18 @@ pub async fn handle_connection(
         .map_err(GameError::Database)?;
     let standing = Standing::resume(&map, saved);
 
-    if trace {
-        eprintln!(
-            "world: {name:?} joined map {} (file id {}) on world {}, standing at ({:.1}, {:.1}) plane \
-             {} with {} bag(s) and {} item(s)",
-            map.map_id,
-            map.map_file_id,
-            world.world_id,
-            standing.position.0,
-            standing.position.1,
-            standing.plane,
-            inventory.bags.len(),
-            inventory.items.len()
-        );
-    }
+    eprintln!(
+        "world: {name:?} joined map {} (file id {}) on world {}, standing at ({:.1}, {:.1}) plane \
+         {} with {} bag(s) and {} item(s)",
+        map.map_id,
+        map.map_file_id,
+        world.world_id,
+        standing.position.0,
+        standing.position.1,
+        standing.plane,
+        inventory.bags.len(),
+        inventory.items.len()
+    );
 
     // ---- 4. the key exchange ----------------------------------------------------------------
     let mut client_seed = vec![0u8; CLIENT_SEED_LEN];
@@ -617,12 +613,10 @@ pub async fn handle_connection(
     if let Err(err) = placement::release(&world.pool, transfer.session_id).await {
         eprintln!("world: could not release the lease of the leaving player: {err}");
     }
-    if trace {
-        eprintln!(
-            "world: {:?} left map {} from ({:.1}, {:.1}) plane {left_plane}, saved",
-            play.name, play.map.map_id, left.0, left.1
-        );
-    }
+    eprintln!(
+        "world: {:?} left map {} from ({:.1}, {:.1}) plane {left_plane}, saved",
+        play.name, play.map.map_id, left.0, left.1
+    );
     outcome
 }
 
@@ -1386,15 +1380,13 @@ async fn drop_item(
         world.drop_messages,
         world.drop_model,
     );
-    if trace {
-        eprintln!(
-            "world: {} dropped {count} of item {item_id} at ({:.1}, {:.1}) on agent {agent_id}, {} left",
-            play.name,
-            play.agents.player.position.0 + DROP_OFFSET,
-            play.agents.player.position.1 + DROP_OFFSET,
-            taken.remaining
-        );
-    }
+    eprintln!(
+        "world: {} dropped {count} of item {item_id} at ({:.1}, {:.1}) on agent {agent_id}, {} left",
+        play.name,
+        play.agents.player.position.0 + DROP_OFFSET,
+        play.agents.player.position.1 + DROP_OFFSET,
+        taken.remaining
+    );
     send(stream, session, frames, trace).await?;
     reload(world, play).await
 }
@@ -1481,9 +1473,7 @@ async fn move_item(
     let mut frames = Vec::with_capacity(2);
     match outcome {
         db_inventory::MoveOutcome::At { bag_id, slot, .. } => {
-            if trace {
-                eprintln!("world: item {item_id} moved to bag {bag_id} slot {slot}");
-            }
+            eprintln!("world: item {item_id} moved to bag {bag_id} slot {slot}");
             // Whether the client wants this confirmed is not settled, and both reports are real: with
             // the echo a live client moved the item (that same session also reported a clone, but it was
             // a build that re-created items on a drop too), and with silence the item sprang back and the
@@ -1587,12 +1577,10 @@ async fn equip_item(
             .map_err(GameError::Database)?
         {
             db_inventory::MoveOutcome::At { bag_id, slot, .. } => {
-                if trace {
-                    eprintln!(
-                        "world: item {} taken off to bag {bag_id} slot {slot}",
-                        occupant.id
-                    );
-                }
+                eprintln!(
+                    "world: item {} taken off to bag {bag_id} slot {slot}",
+                    occupant.id
+                );
                 frames.push(game::item_move_to_location(
                     ITEM_STREAM,
                     wire_u32(occupant.id),
@@ -1615,9 +1603,7 @@ async fn equip_item(
         .map_err(GameError::Database)?
     {
         db_inventory::MoveOutcome::At { bag_id, slot, .. } => {
-            if trace {
-                eprintln!("world: item {item_id} worn in equipped slot {slot}");
-            }
+            eprintln!("world: item {item_id} worn in equipped slot {slot}");
             // The same switch as a plain move, and the same open question. What the client cannot work
             // out by itself is what the agent now wears, and that is sent below either way.
             if world.move_echo == MoveEcho::Echo {

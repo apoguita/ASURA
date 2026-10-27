@@ -34,8 +34,9 @@
 .PARAMETER Capacity
     Slots per map. Default 8.
 
-.PARAMETER Quiet
-    Passed to play.ps1: only the services' own lines, no per-message trace.
+.PARAMETER Trace
+    Passed to play.ps1: print every packet both ways. Off by default, because a world tick every 500 ms
+    makes a traced console three lines a second of packet log with the events buried in it.
 
 .PARAMETER PreSearing
     The reference checkout holding tools/webgate.py. Default: the sibling of this repository.
@@ -50,6 +51,10 @@
     .\tools\start-server.ps1
 
 .EXAMPLE
+    # every packet, for diagnosing a client
+    .\tools\start-server.ps1 -Trace
+
+.EXAMPLE
     # both pre-Searing outposts, and the reference checkout somewhere else
     .\tools\start-server.ps1 -Maps 146,148 -PreSearing 'D:\PreSearing'
 #>
@@ -58,6 +63,8 @@ param(
     [string] $Maps = "146",
     [int]    $World = 8001,
     [int]    $Capacity = 8,
+    [switch] $Trace,
+    # The old spelling; per-message tracing is off by default now.
     [switch] $Quiet,
     [string] $PreSearing = '',
     [int]    $GatePort = 6601,
@@ -178,7 +185,7 @@ try {
     Write-Host ""
     $playArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "play.ps1"),
         "-Maps", $Maps, "-World", "$World", "-Capacity", "$Capacity")
-    if ($Quiet) { $playArgs += "-Quiet" }
+    if ($Trace) { $playArgs += "-Trace" }
     & (Get-Command powershell).Source @playArgs
     $code = $LASTEXITCODE
     if ($code -ne 0) {

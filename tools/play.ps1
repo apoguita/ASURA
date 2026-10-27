@@ -39,14 +39,20 @@
     .\tools\play.ps1 -Maps 146,148
 
 .EXAMPLE
-    # only the services' own log lines, no per-message trace
-    .\tools\play.ps1 -Quiet
+    # every message both ways, with its header and size -- what a client bug gets diagnosed with
+    .\tools\play.ps1 -Trace
 #>
 
 param(
     [string] $Maps = "146",
     [int] $World = 8001,
     [int] $Capacity = 8,
+    # Per-message tracing is OFF by default. A world tick every 500 ms and a ping every 5 s means a traced
+    # session prints about three lines a second forever, which buries the lines that matter (who joined,
+    # what they dropped, what the server refused) under a packet log nobody reads. `-Trace` turns it on
+    # for the times a packet log is exactly what is wanted.
+    [switch] $Trace,
+    # The old spelling, kept so an existing command line does not break. It is the default now.
     [switch] $Quiet
 )
 
@@ -109,12 +115,17 @@ foreach ($exe in @($authExe, $worldExe)) {
     if (-not (Test-Path $exe)) { throw "$exe is missing; the build did not produce it" }
 }
 
-$env:ASURA_TRACE = if ($Quiet) { "0" } else { "1" }
+$env:ASURA_TRACE = if ($Trace) { "1" } else { "0" }
 $authLog = Join-Path $env:TEMP "asura-auth.log"
 $worldLog = Join-Path $env:TEMP "asura-world.log"
 Remove-Item $authLog, $worldLog -ErrorAction SilentlyContinue
 
 Write-Host ""
+if ($Trace) {
+    Write-Host "per-message trace ON: every packet both ways, a tick every 500 ms and a ping every 5 s"
+} else {
+    Write-Host "per-message trace off: events only (who joined, what they did, what was refused). -Trace for packets"
+}
 Write-Host "== auth service on 127.0.0.1:6112"
 $auth = Start-Process -FilePath $authExe -ArgumentList "--bind", "127.0.0.1:6112" -NoNewWindow -PassThru -RedirectStandardError $authLog
 Start-Sleep -Milliseconds 700
@@ -129,9 +140,12 @@ Write-Host "client command line:"
 Write-Host "  F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1"
 Write-Host ""
 Write-Host "the service output follows. What a successful travel looks like:"
+Write-Host "  auth:  login ok for ... with 1 character(s)"
 Write-Host "  auth:  travel to map 146 placed on world $World"
-Write-Host "  world: joined map 146, then 'world -> 0x018E'"
-Write-Host "  0x018E is INSTANCE_LOAD_FINISH -- the message that ends the loading screen."
+Write-Host "  world: joined map 146 ... with 6 bag(s) and 9 item(s)"
+if ($Trace) {
+    Write-Host "  world: 'world -> 0x018E' -- INSTANCE_LOAD_FINISH, which ends the loading screen"
+}
 Write-Host ""
 Write-Host "Ctrl+C stops both services."
 Write-Host ""

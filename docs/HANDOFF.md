@@ -147,6 +147,14 @@ $env:PGPASSWORD = "<postgres superuser password>"
 .\tools\stop-server.ps1         # the same, backwards, and it says what is still listening
 ```
 
+**It is quiet by default, and that is a rule now**: `-Trace` prints every packet, and the packet log is
+off unless asked for, because a world tick every 500 ms is three lines a second forever and it buries the
+lines that matter. What is *always* printed is the events — `auth: login ok for …`, `auth: travel to map
+146 placed on world 8001 …`, `world: … joined map 146 … with 6 bag(s) and 9 item(s)`, a saved position, a
+dropped item, a moved item, a worn item, a refused move, a chat that was not sent. Those were inside the
+trace block until a live session pointed out that the console was unreadable; per-packet lines are the
+only ones behind the flag now, and `-Trace` still exists for exactly the case it was built for.
+
 `start-server.ps1` exists because `play.ps1` alone is not enough for a client and the missing half is
 invisible: with `-portal 127.0.0.1` the client asks the **reference web gate on 6601** who it is before
 it sends a login, and with nothing there it opens the auth connection, does the key exchange, sends its

@@ -568,7 +568,6 @@ async fn dispatch(
                 session.character,
                 request,
                 advertised,
-                trace.on(),
             )
             .await?;
             send_frames(stream, session, replies, trace).await?;
@@ -710,13 +709,13 @@ async fn answer_login(
         .frame(),
     );
 
-    if trace.on() {
-        eprintln!(
-            "auth: login ok for {} with {} character(s)",
-            resolved.account,
-            characters.len()
-        );
-    }
+    // Not behind the trace: "who just logged in" is the single line a person watching the console needs,
+    // and a packet trace is the thing that buries it.
+    eprintln!(
+        "auth: login ok for {} with {} character(s)",
+        resolved.account,
+        characters.len()
+    );
     Ok(replies)
 }
 

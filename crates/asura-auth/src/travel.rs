@@ -100,7 +100,6 @@ pub async fn answer(
     character_id: Option<Uuid>,
     request: GameInstanceRequest,
     advertised: SocketAddr,
-    trace: bool,
 ) -> Result<Vec<Frame>, ConnectionError> {
     let map_id = i32::try_from(request.map_id).unwrap_or(-1);
     let request_frames = |status: u32| {
@@ -114,9 +113,7 @@ pub async fn answer(
     let Some(session_id) = session_id else {
         // A travel request from a connection that never logged in names no session, so there is
         // nothing a lease could belong to. The reference refuses the same case (`!conn->connected`).
-        if trace {
-            eprintln!("auth: travel to map {map_id} refused: the connection has no session");
-        }
+        eprintln!("auth: travel to map {map_id} refused: the connection has no session");
         return Ok(request_frames(STATUS_NETWORK_ERROR));
     };
 
@@ -124,9 +121,7 @@ pub async fn answer(
     // in the map. (`AuthSrv_HandleRequestGameInstance`: "Client tried to join a server without a
     // selected character".)
     let (Some(account_id), Some(character_id)) = (account_id, character_id) else {
-        if trace {
-            eprintln!("auth: travel to map {map_id} refused: no account or character is selected");
-        }
+        eprintln!("auth: travel to map {map_id} refused: no account or character is selected");
         return Ok(request_frames(STATUS_NETWORK_ERROR));
     };
 
@@ -134,17 +129,15 @@ pub async fn answer(
         .await
         .map_err(ConnectionError::Database)?;
 
-    if trace {
-        eprintln!(
-            "auth: travel to map {map_id} (type {}, region {}, district {}, language {}): {} \
-             candidate world(s)",
-            request.map_type,
-            request.region,
-            request.district,
-            request.language,
-            candidates.len()
-        );
-    }
+    eprintln!(
+        "auth: travel to map {map_id} (type {}, region {}, district {}, language {}): {} \
+         candidate world(s)",
+        request.map_type,
+        request.region,
+        request.district,
+        request.language,
+        candidates.len()
+    );
 
     for candidate in &candidates {
         let address =
@@ -175,12 +168,10 @@ pub async fn answer(
             .await
             .map_err(ConnectionError::Database)?
         else {
-            if trace {
-                eprintln!(
-                    "auth: world {} filled up before the reservation; trying the next one",
-                    candidate.world_id
-                );
-            }
+            eprintln!(
+                "auth: world {} filled up before the reservation; trying the next one",
+                candidate.world_id
+            );
             continue;
         };
 
@@ -214,13 +205,11 @@ pub async fn answer(
             eprintln!("auth: could not record the session's world: {err}");
         }
 
-        if trace {
-            eprintln!(
-                "auth: travel to map {map_id} placed on world {} ({}) at {address}, player token \
-                 {player_token:#010X}; the client is told to dial {advertised}",
-                candidate.world_id, candidate.name
-            );
-        }
+        eprintln!(
+            "auth: travel to map {map_id} placed on world {} ({}) at {address}, player token \
+             {player_token:#010X}; the client is told to dial {advertised}",
+            candidate.world_id, candidate.name
+        );
 
         return Ok(vec![
             messages::game_server_info(
@@ -242,9 +231,7 @@ pub async fn answer(
         ]);
     }
 
-    if trace {
-        eprintln!("auth: travel to map {map_id} refused: no world is serving that map right now");
-    }
+    eprintln!("auth: travel to map {map_id} refused: no world is serving that map right now");
     Ok(request_frames(STATUS_NETWORK_ERROR))
 }
 
