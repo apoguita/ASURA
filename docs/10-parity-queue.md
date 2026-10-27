@@ -172,24 +172,30 @@ ASURA echoes the client's destination, so the client's own prediction carries th
 not a wall. GWPS pathfinds (`GmPaths.c`, A* over the map's path graph from `Gw.dat`) and refuses what
 it cannot reach. Evidence: `GmAgent.c:371-398`, `GmAgent.c:409-462`.
 
-**D is sized, not started, and here is the measurement.** The reference's refusal is its pathfinder, and the
-pathfinder is a subsystem with three parts, all in C:
+**D is sized, not started — and the sizing says it is feasible.** The reference's refusal is its pathfinder,
+and the pathfinder is three units of C, all readable, plus the archive they read from:
 
-| part | lines | what it needs |
+| part | lines | what it is |
 |---|---|---|
+| `FaArchive.c` + `.h` | 204 + 72 | the `Gw.dat` archive: seek, read, MFT lookup by hash, and `FaDecompress` for compressed entries |
+| `GmMapDataImport.c` + `.h` | 590 + 43 | the graph's chunk format: planes, trapezoids, vectors, root/X/Y/sink nodes, portal traps |
 | `GmPaths.c` | 1,057 | trapezoid A*: `PathFindTrapezoid`, portal walking, waypoint reduction |
-| `GmMapDataImport.c` | 590 | the graph's own chunk format: planes, trapezoids, vectors, root/X/Y/sink nodes, portal traps |
-| `FaArchive.c` + the Gw.dat reader | — | the archive the chunks live in, which this repo has never opened |
 
-So `MOVE_TO_COORD` cannot validate anything here: a reachability answer needs the graph, the graph needs the
-archive, and none of the three exists in this repo. That is a *scope* boundary rather than a missing
-measurement — nothing about it is unknown, and the reference's behaviour is fully readable. Porting it is a
-milestone of its own, and it is the one item in this document that is deliberately not being attempted inside
-a parity round.
+And the two things a port needs to be verified against both exist:
 
-What *can* be matched without it is matched, and now asserted: the reference's position budget
+- **the data**: `Gw.dat` is present beside the reference at 3,655,804,520 bytes;
+- **an oracle**: the reference ships built tools (`build/RelWithDebInfo/gwdat_pathing.exe`,
+  `gwdat_scan.exe`) that dump the graph, so a ported reader can be compared message for message with the
+  reference's own output rather than with a guess.
+
+So `MOVE_TO_COORD` cannot validate anything *today*, because none of those three units is present — but this is
+a **milestone**, not an unknown and not a missing measurement. The smallest useful first step is
+`FaArchive` alone: 204 lines, no dependence on the graph format, and it can be tested against
+`gwdat_pathing.exe`'s dump of one entry before any A* is written.
+
+What *can* be matched without it is matched, and asserted: the reference's position budget
 (`speed_base * elapsed + tolerance`, clamped at 2 s of elapsed time) is the same rule on the same message, and
-the test above says so on the wire.
+`a_move_is_echoed_as_sent_and_a_far_report_is_clamped` says so on the wire.
 
 ### E. Item lifecycle (T12)
 

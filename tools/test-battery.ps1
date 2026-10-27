@@ -214,6 +214,11 @@ if ($python) {
     Write-Verdict $true ("status table regenerated: {0}" -f $(if ($missing) { $missing } else { "nothing missing" }))
     Write-Host "          docs/07-status.md is the list to work down; it is generated, never typed"
 
+    # The state page: every axis re-derived by one tool, so no document can claim something the tools
+    # disagree with. `--fast` skips its own `cargo test`, which this battery has already run.
+    $summary = Invoke-Native $python @("tools/parity-summary.py", "--write", "docs/11-parity-state.md", "--fast")
+    Write-Verdict ($summary.ExitCode -eq 0) "state page regenerated: docs/11-parity-state.md"
+
     # The other direction: what the reference can put on the wire that this cannot. A dispatch table can
     # be complete while whole features are absent -- that is how PLAYER_UPDATE_PARTY went missing from a
     # load block an audit had called equivalent (docs/10-parity-queue.md, item A4).
