@@ -70,6 +70,9 @@ struct Harness {
     /// transfer table is keyed by it and these tests run in parallel.
     player_token: u32,
     server: tokio::task::JoinHandle<()>,
+    /// The world the server task is serving, kept so a test can look at its state (the peer count an
+    /// idle run must not grow).
+    world: Arc<World>,
 }
 
 impl Harness {
@@ -121,8 +124,11 @@ impl Harness {
             peers: Default::default(),
             public: address,
         });
-        let server = tokio::spawn(async move {
-            let _ = serve(listener, world, true).await;
+        let server = tokio::spawn({
+            let world = world.clone();
+            async move {
+                let _ = serve(listener, world, true).await;
+            }
         });
 
         // The identity the login path would have produced.
@@ -176,6 +182,7 @@ impl Harness {
             character: seeded.character,
             player_token,
             server,
+            world,
         })
     }
 
@@ -1584,6 +1591,202 @@ async fn a_character_is_created_in_a_creation_instance() {
         worn_sorted, expected_sorted,
         "the equipped set is the one the chosen profession's table gives"
     );
+
+    drop(stream);
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
+/// T13: an idle pair keeps its rhythm, and neither the world nor the mailbox grows.
+///
+/// The reference's T13 asks for two clients left alone for ten minutes: no crash, the ping/tick cycle
+/// still running, memory roughly flat. Two of those three are measurable in a test — the rhythm, by
+/// counting what arrives, and the accounting, by watching the world's peer count — and the third is not:
+/// a working set cannot be measured portably from inside a test, so it stays part of the manual run
+/// (`docs/10-parity-queue.md`, and the `--ignored` variant below is that run's harness half).
+///
+/// The window here is seconds rather than minutes, because a test that takes ten minutes is a test nobody
+/// runs: what it asserts is the *cadence* (`PING_INTERVAL` 5 s, `TICK_INTERVAL` 500 ms, the reference's
+/// own constants), which does not change with the length of the observation.
+#[tokio::test]
+async fn an_idle_pair_keeps_its_rhythm_and_its_count() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    let version = harness.version(harness.player_token);
+    let Some((mut stream_a, mut client_a)) = connect_properly(harness.address, &version).await
+    else {
+        panic!("the world refused the first client");
+    };
+    // The load block arrives unasked; it is not part of the idle window, so it is consumed first.
+    read_until(&mut stream_a, &mut client_a, game::INSTANCE_LOAD_INFO).await;
+
+    // A second player on the same map, the way the two-player test places one.
+    let second = db::seed_identity(
+        &harness.pool,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        &format!("m4-idle-{}", Uuid::new_v4()),
+        "Idle Player",
+        harness.map_id,
+    )
+    .await
+    .expect("seed a second identity");
+    placement::reserve(
+        &harness.pool,
+        harness.world_id,
+        harness.map_id,
+        second.session,
+    )
+    .await
+    .expect("reserve for the second player");
+    let token_b = (Uuid::new_v4().as_u128() & 0xFFFF_FFFF) as u32;
+    placement::begin_transfer(
+        &harness.pool,
+        token_b,
+        harness.world_id,
+        harness.map_id,
+        second.session,
+        second.account,
+        second.character,
+    )
+    .await
+    .expect("write the second transfer");
+    let mut version_b = harness.version(token_b);
+    version_b.account = second.account.to_bytes_le();
+    version_b.character = second.character.to_bytes_le();
+    let Some((mut stream_b, mut client_b)) = connect_properly(harness.address, &version_b).await
+    else {
+        panic!("the world refused the second client");
+    };
+    ask(&mut stream_b, &mut client_b, 0x8088, 2).await;
+    read_until(
+        &mut stream_b,
+        &mut client_b,
+        game::INSTANCE_LOAD_SPAWN_POINT,
+    )
+    .await;
+
+    // Both connections are now idle: nothing is sent, and the server keeps its own clock running.
+    let mut buffer = [0u8; 8192];
+    let mut frames: Vec<Frame> = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(200), stream_a.read(&mut buffer)).await {
+            Ok(Ok(0)) => panic!("the world closed an idle connection"),
+            Ok(Ok(read)) => frames.extend(client_a.receive_game(&buffer[..read]).expect("frames")),
+            Ok(Err(err)) => panic!("an idle connection failed: {err}"),
+            Err(_) => {} // nothing arrived in this slice, which is fine
+        }
+    }
+
+    let ticks = frames
+        .iter()
+        .filter(|frame| frame.header == game::WORLD_SIMULATION_TICK)
+        .count();
+    let pings = frames
+        .iter()
+        .filter(|frame| frame.header == game::PING_REQUEST)
+        .count();
+    // Six seconds at a 500 ms tick is at least ten; the assertion allows for scheduling slack.
+    assert!(
+        ticks >= 8,
+        "the simulation tick kept running while idle: {ticks} in six seconds"
+    );
+    assert!(
+        pings >= 1,
+        "the ping cycle kept running while idle: {pings} in six seconds"
+    );
+    // Nothing else was pushed at an idle client: an idle pair gets the clock and the ping, not a stream
+    // of anything else.
+    let unexpected: Vec<u16> = frames
+        .iter()
+        .map(|frame| frame.header)
+        .filter(|header| *header != game::WORLD_SIMULATION_TICK && *header != game::PING_REQUEST)
+        .collect();
+    assert!(
+        unexpected.is_empty(),
+        "an idle client is only told the time: {unexpected:?}"
+    );
+
+    assert_eq!(
+        harness.world.peers.len(),
+        2,
+        "two players, and the world's list did not grow while they were idle"
+    );
+
+    drop(stream_a);
+    drop(stream_b);
+    // The registry empties as the connections go, so the count is not a slow leak.
+    let mut left = harness.world.peers.len();
+    for _ in 0..50 {
+        if left == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        left = harness.world.peers.len();
+    }
+    assert_eq!(left, 0, "both players left the world's list");
+
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
+/// The ten-minute half of T13, for the hand run the reference describes: `cargo test -p asura-world
+/// --test load a_ten_minute_idle -- --ignored --nocapture`. It asserts the same things after ten minutes,
+/// and prints the cadence as it goes so a human can watch it.
+#[tokio::test]
+#[ignore]
+async fn a_ten_minute_idle_pair_keeps_its_rhythm() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+    let version = harness.version(harness.player_token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused the client");
+    };
+
+    let mut buffer = [0u8; 8192];
+    let started = tokio::time::Instant::now();
+    let mut ticks = 0usize;
+    let mut pings = 0usize;
+    while started.elapsed() < Duration::from_secs(600) {
+        match tokio::time::timeout(Duration::from_millis(500), stream.read(&mut buffer)).await {
+            Ok(Ok(0)) => panic!(
+                "the world closed the connection after {:?}",
+                started.elapsed()
+            ),
+            Ok(Ok(read)) => {
+                for frame in client.receive_game(&buffer[..read]).expect("frames") {
+                    match frame.header {
+                        game::WORLD_SIMULATION_TICK => ticks += 1,
+                        game::PING_REQUEST => pings += 1,
+                        _ => {}
+                    }
+                }
+            }
+            Ok(Err(err)) => panic!("the connection failed after {:?}: {err}", started.elapsed()),
+            Err(_) => {}
+        }
+    }
+    println!(
+        "ten minutes idle: {ticks} ticks, {pings} pings, {} player(s) in the world",
+        harness.world.peers.len()
+    );
+    assert!(ticks >= 1_000, "about two ticks a second for ten minutes");
+    assert!(pings >= 100, "a ping every five seconds for ten minutes");
+    assert_eq!(harness.world.peers.len(), 1, "one player, still");
 
     drop(stream);
     placement::remove_world(&harness.pool, harness.world_id)

@@ -29,7 +29,7 @@ Two rules, both learned the hard way in this repo:
 | T10 | movement, and invalid destinations refused | **partial** — destination echoed, never validated; no path graph | queue D |
 | T11 | chat displays on both clients | **equal to GWPS** — both send it, neither renders it | queue G (unachievable without a layout) |
 | T12 | drop: the entity appears and disappears consistently | **partial** — the stack is deducted and persisted, nothing is sent | queue E |
-| T13 | 10 minutes idle, no crash | **not verified** | queue H |
+| T13 | 10 minutes idle, no crash | **rhythm and accounting pass at a scaled window** (`an_idle_pair_keeps_its_rhythm_and_its_count`: the 500 ms tick and 5 s ping keep arriving, an idle client is told nothing else, and the world's player list stays a pair and empties on departure); the ten-minute variant exists as an `#[ignore]`d test and the memory clause stays part of that hand run | queue H is down to the memory clause |
 | T14 | disconnect removes the agent; a fresh login works | **server side passes**: the farewell pair is sent and asserted | queue A is done on the wire |
 | T15 | log audit: every gap understood | **fail** — no generated audit until `tools/parity-emit.py` | queue H |
 
@@ -206,9 +206,14 @@ screen. `0x005D`/`0x005E`/`0x0061` appear in no capture.
 
 ### H. Operations parity (T13, T15)
 
-| # | item | done when |
-|---|---|---|
-| H1 | two clients idle for 10 minutes without a crash or a leak (T13) | the test is run and logged |
+**H1 landed as a measurement, with one clause left to the hand run.** The cadence and the accounting are
+now asserted: `an_idle_pair_keeps_its_rhythm_and_its_count` holds two connections idle for six seconds and
+checks that the tick and ping keep arriving on the reference's own intervals, that an idle client is told
+nothing else, and that the world's player list is a pair while they are there and empty once they leave.
+`a_ten_minute_idle_pair_keeps_its_rhythm` is the same assertion at the reference's own duration, marked
+`#[ignore]` because a ten-minute test is a test nobody runs; the procedure is in `docs/HANDOFF.md`.
+Working-set growth is not measurable portably from inside a test, so that clause is the human's: watch
+the process while the ten-minute variant runs.
 | H2 | the generated audits run in `tools/test-battery.ps1` (dispatch, emit, state) and their output is in `docs/07-status.md` | a regression in any axis fails the battery |
 
 ## What is deliberately *not* in the queue

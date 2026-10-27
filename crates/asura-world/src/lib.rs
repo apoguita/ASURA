@@ -228,6 +228,18 @@ impl Peers {
         before != peers.len()
     }
 
+    /// How many players are in the world. What a leak check needs: an idle pair must stay a pair, and a
+    /// departed player must actually leave.
+    pub fn len(&self) -> usize {
+        self.0.lock().unwrap_or_else(|err| err.into_inner()).len()
+    }
+
+    /// Whether the world is empty. Paired with [`len`](Self::len) because clippy insists the two go
+    /// together, and because "no players" is a real state a test asserts.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Everyone except one player, as plain data (no outbox, so the caller cannot hold the lock).
     pub fn others(&self, player_id: u32) -> Vec<PeerView> {
         let peers = self.0.lock().unwrap_or_else(|err| err.into_inner());

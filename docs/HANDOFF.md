@@ -144,6 +144,20 @@ $env:PGPASSWORD = "<postgres superuser password>"
 .\tools\db-setup.ps1            # creates role + database, applies every migration, lists the tables
 ```
 
+## The ten-minute idle run (T13's remaining clause)
+
+The cadence and the accounting are covered by `an_idle_pair_keeps_its_rhythm_and_its_count`. What a test
+cannot see is the process's working set, so that half stays a hand run:
+
+```powershell
+# watch the server's memory while the long variant holds one connection for ten minutes
+Get-Process asura-world | Select-Object -ExpandProperty WorkingSet64
+cargo test -p asura-world --test load a_ten_minute_idle_pair -- --ignored --nocapture
+```
+
+The test prints the tick and ping counts and the world's player count when it finishes; a crash inside the
+window fails it, and a working set that climbs without settling is the thing to look at.
+
 ## Run it: two commands
 
 ```powershell
