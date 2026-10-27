@@ -142,7 +142,7 @@ stack does not -- named, explained, and not pretended away.
 
 **The reference's pass criterion:** no crash, `PING_REQUEST`/`PING_REPLY` cycle continues (`GAME_SRV_TIME_BETWEEN_PING_MS = 5000`), memory roughly flat.
 
-**Here:** the cadence and the accounting over ten minutes; memory is the human's clause and is marked ignored in the test suite
+**Here:** cadence, accounting and the working set over ten minutes, all asserted: the long variant samples the process every fifteen seconds and fails on more than 8 MiB of growth, after self-checking the sampler with a touched 16 MiB allocation
 
 - `an_idle_pair_keeps_its_rhythm_and_its_count` -- a test
 - `a_ten_minute_idle_pair_keeps_its_rhythm` -- a test

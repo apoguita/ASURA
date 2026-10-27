@@ -144,19 +144,31 @@ $env:PGPASSWORD = "<postgres superuser password>"
 .\tools\db-setup.ps1            # creates role + database, applies every migration, lists the tables
 ```
 
-## The ten-minute idle run (T13's remaining clause)
+## The ten-minute idle run (T13)
 
-The cadence and the accounting are covered by `an_idle_pair_keeps_its_rhythm_and_its_count`. What a test
-cannot see is the process's working set, so that half stays a hand run:
+All three clauses of the reference's T13 are now measured by one command:
 
 ```powershell
-# watch the server's memory while the long variant holds one connection for ten minutes
-Get-Process asura-world | Select-Object -ExpandProperty WorkingSet64
 cargo test -p asura-world --test load a_ten_minute_idle_pair -- --ignored --nocapture
 ```
 
-The test prints the tick and ping counts and the world's player count when it finishes; a crash inside the
-window fails it, and a working set that climbs without settling is the thing to look at.
+It holds **two** connections idle for ten minutes, counts the ticks and pings, watches the world's peer
+count, and samples the process's working set every fifteen seconds through
+`K32GetProcessMemoryInfo` (kernel32, no crate). The verdict is asserted, not narrated: after a tenth of the
+window to let the allocator settle, a working set that grows by more than 8 MiB fails the test.
+
+Two details worth knowing before trusting a "flat" line. The sampler **checks itself first**: it allocates
+16 MiB, writes one byte per page -- a zeroed allocation is demand-zero pages and does not move the working
+set, which the first version of this check proved the hard way -- and fails if the sample does not see it.
+And the window is `ASURA_SOAK_SECONDS` (default 600), so the mechanism can be exercised in a minute:
+
+```powershell
+$env:ASURA_SOAK_SECONDS = 45
+cargo test -p asura-world --test load a_ten_minute_idle_pair -- --ignored --nocapture
+```
+
+The world runs as a task in the test process here, so the sample is everything the world allocated plus the
+harness -- the reference runs a process per map and watches that process. Same question, one process fewer.
 
 ## Run it: two commands
 

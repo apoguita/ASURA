@@ -75,7 +75,9 @@ COVERAGE = {
     "T12": ("blocked", ["test:a_drop_deducts_the_stack_and_says_nothing", "test:a_drop_sends_nothing_because_both_candidates_crashed_a_client"],
             "the reference's own drop handler is unfinished (a TODO for stacks, no removal, the item's id as the model id) and no capture holds a working drop; this server deducts and sends nothing, which is measured, and the ground item waits on a capture that does not exist"),
     "T13": ("measured", ["test:an_idle_pair_keeps_its_rhythm_and_its_count", "test:a_ten_minute_idle_pair_keeps_its_rhythm"],
-            "the cadence and the accounting over ten minutes; memory is the human's clause and is marked ignored in the test suite"),
+            "cadence, accounting and the working set over ten minutes, all asserted: the long variant samples "
+            "the process every fifteen seconds and fails on more than 8 MiB of growth, after self-checking "
+            "the sampler with a touched 16 MiB allocation"),
     "T14": ("measured", ["test:a_character_comes_back_where_it_left", "test:a_closed_session_never_resolves_again"],
             "disconnect, the agent removal, and a fresh login"),
     "T15": ("measured", ["tool:tools/parity-report.py", "tool:tools/parity-emit.py", "tool:tools/parity-summary.py"],

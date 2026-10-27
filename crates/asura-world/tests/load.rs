@@ -1688,15 +1688,16 @@ async fn a_character_is_created_in_a_creation_instance() {
 
 /// T13: an idle pair keeps its rhythm, and neither the world nor the mailbox grows.
 ///
-/// The reference's T13 asks for two clients left alone for ten minutes: no crash, the ping/tick cycle
-/// still running, memory roughly flat. Two of those three are measurable in a test — the rhythm, by
-/// counting what arrives, and the accounting, by watching the world's peer count — and the third is not:
-/// a working set cannot be measured portably from inside a test, so it stays part of the manual run
-/// (`docs/10-parity-queue.md`, and the `--ignored` variant below is that run's harness half).
+/// The reference's T13 asks for two clients left alone for ten minutes: no crash, the ping/tick cycle still
+/// running, memory roughly flat. All three are measurable: the rhythm by counting what arrives, the
+/// accounting by watching the world's peer count, and the memory by asking the operating system for this
+/// process's working set (`K32GetProcessMemoryInfo`, no crate needed) -- which is what the `#[ignore]`d
+/// ten-minute variant below does, self-checking the sampler first so a flat line cannot come from an
+/// instrument that never moves.
 ///
 /// The window here is seconds rather than minutes, because a test that takes ten minutes is a test nobody
-/// runs: what it asserts is the *cadence* (`PING_INTERVAL` 5 s, `TICK_INTERVAL` 500 ms, the reference's
-/// own constants), which does not change with the length of the observation.
+/// runs: what it asserts is the *cadence* (`PING_INTERVAL` 5 s, `TICK_INTERVAL` 500 ms, the reference's own
+/// constants), which does not change with the length of the observation.
 #[tokio::test]
 async fn an_idle_pair_keeps_its_rhythm_and_its_count() {
     if skip() {
@@ -1827,9 +1828,68 @@ async fn an_idle_pair_keeps_its_rhythm_and_its_count() {
     harness.stop();
 }
 
-/// The ten-minute half of T13, for the hand run the reference describes: `cargo test -p asura-world
-/// --test load a_ten_minute_idle -- --ignored --nocapture`. It asserts the same things after ten minutes,
-/// and prints the cadence as it goes so a human can watch it.
+/// T13's full window: ten minutes idle, the cadence, the accounting -- and the working set.
+///
+/// ```text
+/// cargo test -p asura-world --test load a_ten_minute_idle -- --ignored --nocapture
+/// ```
+///
+/// The reference's T13 says "no crash, the ping cycle continues, memory roughly flat", and the third clause
+/// used to be left to a human because a working set "cannot be measured portably". It can be measured, just
+/// not portably: Windows answers with `K32GetProcessMemoryInfo` in kernel32, which needs no crate. The world
+/// runs as a task inside this process here (the reference runs a process per map), so "the process" in the
+/// reference's sentence and this sample are the same thing: everything the world has allocated, plus this
+/// harness.
+///
+/// The window is `ASURA_SOAK_SECONDS` (default 600) so the mechanism can be exercised in a minute; the
+/// verdict is the same either way -- after a tenth of the window to let the allocator settle, the working set
+/// must not grow by more than [`SOAK_GROWTH_LIMIT`].
+#[cfg(windows)]
+const SOAK_GROWTH_LIMIT: u64 = 8 * 1024 * 1024;
+
+/// This process's working set in bytes, or `None` where there is no such measurement.
+#[cfg(windows)]
+fn working_set_bytes() -> Option<u64> {
+    // `PROCESS_MEMORY_COUNTERS`, field for field (`psapi.h`).
+    #[repr(C)]
+    #[derive(Default)]
+    struct ProcessMemoryCounters {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+    }
+
+    extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn K32GetProcessMemoryInfo(
+            process: isize,
+            counters: *mut ProcessMemoryCounters,
+            cb: u32,
+        ) -> i32;
+    }
+
+    let mut counters = ProcessMemoryCounters {
+        cb: std::mem::size_of::<ProcessMemoryCounters>() as u32,
+        ..ProcessMemoryCounters::default()
+    };
+    // Safety: `counters` is a `repr(C)` struct of exactly the layout the API documents, and `cb` is its
+    // size; the handle is this process, which is always valid.
+    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
+    (ok != 0).then_some(counters.working_set_size as u64)
+}
+
+#[cfg(not(windows))]
+fn working_set_bytes() -> Option<u64> {
+    None
+}
+
 #[tokio::test]
 #[ignore]
 async fn a_ten_minute_idle_pair_keeps_its_rhythm() {
@@ -1839,43 +1899,176 @@ async fn a_ten_minute_idle_pair_keeps_its_rhythm() {
     let Some(harness) = Harness::start().await else {
         return;
     };
-    let version = harness.version(harness.player_token);
-    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
-        panic!("the world refused the client");
-    };
+    let window = std::env::var("ASURA_SOAK_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(600);
 
-    let mut buffer = [0u8; 8192];
+    let version = harness.version(harness.player_token);
+    let Some((mut stream_a, mut client_a)) = connect_properly(harness.address, &version).await
+    else {
+        panic!("the world refused the first client");
+    };
+    read_until(&mut stream_a, &mut client_a, game::INSTANCE_LOAD_INFO).await;
+
+    // The second half of the pair, placed the way the auth service places one.
+    let second = db::seed_identity(
+        &harness.pool,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        &format!("m4-soak-{}", Uuid::new_v4()),
+        "Soak Player",
+        harness.map_id,
+    )
+    .await
+    .expect("seed a second identity");
+    placement::reserve(
+        &harness.pool,
+        harness.world_id,
+        harness.map_id,
+        second.session,
+    )
+    .await
+    .expect("reserve for the second player");
+    let token_b = (Uuid::new_v4().as_u128() & 0xFFFF_FFFF) as u32;
+    placement::begin_transfer(
+        &harness.pool,
+        token_b,
+        harness.world_id,
+        harness.map_id,
+        second.session,
+        second.account,
+        second.character,
+    )
+    .await
+    .expect("write the second transfer");
+    let mut version_b = harness.version(token_b);
+    version_b.account = second.account.to_bytes_le();
+    version_b.character = second.character.to_bytes_le();
+    let Some((mut stream_b, mut client_b)) = connect_properly(harness.address, &version_b).await
+    else {
+        panic!("the world refused the second client");
+    };
+    read_until(&mut stream_b, &mut client_b, game::INSTANCE_LOAD_INFO).await;
+
+    let mut buffer_a = [0u8; 8192];
+    let mut buffer_b = [0u8; 8192];
     let started = tokio::time::Instant::now();
     let mut ticks = 0usize;
     let mut pings = 0usize;
-    while started.elapsed() < Duration::from_secs(600) {
-        match tokio::time::timeout(Duration::from_millis(500), stream.read(&mut buffer)).await {
-            Ok(Ok(0)) => panic!(
-                "the world closed the connection after {:?}",
-                started.elapsed()
-            ),
-            Ok(Ok(read)) => {
-                for frame in client.receive_game(&buffer[..read]).expect("frames") {
-                    match frame.header {
-                        game::WORLD_SIMULATION_TICK => ticks += 1,
-                        game::PING_REQUEST => pings += 1,
-                        _ => {}
-                    }
+
+    // The instrument has to be shown to work before its verdict means anything. An idle process's working
+    // set barely moves, so "flat" could as easily be a sampler that never updates -- and the first version of
+    // this check proved exactly that: `vec![0u8; 16 MiB]` asks the allocator for *zeroed* memory, the OS
+    // hands back demand-zero pages, and the working set does not move until they are touched. So the
+    // allocation is written to, one byte per page, and the sample has to see most of it.
+    if let Some(before) = working_set_bytes() {
+        let mut hog = vec![0u8; 16 * 1024 * 1024];
+        for page in hog.chunks_mut(4096) {
+            page[0] = 1;
+        }
+        let after = working_set_bytes().expect("the sampler worked a moment ago");
+        assert!(
+            after >= before + 12 * 1024 * 1024,
+            "the working-set sample did not see a 16 MiB allocation: {before} -> {after}"
+        );
+        drop(hog);
+    }
+
+    // The working set, sampled every fifteen seconds. The first tenth of the window is the warm-up: the
+    // allocator, the pool and both connections settle there, and counting that as growth would measure
+    // start-up rather than a leak.
+    let warm_up = Duration::from_secs(window / 10);
+    let mut baseline: Option<u64> = None;
+    let mut peak = 0u64;
+    let mut next_sample = Duration::ZERO;
+
+    while started.elapsed() < Duration::from_secs(window) {
+        // Both connections are drained every slice: a client that stops reading makes its channel grow in
+        // the world, and that is a measurement artefact, not a leak.
+        if let Ok(Ok(read)) =
+            tokio::time::timeout(Duration::from_millis(100), stream_a.read(&mut buffer_a)).await
+        {
+            assert!(read > 0, "the world closed the first idle connection");
+            for frame in client_a.receive_game(&buffer_a[..read]).expect("frames") {
+                match frame.header {
+                    game::WORLD_SIMULATION_TICK => ticks += 1,
+                    game::PING_REQUEST => pings += 1,
+                    _ => {}
                 }
             }
-            Ok(Err(err)) => panic!("the connection failed after {:?}: {err}", started.elapsed()),
-            Err(_) => {}
+        }
+        if let Ok(Ok(read)) =
+            tokio::time::timeout(Duration::from_millis(100), stream_b.read(&mut buffer_b)).await
+        {
+            assert!(read > 0, "the world closed the second idle connection");
+            client_b.receive_game(&buffer_b[..read]).expect("frames");
+        }
+
+        if started.elapsed() >= next_sample {
+            next_sample += Duration::from_secs(15);
+            if let Some(now) = working_set_bytes() {
+                if started.elapsed() >= warm_up {
+                    if baseline.is_none() {
+                        baseline = Some(now);
+                        println!(
+                            "soak: warm-up over at {:?}, working set {:.1} MiB",
+                            started.elapsed(),
+                            now as f64 / (1024.0 * 1024.0)
+                        );
+                    }
+                    peak = peak.max(now);
+                }
+                println!(
+                    "soak: {:>5.0}s ticks {ticks:>5} pings {pings:>3} working set {:.1} MiB",
+                    started.elapsed().as_secs_f64(),
+                    now as f64 / (1024.0 * 1024.0)
+                );
+            }
         }
     }
+
+    let qualified_ticks = (window as f64 * 2.0 * 0.8) as usize;
+    let qualified_pings = (window as f64 / 5.0 * 0.8) as usize;
     println!(
-        "ten minutes idle: {ticks} ticks, {pings} pings, {} player(s) in the world",
+        "{window}s idle: {ticks} ticks, {pings} pings, {} player(s) in the world",
         harness.world.peers.len()
     );
-    assert!(ticks >= 1_000, "about two ticks a second for ten minutes");
-    assert!(pings >= 100, "a ping every five seconds for ten minutes");
-    assert_eq!(harness.world.peers.len(), 1, "one player, still");
+    assert!(
+        ticks >= qualified_ticks,
+        "about two ticks a second for {window}s: {ticks} arrived, {qualified_ticks} expected"
+    );
+    assert!(
+        pings >= qualified_pings,
+        "a ping every five seconds for {window}s: {pings} arrived, {qualified_pings} expected"
+    );
+    assert_eq!(harness.world.peers.len(), 2, "the pair, still");
 
-    drop(stream);
+    match (baseline, working_set_bytes()) {
+        (Some(baseline), Some(end)) => {
+            let growth = end.saturating_sub(baseline);
+            println!(
+                "soak: working set {:.1} MiB after the warm-up, {:.1} MiB at the end (peak {:.1} MiB), \
+                 growth {:.2} MiB",
+                baseline as f64 / (1024.0 * 1024.0),
+                end as f64 / (1024.0 * 1024.0),
+                peak as f64 / (1024.0 * 1024.0),
+                growth as f64 / (1024.0 * 1024.0)
+            );
+            assert!(
+                growth < SOAK_GROWTH_LIMIT,
+                "memory stayed roughly flat over {window}s: the working set grew by {:.2} MiB",
+                growth as f64 / (1024.0 * 1024.0)
+            );
+        }
+        // No measurement available: say so rather than claiming the clause was met.
+        _ => println!(
+            "soak: no working-set measurement on this platform; the memory clause is not checked"
+        ),
+    }
+
+    drop(stream_a);
+    drop(stream_b);
     placement::remove_world(&harness.pool, harness.world_id)
         .await
         .expect("remove the world");

@@ -463,14 +463,15 @@ screen. `0x005D`/`0x005E`/`0x0061` appear in no capture.
 
 ### H. Operations parity (T13, T15)
 
-**H1 landed as a measurement, with one clause left to the hand run.** The cadence and the accounting are
-now asserted: `an_idle_pair_keeps_its_rhythm_and_its_count` holds two connections idle for six seconds and
-checks that the tick and ping keep arriving on the reference's own intervals, that an idle client is told
-nothing else, and that the world's player list is a pair while they are there and empty once they leave.
-`a_ten_minute_idle_pair_keeps_its_rhythm` is the same assertion at the reference's own duration, marked
-`#[ignore]` because a ten-minute test is a test nobody runs; the procedure is in `docs/HANDOFF.md`.
-Working-set growth is not measurable portably from inside a test, so that clause is the human's: watch
-the process while the ten-minute variant runs.
+**H1 landed as a measurement, all three clauses of it.** The cadence and the accounting are asserted by
+`an_idle_pair_keeps_its_rhythm_and_its_count`: two connections idle for six seconds, the tick and ping on the
+reference's own intervals, an idle client told nothing else, and the world's player list a pair that empties
+when they leave. `a_ten_minute_idle_pair_keeps_its_rhythm` is the same assertion at the reference's own
+duration — against a real **pair**, marked `#[ignore]` because a ten-minute test is a test nobody runs — and
+it also **samples the working set** every fifteen seconds through `K32GetProcessMemoryInfo` and fails if it
+grows by more than 8 MiB after the warm-up. The sampler checks itself first (16 MiB allocated and touched, and
+the sample has to see it), because a flat line from an instrument that never moves is not a measurement.
+The procedure, and the `ASURA_SOAK_SECONDS` short form, are in `docs/HANDOFF.md`.
 | H2 | the generated audits run in `tools/test-battery.ps1` (dispatch, emit, state) and their output is in `docs/07-status.md` | a regression in any axis fails the battery |
 
 ## What is deliberately *not* in the queue
