@@ -337,8 +337,33 @@ queues it again on every visit.
 **What D still owes the server.** The finder is measured but not yet *adopted*: `MOVE_TO_COORD` still echoes
 the client's destination, and the reference instead pathfinds, refuses what it cannot reach, and walks the
 agent waypoint by waypoint (`GmAgent.c:371-398`, `GmAgent.c:409-462`). Wiring it in changes behaviour the
-load tests and the movement tests already pin, so it is the next unit: the reference's handler shape, the
-refusal message (or silence) on a walk it cannot make, and the waypoint-by-waypoint tick.
+load tests and the movement tests already pin, so it is the next unit.
+
+### D4. Adopting the finder (`MOVE_TO_COORD` and the tick)
+
+Read off the reference, so the work is mechanical rather than a design question:
+
+- **`GameSrv_HandleMoveToCoord` (`GmAgent.c:371-398`)** clears the agent's waypoint list, asks
+  `PathFinding` for a walk from `agent->position` (the *server's* copy, which position reports keep honest)
+  to the requested destination, and then either takes waypoint 0 as the destination —
+  `GameSrv_UpdateAgentDestination`, which sets `direction` from the agent's own position, sets
+  `rotation = atan2(dir.y, dir.x)`, and broadcasts `AGENT_MOVE_TO_POINT` — or, when the finder says no,
+  logs, runs a world tick, cancels the movement and broadcasts the agent's position. The client is never
+  told "no" in a message of its own; it is told where the agent actually is.
+- **The tick (`GmAgent.c:462-501`)** advances the agent by `speed * delta` along `direction`; when that
+  overshoots the current waypoint it snaps to it, takes the next one from the list and broadcasts the new
+  destination, and when the list is exhausted it clears movement (destination zero, speed zero, empty
+  list). Completion is tested on position *and* plane.
+- **This repo's counterparts**, which the unit edits rather than adds: `lib.rs:1227` (the `0x803E` arm,
+  today an echo plus a broadcast), `Player::adopt_report`/`adopt_correction` (the position half, which the
+  reference keeps alongside pathing), `WORLD_SIMULATION_TICK` (already on the reference's interval but
+  advancing nothing), and `Play::standing()`/`World::peers.update`, which is how everyone else learns
+  where the agent is.
+
+One consequence needs a decision recorded before the code: the finder needs a map's graph, so the world
+would have to import it from `Gw.dat` at load time. Today only the tests read the archive. Parity means the
+world requires it (the reference's `GameSrv_LoadMap` fails without it); the alternative — silently keeping
+the echo when the archive is absent — is exactly the kind of quiet difference this queue exists to avoid.
 
 ### E. Item lifecycle (T12)
 
