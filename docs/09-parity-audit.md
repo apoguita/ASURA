@@ -373,27 +373,50 @@ These are GWPS rows that look like features and are not. Matching them would be 
 ## 13. The real gap list
 
 Ordered by what a player or tester would notice first. Each entry says what it needs, and nothing else
-is added to it.
+is added to it. **Everything that used to be on this list and is not here now has a measurement behind it** —
+dispatch, the emit surface, the load block, movement and pathfinding, `/tp`, character creation, multi-player,
+the schema and the command surface — and the generated pages are where to check rather than this paragraph:
+`docs/11-parity-state.md`, `docs/12-schema-parity.md`, `docs/13-command-parity.md`, `docs/14-test-plan.md`.
 
 | # | Gap | What it needs | Blocked on |
 |---|---|---|---|
-| 1 | `/tp` and `/teleport` | A world-initiated travel. **The redirect itself is measured and already in this repo**: `TRANSFER_GAME_SERVER_INFO` (`0x01A6`, 46 bytes as GWPS sends it, `crates/asura-protocol/src/game/mod.rs:59`), then `MAP_UPDATE_CURRENT` (`0x0099`, 12 bytes) in the same breath — both captured live, twice, at `captures/zone-ref-005829.jsonl` (seq 42 and 424) and written up in `docs/03-protocol.md` §5. What is missing is *who starts it*: today only the client can, through the auth service; a world cannot ask to be replaced | Nothing measured. The work is the allocation path: a world-side request for a slot on the target map, a `transfer` row, and reuse of the claim path that already exists (`placement::claim_transfer`) |
-| 2 | The ground item for a drop | The message that spawns a dropped item on the ground | A GWPS capture of dropping a quantity-1 item |
-| 3 | Character creation (5 handlers) | Creation instance (map type 11) + the default-armour table | The table, and a capture of the creation flow |
-| 4 | Unequip (`0x804F`) | The item id the client means | A capture; the current layout carries no id |
-| 5 | Walking with server-side pathing | A navmesh or GWPS's path graph files | Not a parity defect: ASURA's straight-line echo is already what the client sees |
+| 1 | The ground item for a drop | The message that spawns a dropped item on the ground | **A measurement that does not exist**: a capture of dropping a quantity-1 item. The reference's own handler is the unfinished one (a `TODO` for partial stacks, the item never removed, its model id the item's id), so it cannot produce one |
+| 2 | Unequip (`0x804F`) | The item id the client means | **A measurement that does not exist**: a capture. The message's layout carries no item id, and dragging an item out of the equipped bag arrives as `ITEM_MOVE`, which works |
+| 3 | The live halves of T9, T10, T11 and T13 | A second real client rendering the other player, the walk and the chat, and a human watching memory over ten minutes | **Not a measurement gap**: it is a rig run. The server halves are asserted (a second agent introduced and withdrawn, the reference's own path and refusals, the chat pair, the tick and ping rhythm) and `docs/14-test-plan.md` records each as `hand` |
+
+Two things are worth stating plainly because they look like gaps and are not. **Chat rendering (T11)** is not
+achievable by the reference either: its own chat send path is gated off because it crashed its client twice, so
+"both clients display it" is a criterion GWPS cannot meet. This server matches what GWPS *does* — sends a
+spoken line, prints a generated answer — and that is the ceiling. And **walking** is no longer a gap: the path
+finder is ported and compared case by case, and `MOVE_TO_COORD` answers with the reference's own waypoint.
 
 ---
 
 ## 14. How to check this audit
 
+Most of this document is now re-derived by tools, and the tools win where they disagree with it:
+
 ```powershell
-# GWPS dispatch, the measure for §2
-Select-String -Path C:\Users\Apo\Documents\GitHub\PreSearing\code\OpenTyria\GameSrv.c -Pattern 'case GAME_CMSG_'
-# the chat gate every server-side answer passes through
-Select-String -Path C:\Users\Apo\Documents\GitHub\PreSearing\code\OpenTyria\GmChat.c -Pattern 'ChatSendingEnabled'
-# ASURA's arms
-Select-String -Path crates\asura-world\src\lib.rs -Pattern '^\s+0x8[0-9A-F]{3} =>'
-cargo test --workspace
+# every axis, re-measured, in one page
+python tools/parity-summary.py --write docs/11-parity-state.md --fast
+# dispatch and the emit surface
+python tools/parity-report.py --write docs/07-status.md
+python tools/parity-emit.py
+# the database schema, column by column
+python tools/parity-schema.py --check
+# the /tp aliases and the whole command surface
+python tools/parity-commands.py --check
+# the reference's own test plan, item by item
+python tools/parity-testplan.py --check
+# the load block: order and size, then the bytes
+python tools/parity-load.py --check crates/asura-world/src/load_fixture.rs
+python tools/parity-load-bytes.py --check
+# the map data and the path finder, against the reference's own code
+python tools/parity-pathing.py --check
+python tools/parity-path.py --check
+# everything at once, which is what a change has to keep green
 .\tools\test-battery.ps1
 ```
+
+The hand checks that remain -- the ones the tools cannot make -- are listed in `docs/14-test-plan.md` as
+`hand`, with what each needs.
