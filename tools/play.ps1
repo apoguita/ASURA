@@ -15,10 +15,21 @@
     It leaves both services running and tails their output into this console, so every message in both
     directions shows up here with its size. Ctrl+C stops both.
 
+    **It does not start the database or the web gate.** PostgreSQL is a Windows service (a stopped one
+    refuses to connect, in the services' own log rather than on screen), and a client launched with
+    `-portal 127.0.0.1` asks the reference web gate on 6601 who it is *before* it logs in -- with
+    nothing there it opens the auth connection, sends its preamble, gets its salt, and closes without
+    ever logging in, which looks exactly like a server that is not running. Use
+    `tools/start-server.ps1` to bring up all of it and `tools/stop-server.ps1` to take it down; this
+    script is the piece of that pair which runs the services and shows their trace.
+
     The client is launched by you, not by this script: it needs a window, and a game window cannot be
     read by a script. The services' output is the verdict.
 
     ASCII only, like every script in tools/.
+
+.EXAMPLE
+    .\tools\start-server.ps1
 
 .EXAMPLE
     .\tools\play.ps1

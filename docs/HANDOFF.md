@@ -121,7 +121,7 @@ transaction, so `count(lease) <= leased <= capacity` holds at every commit and t
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
 | **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **6 migrations applied / 11 tables** (`account`, `bag`, `characters`, `item`, `lease`, `map_config`, `schema_version`, `session`, `transfer`, `world`, `world_pool`); credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
-| client rig (Reforged + stealth hooks) | present from the PreSearing work | the only test the inventory has not had (`tools/play.ps1`) |
+| client rig (Reforged + stealth hooks) | present from the PreSearing work | `tools/start-server.ps1`, then the client; the trace is the verdict |
 
 **Database is ready.** `ASURA_DATABASE_URL` is in `.env` (gitignored, never committed). Every migration
 is applied; `crates/asura-db/tests/placement.rs` verified the pool invariants against the live database —
@@ -139,6 +139,22 @@ Setup in full:
 $env:PGPASSWORD = "<postgres superuser password>"
 .\tools\db-setup.ps1            # creates role + database, applies every migration, lists the tables
 ```
+
+## Run it: two commands
+
+```powershell
+.\tools\start-server.ps1        # database -> web gate :6601 -> auth :6112 -> world :6113, logs tailed
+.\tools\stop-server.ps1         # the same, backwards, and it says what is still listening
+```
+
+`start-server.ps1` exists because `play.ps1` alone is not enough for a client and the missing half is
+invisible: with `-portal 127.0.0.1` the client asks the **reference web gate on 6601** who it is before
+it sends a login, and with nothing there it opens the auth connection, does the key exchange, sends its
+preamble, and closes. That is what "I cannot connect to the server" looked like on this machine — with
+the server running perfectly and `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` never arriving. `start-server.ps1`
+starts PostgreSQL (if it is stopped), the web gate, and then hands over to `play.ps1`; `stop-server.ps1`
+kills the services and the gate, verifies the ports are free, and notes what a hard stop leaves behind
+(a connected player's pool slot, which only the unscheduled reaper frees).
 
 Then prove M2 at any time:
 
@@ -190,9 +206,10 @@ carries an inventory and comes back where it logged out.
    both directions; `tools/patch-gwps-auth-trace.py` reproduces the logging that produced it,
    `tools/compare-replies.py` diffs two servers' replies field by field, and `tools/compare-load.py`
    diffs the world's load stream against a capture of the reference working.
-5. **The real client is the only test that has never run for the inventory.** Everything above is
-   harness-only. `tools/play.ps1` plus the trace in that console is the verdict for "does the character
-   draw with its armour on and its backpack full".
+5. **The real client is the last word on anything the wire does.** Everything above is harness-only, and
+   three messages that no capture contains have now crashed a live client (`ITEM_REMOVE`, an item agent,
+   chat). `tools/start-server.ps1` plus the trace in that console is the verdict — and if a client
+   crashes, the log's last `world ->` line names the message that did it.
 
 **Decided, and not to be re-opened without a reason:**
 
@@ -283,13 +300,13 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
 
 ## What is deliberately not here yet
 
-- **The real client has not been pointed at the inventory.** The load stream is proved byte for byte
-  against a capture of the reference working, and the database round trip is proved against the live
-  database, but "the character draws with its armour on and its backpack full" is still a claim about a
-  capture rather than a claim about a window. `tools/play.ps1` is how it stops being one.
-- **No trade, no salvage, no pick-up**: an item can be dropped, moved and worn, and nothing else. A
-  dropped item stays on the ground for the rest of the session because nothing picks it up — the
-  reference has no handler for that either (`docs/07-status.md`).
+- **What a drop puts on the wire.** Dropping deducts the stack and sends nothing, because both candidate
+  messages crashed a live client and neither is in any capture (`ASURA_DROP=agent|full` turns them back
+  on for a bisection). The ground item waits for a capture of GWPS actually dropping something — and its
+  handler is the unfinished one, so that capture may never exist.
+- **No trade, no salvage, no pick-up**: an item can be dropped (silently), moved and worn, and nothing
+  else. Nothing picks a dropped item up, because the reference has no handler for that either
+  (`docs/07-status.md`).
 - **No character creation**: the four `CHAR_CREATION_*` handlers need a creation instance and the default
   equipment table.
 - **One agent, one player**: no NPCs, no other players, no combat, no quests, and no session registry in
