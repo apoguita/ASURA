@@ -197,6 +197,31 @@ What *can* be matched without it is matched, and asserted: the reference's posit
 (`speed_base * elapsed + tolerance`, clamped at 2 s of elapsed time) is the same rule on the same message, and
 `a_move_is_echoed_as_sent_and_a_far_report_is_clamped` says so on the wire.
 
+**D1 landed: the archive index.** `crates/asura-world/src/gwdat.rs` is the index half of `FaArchive.c` —
+header, file table, TOC hash, entry lookup, and the stored bytes of one entry. No decompressor yet, so it
+answers "is this file id in the archive and where", which is what the map catalogue depends on.
+
+`gwdat-census` (an example) prints what the real archive says about itself:
+
+```
+header:  magic 0x1A4E4133, header_size 32, block_size 512, MFT at 3631642624 (3730656 bytes)
+entries: 155444
+  0x0001B97D  stored 1300044  compressed 8  decompressed 2925267  Lakeside County / Ascalon City / Ashford Abbey
+  0x000345CC  stored  515444  compressed 8  decompressed 1734079  Kamadan, Jewel of Istan
+```
+
+Two independent checks come out of that. **2,925,267 bytes** for `0x1B97D` is the "2.9 MB region blob" the
+reference's own roadmap describes; and every blob the generated catalogue names is present, which
+`the_archive_index_finds_the_blobs_the_map_catalogue_names` asserts along with a bogus id being `None`.
+
+A detail that had to be measured rather than read: `FILE_ARCHIVE_MAGIC` is the C multi-character literal
+`'\x1ANA3'`, so the four bytes `1A 4E 41 33` collapse to `0x1A4E4133`, not to their byte-reversed reading —
+the first attempt compared against the reversed value and failed against the real file.
+
+**D2 is the decompressor**: `FaDecompress` (`FaCompress.c:399-...`, an LZ + Huffman decoder with four static
+tables and `SetupNodesandTree`/`GetNextCode`). It is the next unit, and it is what turns `stored()` into
+`file()` and makes `gwdat_scan Gw.dat --dump 0x345CC` a byte-for-byte oracle.
+
 ### E. Item lifecycle (T12)
 
 `CREATE_UNNAMED_ITEM` cannot be emitted; the ground item cannot be sent; nothing picks anything up
