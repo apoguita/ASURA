@@ -27,10 +27,15 @@ Nothing.
 Handlers are the floor, not the whole of parity. These are implemented *and* limited, stated so
 that nobody reads the table above as more than it says:
 
-- **movement** has no pathfinding: `MOVE_TO_COORD` answers with the client's own destination
-  rather than the next waypoint of a path, so a straight line can cut a corner
-  (`crates/asura-world/src/agent.rs`);
-- **world state** is one agent: no NPCs, no other players, no combat, no quests;
+- **movement** pathfinds now: `MOVE_TO_COORD` is answered with the first waypoint of this server's
+  own path out of the map's graph, and a walk the finder refuses is answered with the agent's
+  position -- the reference's own two outcomes (`crates/asura-world/src/lib.rs`, `pathfind.rs`),
+  measured against the reference's code by `tools/parity-path.py --check`;
+- **world state** is players only: several clients in one map are introduced to each other, see
+  each other walk, and are told when one leaves (`crates/asura-world/src/lib.rs`, `Peers`). There
+  are no NPCs, no combat and no quests;
+- **instances** are built at startup from `--maps` -- main towns (type 0), explorable areas (type 1)
+  and the character-creation instance (type 11) -- and never created on demand;
 - **items** are rows (`asura_db::inventory`), and the block sent for them is the reference's own
   down to the byte (`crates/asura-world/src/lib.rs`, the byte-equality test against the capture).
   What works: dropping (with the stack actually deducted, which the reference never does), moving
@@ -48,7 +53,6 @@ that nobody reads the table above as more than it says:
   `UNEQUIP_ITEM` (`0x804F`) is not implemented because its layout carries no item id and no
   capture has shown what it means (dragging an item out of the equipped bag arrives as
   `ITEM_MOVE` and works);
-- **instances** are prebuilt per map and never created on demand, and only outposts are hosted;
 - **persistence** saves where a character stood when it leaves and puts it back there when it
   returns (`asura_db::game::record_position`). That is a thing the reference does *not* do -- it
   keeps a character's last map and re-spawns at the map's own spawn point every session -- so a
