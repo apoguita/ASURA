@@ -85,6 +85,9 @@ pub mod inventory;
 /// The migration runner, and the startup check that refuses a database older than the code.
 pub mod migrations;
 
+/// The portal identity the web gate hands the client (the pair the auth service resolves).
+pub mod portal;
+
 /// Where the programs find their settings: the environment, then the repository's `.env`.
 pub mod config;
 

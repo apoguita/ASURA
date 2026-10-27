@@ -14,18 +14,19 @@ process does them all.
 |---|---|---|
 | **auth service** (`asura-auth`) | one program | answers the client's login: key exchange, session, character list, character select. Owns identity. |
 | **world server** (`asura-world`) | many programs | runs maps for players: simulation, instances, gameplay connections. Disposable. |
+| **web gate** (`asura-webgate`) | one program | the portal login the client asks who it is before it logs in: four `/Spawned/WebGate` endpoints (ported from the reference's `tools/webgate.py`), answered from the database |
 | **database** (`asura-db`) | PostgreSQL | the shared truth: accounts, sessions, characters, the world registry, pool capacity |
 | **protocols** (`asura-protocol`) | a library | the client-facing message definitions and the server-to-server control messages |
 
 There is no single program called "ASURA". When a document means the login side it says **auth
 service**; when it means a map-running process it says **world server**.
 
-- **Status:** **M3 delivered.** The patched client (build 39112) logs in against `asura-auth`, accepts
-  the EULA, and reaches character select; `docs/06-reference-session.md` records the whole working
-  session from both servers, message by message. What it asks for next — a world to enter — is M4, and
-  no world server exists yet. M2's placement stays proven against the live database
-  (`tools/m2-verify.ps1`), and `.\tools\m3-verify.ps1` re-proves the login path in one command without
-  a client. `docs/HANDOFF.md` states the current state.
+- **Status:** the whole path works against a real client: the patched client (build 39112) logs in
+  through the web gate and `asura-auth`, enters a world on `asura-world`, and `/tp` moves it between
+  maps — a district-style transfer (the reference's own `0x01A6` struct), then a reconnect into the
+  destination spawn. Everything a run needs is in this repository and its scripts: PostgreSQL, the
+  web gate, the services, and the seeded identities. `docs/HANDOFF.md` states the current state and
+  the parity queue.
 - **Design authority:** where a structural question arises, the default answer is *what AzerothCore
   does* (`docs/adr/0006-azerothcore-is-the-reference.md`). GWPS is research material, not a target; the
   client rig is Reforged plus the stealth hooks.

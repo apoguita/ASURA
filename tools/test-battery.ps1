@@ -188,14 +188,23 @@ foreach ($entry in $crates) {
 }
 
 # --- 8. generated files ---------------------------------------------------------------------------
-Write-Step 8 "generated files still match the reference source"
+Write-Step 8 "generated files still match their sources"
 if ($python) {
-    $checks = @(
+    # Two checks need only this repository: the reference's own capture is shipped as a fixture
+    # (`tools/fixtures/gwps-capture.log`). The rest re-derive a generated table from the reference
+    # checkout (the sibling `PreSearing`), and a machine without it skips them rather than failing:
+    # the committed tables are checked by the tests, these checks are how they are re-proven.
+    $reference = Join-Path (Split-Path -Parent $repo) "PreSearing"
+    $haveReference = Test-Path (Join-Path $reference "code\OpenTyria")
+    $capture = "tools/fixtures/gwps-capture.log"
+    $localChecks = @(
+        @("tools/gen-default-inventory.py", @("--check", "--capture", $capture), "the default inventory"),
+        @("tools/parity-load.py", @("--reference", $capture, "--check", "crates/asura-world/src/load_fixture.rs"), "the reference's load stream")
+    )
+    $referenceChecks = @(
         @("tools/gen-auth-tables.py", @("--check"), "the auth message table"),
         @("tools/gen-game-tables.py", @("--check"), "the game message table"),
         @("tools/gen-pvp-items.py", @("--check"), "the PvP item table"),
-        @("tools/gen-default-inventory.py", @("--check", "--capture", "C:\Users\Apo\Documents\GitHub\PreSearing\gwps-capture.log"), "the default inventory"),
-        @("tools/parity-load.py", @("--check", "crates/asura-world/src/load_fixture.rs"), "the reference's load stream"),
         @("tools/gen-default-equipment.py", @("--check"), "the default-equipment table"),
         @("tools/gen-map-config.py", @("--check"), "the map catalogue"),
         @("tools/gen-fa-compress-tables.py", @("--check"), "the decompressor tables"),
@@ -204,9 +213,13 @@ if ($python) {
         @("tools/parity-commands.py", @("--check"), "the GM command surface"),
         @("tools/parity-testplan.py", @("--check"), "the reference's test plan")
     )
+    $checks = if ($haveReference) { $referenceChecks + $localChecks } else { $localChecks }
     foreach ($check in $checks) {
         $result = Invoke-Native $python (@($check[0]) + $check[1])
         Write-Verdict ($result.ExitCode -eq 0) $check[2] (($result.Output | Select-Object -Last 1) -join "")
+    }
+    if (-not $haveReference) {
+        Write-Skip "the reference checkout is absent: $($referenceChecks.Count) re-derivation check(s) need it"
     }
 } else {
     Write-Skip "python is not installed"

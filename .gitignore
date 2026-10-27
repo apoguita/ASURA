@@ -1,6 +1,13 @@
 # Rust build output
 /target/
+/target-verify/
 **/*.rs.bk
+
+# The client's asset archive when a developer keeps a local copy in this repository (data/Gw.dat or
+# ./Gw.dat). It is the game's file, not this project's; the world reads it for path graphs, and a
+# build without one still serves maps, it just cannot answer pathfinding.
+/data/
+/Gw.dat
 
 # Local run artifacts: logs, captures, recordings, configs with secrets
 *.log
@@ -8,6 +15,8 @@
 /captures/
 *.jsonl
 /config.local.*
+# ...except the reference capture the offline checks read: it is a committed fixture, not a run log.
+!tools/fixtures/*.log
 
 # Local secrets and configuration. The real .env is never committed; the template is.
 .env

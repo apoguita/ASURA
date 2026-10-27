@@ -343,11 +343,14 @@ async fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Where the client's archive is, for the path graphs: `--gwdat`, then `ASURA_GW_DAT`, then the two places
-/// a development machine keeps it.
+/// Where the client's archive is, for the path graphs: `--gwdat`, then `ASURA_GW_DAT`, then the two
+/// places a local copy lives (the working directory, and `data/Gw.dat` in this repository).
 ///
-/// A world that cannot open it still serves (a client loads a map from its own copy of the same archive),
-/// but it refuses every walk instead of inventing one, and says so at startup.
+/// The archive is the game's own asset file and is not distributed with this repository; copy a
+/// `Gw.dat` here (or point `ASURA_GW_DAT` at one) and the world imports every map's graph at startup.
+/// GWPS reads the same file beside its own binary (`FaArchive.c`), so this is the reference's rule.
+/// A world that cannot find it still serves (a client loads a map from its own copy of the same
+/// archive), but it refuses every walk instead of inventing one, and says so at startup.
 fn archive_path(args: &[String]) -> String {
     if let Some(given) = argument(args, "--gwdat") {
         return given;
@@ -355,8 +358,13 @@ fn archive_path(args: &[String]) -> String {
     if let Ok(from_env) = std::env::var("ASURA_GW_DAT") {
         return from_env;
     }
-    let beside_reference = std::path::Path::new("..").join("PreSearing").join("Gw.dat");
-    for candidate in [std::path::PathBuf::from("Gw.dat"), beside_reference] {
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..");
+    for candidate in [
+        std::path::PathBuf::from("Gw.dat"),
+        repository.join("data").join("Gw.dat"),
+    ] {
         if candidate.exists() {
             return candidate.to_string_lossy().into_owned();
         }
@@ -397,7 +405,7 @@ fn print_help() {
     println!("                      a server per configured map, so /maps lists them all and /tp reaches them)");
     println!("    --capacity N      slots per map (default {DEFAULT_CAPACITY})");
     println!("    --gwdat PATH      the client archive the path graphs come from (default: ASURA_GW_DAT,");
-    println!("                      then Gw.dat, then ..\\PreSearing\\Gw.dat)");
+    println!("                      then Gw.dat, then data\\Gw.dat in this repository)");
     println!("    -V, --version     print the version and exit");
     println!("    -h, --help        print this and exit");
     println!();

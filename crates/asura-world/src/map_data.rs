@@ -863,8 +863,9 @@ fn vector_at(plane: &Plane, index: u32, what: &'static str) -> Result<Vec2f, Imp
 mod tests {
     use super::*;
 
-    /// The archive beside the reference checkout, or `ASURA_GW_DAT`. Tests skip when it is absent, the
-    /// same way the database-backed tests skip without a database.
+    /// A local copy of the client archive: `ASURA_GW_DAT`, then `Gw.dat`, then `data/Gw.dat`. Tests
+    /// skip when it is absent, the same way the database-backed tests skip without a database, and
+    /// never reach for the reference checkout: this repository stands alone.
     fn gw_dat_path() -> Option<String> {
         if let Ok(path) = std::env::var("ASURA_GW_DAT") {
             return Some(path);
@@ -873,12 +874,15 @@ mod tests {
             .parent()?
             .parent()?
             .to_path_buf();
-        let path = repo.parent()?.join("PreSearing").join("Gw.dat");
-        if path.exists() {
-            Some(path.to_string_lossy().into_owned())
-        } else {
-            None
+        for candidate in [
+            std::path::PathBuf::from("Gw.dat"),
+            repo.join("data").join("Gw.dat"),
+        ] {
+            if candidate.exists() {
+                return Some(candidate.to_string_lossy().into_owned());
+            }
         }
+        None
     }
 
     #[test]
@@ -983,7 +987,7 @@ mod tests {
     #[test]
     fn the_spawn_points_the_reference_configures_land_in_the_graphs_in_the_archive() {
         let Some(path) = gw_dat_path() else {
-            eprintln!("skipped: no Gw.dat beside the reference checkout");
+            eprintln!("skipped: no local Gw.dat (set ASURA_GW_DAT or copy one into data/)");
             return;
         };
         let mut archive = crate::gwdat::GwDat::open(&path).expect("open Gw.dat");

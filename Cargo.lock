@@ -44,6 +44,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "asura-webgate"
+version = "0.1.0"
+dependencies = [
+ "asura-db",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "asura-world"
 version = "0.1.0"
 dependencies = [

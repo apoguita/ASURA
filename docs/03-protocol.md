@@ -139,6 +139,13 @@ service's scope line — "the web gate: the portal login that hands the client i
 the portal was wrong (its identity pairs are fixed per test account), but "there is nothing to serve"
 was wrong and is corrected here.
 
+**This project serves it: `crates/asura-webgate`.** It is a faithful port of the reference's
+`tools/webgate.py` — same four endpoints, same XML, same status codes (`400 who are you?`, `400
+Unsupported provider`, `401` without a session) — with one deliberate change: the reference answers
+from a hard-coded table of three emails, and this answers from the rows `tools/seed-dev.ps1` writes
+through `asura_db::portal::identity_for_email`, so the identity it hands out is the very
+`(portal_user, session id)` pair the auth service will resolve. No Python, no reference checkout.
+
 **A login does not spend the session.** GWPS's login path calls `Db_GetSession` and writes nothing,
 and the rig presents the same fixed pair on every login — so a service that closed the row on
 disconnect or on login would refuse the client's very next attempt. "The newest wins"

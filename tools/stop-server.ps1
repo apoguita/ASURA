@@ -114,15 +114,19 @@ if ($KeepGate) {
         Write-State "web gate :6601" "stopped"
     }
 } else {
-    # Not on 6601: a webgate started on another port would still be a stray. Only one is expected here.
-    $strays = @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
+    # Not on 6601: a gate started on another port would still be a stray. This project's own gate is
+    # `asura-webgate`; a pre-port `python.exe webgate.py` is stopped too, because a left-over one is
+    # still holding the port question open.
+    $strays = @()
+    $strays += @(Get-Process -Name "asura-webgate" -ErrorAction SilentlyContinue)
+    $strays += @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like "*webgate.py*" })
     if ($strays.Count -eq 0) {
         Write-State "web gate" "not running"
     } else {
         foreach ($stray in $strays) {
-            if (-not $Quiet) { Write-Host "  stopping a stray web gate (pid $($stray.ProcessId))" }
-            Stop-Process -Id $stray.ProcessId -Force -ErrorAction SilentlyContinue
+            if (-not $Quiet) { Write-Host "  stopping a stray web gate (pid $($stray.Id))" }
+            Stop-Process -Id $stray.Id -Force -ErrorAction SilentlyContinue
         }
         Write-State "web gate" "stopped $($strays.Count) straggler(s)"
     }

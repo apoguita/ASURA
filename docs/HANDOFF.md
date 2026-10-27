@@ -32,6 +32,16 @@ is_explorable, map_id`). The port target was named by the user all along.
 
 ## Where this stands
 
+- **`/tp` works on a live client, ported from GWPS.** A real client in a map types `/tp ascalon`, receives
+  GWPS's own `0x01A6` struct (46 bytes, `map_token, region, player_token, is_explorable, map_id`) and
+  the 12-byte `0x0099`, reconnects, and lands in the destination's spawn. `docs/03-protocol.md` §5
+  records the port target and the two failed attempts that proved it (`007` from a wrong field order,
+  `005` from a wrong frame size). `/maps` prints the reference's own table, one row per alias.
+- **Everything a run needs is in this repository.** The web gate is `crates/asura-webgate` (the
+  reference's `tools/webgate.py`, ported, database-backed); the path graphs come from a local
+  `Gw.dat` (`ASURA_GW_DAT`, `./Gw.dat`, or `data/Gw.dat`) and the tests skip cleanly without one; the
+  reference capture the offline checks read is committed as `tools/fixtures/gwps-capture.log`. No
+  reference checkout is consulted at runtime, and `tools/start-server.ps1` builds and starts all of it.
 - **Items work on a live client.** Dropping takes the stack down (`count = 1` of a hundred is what a
   client sends, and the reference refuses exactly that), the ground agent wears the item's *model*, moving
   an item between slots is answered and persisted, and wearing one moves it into the equipped bag and
@@ -86,11 +96,13 @@ is_explorable, map_id`). The port target was named by the user all along.
   `SEND_COMPUTER_INFO` (**42 bytes, variable-length, `u16` counts — not the table's 138**) and `0x8002`
   `SEND_COMPUTER_HASH` (22 bytes), 64 bytes in total. Both are now decoded, and the capture is a
   regression test.
-- **The portal is a real HTTP service after all, and this project has to serve it**
+- **The portal is a real HTTP service, and this project now serves it itself**
   (`docs/03-protocol.md` §4, corrected): with `-portal 127.0.0.1` the client calls four
   `/Spawned/WebGate/…` endpoints on `localhost:6601` and takes its `user_id`/`session_id` from them.
-  The reference web gate (`PreSearing/tools/webgate.py`) answered all four during a working run.
-  **Not yet implemented here** — a run against this service used the reference's web gate.
+  The reference answered them with `tools/webgate.py`; **`crates/asura-webgate` is now the port** —
+  same endpoints, same XML and status codes, answered from the rows `tools/seed-dev.ps1` writes
+  (`asura_db::portal`). `tools/start-server.ps1` builds and starts it; no Python, no reference
+  checkout.
 - **Where it stops, and it is now the top of the queue:** after that web-gate login the client opened a
   second auth connection, sent the same preamble, and reset it instead of sending the portal login.
   Against GWPS the login did arrive, nine seconds later, and worked. The reference's own log shows it
@@ -214,13 +226,14 @@ trace block until a live session pointed out that the console was unreadable; pe
 only ones behind the flag now, and `-Trace` still exists for exactly the case it was built for.
 
 `start-server.ps1` exists because `play.ps1` alone is not enough for a client and the missing half is
-invisible: with `-portal 127.0.0.1` the client asks the **reference web gate on 6601** who it is before
+invisible: with `-portal 127.0.0.1` the client asks the **web gate on 6601** who it is before
 it sends a login, and with nothing there it opens the auth connection, does the key exchange, sends its
 preamble, and closes. That is what "I cannot connect to the server" looked like on this machine — with
-the server running perfectly and `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` never arriving. `start-server.ps1`
-starts PostgreSQL (if it is stopped), the web gate, and then hands over to `play.ps1`; `stop-server.ps1`
-kills the services and the gate, verifies the ports are free, and notes what a hard stop leaves behind
-(a connected player's pool slot, which only the unscheduled reaper frees).
+the server running perfectly and `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` never arriving. The gate is this
+project's own (`crates/asura-webgate`). `start-server.ps1` starts PostgreSQL (if it is stopped), builds
+and starts the gate, and then hands over to `play.ps1`; `stop-server.ps1` kills the services and the
+gate, verifies the ports are free, and notes what a hard stop leaves behind (a connected player's pool
+slot, which only the unscheduled reaper frees).
 
 Then prove M2 at any time:
 

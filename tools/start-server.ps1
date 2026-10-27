@@ -11,13 +11,16 @@
          and the services refuse to start, with a message in their own log rather than on screen.
          Starting a service needs elevation, so this script says so instead of failing obscurely.
 
-      2. **The reference web gate on 6601** (`PreSearing/tools/webgate.py`). With `-portal 127.0.0.1`
-         the client asks that HTTP service who it is -- `session/create.xml`, `users/login.xml`,
-         `my_account/game_accounts.xml`, `my_account/token.xml` -- and only then sends
+      2. **This project's web gate on 6601** (`crates/asura-webgate`, built by this script). With
+         `-portal 127.0.0.1` the client asks that HTTP service who it is -- `session/create.xml`,
+         `users/login.xml`, `my_account/game_accounts.xml`, `my_account/token.xml` -- and only then sends
          `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` over the socket it already opened. With nothing listening on
          6601 it opens the auth connection, sends its preamble, gets its session salt, and then closes
          without ever logging in. That is what a "server is not running" client error actually looked
          like on this machine, with the server running perfectly.
+
+    The gate is a faithful port of the reference's `tools/webgate.py`, answered from the same database
+    rows `tools/seed-dev.ps1` writes: no Python, and no reference checkout on disk.
 
     Then it hands over to `tools/play.ps1`: seed the dev identities and maps, build, start `asura-auth`
     on 6112 and `asura-world` on 6113, tail both logs. Ctrl+C stops the services and this script stops
@@ -40,7 +43,7 @@
     makes a traced console three lines a second of packet log with the events buried in it.
 
 .PARAMETER PreSearing
-    The reference checkout holding tools/webgate.py. Default: the sibling of this repository.
+    Kept for old command lines; the gate no longer reads the reference checkout.
 
 .PARAMETER GatePort
     The port the web gate listens on. Default 6601, which is what the client calls.
@@ -56,8 +59,8 @@
     .\tools\start-server.ps1 -Trace
 
 .EXAMPLE
-    # both pre-Searing outposts, and the reference checkout somewhere else
-    .\tools\start-server.ps1 -Maps 146,148 -PreSearing 'D:\PreSearing'
+    # the two pre-Searing county maps
+    .\tools\start-server.ps1 -Maps 146,148
 #>
 
 param(
@@ -132,35 +135,32 @@ if ($SkipDatabase) {
     Write-State "PostgreSQL :5432" "started"
 }
 
-# ---- 2. the reference web gate ------------------------------------------------------------------
+# ---- 2. the web gate ----------------------------------------------------------------------------
 Write-Host ""
 Write-Host "== 2. web gate (the client asks this who it is before it logs in)"
 $gate = $null
 if (Test-Port $GatePort) {
     Write-State "web gate :$GatePort" "already listening"
 } else {
-    if (-not $PreSearing) {
-        $PreSearing = Join-Path (Split-Path -Parent $repo) "PreSearing"
-    }
-    $gateScript = Join-Path $PreSearing "tools\webgate.py"
-    if (-not (Test-Path $gateScript)) {
-        Write-Host "  no web gate at $gateScript" -ForegroundColor Yellow
-        Write-Host "  The client launched with -portal needs it. Either point -PreSearing at the checkout" -ForegroundColor Yellow
-        Write-Host "  that holds tools/webgate.py, or start the client without -portal." -ForegroundColor Yellow
+    # This project's own gate (crates/asura-webgate), built and started here: the client launched with
+    # -portal calls it on 6601 for its identity, and the answer is the pair the auth service resolves.
+    Write-Host "  building asura-webgate"
+    & cargo build --offline -p asura-webgate
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  building asura-webgate failed (exit $LASTEXITCODE)" -ForegroundColor Yellow
         exit 3
     }
-    $python = (Get-Command python -ErrorAction SilentlyContinue).Source
-    if (-not $python) {
-        Write-Host "  python is not on PATH; it is what runs the web gate" -ForegroundColor Yellow
+    $gateExe = Join-Path $repo "target\debug\asura-webgate.exe"
+    if (-not (Test-Path $gateExe)) {
+        Write-Host "  no web gate binary at $gateExe" -ForegroundColor Yellow
         exit 3
     }
     $gateOut = Join-Path $repo ".webgate.log"
     $gateErr = Join-Path $repo ".webgate.err"
     Remove-Item $gateOut, $gateErr -ErrorAction SilentlyContinue
-    Write-Host "  starting $gateScript"
-    $gate = Start-Process -FilePath $python -ArgumentList $gateScript `
-        -WorkingDirectory (Split-Path -Parent $gateScript) `
-        -WindowStyle Hidden -PassThru `
+    Write-Host "  starting $gateExe"
+    $gate = Start-Process -FilePath $gateExe -ArgumentList "--bind", "127.0.0.1:$GatePort" `
+        -WorkingDirectory $repo -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput $gateOut -RedirectStandardError $gateErr
     for ($i = 0; $i -lt 40 -and -not (Test-Port $GatePort); $i++) { Start-Sleep -Milliseconds 250 }
     if (-not (Test-Port $GatePort)) {

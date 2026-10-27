@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/asura-auth",
     "crates/asura-world",
+    "crates/asura-webgate",
     "crates/asura-protocol",
     "crates/asura-db",
     "crates/asura-fakeworld",
