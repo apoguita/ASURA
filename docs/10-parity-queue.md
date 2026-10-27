@@ -42,10 +42,14 @@ instead of work.
 | axis | how it is measured | current state |
 |---|---|---|
 | client → server dispatch | `tools/parity-report.py` vs `GameSrv.c`/`AuthSrv.c` switches | auth **15/15**, game **14/18** (the four `CHAR_CREATION_*`) |
-| server → client emit | `tools/parity-emit.py` | reference **81**, ASURA **69**, **12 cannot** (9 verified real gaps) |
+| server → client emit | `tools/parity-emit.py` | reference **81**, ASURA **67**, **14 cannot** — **9 real** gaps and 5 explained absences |
 | state kept per player | `docs/09` §9, hand-checked against `GmPlayer.h:21-33` | 12 fields vs 6; `account_id` missing, which is what `/tp` needs |
 | schema | migrations vs `Db.c` queries | equivalent for what is used; no `friendships` table (the stream is empty anyway) |
 | the load block | **not measured** — only the item block is byte-compared | 2 messages missing on every map load (captures: 48 and 49 occurrences) |
+
+The emit tool counts a message as emitted only when a **send path** reaches the builder: a builder
+nothing calls is a gap, and so is one only a unit test calls. That rule is why the four party/leave
+builders (A4) still appear in the gap list — they exist, and nothing sends them yet.
 
 ## The queue
 

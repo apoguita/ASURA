@@ -55,6 +55,8 @@ EXPLAINED = {
     "INSTANCE_MANIFEST_DATA": "0 in every capture -- the reference sends none when there is nothing to download",
     "INSTANCE_PLAYER_DATA_DONE": "0 in every capture -- sent only by the character-creation flow, which is queue B",
     "PARTY_HERO_ADD": "0 in every capture -- heroes only, and the reference's own scope tier puts them out",
+    "CHAT_MESSAGE_SERVER": "gated in the reference too (`GWPS_CHAT=1`); ASURA prints the answer instead (docs/03 section 11)",
+    "ITEM_REMOVE": "deliberate: it crashed a live client, and the reference's own drop handler never sends it either",
 }
 
 PROTOCOL_FILES = (
@@ -115,6 +117,9 @@ def asura_emit_set():
         if not os.path.exists(path):
             continue
         text = strip_comments(io.open(path, "r", encoding="utf-8").read())
+        # A call from a unit test is not a sender: without this cut, a builder named in one test makes
+        # every builder after it look reachable, because the last function's body runs to end of file.
+        text = text.split("#[cfg(test)]")[0]
         vocabulary.update(match.group(1) for match in CONST_RE.finditer(text))
         marks = [(match.start(), match.group(1)) for match in FN_RE.finditer(text)]
         for index, (start, function) in enumerate(marks):
@@ -123,9 +128,15 @@ def asura_emit_set():
             head = body[: body.find(")") + 1]
             builders.append((function, body, "header" in head))
 
-    # Names that builders take as a parameter, and the constants passed to them. Scanned per function,
-    # because a header can be chosen in a loop (`for faction in [game::A, game::B] { faction_max(faction) }`)
-    # and in that shape the constant is an argument one line up, not next to the call.
+    # Which builders are actually called, and the constants passed to the ones that take a header.
+    # Scanned per function, because a header can be chosen in a loop
+    # (`for faction in [game::A, game::B] { faction_max(faction) }`) and in that shape the constant is an
+    # argument one line up, not next to the call.
+    #
+    # `called` is the honesty check on the builder scan below: a builder nothing calls is a message this
+    # server *could* send and does not, and counting it as emitted would hide exactly the gaps this tool
+    # exists to find.
+    called = set()
     call_sites = {}
     for folder in (("crates", "asura-world", "src"), ("crates", "asura-auth", "src")):
         base = os.path.join(REPO, *folder)
@@ -135,6 +146,8 @@ def asura_emit_set():
             text = strip_comments(
                 io.open(os.path.join(base, file_name), "r", encoding="utf-8", errors="replace").read()
             )
+            for match in re.finditer(r"\b(?:game|messages)::([a-z][a-z0-9_]*)\(", text):
+                called.add(match.group(1))
             marks = [(match.start(), match.group(1)) for match in FN_RE2.finditer(text)]
             for index, (start, _function) in enumerate(marks):
                 end = marks[index + 1][0] if index + 1 < len(marks) else len(text)
@@ -148,6 +161,8 @@ def asura_emit_set():
                         call_sites.setdefault(match.group(1), set()).add(function)
 
     for function, body, _takes_header in builders:
+        if function not in reachable(builders, called):
+            continue
         for name in vocabulary:
             # Matches both a bare constant and the generated `tables::AUTH_SMSG_X` spelling.
             pattern = r"\b(?:AUTH_SMSG_|GAME_SMSG_)?%s\b" % re.escape(name)
@@ -157,6 +172,33 @@ def asura_emit_set():
         produced.setdefault(name, set()).update(functions)
 
     return produced
+
+
+def reachable(builders, called):
+    """Builders reachable from world or auth code, following calls between builders.
+
+    A header can be written by a leaf builder and reached through a convenience one
+    (`instance_load_head_default()` calls `instance_load_head(..)`), so "is it called from the world"
+    has to be a reachability question, not a single grep. `called` holds direct calls from world/auth.
+    """
+    bodies = {function: body[body.find("{") + 1 or 0:] for function, body, _ in builders}
+    seen = {function for function in bodies if function in called}
+    changed = True
+    while changed:
+        changed = False
+        # A reachable builder that *calls* another one makes that one reachable: the direction matters,
+        # and getting it backwards hides leaf builders like `instance_load_head`. The search starts
+        # after the opening brace, because the declaration itself reads `pub fn name(` and would
+        # otherwise make every builder look as though it called itself.
+        for parent in list(seen):
+            body = bodies[parent]
+            for function in bodies:
+                if function in seen:
+                    continue
+                if re.search(r"\b%s\(" % re.escape(function), body):
+                    seen.add(function)
+                    changed = True
+    return seen
 
 
 def main():

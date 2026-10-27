@@ -124,6 +124,10 @@ pub const WORLD_UPDATE_LOAD_TIME: u16 = 0x001F;
 pub const PLAYER_CREATE: u16 = 0x0059;
 /// `GAME_SMSG_WORLD_CREATE_AGENT` (`0x0020`): 99 bytes, fixed.
 pub const WORLD_CREATE_AGENT: u16 = 0x0020;
+/// `GAME_SMSG_WORLD_REMOVE_AGENT` (`0x0021`): 6 bytes. An agent left the map (`GmAgent.c:60`).
+pub const WORLD_REMOVE_AGENT: u16 = 0x0021;
+/// `GAME_SMSG_PLAYER_DESTROY` (`0x005A`): 6 bytes. A player left the map (`GmPlayer.c:314`).
+pub const PLAYER_DESTROY: u16 = 0x005A;
 /// `GAME_SMSG_AGENT_PROPERTY_UPDATE_INT` (`0x009F`): 14 bytes.
 pub const AGENT_PROPERTY_UPDATE_INT: u16 = 0x009F;
 /// `GAME_SMSG_AGENT_PROPERTY_UPDATE_FLOAT` (`0x00A2`): 14 bytes.
@@ -145,6 +149,11 @@ pub const PARTY_PLAYER_ADD: u16 = 0x01CC;
 pub const PARTY_MEMBER_STREAM_END: u16 = 0x01D4;
 /// `GAME_SMSG_CHARACTER_UDPATE_PARTY` (`0x01B3`, the reference's own spelling): 5 bytes.
 pub const CHARACTER_UPDATE_PARTY: u16 = 0x01B3;
+/// `GAME_SMSG_PLAYER_UPDATE_PARTY_SIZE` (`0x00B0`): 12 bytes on the wire (the table says 5 — the
+/// capture wins; see the builder).
+pub const PLAYER_UPDATE_PARTY_SIZE: u16 = 0x00B0;
+/// `GAME_SMSG_PLAYER_UPDATE_PARTY` (`0x00B1`): 12 bytes on the wire (the table says 6 — same rule).
+pub const PLAYER_UPDATE_PARTY: u16 = 0x00B1;
 
 /// `GAME_SMSG_CHAT_MESSAGE_CORE` (`0x005D`): the text of a chat message, `2 + 2 + 2n`.
 pub const CHAT_MESSAGE_CORE: u16 = 0x005D;
@@ -1008,6 +1017,56 @@ pub fn character_update_party(party_id: u16, unknown: u8) -> crate::client::Fram
         .frame()
 }
 
+/// `GAME_SMSG_PLAYER_UPDATE_PARTY_SIZE`: how many members a player's party has.
+///
+/// **Twelve bytes, and the generated table disagrees twice.** The client's table says five
+/// (`MsgHeader`, `Word`, `Byte`, from its `stoc.h` struct) with a two-byte header; a live capture
+/// carries twelve every time a map loads — `b0 00 00 00 | 01 00 00 00 | 01 00 00 00`, 48 of 48
+/// occurrences. The fourth byte is the upper half of a **four-byte game header**, which the reference
+/// calls `TYPE_MSG_HEADER_GAME` (`msgdefs.h:19-23`) and applies per message on evidence. Its own
+/// precedence rule is "a capture beats every table" (`PreSearing/docs/07-packet-scope.md`), and the
+/// same rule settled `TRANSFER_GAME_SERVER_INFO`.
+///
+/// So the two leading zero bytes are written as body, not header: `Frame` always encodes a two-byte
+/// header, and the bytes on the wire are then identical to the capture.
+pub fn player_update_party_size(player_id: u32, party_size: u32) -> crate::client::Frame {
+    Builder::new(PLAYER_UPDATE_PARTY_SIZE)
+        .u16(0) // the upper half of the four-byte game header
+        .u32(player_id)
+        .u32(party_size)
+        .frame()
+}
+
+/// `GAME_SMSG_PLAYER_UPDATE_PARTY`: which player leads the party this player is in.
+///
+/// Twelve bytes for the same reason as the size above, and captured in the same breath
+/// (`b1 00 00 00 | 07 00 00 00 | 07 00 00 00`: player 7 leading player 7's own party). The reference's
+/// builder (`GmPlayer.c:344-354`) has no caller — GWPS sends only the size message, and only when
+/// another player is visible — so these values come from the capture, not from GWPS.
+pub fn player_update_party(player_id: u32, party_leader_player_id: u32) -> crate::client::Frame {
+    Builder::new(PLAYER_UPDATE_PARTY)
+        .u16(0)
+        .u32(player_id)
+        .u32(party_leader_player_id)
+        .frame()
+}
+
+/// `GAME_SMSG_PLAYER_DESTROY`: a player has left the map (`GameSrv_BroadcastPlayerDestroy`,
+/// `GmPlayer.c:314`). Eight bytes: a four-byte header, then the player id — the client's own sniffer
+/// calls `0x5A` `AGENT_DESTROY_PLAYER`, and the capture carries `5a 00 00 00 | 0b 00 00 00`.
+pub fn player_destroy(player_id: u32) -> crate::client::Frame {
+    Builder::new(PLAYER_DESTROY).u16(0).u32(player_id).frame()
+}
+
+/// `GAME_SMSG_WORLD_REMOVE_AGENT`: an agent has left the map (`GameSrv_BroadcastAgentRemove`,
+/// `GmAgent.c:60`). Eight bytes, captured as `21 00 00 00 | <agent id>` eight times over.
+pub fn world_remove_agent(agent_id: u32) -> crate::client::Frame {
+    Builder::new(WORLD_REMOVE_AGENT)
+        .u16(0)
+        .u32(agent_id)
+        .frame()
+}
+
 /// `GAME_SMSG_WORLD_SIMULATION_TICK`: the world's clock. The client expects one at least every 500 ms.
 pub fn world_simulation_tick(delta_ms: u32) -> crate::client::Frame {
     Builder::new(WORLD_SIMULATION_TICK).u32(delta_ms).frame()
@@ -1115,6 +1174,12 @@ mod tests {
         assert_eq!(wire(&player_update_profession(1, 0, 0, 0)), 9);
         assert_eq!(wire(&player_update_unlocked_professions(1, 0)), 10);
         assert_eq!(wire(&world_update_load_time(0)), 6);
+        // Four-byte game headers: the table says 6 for the first two and 5/6 for the party pair, and
+        // the capture says 8 and 12. The capture wins (see the builders).
+        assert_eq!(wire(&player_destroy(7)), 8);
+        assert_eq!(wire(&world_remove_agent(7)), 8);
+        assert_eq!(wire(&player_update_party_size(1, 1)), 12);
+        assert_eq!(wire(&player_update_party(1, 1)), 12);
         assert_eq!(
             wire(&world_create_agent(&CreateAgent {
                 agent_id: 1,
@@ -1151,6 +1216,26 @@ mod tests {
         assert_eq!(wire(&world_simulation_tick(16)), 6);
         assert_eq!(wire(&ping_request()), 2);
         assert_eq!(wire(&ping_reply(20)), 6);
+    }
+
+    #[test]
+    fn the_party_messages_are_the_bytes_a_live_server_sends() {
+        // Verbatim from `PreSearing/captures/zone-ref-005829.jsonl`, the only evidence there is: the
+        // client's own table says 5 and 6 bytes for these two, and live sends 12, and the client is
+        // happy with live. See the builders for the precedence rule this follows.
+        assert_eq!(
+            player_update_party_size(1, 1).encode(),
+            vec![0xb0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
+        );
+        assert_eq!(
+            player_update_party(7, 7).encode(),
+            vec![0xb1, 0, 0, 0, 7, 0, 0, 0, 7, 0, 0, 0]
+        );
+        assert_eq!(player_destroy(7).encode(), vec![0x5a, 0, 0, 0, 7, 0, 0, 0]);
+        assert_eq!(
+            world_remove_agent(7).encode(),
+            vec![0x21, 0, 0, 0, 7, 0, 0, 0]
+        );
     }
 
     #[test]
