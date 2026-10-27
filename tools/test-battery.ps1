@@ -210,6 +210,18 @@ if ($python) {
     $missing = ($result.Output | Select-String -Pattern 'real behaviour are missing' | ForEach-Object { $_.Line }) -join ""
     Write-Verdict $true ("status table regenerated: {0}" -f $(if ($missing) { $missing } else { "nothing missing" }))
     Write-Host "          docs/07-status.md is the list to work down; it is generated, never typed"
+
+    # The other direction: what the reference can put on the wire that this cannot. A dispatch table can
+    # be complete while whole features are absent -- that is how PLAYER_UPDATE_PARTY went missing from a
+    # load block an audit had called equivalent (docs/10-parity-queue.md, item A4).
+    $emit = Invoke-Native $python @("tools/parity-emit.py")
+    $realLine = ($emit.Output | Select-String -Pattern 'real gaps:' | ForEach-Object { $_.Line }) -join ""
+    $cannot = ($emit.Output | Select-String -Pattern 'real gap names:' | ForEach-Object { ($_.Line -replace '.*real gap names:\s*', '').Trim() }) -join ""
+    Write-Verdict $true ("emit surface: {0}" -f $(if ($realLine) { $realLine.Trim() } else { "not measured" }))
+    if ($cannot) {
+        Write-Host ("          cannot emit: {0}" -f $cannot)
+        Write-Host "          docs/10-parity-queue.md carries each one with its evidence"
+    }
 } else {
     Write-Skip "python is not installed"
 }

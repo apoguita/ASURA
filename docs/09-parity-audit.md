@@ -48,7 +48,7 @@ The ten BEHIND rows are **two** work items, not ten. Nine of them are character 
 which needs one message pair this server cannot yet originate.
 
 Two things this table deliberately does *not* count: GWPS's pathfinding and party modules, which are
-library code with no dispatch entry point (see §11), and the five creation rows twice over.
+library code with no dispatch entry point (see §12), and the five creation rows twice over.
 
 ---
 
@@ -247,7 +247,52 @@ binaries check a schema version. ASURA: migrations 0001-0007 — `schema_version
 
 ---
 
-## 9. Tooling & observability
+## 9. State parity: what each server keeps for a connected player
+
+**This section exists because the first version of this audit did not have it, and that omission hid a
+real liberty.** The rest of the document compares dispatch arms and wire messages — what goes in and what
+comes out. It never compared **what the two servers hold between messages**, and that is where a missing
+capability hides: a server that keeps less cannot do what the other one does, even when every message it
+*can* answer is identical.
+
+GWPS keeps twelve fields per player (`GmPlayer.h:21-33`). ASURA keeps six (`Play`, `lib.rs`).
+
+| kept | GWPS | ASURA | Verdict |
+|---|---|---|---|
+| player id | `GmPlayer.player_id` | `PLAYER_ID` (constant — one player per map) | 1:1 (effect) |
+| agent id | `GmPlayer.agent_id` | `Agents.player.agent_id` | 1:1 |
+| connection | `GmPlayer.conn_token` | the connection is the task; no id | 1:1 (effect) |
+| **character id** | `GmPlayer.char_id` | `Play.character` | 1:1 |
+| **account id** | `GmPlayer.account_id` — used 63 times on the game side, including every bag and item read (`GameSrv.c:1136`, `GameSrv.c:1174`) and the transfer request (`GameSrv.c:1456`) | **not kept**: read from the claimed transfer and dropped | **BEHIND** — and it is exactly what `/tp` cannot write without |
+| character row | `GmPlayer.character` (a whole `DbCharacter`) | `Play.name` only; everything else read from rows per request | 1:1 (effect) |
+| account row | `GmPlayer.account` (a whole `DbAccount`) | nothing; read per request | 1:1 (effect) |
+| bags | `GmPlayer.bags` (in memory, written once) | `Play.inventory` (rows, reloaded) | 1:1 (effect) |
+| campaign | `GmPlayer.char_creation_campaign` | none — no creation | BEHIND (the creation gap, §6) |
+| profession | `GmPlayer.primary_profession` | `DEFAULT_PRIMARY_PROFESSION` (1, Warrior — the reference's own default) | 1:1 (effect) |
+| team token | `GmPlayer.player_team_token` (an arbitrary constant) | `PLAYER_TEAM_TOKEN` | 1:1 (effect) |
+| party id | `GmPlayer.party_id` | `PARTY_ID` (1) | 1:1 (effect) |
+
+Two conclusions, and they are the answer to "why does this project take liberties":
+
+1. **Nine of the ten differences are storage, not behaviour** — ASURA derives from rows what GWPS
+   caches. That is legitimate, but only because it *is* recorded here: the rows are the same rows, read
+   from the same place, and nothing a client can see differs. Stated as a rule: **caching nothing is
+   fine; being unable to answer is not.**
+2. **One difference is a real liberty: `account_id`.** GWPS keeps it because work needs it — every bag
+   and item query is scoped by it, and the transfer request carries it (`GameSrv.c:1450-1472`:
+   `player_id`, `account_id`, `char_id`, `district`). ASURA scopes everything by character, which works
+   for every message the world sends today, and stops working the moment the world has to *originate* a
+   travel. It is not blocked by a missing capture (§4) and it is not an architecture objection: it is a
+   field that was never kept because nothing had needed it yet.
+
+ASURA additionally needs its own `session_id` on the connection. That is **not** parity with `GmPlayer` —
+GWPS keeps no session id on the game side; its analogue lives auth-side, on the auth connection
+(`AuthConnection.account_id`, `account.current_char_id`), which is what mints the token. ASURA's `transfer`
+and `lease` rows are keyed by session, so the session is the thing it must carry to mint one itself.
+
+---
+
+## 10. Tooling & observability
 
 | Behaviour | GWPS | ASURA | Verdict |
 |---|---|---|---|
@@ -260,7 +305,7 @@ binaries check a schema version. ASURA: migrations 0001-0007 — `schema_version
 
 ---
 
-## 10. ASURA behaviour GWPS does not have (explicitly AHEAD)
+## 11. ASURA behaviour GWPS does not have (explicitly AHEAD)
 
 Recorded here so nobody later "restores parity" by deleting working features:
 
@@ -274,7 +319,7 @@ Recorded here so nobody later "restores parity" by deleting working features:
 
 ---
 
-## 11. Where GWPS is itself unfinished (the "missing" that is not a gap)
+## 12. Where GWPS is itself unfinished (the "missing" that is not a gap)
 
 These are GWPS rows that look like features and are not. Matching them would be copying a dead end:
 
@@ -291,7 +336,7 @@ These are GWPS rows that look like features and are not. Matching them would be 
 
 ---
 
-## 12. The real gap list
+## 13. The real gap list
 
 Ordered by what a player or tester would notice first. Each entry says what it needs, and nothing else
 is added to it.
@@ -306,7 +351,7 @@ is added to it.
 
 ---
 
-## 13. How to check this audit
+## 14. How to check this audit
 
 ```powershell
 # GWPS dispatch, the measure for §2

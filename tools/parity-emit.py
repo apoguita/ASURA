@@ -49,6 +49,14 @@ FN_RE = re.compile(r"\bpub fn ([a-z0-9_]+)\s*\(")
 # World and auth code is not all `pub fn`; take any function boundary as a chunk to scan.
 FN_RE2 = re.compile(r"\bfn ([a-z0-9_]+)\s*[<(]")
 
+# Messages this repo cannot emit that are *not* gaps, each with the evidence. Kept here rather than in
+# prose so the count stays honest: an explained absence is different from an unexplained one.
+EXPLAINED = {
+    "INSTANCE_MANIFEST_DATA": "0 in every capture -- the reference sends none when there is nothing to download",
+    "INSTANCE_PLAYER_DATA_DONE": "0 in every capture -- sent only by the character-creation flow, which is queue B",
+    "PARTY_HERO_ADD": "0 in every capture -- heroes only, and the reference's own scope tier puts them out",
+}
+
 PROTOCOL_FILES = (
     os.path.join("crates", "asura-protocol", "src", "game", "mod.rs"),
     os.path.join("crates", "asura-protocol", "src", "client", "messages.rs"),
@@ -161,16 +169,26 @@ def main():
     missing = sorted(name for name in theirs if name not in ours)
     shared = sorted(name for name in theirs if name in ours)
     extra = sorted(name for name in ours if name not in theirs)
+    explained = [name for name in missing if name in EXPLAINED]
+    real = [name for name in missing if name not in EXPLAINED]
 
     write = sys.stdout.write
     write("messages the reference can emit: %d\n" % len(theirs))
     write("of those, this repo can emit:    %d\n" % len(shared))
-    write("of those, this repo CANNOT:      %d\n\n" % len(missing))
+    write("of those, this repo CANNOT:      %d (%d real, %d explained)\n"
+          % (len(missing), len(real), len(explained)))
+    write("real gaps: %d\n" % len(real))
+    write("real gap names: %s\n\n" % ", ".join(real))
 
-    if missing:
+    if real:
         write("CANNOT EMIT -- feature surface this repo does not have\n")
-        for name in missing:
+        for name in real:
             write("  %-40s %s\n" % (name, theirs[name]))
+        write("\n")
+    if explained:
+        write("CANNOT EMIT, explained (not gaps)\n")
+        for name in explained:
+            write("  %-40s %s\n" % (name, EXPLAINED[name]))
         write("\n")
     if extra:
         write("this repo can emit, the reference cannot\n")
