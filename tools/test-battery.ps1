@@ -16,7 +16,7 @@
       6. asura-auth: login over a socket, travel placed or refused, the game front door
       7. asura-world: the load, the movement rules, the full chain to INSTANCE_LOAD_FINISH
       8. the generated files still match the reference source
-      9. the map data and the path finder: both ports against the reference's own answers
+      9. the map data, the path finder and the schema: both ports against the reference's own answers
      10. the parity report (informational: what GWPS has that this does not)
      11. the real client (by hand -- printed, never automated)
 
@@ -215,7 +215,7 @@ if ($python) {
 # and `GmPaths.c` is the A* a walk is refused from. The only honest verdict on a port of either is the
 # reference's own answer for the same bytes and the same cases -- so this step compares the reference's
 # own tools, the committed fixtures and this repo, and fails if any two of them disagree.
-Write-Step 9 "the map data and the path finder (a real Gw.dat, against the reference's own code)"
+Write-Step 9 "the map data, the path finder and the schema (against the reference's own code)"
 if ($python) {
     $result = Invoke-Native $python @("tools/parity-pathing.py", "--check")
     $detail = ($result.Output | Select-Object -Last 1) -join ""
@@ -231,6 +231,15 @@ if ($python) {
     Write-Verdict ($result.ExitCode -eq 0) "the path finder" $detail
     if ($result.ExitCode -ne 0) {
         ($result.Output | Select-String -Pattern 'FAIL|reference:|this repo:' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
+    }
+
+    # The schema axis: every column the reference's `DbSchema.h` declares is stored here, derived from
+    # another table, or carries a written reason. A new reference column fails this until it is answered.
+    $result = Invoke-Native $python @("tools/parity-schema.py", "--check")
+    $detail = ($result.Output | Select-Object -Last 1) -join ""
+    Write-Verdict ($result.ExitCode -eq 0) "the database schema" $detail
+    if ($result.ExitCode -ne 0) {
+        ($result.Output | Select-String -Pattern 'FAIL|out of date' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
     }
 } else {
     Write-Skip "python is not installed"

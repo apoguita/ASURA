@@ -159,6 +159,13 @@ its own three int properties — energy 20, health 100, property 64 zero (`GameS
 `GmPlayer.c:178-199`). Asserted: the creation test checks those three values and the absence of a float
 property.
 
+**The schema axis is now generated rather than argued.** `tools/parity-schema.py` parses `DbSchema.h` into
+its five tables and 95 columns and compares them with this database, printing `docs/12-schema-parity.md` and
+failing on any reference column that is neither stored, nor derived, nor explained. The numbers today:
+**22 stored, 11 mapped under a different name, 7 packed into `appearance`, 55 explained**. That is the check
+which would have caught this round's gap on its own — a reference column with no counterpart and no reason
+is a failure, not a paragraph.
+
 ### C. Teleport (`/tp`, `/teleport`) — measured, not blocked
 
 The redirect is known: `TRANSFER_GAME_SERVER_INFO` (`0x01A6`, 46 bytes as GWPS sends it) then

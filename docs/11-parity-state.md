@@ -18,6 +18,7 @@ python tools/parity-summary.py --write docs/11-parity-state.md --fast
 | generated files | `--check` against the reference's sources | **10 of 10 current** |
 | the map data | `Gw.dat` through the ported importer, against the reference's own tool | **the importer matches the reference on 7 blob(s): 283 plane(s), 34806 trapezoid(s), same bounding boxes** |
 | the path finder | the same walks through both A*s, waypoint bits compared | **the path finder matches the reference on 96 case(s): 41 walk(s) found, 127 waypoint(s) identical, 1 case(s) compared on the answer alone** |
+| the schema | every column `DbSchema.h` declares, against this database | **the schema accounts for all 95 reference column(s): 55 explained, 11 mapped, 7 packed, 22 stored** |
 
 ## What the numbers say
 

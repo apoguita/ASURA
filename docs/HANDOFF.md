@@ -336,6 +336,7 @@ the same captured one for every character. It is now built from the row.
 | the login reply building it per character instead of sending the constant | `crates/asura-auth/src/lib.rs` |
 | the creation defaults the reference writes (`level = 1`, `is_pvp` when the campaign is none, helmet shown) | `asura_db::inventory::create_character` |
 | the proof: the built block equals the reference's, the seeded character's does not, and the row round-trips | `messages.rs` tests, `crates/asura-auth/tests/login.rs`, `crates/asura-db/tests/inventory.rs` |
+| the schema diff itself: 95 reference columns, each stored, derived or explained | `tools/parity-schema.py` -> `docs/12-schema-parity.md` |
 
 Two schema details worth not re-learning: `smallint` and `integer` are *different Rust types* to sqlx, so a
 query that reads a mixed set of them needs `::int` casts or it fails at runtime; and the settings block is

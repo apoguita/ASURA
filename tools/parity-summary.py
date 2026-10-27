@@ -157,6 +157,18 @@ def path_axis():
     return {"ok": code == 0, "detail": lines[-1] if lines else "no output"}
 
 
+def schema_axis():
+    """The database schema: every column the reference declares, accounted for.
+
+    The one axis whose yardstick is the reference's *declaration* rather than its behaviour -- `DbSchema.h`
+    against this database. It fails on a reference column that is neither stored, derived, nor explained,
+    which is what keeps a newly added reference column from being forgotten.
+    """
+    code, output = run([sys.executable, os.path.join(REPO, "tools", "parity-schema.py"), "--check"])
+    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
+    return {"ok": code == 0, "detail": lines[-1] if lines else "no output"}
+
+
 def test_axis():
     code, output = run(["cargo", "test", "--workspace", "--quiet"])
     passed = sum(
@@ -188,6 +200,7 @@ def main():
     load = load_axis()
     maps = map_axis()
     paths = path_axis()
+    schema = schema_axis()
     generated = generated_axis()
     tests = None if args.fast else test_axis()
 
@@ -271,6 +284,13 @@ def main():
         lines.append(
             "| the path finder | `tools/parity-path.py --check` | **differs from the reference**: %s |"
             % paths["detail"]
+        )
+    if schema["ok"]:
+        lines.append("| the schema | every column `DbSchema.h` declares, against this database | **%s** |" % schema["detail"])
+    else:
+        lines.append(
+            "| the schema | `tools/parity-schema.py --check` | **has unexplained columns**: %s |"
+            % schema["detail"]
         )
     if tests is not None:
         lines.append(
