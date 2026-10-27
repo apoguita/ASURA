@@ -72,18 +72,19 @@ fn main() {
         }
     }
 
-    // A single id on the command line gets its first bytes printed, which is the shape a comparison with
-    // the reference's tool will take.
+    // A single id on the command line is decompressed and printed: the first bytes, its length, and a
+    // printable prefix if it looks like a container. This is the shape a comparison with the reference's
+    // `gwdat_scan Gw.dat --dump <id>` takes.
     if let Some(hex) = args.next() {
         let file_id = u32::from_str_radix(hex.trim_start_matches("0x"), 16).unwrap_or_else(|_| {
             eprintln!("{hex:?} is not a hex file id");
             std::process::exit(2);
         });
-        match archive.stored(file_id) {
+        match archive.file(file_id) {
             Ok(Some(bytes)) => {
                 println!();
                 println!(
-                    "stored bytes of {file_id:#010X}: {} bytes, first 32: {}",
+                    "decompressed {file_id:#010X}: {} bytes, first 32: {}",
                     bytes.len(),
                     bytes
                         .iter()

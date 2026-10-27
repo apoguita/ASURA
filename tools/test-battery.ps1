@@ -196,7 +196,8 @@ if ($python) {
         @("tools/gen-default-inventory.py", @("--check", "--capture", "C:\Users\Apo\Documents\GitHub\PreSearing\gwps-capture.log"), "the default inventory"),
         @("tools/parity-load.py", @("--check", "crates/asura-world/src/load_fixture.rs"), "the reference's load stream"),
         @("tools/gen-default-equipment.py", @("--check"), "the default-equipment table"),
-        @("tools/gen-map-config.py", @("--check"), "the map catalogue")
+        @("tools/gen-map-config.py", @("--check"), "the map catalogue"),
+        @("tools/gen-fa-compress-tables.py", @("--check"), "the decompressor tables")
     )
     foreach ($check in $checks) {
         $result = Invoke-Native $python (@($check[0]) + $check[1])

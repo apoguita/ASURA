@@ -218,9 +218,27 @@ A detail that had to be measured rather than read: `FILE_ARCHIVE_MAGIC` is the C
 `'\x1ANA3'`, so the four bytes `1A 4E 41 33` collapse to `0x1A4E4133`, not to their byte-reversed reading —
 the first attempt compared against the reversed value and failed against the real file.
 
-**D2 is the decompressor**: `FaDecompress` (`FaCompress.c:399-...`, an LZ + Huffman decoder with four static
-tables and `SetupNodesandTree`/`GetNextCode`). It is the next unit, and it is what turns `stored()` into
-`file()` and makes `gwdat_scan Gw.dat --dump 0x345CC` a byte-for-byte oracle.
+**D2 landed: the decompressor.** `crates/asura-world/src/fa_compress.rs` is `FaCompress.c`'s decoder, ported
+function for function — the MSB-first bit window (`ConsumeBits`/`GetBits`), `SetupNodesandTree`, `GetNextCode`
+and `FaDecompress`'s block loop with literals and back-references. Its six static tables are generated from the
+reference by `tools/gen-fa-compress-tables.py` (and `--check`ed in the battery), because the first hand
+transcription of `Table1` produced values that appear nowhere in the reference.
+
+It is verified against the archive, not against my reading of the C. `GwDat::file()` decodes an entry against
+the size in its last four bytes — the pair `FaGetFile` performs — and `a_map_blob_decompresses_to_the_containers_own_signature`
+checks three real map blobs for the things a one-bit error would break:
+
+- the decoded length is exactly the announced size (Kamadan: 1,734,079 bytes from 515,444 stored);
+- the first four bytes are `"ffna"`, which is the reference's `RIFF_SIGNATURE` (`GmMapDataImport.c:3`);
+- the fifth byte is a chunk type, which its `RiffCheckHeader` also requires.
+
+Two details the port had to get right rather than nearly right. The C reads its input as a `u32 *`, so a tail
+shorter than a word makes it read the four bytes it was told to ignore — padding reproduces that without the
+out-of-bounds read. And `next_bit_encoding + 1` relies on **unsigned wraparound** (the counter runs below zero
+and wraps to `u32::MAX`); C wraps silently, Rust panics, so the port wraps explicitly with the reason in a
+comment.
+
+**D3 is next**: `GmMapDataImport.c` (590 lines) over this, then `GmPaths.c`'s A*.
 
 ### E. Item lifecycle (T12)
 
