@@ -121,11 +121,23 @@ server stores the ones a message reads *today* — appearance, primary professio
 (migration `0008_character_traits.sql`) — and nothing else, deliberately: a column nothing loads is the same
 liberty in a new place.
 
-Still unported, each waiting on the message that would read it: `unlocked_skills` and the four completion
-bitmaps (the skill and cartography messages), `skill1..8` and `attribute` (the skillbar and attribute
-messages), `experience`, `skill_points`, `level`, `campaign`, `helm_status`, `is_pvp`,
-`secondary_profession`, `gold`'s storage half, and the per-slot armour `file_id_*`/`colors_*` pairs (which
-this server derives from the equipped items instead of denormalising).
+**Most of what is left is *not* work, and that was measured rather than assumed.** Checking the columns
+against what the reference actually sends split the list in two:
+
+| column(s) | the reference's own behaviour | verdict |
+|---|---|---|
+| `skill1`..`skill8` | `GameSrv_SendSkillbarUpdate` sends them from the row, and `HandleCharCreationConfirm` builds that row with `= {0}` and never assigns a skill — nothing in GWPS writes one | zeros are parity |
+| `unlocked_skills` | `GameSrv_SendUpdateUnlockedSkills` sends the bitmap, which is written as all-zero by the same confirm and assigned nowhere | an empty list is parity |
+| skill/attribute points | `GameSrv_SendAgentAttributePoints` **hardcodes** unused 50 / used 50 | the constant is parity |
+| the attribute spread | `GameSrv_SendPlayerAttributes` sends `data_len = Attribute_Count` and no values at all | the zeros are parity |
+| `experience`, `skill_points`, `campaign`, `helm_status`, `is_pvp`, `secondary_profession`, the completion bitmaps | stored, never read into a message that exists | no observable difference |
+| the per-slot armour `file_id_*`/`colors_*` | the reference denormalises what it already has in the equipped bag | this server derives the same answer from the items |
+
+What *was* wrong surfaced through the same reading: the character-creation block was sending the **load**
+path's health and energy (25, 400 and a regen float) where the reference's creation path sends its own three
+int properties — energy 20, health 100, property 64 zero (`GameSrv_SendPlayerHealthEnergy`,
+`GmPlayer.c:178-199`). Fixed, and asserted: the creation test now checks those three values and the absence of
+a float property.
 
 ### C. Teleport (`/tp`, `/teleport`) — measured, not blocked
 

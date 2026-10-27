@@ -1496,6 +1496,33 @@ async fn a_character_is_created_in_a_creation_instance() {
             .any(|frame| frame.header == game::CREATE_NAMED_ITEM),
         "and the starting equipment"
     );
+    // The three int properties `GameSrv_SendPlayerHealthEnergy` sends on this path: energy 20, health 100,
+    // and property 64 zero. Not the load path's 25/400/regen-float/level, which is a different block.
+    let properties: Vec<(u32, u32)> = block
+        .iter()
+        .filter(|frame| frame.header == game::AGENT_PROPERTY_UPDATE_INT)
+        .map(|frame| {
+            (
+                u32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
+                u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]]),
+            )
+        })
+        .collect();
+    assert_eq!(
+        properties,
+        vec![
+            (game::AGENT_PROPERTY_ENERGY, 20),
+            (game::AGENT_PROPERTY_HEALTH, 100),
+            (64, 0),
+        ],
+        "the creation path's own three properties, in its own order"
+    );
+    assert!(
+        !block
+            .iter()
+            .any(|frame| frame.header == game::AGENT_PROPERTY_UPDATE_FLOAT),
+        "and no float property: the creation path sends none"
+    );
 
     // 2. the PvP half: empty streams, as an account with nothing unlocked has.
     ask(&mut stream, &mut client, 0x808A, 2).await;

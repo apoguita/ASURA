@@ -78,6 +78,17 @@ pub const PARTY_ID: u16 = 1;
 /// as a map of its own, which is why `main.rs` accepts it alongside a main town.
 pub const MAP_TYPE_CHARACTER_CREATION: i32 = 11;
 
+/// The energy and health a character-creation screen's player-data block reports. **Not** the load block's
+/// numbers: `GameSrv_SendPlayerHealthEnergy` (`GmPlayer.c:178-199`) sends 20 and 100, while the load path
+/// sends 25 and 400 (measured from the reference's own send log). Two paths, two sets of numbers, and mixing
+/// them -- which this server did until the log was read -- is a mismatched block.
+pub const CREATION_ENERGY: u32 = 20;
+/// See [`CREATION_ENERGY`].
+pub const CREATION_HEALTH: u32 = 100;
+
+/// `AgentProperty_Value64` (`GmAgentProperties.h`): the third property the creation path sends, always 0.
+pub const AGENT_PROPERTY_VALUE64: u32 = 64;
+
 /// `GM_ERROR_CHARACTER_NAME_ALREADY_EXIST` (`GmError.h`): the code the reference answers a taken name with
 /// (`GameSrv.c:1939`).
 pub const GM_ERROR_CHARACTER_NAME_ALREADY_EXIST: u32 = 0x0106;
@@ -1490,20 +1501,23 @@ async fn answer(
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             ));
             frames.push(game::agent_update_attributes(agent_id, &[0; 42]));
+            // `GameSrv_SendPlayerHealthEnergy` (`GmPlayer.c:178-199`): three **int** properties with the
+            // creation path's own numbers -- energy 20, health 100, property 64 zero. The load block's numbers
+            // differ (25, 400, a regen float and a level), because the reference sends different ones there.
             frames.push(game::agent_property_update_int(
                 game::AGENT_PROPERTY_ENERGY,
                 agent_id,
-                game::PLAYER_ENERGY_MAX,
+                CREATION_ENERGY,
             ));
             frames.push(game::agent_property_update_int(
                 game::AGENT_PROPERTY_HEALTH,
                 agent_id,
-                game::PLAYER_HEALTH_MAX,
+                CREATION_HEALTH,
             ));
-            frames.push(game::agent_property_update_float(
-                game::AGENT_PROPERTY_ENERGY_REGEN,
+            frames.push(game::agent_property_update_int(
+                AGENT_PROPERTY_VALUE64,
                 agent_id,
-                game::PLAYER_ENERGY_REGEN,
+                0,
             ));
             frames.push(game::instance_player_data_done());
             send(stream, session, frames, trace).await?;
