@@ -316,11 +316,14 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
   messages crashed a live client and neither is in any capture. There is **no switch** for that, deliberately
   — a knob nobody can use is worse than the plain behaviour. The ground item waits for a capture of GWPS
   actually dropping something, and its handler is the unfinished one, so that capture may never exist.
-- **`/tp` and `/teleport`**: they need world-initiated travel (reserve a slot, write a transfer row, send
-  `GAME_SMSG_TRANSFER_GAME_SERVER_INFO`), and that message is in no capture either. `/maps`, `/stuck` and
-  every chat channel are implemented and **not gated**: they print here and are sent, because printing here
-  is the half that has always worked — the reference's `/maps` answered into its own log and never onto a
-  screen.
+- **`/tp` and `/teleport`**: they need a *world-initiated* travel (reserve a slot, write a transfer row,
+  send `TRANSFER_GAME_SERVER_INFO`, then `MAP_UPDATE_CURRENT`). The redirect is **not** the unknown part:
+  the reference sends it on every `/tp`, its 46-byte layout is the one `game::TRANSFER_GAME_SERVER_INFO`
+  already carries, and the cycle is written up in `docs/03-protocol.md` §5. What is missing is a way for a
+  world to start it — today only the client can, through the auth service. `/maps`, `/stuck` and every chat
+  channel are implemented and **not gated**: a spoken line is sent, a generated answer is printed, because
+  printing is the half that has always worked — the reference's `/maps` answered into its own log and never
+  onto a screen.
 - **No trade, no salvage, no pick-up**: an item can be dropped (silently), moved and worn, and nothing
   else. Nothing picks a dropped item up, because the reference has no handler for that either
   (`docs/07-status.md`).

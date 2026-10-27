@@ -470,9 +470,11 @@ The commands, as the reference's `GmChat.c`/`GmCommands.c` define them: `/stuck`
 broadcasts the agent's position (`0x002C`, **not** `AGENT_STOP_MOVING`, which is what `0x8028` answers);
 `/maps` prints the reference's table verbatim — `Teleport targets (N aliases, every one with a map
 config):`, then one `  /tp <alias> -> map <id>  <name>` row per map — and sends nothing; `/tp <map>` and
-`/teleport <map>` are **not implemented**, because they need world-initiated travel (reserve a slot, write a
-transfer row, send `GAME_SMSG_TRANSFER_GAME_SERVER_INFO`) and that message is in no capture either. An
-unknown command prints `Unknown command`, which is the line the reference logs.
+`/teleport <map>` are **not implemented**, because they need a *world-initiated* travel (reserve a slot,
+write a transfer row, send `TRANSFER_GAME_SERVER_INFO`, then `MAP_UPDATE_CURRENT`). The redirect is not
+the unknown part — §5 above has its bytes, GWPS sends it on every `/tp`, and `mod.rs:59` already carries
+the header and length; what this server lacks is a way for a *world* to start the cycle that §5 describes
+from the client's side. An unknown command prints `Unknown command`, which is the line the reference logs.
 
 Three answers change nothing and send nothing: item id `0`, an item that is not in the backpack/belt
 pouch/bag 1/bag 2 (`GmBag_FindItem` looks no further, so storage is not droppable), and a count larger than

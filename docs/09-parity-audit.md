@@ -145,7 +145,30 @@ never seen one appear — in either server.
 | `/maps` | Chat aliases via the gated sender **plus** an unconditional `log_info` table: `Teleport targets (N aliases, every one with a map config):` then `  /tp %-15s -> map %3d  %s` (`GmCommands.c:113-152`) | The same table, printed, character for character (`maps_answer`, `lib.rs:1497-1529`); the chat half is printed only under trace and never sent (`lib.rs:1063-1078`) | 1:1 |
 | Unknown `/command` | "Unknown command" through the gated sender ⇒ log line only (`GmChat.c:145-180`) | `world: Unknown command` (`lib.rs:1082`) | 1:1 |
 | `/stuck` | Cancel + position broadcast (`GmChat.c:243-251`) | `AGENT_UPDATE_POSITION` (`lib.rs:1038-1062`) | 1:1 |
-| `/tp`, `/teleport` | `GameSrv_HandleTeleportCommand` (`GmCommands.c:155-216`): refuses a missing or unknown alias, refuses a map with no config (it would silently fall back to Kamadan, `GmCommands.c:180-190`), refuses "already here", then asks the control connection to transfer the player (`GameSrvCtrl_StartPlayerTransferTo`, `GmCommands.c:214`). Both refusals go through the gated chat sender, so with the gate off they are log lines. | Not implemented — ASURA's world cannot originate a travel (`lib.rs:1034-1036`). | BEHIND |
+| `/tp`, `/teleport` | `GameSrv_HandleTeleportCommand` (`GmCommands.c:155-216`): refuses a missing or unknown alias, refuses a map with no config (it would silently fall back to Kamadan, `GmCommands.c:180-190`), refuses "already here", then `GameSrvCtrl_StartPlayerTransferTo` starts a real server transfer. **It works in normal play** (`docs/08-gm-commands.md`, "Teleports work in normal play"), with a documented race under latency. Both refusals go through the gated chat sender, so with the gate off they are log lines. | Not implemented — this world cannot originate a travel (`lib.rs:1034-1036`) | BEHIND |
+
+### What a teleport is, measured
+
+`/tp` is not a position change; it is a server transfer, and the reference has it working. The wire
+evidence, none of which is a guess:
+
+- **`TRANSFER_GAME_SERVER_INFO` (`0x01A6`)**, 46 bytes as GWPS sends it and 52 in the live capture (the
+  extra 4 are the client's own 4-byte game header): `{header, host[24], map_token, region, map_id,
+  is_explorable, player_token}`. The 24-byte host is a `sockaddr_in`: family (little endian), port (big
+  endian), four address bytes, then padding. The two captured packets carry `map_id = 161,
+  is_explorable = 1` and `map_id = 165, is_explorable = 0` — which is how the rule "the flag describes
+  the *destination*, not the source" was found (`GameSrv.c:1394-1403`).
+- **`MAP_UPDATE_CURRENT` (`0x0099`, 12 bytes)** follows in the same millisecond, in 10 of 10 captured
+  transitions (`GameSrv.c:1429-1432`).
+- **A real client-announced travel begins with `TRAVEL_INIT` (`0x00C1`, 12 bytes, client → server)**,
+  which GWPS's `/tp` skips. That is its documented race: the redirect arrives in a map the client never
+  asked to leave, and under latency the hop can fail (`docs/08-gm-commands.md`).
+
+Sources: `captures/zone-ref-005829.jsonl` seq 42 and 424 (raw, gitignored), `docs/08-gm-commands.md`
+("What a teleport actually does", "Known limitation"), `code/OpenTyria/GameSrv.c:1360-1435`,
+`opcodes.h:358`. ASURA already carries the builder and the sizes
+(`crates/asura-protocol/src/game/mod.rs:59-61`) and the whole cycle is written down in
+`docs/03-protocol.md` §5 — what the world lacks is the ability to *start* one.
 
 ---
 
@@ -275,7 +298,7 @@ is added to it.
 
 | # | Gap | What it needs | Blocked on |
 |---|---|---|---|
-| 1 | `/tp` and `/teleport` | A world-initiated travel: `GAME_SMSG_TRANSFER_GAME_SERVER_INFO` from the world, then the client reconnects | A capture of a working teleport; the message is in no capture |
+| 1 | `/tp` and `/teleport` | A world-initiated travel. **The redirect itself is measured and already in this repo**: `TRANSFER_GAME_SERVER_INFO` (`0x01A6`, 46 bytes as GWPS sends it, `crates/asura-protocol/src/game/mod.rs:59`), then `MAP_UPDATE_CURRENT` (`0x0099`, 12 bytes) in the same breath — both captured live, twice, at `captures/zone-ref-005829.jsonl` (seq 42 and 424) and written up in `docs/03-protocol.md` §5. What is missing is *who starts it*: today only the client can, through the auth service; a world cannot ask to be replaced | Nothing measured. The work is the allocation path: a world-side request for a slot on the target map, a `transfer` row, and reuse of the claim path that already exists (`placement::claim_transfer`) |
 | 2 | The ground item for a drop | The message that spawns a dropped item on the ground | A GWPS capture of dropping a quantity-1 item |
 | 3 | Character creation (5 handlers) | Creation instance (map type 11) + the default-armour table | The table, and a capture of the creation flow |
 | 4 | Unequip (`0x804F`) | The item id the client means | A capture; the current layout carries no id |

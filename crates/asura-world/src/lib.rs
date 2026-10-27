@@ -1031,9 +1031,11 @@ async fn answer(
                 '/' => {
                     // `/stuck` is the command that needs no other machinery. `/maps` is the one the
                     // reference's GM file has that this world can answer honestly, because it knows
-                    // exactly which maps it hosts. `/tp` is not here: the reference teleports by asking
-                    // the auth service for a world and having the client reconnect, which is a travel
-                    // this server cannot start on its own.
+                    // exactly which maps it hosts. `/tp` is not here: the reference teleports by having
+                    // the auth service place the player on another map server and redirecting the
+                    // client, and **a world cannot start that cycle today** -- the redirect itself is
+                    // known (46 bytes at `game::TRANSFER_GAME_SERVER_INFO`, then `MAP_UPDATE_CURRENT`,
+                    // `docs/03-protocol.md` §5), so what is missing is the allocation, not the bytes.
                     let command = spoken.trim();
                     if command == "stuck" {
                         // `GameSrv_HandleChatCommand`'s `stuck`: cancel the movement and broadcast where
