@@ -40,7 +40,7 @@ fn main() {
     let inventory = asura_db::inventory::default_inventory();
 
     println!("# the four messages sent unasked");
-    dump(&load_block(&map, &name));
+    dump(&load_block(&map, &name, asura_world::AGENT_ID));
     println!("# the answer to 0x8091 (items)");
     dump(&items_block(&map, &inventory));
     println!("# the answer to 0x8088 (spawn)");
@@ -51,6 +51,8 @@ fn main() {
         standing,
         &inventory,
         std::time::Instant::now(),
+        asura_world::PLAYER_ID,
+        asura_world::AGENT_ID,
     ));
 }
 

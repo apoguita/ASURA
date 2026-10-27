@@ -1,4 +1,4 @@
-//! A world server — AzerothCore calls this a *realm*.
+//! A world server Ã¢â‚¬â€ AzerothCore calls this a *realm*.
 //!
 //! Owns: the gameplay connection to the client, the instances it hosts, and (from M5) character
 //! persistence. The auth service owns placement; this service publishes what it can host and answers
@@ -271,6 +271,7 @@ async fn main() -> ExitCode {
         world_id,
         maps,
         replay,
+        peers: Default::default(),
     });
     if let Err(err) = serve(listener, world, trace.on()).await {
         eprintln!("asura-world: the listener stopped: {err}");

@@ -8,12 +8,12 @@
 //!   the third of them;
 //! * each of the three things a client asks for is answered, and the item request's answer ends with
 //!   the download manifest, whose last message names the map;
-//! * the spawn point tells the client the map blob and where to stand â€” the two numbers without which
+//! * the spawn point tells the client the map blob and where to stand Ã¢â‚¬â€ the two numbers without which
 //!   the loading screen never ends;
 //! * the players request ends with `INSTANCE_LOAD_FINISH`, which is what takes a client off the loading
 //!   screen;
 //! * the world keeps the clock running without being asked, and answers a ping;
-//! * a dropped item becomes an agent of its own, and — as in the reference — stays in its bag;
+//! * a dropped item becomes an agent of its own, and â€” as in the reference â€” stays in its bag;
 //! * a character that leaves standing somewhere comes back standing there, and the slot it took goes
 //!   back to the pool both times.
 //!
@@ -97,6 +97,7 @@ impl Harness {
                 capacity: 2,
             }],
             replay: None,
+            peers: Default::default(),
         });
         let server = tokio::spawn(async move {
             let _ = serve(listener, world, true).await;
@@ -176,7 +177,7 @@ impl Harness {
 
     /// Do what the auth service does for one travel: take a slot, then write the pending transfer.
     ///
-    /// A second call is how a test gets a second session for the same character — the first transfer is
+    /// A second call is how a test gets a second session for the same character â€” the first transfer is
     /// claimed by the first connection and cannot be presented twice.
     async fn transfer(&self) -> u32 {
         placement::reserve(&self.pool, self.world_id, self.map_id, self.session)
@@ -202,7 +203,7 @@ impl Harness {
     ///
     /// The window is generous on purpose: leaving writes the character's position *and* releases the
     /// lease, and a whole test suite hammering one database can make two round trips take longer than a
-    /// couple of seconds — which produced a flake before this comment existed.
+    /// couple of seconds â€” which produced a flake before this comment existed.
     async fn slot_released(&self) -> bool {
         for _ in 0..100 {
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1021,6 +1022,190 @@ async fn a_character_comes_back_where_it_left() {
         harness.slot_released().await,
         "and the slot went back again"
     );
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
+/// T9/T14: a second client in the same map, and what the two connections tell each other.
+///
+/// This is the multi-player surface the reference has and this server did not: two agents with two ids,
+/// each player introduced to the other in the reference's own order (`GameSrv_SendWorldAgents`,
+/// `GmAgent.c:310-331`), and the pair of messages that take a player back out again
+/// (`GameSrv_BroadcastPlayerDestroy`, `GmAgent.c:60`).
+#[tokio::test]
+async fn a_second_player_is_introduced_to_the_first_and_withdrawn_again() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    // The first player: the identity the harness seeded.
+    let version_a = harness.version(harness.player_token);
+    let Some((mut stream_a, mut client_a)) = connect_properly(harness.address, &version_a).await
+    else {
+        panic!("the world refused the first client");
+    };
+    ask(&mut stream_a, &mut client_a, 0x8088, 2).await;
+    read_until(
+        &mut stream_a,
+        &mut client_a,
+        game::INSTANCE_LOAD_SPAWN_POINT,
+    )
+    .await;
+    ask(&mut stream_a, &mut client_a, 0x8090, 19).await;
+    read_until(&mut stream_a, &mut client_a, game::INSTANCE_LOAD_FINISH).await;
+
+    // The second: a different character on the same map and the same world server, placed the way the
+    // auth service would.
+    let second = db::seed_identity(
+        &harness.pool,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        &format!("m4-second-{}", Uuid::new_v4()),
+        "Second Player",
+        harness.map_id,
+    )
+    .await
+    .expect("seed a second identity");
+    placement::reserve(
+        &harness.pool,
+        harness.world_id,
+        harness.map_id,
+        second.session,
+    )
+    .await
+    .expect("reserve for the second player");
+    let token_b = (Uuid::new_v4().as_u128() & 0xFFFF_FFFF) as u32;
+    placement::begin_transfer(
+        &harness.pool,
+        token_b,
+        harness.world_id,
+        harness.map_id,
+        second.session,
+        second.account,
+        second.character,
+    )
+    .await
+    .expect("write the second transfer");
+
+    let version_b = GameVersion {
+        version: 39112,
+        h0008: 1,
+        map_token: harness.world_id as u32,
+        map_id: harness.map_id as u32,
+        player_token: token_b,
+        account: second.account.to_bytes_le(),
+        character: second.character.to_bytes_le(),
+        h0038: 0,
+        h003c: 0,
+    };
+    let Some((mut stream_b, mut client_b)) = connect_properly(harness.address, &version_b).await
+    else {
+        panic!("the world refused the second client");
+    };
+    ask(&mut stream_b, &mut client_b, 0x8088, 2).await;
+    read_until(
+        &mut stream_b,
+        &mut client_b,
+        game::INSTANCE_LOAD_SPAWN_POINT,
+    )
+    .await;
+
+    // The second client asks who is here: its own block, then the first player's introduction.
+    ask(&mut stream_b, &mut client_b, 0x8090, 19).await;
+    // The block and the introduction of the other player are one write, so one read holds both:
+    // read_until returns everything it read, not only up to the header it waited for.
+    let everything = read_until(&mut stream_b, &mut client_b, game::INSTANCE_LOAD_FINISH).await;
+
+    // Its own player is in the block, so the ids are a set: one for this client, one for the other.
+    let players: Vec<u32> = everything
+        .iter()
+        .filter(|frame| frame.header == game::PLAYER_CREATE)
+        .map(|frame| {
+            u32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]])
+        })
+        .collect();
+    assert_eq!(players.len(), 2, "two players: this one and the other");
+    assert!(
+        players.contains(&asura_world::PLAYER_ID),
+        "the first player keeps id 1"
+    );
+    let other_agent = everything
+        .iter()
+        .rev()
+        .find(|frame| frame.header == game::WORLD_CREATE_AGENT)
+        .expect("an agent for the other player");
+    assert_eq!(
+        u32::from_le_bytes([
+            other_agent.body[0],
+            other_agent.body[1],
+            other_agent.body[2],
+            other_agent.body[3]
+        ]),
+        asura_world::AGENT_ID,
+        "and the first player's agent keeps agent id 1"
+    );
+
+    // The first client is told about the second, in the same order.
+    let introduced = read_until(&mut stream_a, &mut client_a, game::WORLD_CREATE_AGENT).await;
+    let newcomer = introduced
+        .iter()
+        .find(|frame| frame.header == game::PLAYER_CREATE)
+        .expect("the first client is told about the second player");
+    let newcomer_id = u32::from_le_bytes([
+        newcomer.body[0],
+        newcomer.body[1],
+        newcomer.body[2],
+        newcomer.body[3],
+    ]);
+    assert_ne!(
+        newcomer_id,
+        asura_world::PLAYER_ID,
+        "the second player gets an id of its own"
+    );
+    assert!(
+        introduced
+            .iter()
+            .any(|frame| frame.header == game::PLAYER_UPDATE_PARTY_SIZE),
+        "with its party size, as the reference sends it"
+    );
+    assert!(
+        introduced
+            .iter()
+            .any(|frame| frame.header == game::PLAYER_UPDATE_PARTY),
+        "and its own party, as the reference sends it"
+    );
+
+    // T14: the second client goes away, and the first one's world loses the agent.
+    drop(stream_b);
+    let left = read_until(&mut stream_a, &mut client_a, game::PLAYER_DESTROY).await;
+    let destroyed = left
+        .iter()
+        .find(|frame| frame.header == game::PLAYER_DESTROY)
+        .expect("the departure is announced");
+    assert_eq!(
+        // A four-byte game header, so the body opens with the header's upper half: the player id starts
+        // at byte 2 of the body, not at byte 0.
+        u32::from_le_bytes([
+            destroyed.body[2],
+            destroyed.body[3],
+            destroyed.body[4],
+            destroyed.body[5]
+        ]),
+        newcomer_id,
+        "the player that left is the one named"
+    );
+    assert!(
+        left.iter()
+            .any(|frame| frame.header == game::WORLD_REMOVE_AGENT),
+        "and its agent is withdrawn, in the same push"
+    );
+
+    drop(stream_a);
     placement::remove_world(&harness.pool, harness.world_id)
         .await
         .expect("remove the world");

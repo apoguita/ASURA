@@ -25,12 +25,12 @@ Two rules, both learned the hard way in this repo:
 | T6 | character creation | **fail** | queue B |
 | T7 | select → transfer → spawn in the map | **pass** for one client | — |
 | T8 | no crash on the configured map | **pass** | — |
-| T9 | a **second client sees the first** | **fail** — one agent per map, by construction | queue A |
+| T9 | a **second client sees the first** | **server side passes**: two agents, each introduced to the other, and each told when one leaves (`a_second_player_is_introduced_to_the_first_and_withdrawn_again`) — a live second client is unverified | queue A is done on the wire |
 | T10 | movement, and invalid destinations refused | **partial** — destination echoed, never validated; no path graph | queue D |
 | T11 | chat displays on both clients | **equal to GWPS** — both send it, neither renders it | queue G (unachievable without a layout) |
 | T12 | drop: the entity appears and disappears consistently | **partial** — the stack is deducted and persisted, nothing is sent | queue E |
 | T13 | 10 minutes idle, no crash | **not verified** | queue H |
-| T14 | disconnect removes the agent; a fresh login works | **partial** — the lease is released, the agent is never removed (nobody to tell) | queue A |
+| T14 | disconnect removes the agent; a fresh login works | **server side passes**: the farewell pair is sent and asserted | queue A is done on the wire |
 | T15 | log audit: every gap understood | **fail** — no generated audit until `tools/parity-emit.py` | queue H |
 
 **Six of the sixteen tests do not pass, and exactly one of them — T6 — is on the "obvious" list.**
@@ -42,7 +42,7 @@ instead of work.
 | axis | how it is measured | current state |
 |---|---|---|
 | client → server dispatch | `tools/parity-report.py` vs `GameSrv.c`/`AuthSrv.c` switches | auth **15/15**, game **14/18** (the four `CHAR_CREATION_*`) |
-| server → client emit | `tools/parity-emit.py` | reference **81**, ASURA **67**, **14 cannot** — **9 real** gaps and 5 explained absences |
+| server → client emit | `tools/parity-emit.py` | reference **81**, ASURA **71**, **10 cannot** — **5 real** gaps and 5 explained absences |
 | state kept per player | `docs/09` §9, hand-checked against `GmPlayer.h:21-33` | 12 fields vs 6; `account_id` missing, which is what `/tp` needs |
 | schema | migrations vs `Db.c` queries | equivalent for what is used; no `friendships` table (the stream is empty anyway) |
 | the load block | **not measured** — only the item block is byte-compared | 2 messages missing on every map load (captures: 48 and 49 occurrences) |
@@ -66,13 +66,25 @@ That is not a small deviation — it is the source of `PLAYER_DESTROY`, `WORLD_R
 consistency, T14). Evidence: `tools/parity-emit.py` output; `GmPlayer.c:314`, `GmAgent.c:60`,
 `GmPlayer.c:322`, `GmPlayer.c:346`; capture `zone-ref-005829.jsonl` seq 254-259.
 
-| # | item | done when |
+**A1–A5 landed.** Each connection now allocates its own player and agent id instead of using the
+constants, a `Peers` registry holds everyone in the map with a channel per connection, a joining player
+is introduced to the others and they to it in `GameSrv_SendWorldAgents`'s order, a leaving one is
+withdrawn with the farewell pair, moves and position reports are broadcast, and the test
+`a_second_player_is_introduced_to_the_first_and_withdrawn_again` covers all of it. `PLAYER_ID`/`AGENT_ID`
+remain only as the ids the first player gets.
+
+The four messages it needed turned out to be wrong in the **generated table**, not just missing: the
+client's own table says 5, 6, 6 and 6 bytes for them while every live capture says 12, 12, 8 and 8,
+because they carry a four-byte game header (`TYPE_MSG_HEADER_GAME`, `msgdefs.h:19-23`). The generator
+now applies that per message, with the captures named in `OVERRIDES`.
+
+| # | item | state |
 |---|---|---|
-| A1 | an agent table per map instead of `PLAYER_ID`; each connection owns its agent | two connections hold two agents in one map |
-| A2 | a joining player is broadcast (`PLAYER_CREATE`, `WORLD_CREATE_AGENT`) to the others | T9: client two sees client one |
-| A3 | a leaving player is withdrawn (`PLAYER_DESTROY`, `WORLD_REMOVE_AGENT`) | T14: the other client's world loses the agent |
-| A4 | per-player party messages (`PLAYER_UPDATE_PARTY_SIZE`, `PLAYER_UPDATE_PARTY`) in the load block | the load block matches the capture's sequence |
-| A5 | movement of one player is broadcast to the rest (`AGENT_MOVE_TO_POINT`, `AGENT_UPDATE_POSITION`) | T9: both see the other walk |
+| A1 | an agent table per map instead of `PLAYER_ID`; each connection owns its agent | done |
+| A2 | a joining player is broadcast (`PLAYER_CREATE`, `WORLD_CREATE_AGENT`) to the others | done |
+| A3 | a leaving player is withdrawn (`PLAYER_DESTROY`, `WORLD_REMOVE_AGENT`) | done |
+| A4 | per-player party messages (`PLAYER_UPDATE_PARTY_SIZE`, `PLAYER_UPDATE_PARTY`) | done |
+| A5 | movement of one player is broadcast to the rest | done |
 
 ### B. Character creation (T6)
 

@@ -439,7 +439,7 @@ pub const GAME_SMSG_WORLD_SIMULATION_TICK: u16 = 0x001E;
 pub const GAME_SMSG_WORLD_UPDATE_LOAD_TIME: u16 = 0x001F;
 /// `GAME_SMSG_WORLD_CREATE_AGENT` (declared maximum 99 bytes; header `0x0020`).
 pub const GAME_SMSG_WORLD_CREATE_AGENT: u16 = 0x0020;
-/// `GAME_SMSG_WORLD_REMOVE_AGENT` (declared maximum 6 bytes; header `0x0021`).
+/// `GAME_SMSG_WORLD_REMOVE_AGENT` (declared maximum 8 bytes; header `0x0021`).
 pub const GAME_SMSG_WORLD_REMOVE_AGENT: u16 = 0x0021;
 /// `GAME_SMSG_WORLD_UPDATE_CONTROLLED_AGENT` (declared maximum 10 bytes; header `0x0022`).
 pub const GAME_SMSG_WORLD_UPDATE_CONTROLLED_AGENT: u16 = 0x0022;
@@ -513,7 +513,7 @@ pub const GAME_SMSG_NPC_UPDATE_PROPERTIES: u16 = 0x0056;
 pub const GAME_SMSG_NPC_UPDATE_MODEL: u16 = 0x0057;
 /// `GAME_SMSG_PLAYER_CREATE` (declared maximum 91 bytes; header `0x0059`).
 pub const GAME_SMSG_PLAYER_CREATE: u16 = 0x0059;
-/// `GAME_SMSG_PLAYER_DESTROY` (declared maximum 6 bytes; header `0x005A`).
+/// `GAME_SMSG_PLAYER_DESTROY` (declared maximum 8 bytes; header `0x005A`).
 pub const GAME_SMSG_PLAYER_DESTROY: u16 = 0x005A;
 /// `GAME_SMSG_CHAT_MESSAGE_CORE` (declared maximum 250 bytes; header `0x005D`).
 pub const GAME_SMSG_CHAT_MESSAGE_CORE: u16 = 0x005D;
@@ -591,9 +591,9 @@ pub const GAME_SMSG_AGENT_CREATE_NPC: u16 = 0x00AA;
 pub const GAME_SMSG_AGENT_UPDATE_OBSERVED_TARGET: u16 = 0x00AC;
 /// `GAME_SMSG_AGENT_UPDATE_MODEL` (declared maximum 10 bytes; header `0x00AE`).
 pub const GAME_SMSG_AGENT_UPDATE_MODEL: u16 = 0x00AE;
-/// `GAME_SMSG_PLAYER_UPDATE_PARTY_SIZE` (declared maximum 5 bytes; header `0x00B0`).
+/// `GAME_SMSG_PLAYER_UPDATE_PARTY_SIZE` (declared maximum 12 bytes; header `0x00B0`).
 pub const GAME_SMSG_PLAYER_UPDATE_PARTY_SIZE: u16 = 0x00B0;
-/// `GAME_SMSG_PLAYER_UPDATE_PARTY` (declared maximum 6 bytes; header `0x00B1`).
+/// `GAME_SMSG_PLAYER_UPDATE_PARTY` (declared maximum 12 bytes; header `0x00B1`).
 pub const GAME_SMSG_PLAYER_UPDATE_PARTY: u16 = 0x00B1;
 /// `GAME_SMSG_PLAYER_UPDATE_UNLOCKED_PROFESSIONS` (declared maximum 10 bytes; header `0x00B6`).
 pub const GAME_SMSG_PLAYER_UPDATE_UNLOCKED_PROFESSIONS: u16 = 0x00B6;
@@ -1143,7 +1143,7 @@ pub const GAME_TABLE: &[Entry] = &[
     Entry { header: 0x001E, index:  30, size:    6, name: Some("GAME_SMSG_WORLD_SIMULATION_TICK"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 30 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Entry { header: 0x001F, index:  31, size:    6, name: Some("GAME_SMSG_WORLD_UPDATE_LOAD_TIME"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 31 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Entry { header: 0x0020, index:  32, size:   99, name: Some("GAME_SMSG_WORLD_CREATE_AGENT"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 32 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Byte, length: 0 }, Field { kind: FieldKind::Byte, length: 0 }, Field { kind: FieldKind::Vect2, length: 0 }, Field { kind: FieldKind::Word, length: 0 }, Field { kind: FieldKind::Vect2, length: 0 }, Field { kind: FieldKind::Byte, length: 0 }, Field { kind: FieldKind::Float, length: 0 }, Field { kind: FieldKind::Float, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Vect2, length: 0 }, Field { kind: FieldKind::Vect2, length: 0 }, Field { kind: FieldKind::Word, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Vect2, length: 0 }, Field { kind: FieldKind::Word, length: 0 }] },
-    Entry { header: 0x0021, index:  33, size:    6, name: Some("GAME_SMSG_WORLD_REMOVE_AGENT"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 33 }, Field { kind: FieldKind::Dword, length: 0 }] },
+    Entry { header: 0x0021, index:  33, size:    8, name: Some("GAME_SMSG_WORLD_REMOVE_AGENT"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeaderGame, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Entry { header: 0x0022, index:  34, size:   10, name: Some("GAME_SMSG_WORLD_UPDATE_CONTROLLED_AGENT"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 34 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Entry { header: 0x0023, index:  35, size:   10, name: None, from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 35 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Entry { header: 0x0024, index:  36, size:   10, name: None, from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 36 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
@@ -1200,7 +1200,7 @@ pub const GAME_TABLE: &[Entry] = &[
     Entry { header: 0x0057, index:  87, size:   42, name: Some("GAME_SMSG_NPC_UPDATE_MODEL"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 87 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Array32, length: 8 }] },
     Entry { header: 0x0058, index:  88, size:   74, name: None, from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 88 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::String16, length: 32 }] },
     Entry { header: 0x0059, index:  89, size:   91, name: Some("GAME_SMSG_PLAYER_CREATE"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 89 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Byte, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::String16, length: 32 }] },
-    Entry { header: 0x005A, index:  90, size:    6, name: Some("GAME_SMSG_PLAYER_DESTROY"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 90 }, Field { kind: FieldKind::Dword, length: 0 }] },
+    Entry { header: 0x005A, index:  90, size:    8, name: Some("GAME_SMSG_PLAYER_DESTROY"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeaderGame, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Entry { header: 0x005B, index:  91, size:    6, name: None, from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 91 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Entry { header: 0x005C, index:  92, size:   14, name: None, from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 92 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Entry { header: 0x005D, index:  93, size:  250, name: Some("GAME_SMSG_CHAT_MESSAGE_CORE"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 93 }, Field { kind: FieldKind::String16, length: 122 }] },
@@ -1286,8 +1286,8 @@ pub const GAME_TABLE: &[Entry] = &[
     Entry { header: 0x00AD, index: 173, size:    7, name: None, from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 173 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Byte, length: 0 }] },
     Entry { header: 0x00AE, index: 174, size:   10, name: Some("GAME_SMSG_AGENT_UPDATE_MODEL"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 174 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Entry { header: 0x00AF, index: 175, size:   70, name: None, from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 175 }, Field { kind: FieldKind::String16, length: 32 }] },
-    Entry { header: 0x00B0, index: 176, size:    5, name: Some("GAME_SMSG_PLAYER_UPDATE_PARTY_SIZE"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 176 }, Field { kind: FieldKind::Word, length: 0 }, Field { kind: FieldKind::Byte, length: 0 }] },
-    Entry { header: 0x00B1, index: 177, size:    6, name: Some("GAME_SMSG_PLAYER_UPDATE_PARTY"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 177 }, Field { kind: FieldKind::Word, length: 0 }, Field { kind: FieldKind::Word, length: 0 }] },
+    Entry { header: 0x00B0, index: 176, size:   12, name: Some("GAME_SMSG_PLAYER_UPDATE_PARTY_SIZE"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeaderGame, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
+    Entry { header: 0x00B1, index: 177, size:   12, name: Some("GAME_SMSG_PLAYER_UPDATE_PARTY"), from_client: false, fields: &[Field { kind: FieldKind::MsgHeaderGame, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Entry { header: 0x00B2, index: 178, size:   90, name: None, from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 178 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::String16, length: 32 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Entry { header: 0x00B3, index: 179, size:    6, name: None, from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 179 }, Field { kind: FieldKind::AgentId, length: 0 }] },
     Entry { header: 0x00B4, index: 180, size:   74, name: None, from_client: false, fields: &[Field { kind: FieldKind::MsgHeader, length: 180 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::String16, length: 32 }] },
@@ -1846,7 +1846,7 @@ pub const fn expected_size(header: u16, from_client: bool) -> Option<usize> {
         (0x001E, false) => Some(6),
         (0x001F, false) => Some(6),
         (0x0020, false) => Some(99),
-        (0x0021, false) => Some(6),
+        (0x0021, false) => Some(8),
         (0x0022, false) => Some(10),
         (0x0023, false) => Some(10),
         (0x0024, false) => Some(10),
@@ -1903,7 +1903,7 @@ pub const fn expected_size(header: u16, from_client: bool) -> Option<usize> {
         (0x0057, false) => Some(42),
         (0x0058, false) => Some(74),
         (0x0059, false) => Some(91),
-        (0x005A, false) => Some(6),
+        (0x005A, false) => Some(8),
         (0x005B, false) => Some(6),
         (0x005C, false) => Some(14),
         (0x005D, false) => Some(250),
@@ -1989,8 +1989,8 @@ pub const fn expected_size(header: u16, from_client: bool) -> Option<usize> {
         (0x00AD, false) => Some(7),
         (0x00AE, false) => Some(10),
         (0x00AF, false) => Some(70),
-        (0x00B0, false) => Some(5),
-        (0x00B1, false) => Some(6),
+        (0x00B0, false) => Some(12),
+        (0x00B1, false) => Some(12),
         (0x00B2, false) => Some(90),
         (0x00B3, false) => Some(6),
         (0x00B4, false) => Some(74),

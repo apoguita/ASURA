@@ -86,6 +86,31 @@ MAX_COUNT_PREFIX = 4
 NESTED = "TYPE_NESTED_STRUCT"
 
 
+# Rows where the reference's own table disagrees with the wire, applied per message on the reference's
+# own evidence rule: "a capture beats every table" (`PreSearing/docs/07-packet-scope.md`). The mechanism
+# is its `TYPE_MSG_HEADER_GAME` (`msgdefs.h:19-23`): a game message whose header is four bytes on the
+# wire while the struct keeps two, "applied per message, on evidence".
+#
+# Evidence for each: every live capture that loads a map carries `PLAYER_UPDATE_PARTY_SIZE` 48 times and
+# `PLAYER_UPDATE_PARTY` 49 times at 12 bytes, and `WORLD_REMOVE_AGENT` eight times at 8 bytes;
+# `PLAYER_DESTROY` appears twice at 8. `msgdefs.c` declares 5, 6, 6 and 6 for the same four, and a
+# client that survives live must be reading the longer forms.
+OVERRIDES = {
+    0x0021: [("TYPE_MSG_HEADER_GAME", 0), ("TYPE_DWORD", 0)],
+    0x005A: [("TYPE_MSG_HEADER_GAME", 0), ("TYPE_DWORD", 0)],
+    0x00B0: [
+        ("TYPE_MSG_HEADER_GAME", 0),
+        ("TYPE_DWORD", 0),
+        ("TYPE_DWORD", 0),
+    ],
+    0x00B1: [
+        ("TYPE_MSG_HEADER_GAME", 0),
+        ("TYPE_DWORD", 0),
+        ("TYPE_DWORD", 0),
+    ],
+}
+
+
 def read(path):
     with open(path, "r", encoding="utf-8", errors="replace") as handle:
         return handle.read()
@@ -314,6 +339,17 @@ def generate(gwps):
         for index in sorted(table):
             fields_name, max_size = table[index]
             fields = arrays[fields_name]
+            header = mask | index
+            if header in OVERRIDES:
+                # The row the wire disagrees with: keep the name, take the captured fields and the size
+                # they add up to, and say so on stderr like the other deviations this script reports.
+                fields = list(OVERRIDES[header])
+                max_size = declared_max_size(fields)
+                print(
+                    "override: %s (index %d) declared %d bytes, the capture says %d"
+                    % (names[direction].get(index) or fields_name, index, table[index][1], max_size),
+                    file=sys.stderr,
+                )
             recomputed = declared_max_size(fields)
             if recomputed != max_size:
                 size_mismatches.append((mask | index, direction, index, max_size, recomputed))

@@ -5,7 +5,7 @@
 //! server with the tokens it was given. What it asserts, in order:
 //!
 //! 1. the login batch arrives and the connection is logged in;
-//! 2. the travel request is answered with `GAME_SERVER_INFO` and a success response — not a refusal;
+//! 2. the travel request is answered with `GAME_SERVER_INFO` and a success response â€” not a refusal;
 //! 3. the address in that message is where the client actually gets in;
 //! 4. the tokens in that message are the ones the world server believes;
 //! 5. the client reaches `INSTANCE_LOAD_FINISH`, the message that ends the loading screen;
@@ -126,6 +126,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
             capacity: 2,
         }],
         replay: None,
+        peers: Default::default(),
     });
     let world_task = tokio::spawn(async move {
         let _ = serve_world(world_listener, world, true).await;
@@ -225,7 +226,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
 
     // ---- the address, read the way a client reads it -----------------------------------------
     //
-    // The client is told to dial the **auth** address: that is what a real client does (measured — it
+    // The client is told to dial the **auth** address: that is what a real client does (measured â€” it
     // ignored the port in this same message and dialled the address it was launched with), and it is
     // what the reference does, whose auth port receives game connections and hands them to a game
     // server. This service routes the connection onwards (`asura_auth::frontdoor`).

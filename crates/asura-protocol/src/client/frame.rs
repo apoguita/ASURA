@@ -258,7 +258,10 @@ enum Shape {
 fn shape_of_auth(field: &tables::Field) -> Shape {
     match field.kind {
         tables::FieldKind::MsgHeader => Shape::Header,
-        tables::FieldKind::MsgHeaderGame => Shape::Fixed(4),
+        // A four-byte game header: the walker has already consumed the first two bytes as the header
+        // (HEADER_LEN), so the field covers the two that remain. Counting four here over-reads by two
+        // and desynchronises the stream -- a latent trap until the first row actually used this kind.
+        tables::FieldKind::MsgHeaderGame => Shape::Fixed(HEADER_LEN),
         tables::FieldKind::AgentId | tables::FieldKind::Float | tables::FieldKind::Dword => {
             Shape::Fixed(4)
         }
@@ -289,7 +292,7 @@ fn shape_of_game(field: &game_tables::Field) -> Shape {
     use game_tables::FieldKind;
     match field.kind {
         FieldKind::MsgHeader => Shape::Header,
-        FieldKind::MsgHeaderGame => Shape::Fixed(4),
+        FieldKind::MsgHeaderGame => Shape::Fixed(HEADER_LEN),
         FieldKind::AgentId | FieldKind::Float | FieldKind::Dword => Shape::Fixed(4),
         FieldKind::Vect2 => Shape::Fixed(8),
         FieldKind::Vect3 => Shape::Fixed(12),

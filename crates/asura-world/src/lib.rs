@@ -22,11 +22,11 @@
 //! What exists today, and what does not -- `docs/07-status.md` is generated from the same comparison
 //! as the parity report, and is the place to check:
 //!
-//! * one agent, the character the transfer named, standing where the map's spawn says — or where it
+//! * one agent, the character the transfer named, standing where the map's spawn says â€” or where it
 //!   stood when it last left, which is saved and read back (`asura_db::game::record_position`);
 //! * the character's inventory, read from rows and built into the reference's messages, including the
 //!   nine items `UPDATE_AGENT_VISUAL_EQUIPMENT` puts on the model (`asura_db::inventory`);
-//! * `GAME_CMSG_DROP_ITEM`, which puts an item agent on the ground — and, as in the reference, does not
+//! * `GAME_CMSG_DROP_ITEM`, which puts an item agent on the ground â€” and, as in the reference, does not
 //!   take the item out of the bag;
 //! * no NPCs, no other players, no combat, no quests, no picking anything up.
 //!
@@ -46,7 +46,7 @@ use asura_protocol::client::version::{self, GAME_CMSG_VERSION_LEN};
 use asura_protocol::client::{Frame, FrameError};
 use asura_protocol::game;
 
-use crate::agent::Agents;
+use crate::agent::{Adopted, Agents};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -64,7 +64,7 @@ pub const PING_VALUE: u32 = 20;
 /// The one player and one agent this world server has.
 ///
 /// The reference allocates both from per-server id tables (thousands of agents, hundreds of players).
-/// ASURA has one character in a map, so the id table is a constant â€” and the party message carries
+/// ASURA has one character in a map, so the id table is a constant Ã¢â‚¬â€ and the party message carries
 /// these as `u16`, which is the only real constraint. It becomes a real allocator when there is more
 /// than one player to allocate for.
 pub const PLAYER_ID: u32 = 1;
@@ -160,6 +160,155 @@ pub struct World {
     /// ones this server builds (see the `replay` module). A bisection tool: if a client survives a
     /// replay and dies against the built blocks, the difference is payload content.
     pub replay: Option<crate::replay::Replay>,
+    /// Everyone standing in this world right now. The reference keeps the same list
+    /// (`srv->agents`, `srv->players`) and broadcasts through it; a server that has nobody to tell has
+    /// no use for it, which is why this is new rather than recently-added: without a second player the
+    /// list had nothing in it but the one client being served.
+    pub peers: Peers,
+}
+
+/// One player in the world, plus the channel that reaches its connection.
+///
+/// The two connections are separate sockets owned by separate tasks, so a "broadcast" is a push into
+/// each peer's outbox. `Mutex` is the std one: the critical sections are a `Vec` scan, and await points
+/// inside them would be the only reason to want an async lock.
+pub struct Peer {
+    /// What `GAME_SMSG_PLAYER_CREATE` calls the player, and what the client uses to refer to it.
+    pub player_id: u32,
+    /// What `GAME_SMSG_WORLD_CREATE_AGENT` calls the agent.
+    pub agent_id: u32,
+    pub name: String,
+    /// Where this peer stands, as the server last believed it. Kept here so a joining player can be
+    /// told about everyone already in the map without reaching into another connection's state.
+    pub standing: Standing,
+    /// The nine equipped item ids, for the same reason as `standing`.
+    pub equipped: [u32; 9],
+    outbox: tokio::sync::mpsc::UnboundedSender<Vec<Frame>>,
+}
+
+/// Everyone in the world, keyed by nothing in particular: the list is at most a handful of players.
+#[derive(Default, Clone)]
+pub struct Peers(std::sync::Arc<std::sync::Mutex<Vec<Peer>>>);
+
+impl Peers {
+    /// Take the lowest free ids and put the peer in the list.
+    ///
+    /// The reference allocates both from id tables (`GmIdAllocate`); with a list this short, the lowest
+    /// free id is the same thing, and it keeps the single-player case at id 1 exactly as it was.
+    pub fn join(&self, mut peer: Peer) -> (u32, u32) {
+        let mut peers = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        peer.player_id = (1..)
+            .find(|id| !peers.iter().any(|other| other.player_id == *id))
+            .unwrap_or(1);
+        peer.agent_id = (1..)
+            .find(|id| !peers.iter().any(|other| other.agent_id == *id))
+            .unwrap_or(1);
+        let ids = (peer.player_id, peer.agent_id);
+        peers.push(peer);
+        ids
+    }
+
+    /// Remove a peer, and say whether it was there.
+    pub fn leave(&self, player_id: u32) -> bool {
+        let mut peers = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        let before = peers.len();
+        peers.retain(|peer| peer.player_id != player_id);
+        before != peers.len()
+    }
+
+    /// Everyone except one player, as plain data (no outbox, so the caller cannot hold the lock).
+    pub fn others(&self, player_id: u32) -> Vec<PeerView> {
+        let peers = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        peers
+            .iter()
+            .filter(|peer| peer.player_id != player_id)
+            .map(PeerView::from)
+            .collect()
+    }
+
+    /// Push frames to everyone except `except`. A peer whose channel is closed is gone; its own task is
+    /// responsible for leaving the list, so a failed send is not an error here.
+    pub fn broadcast(&self, except: u32, frames: &[Frame]) {
+        let peers = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        for peer in peers.iter().filter(|peer| peer.player_id != except) {
+            let _ = peer.outbox.send(frames.to_vec());
+        }
+    }
+
+    /// Push frames to everyone in the world.
+    pub fn broadcast_all(&self, frames: &[Frame]) {
+        let peers = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        for peer in peers.iter() {
+            let _ = peer.outbox.send(frames.to_vec());
+        }
+    }
+
+    /// What the server believes about one peer, for the position broadcasts.
+    pub fn update(&self, player_id: u32, standing: Standing) {
+        let mut peers = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        if let Some(peer) = peers.iter_mut().find(|peer| peer.player_id == player_id) {
+            peer.standing = standing;
+        }
+    }
+}
+
+/// A peer as it is copied out of the list: everything a joining player needs to be told.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PeerView {
+    pub player_id: u32,
+    pub agent_id: u32,
+    pub name: String,
+    pub standing: Standing,
+    pub equipped: [u32; 9],
+}
+
+impl From<&Peer> for PeerView {
+    fn from(peer: &Peer) -> Self {
+        PeerView {
+            player_id: peer.player_id,
+            agent_id: peer.agent_id,
+            name: peer.name.clone(),
+            standing: peer.standing,
+            equipped: peer.equipped,
+        }
+    }
+}
+
+/// The frames that introduce one player to another: `GameSrv_SendWorldAgents`'s order for a player
+/// agent (`GmAgent.c:310-331`) â€” the player, their party size, their party, then the agent itself.
+///
+/// `GmAgent.c` also sends `BroadcastAddPlayerToPlayerParty` rather than the unicast sender, because the
+/// party of a joining player is news to everyone already there. Here it is the same frame either way.
+pub fn introduction(peer: &PeerView) -> Vec<Frame> {
+    vec![
+        game::player_create(
+            peer.player_id,
+            peer.agent_id,
+            game::Appearance::REFERENCE_DEFAULT.pack(),
+            &peer.name,
+        ),
+        game::player_update_party_size(peer.player_id, 1),
+        game::player_update_party(peer.player_id, peer.player_id),
+        game::world_create_agent(&game::CreateAgent {
+            agent_id: peer.agent_id,
+            model_id: game::CHAR_CLASS_PLAYER_BASE | peer.player_id,
+            agent_type: game::AGENT_TYPE_LIVING,
+            position: peer.standing.position,
+            plane: peer.standing.plane,
+            direction: (1.0, 0.0),
+            speed_base: game::PLAYER_SPEED_BASE,
+            player_team_token: PLAYER_TEAM_TOKEN,
+        }),
+    ]
+}
+
+/// The frames that take one player back out of another's world: `GameSrv_BroadcastPlayerDestroy`
+/// (`GmPlayer.c:314`) and `GameSrv_BroadcastAgentRemove` (`GmAgent.c:60`), in that order.
+pub fn farewell(player_id: u32, agent_id: u32) -> Vec<Frame> {
+    vec![
+        game::player_destroy(player_id),
+        game::world_remove_agent(agent_id),
+    ]
 }
 
 /// Where a character stands as it enters a map.
@@ -283,7 +432,7 @@ pub async fn serve(listener: TcpListener, world: Arc<World>, trace: bool) -> io:
             tokio::spawn(async move { handle_connection(stream, &world, trace).await });
         // The connection is reaped rather than detached. A task that dies of a *panic* leaves this
         // process alive, so from outside "the server crashed" and "one connection panicked" look the
-        // same — and the panic's own message is the only thing that says which it was.
+        // same â€” and the panic's own message is the only thing that says which it was.
         tokio::spawn(async move {
             match connection.await {
                 Ok(Ok(())) => {
@@ -469,14 +618,27 @@ pub async fn handle_connection(
 
     let mut session = Session::new(established);
     // What this connection knows about itself: whose character it is, where it stands, and the agents it
-    // has created.
+    // has created. The ids are allocated here rather than being the constants they used to be: two
+    // players in one map need two of each, and everything the reference sends a player about itself
+    // carries them.
+    let equipped = inventory.equipped_item_ids();
+    let (outbox, mut inbox) = tokio::sync::mpsc::unbounded_channel();
+    let (player_id, agent_id) = world.peers.join(Peer {
+        player_id: 0,
+        agent_id: 0,
+        name: name.clone(),
+        standing,
+        equipped,
+        outbox,
+    });
     let mut play = Play {
         character: transfer.character_id,
+        player_id,
         map,
         name,
         inventory,
         agents: Agents::new(
-            AGENT_ID,
+            agent_id,
             standing.position,
             standing.plane,
             game::PLAYER_SPEED_BASE,
@@ -488,16 +650,32 @@ pub async fn handle_connection(
     // The reference sends these four the moment it has the connection, without waiting to be asked.
     let block = match &world.replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Load) => replay.load.clone(),
-        _ => load_block(&play.map, &play.name),
+        _ => load_block(&play.map, &play.name, play.agents.player.agent_id),
     };
     send(&mut stream, &mut session, block, trace).await?;
 
     // ---- 6/7. the asks, then the session ----------------------------------------------------
     // Run to its end however it ends. A session that dies of a framing error is still a player that left,
-    // and both things that happen on the way out — the position and the pool slot — belong to the leaving
+    // and both things that happen on the way out â€” the position and the pool slot â€” belong to the leaving
     // and not to the ending: skipping them for the untidy exits would leak a slot until the reaper and
     // lose where the character stood.
-    let outcome = run(&mut stream, &mut session, world, &mut play, trace).await;
+    let outcome = run(
+        &mut stream,
+        &mut session,
+        world,
+        &mut play,
+        &mut inbox,
+        trace,
+    )
+    .await;
+
+    // The player left: everyone else's world loses the agent before the slot goes back, so a client that
+    // is being told about the departure never sees an agent whose seat is already free.
+    if world.peers.leave(play.player_id) {
+        world
+            .peers
+            .broadcast_all(&farewell(play.player_id, play.agents.player.agent_id));
+    }
 
     // Where the player was when it left is what it comes back to. Written *before* the lease goes back,
     // and best-effort: a failed save must not turn an ordinary logout into an error, and losing a
@@ -537,6 +715,7 @@ async fn run(
     session: &mut Session,
     world: &World,
     play: &mut Play,
+    inbox: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<Frame>>,
     trace: bool,
 ) -> Result<(), GameError> {
     let mut tick = tokio::time::interval(TICK_INTERVAL);
@@ -546,6 +725,13 @@ async fn run(
     'session: loop {
         tokio::select! {
             biased;
+
+            // Frames another player's connection pushed at us. This is the whole of the broadcast
+            // mechanism: the reference writes into every other connection's buffer, and here every
+            // other connection's task writes into this channel.
+            Some(frames) = inbox.recv() => {
+                send(stream, session, frames, trace).await?;
+            }
 
             read = stream.read(&mut buffer) => {
                 let read = read?;
@@ -595,11 +781,15 @@ async fn run(
 /// What one gameplay connection knows about itself.
 ///
 /// Assembled after the token pair is believed and before the load block, so that everything the blocks
-/// need — whose character this is, where it stands, what it carries — is decided in one place rather than
+/// need â€” whose character this is, where it stands, what it carries â€” is decided in one place rather than
 /// read again in the middle of a conversation.
 struct Play {
     /// The character the transfer named. Every write on the way out is scoped to it.
     character: Uuid,
+    /// This connection's player id, allocated when it joined. The reference allocates the same number
+    /// from `srv->players` (`GmIdAllocate`) and puts it in `GAME_SMSG_PLAYER_CREATE`, every agent's
+    /// `model_id`, the party messages and the chat speaker field.
+    player_id: u32,
     map: MapEntry,
     name: String,
     inventory: Inventory,
@@ -636,7 +826,7 @@ fn hex_preview(bytes: &[u8]) -> String {
 /// The answer to the client's item request (`GameSrv_HandleInstanceLoadRequestItems`).
 ///
 /// A pure function of the map and the character's inventory so that `examples/dump-load.rs` can print
-/// exactly what a client would receive, byte for byte, without a socket — which is how this stream is
+/// exactly what a client would receive, byte for byte, without a socket â€” which is how this stream is
 /// compared against the reference's own log.
 pub fn items_block(map: &MapEntry, inventory: &Inventory) -> Vec<Frame> {
     let mut frames = vec![
@@ -678,11 +868,11 @@ pub const ITEM_STREAM: u16 = 1;
 ///
 /// The order is the reference's and it matters twice over:
 ///
-/// * **bags, by model id** — its `GmBagArray` is walked in declaration order, which is backpack, belt
+/// * **bags, by model id** â€” its `GmBagArray` is walked in declaration order, which is backpack, belt
 ///   pouch, bags, equipment pack, material storage, unclaimed items, storage, equipped items. That is
 ///   not the order the bag ids were handed out in (the capture's bags are 1, 2, 6, 3, 4, 5), so a server
 ///   that sorts by id sends a different stream;
-/// * **a bag's own item before the bag** — `GameSrv_SendInventory` sends `bag_item_id` first, because the
+/// * **a bag's own item before the bag** â€” `GameSrv_SendInventory` sends `bag_item_id` first, because the
 ///   bag message names it.
 ///
 /// Within a bag, items go out by slot, each followed by where it sits and, if it was made for a
@@ -774,13 +964,13 @@ pub fn spawn_block(map: &MapEntry, standing: Standing) -> Vec<Frame> {
 }
 
 /// The four messages a world server sends without being asked, the moment it has the connection.
-pub fn load_block(map: &MapEntry, name: &str) -> Vec<Frame> {
+pub fn load_block(map: &MapEntry, name: &str, agent_id: u32) -> Vec<Frame> {
     vec![
         game::instance_load_head_default(),
         game::instance_player_data_start(),
         game::instance_load_player_name(name),
         game::instance_load_info(
-            AGENT_ID,
+            agent_id,
             map.map_id as u16,
             1, // the reference hardcodes this; see the builder's documentation
             DISTRICT_NUMBER,
@@ -848,13 +1038,39 @@ async fn answer(
 
         // The client asks who else is here. This is the big block, and its last message
         // (`INSTANCE_LOAD_FINISH`) is what takes the client off the loading screen.
+        //
+        // Everyone already in the map goes after it, in the reference's own order for a joining client
+        // (`GameSrv_SendWorldAgents`, `GmAgent.c:310-331`), and the same frames go out to *them* so they
+        // learn about this one. The reference broadcasts the player create there and unicasts the rest;
+        // the order is what matters here, and it is the same in both directions.
         0x8090 => {
-            let block = match replay {
+            let mut block = match replay {
                 Some(replay) if replay.pick.wants(crate::replay::BlockName::Players) => {
                     replay.players.clone()
                 }
-                _ => player_block(&play.name, play.standing(), &play.inventory, play.started),
+                _ => player_block(
+                    &play.name,
+                    play.standing(),
+                    &play.inventory,
+                    play.started,
+                    play.player_id,
+                    play.agents.player.agent_id,
+                ),
             };
+            let others = world.peers.others(play.player_id);
+            for peer in &others {
+                block.extend(introduction(peer));
+            }
+            let me = PeerView {
+                player_id: play.player_id,
+                agent_id: play.agents.player.agent_id,
+                name: play.name.clone(),
+                standing: play.standing(),
+                equipped: play.inventory.equipped_item_ids(),
+            };
+            if !others.is_empty() {
+                world.peers.broadcast(play.player_id, &introduction(&me));
+            }
             send(stream, session, block, trace).await?;
             Ok(true)
         }
@@ -887,25 +1103,27 @@ async fn answer(
                     play.agents.player.agent_id, destination.0, destination.1
                 );
             }
-            send(
-                stream,
-                session,
-                vec![game::agent_move_to_point(
-                    play.agents.player.agent_id,
-                    destination,
-                    plane,
-                    play.agents.player.plane,
-                )],
-                trace,
-            )
-            .await?;
+            let walk = game::agent_move_to_point(
+                play.agents.player.agent_id,
+                destination,
+                plane,
+                play.agents.player.plane,
+            );
+            // Anyone else in the map is told where this agent is walking: the reference broadcasts the
+            // same message (`GameSrv_BroadcastAgentMoveToPoint`), and a client that is not told keeps
+            // drawing the walker where it last stood.
+            world
+                .peers
+                .broadcast(play.player_id, std::slice::from_ref(&walk));
+            send(stream, session, vec![walk], trace).await?;
             Ok(true)
         }
 
         // The client reports where it is (`GameSrv_HandlePositionUpdate`). The position is adopted when
         // the budget allows it, clamped when it does not, and refused across a plane change that is too
-        // far. Nothing is sent back: the client already knows where it is, and with one player there is
-        // nobody else to tell.
+        // far. Nothing goes back to the reporter â€” it already knows where it is â€” but everyone else is
+        // told, which is what the reference's `GameSrv_BroadcastAgentPosition` does and why a second
+        // client sees the first one move.
         0x803D => {
             if frame.body.len() < 12 {
                 return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
@@ -921,6 +1139,18 @@ async fn answer(
                 .agents
                 .player
                 .adopt_report(position, plane, Instant::now());
+            let standing = play.standing();
+            world.peers.update(play.player_id, standing);
+            if adopted != Adopted::Refused {
+                world.peers.broadcast(
+                    play.player_id,
+                    &[game::agent_update_position(
+                        play.agents.player.agent_id,
+                        standing.position,
+                        standing.plane,
+                    )],
+                );
+            }
             if trace {
                 eprintln!(
                     "world: agent {} reported ({:.1}, {:.1}) plane {plane}: {adopted:?} -> ({:.1}, \
@@ -934,13 +1164,11 @@ async fn answer(
         // The client stopped walking (`GameSrv_HandleCancelMovement`): the agent stops where it is and
         // everyone is told, which is the mover too as far as this server is concerned.
         0x8028 => {
-            send(
-                stream,
-                session,
-                vec![game::agent_stop_moving(play.agents.player.agent_id)],
-                trace,
-            )
-            .await?;
+            let stop = game::agent_stop_moving(play.agents.player.agent_id);
+            world
+                .peers
+                .broadcast(play.player_id, std::slice::from_ref(&stop));
+            send(stream, session, vec![stop], trace).await?;
             Ok(true)
         }
 
@@ -978,7 +1206,7 @@ async fn answer(
         // **A player's message is sent ungated**, exactly as the reference sends it: its
         // `GameSrv_ChatSendingEnabled` gate covers the text the *server* generates (GM answers, "unknown
         // command"), not a line a player typed. This port once had a switch on everything, which is why
-        // a `!` line went nowhere; the switch is gone (`docs/03` §11), so nothing here is gated and only
+        // a `!` line went nowhere; the switch is gone (`docs/03` Â§11), so nothing here is gated and only
         // the messages the reference never sends are withheld.
         0x8064 => {
             let body = &frame.body;
@@ -1021,7 +1249,7 @@ async fn answer(
                         session,
                         vec![
                             game::chat_message_core(&spoken),
-                            game::chat_message_local(PLAYER_ID, channel),
+                            game::chat_message_local(play.player_id, channel),
                         ],
                         trace,
                     )
@@ -1035,7 +1263,7 @@ async fn answer(
                     // the auth service place the player on another map server and redirecting the
                     // client, and **a world cannot start that cycle today** -- the redirect itself is
                     // known (46 bytes at `game::TRANSFER_GAME_SERVER_INFO`, then `MAP_UPDATE_CURRENT`,
-                    // `docs/03-protocol.md` §5), so what is missing is the allocation, not the bytes.
+                    // `docs/03-protocol.md` Â§5), so what is missing is the allocation, not the bytes.
                     let command = spoken.trim();
                     if command == "stuck" {
                         // `GameSrv_HandleChatCommand`'s `stuck`: cancel the movement and broadcast where
@@ -1320,7 +1548,7 @@ async fn move_item(
             // Whether the client wants this confirmed is not settled, and both reports are real: with
             // the echo a live client moved the item (that same session also reported a clone, but it was
             // a build that re-created items on a drop too), and with silence the item sprang back and the
-            // move did nothing. `MoveEcho` keeps both, and defaults to the echo — the one a client was
+            // move did nothing. `MoveEcho` keeps both, and defaults to the echo â€” the one a client was
             // seen to act on.
             frames.push(game::item_move_to_location(
                 ITEM_STREAM,
@@ -1542,7 +1770,10 @@ pub struct MappedMaps {
 
 /// `UPDATE_AGENT_VISUAL_EQUIPMENT`: what the agent is wearing, read out of the equipped-items bag.
 fn equipment_frame(play: &Play) -> Frame {
-    game::update_agent_visual_equipment(AGENT_ID, play.inventory.equipped_item_ids())
+    game::update_agent_visual_equipment(
+        play.agents.player.agent_id,
+        play.inventory.equipped_item_ids(),
+    )
 }
 
 /// Re-read the inventory after a change, so the next message built from it is the new truth.
@@ -1600,13 +1831,15 @@ const PHASE_DONE: u8 = 2;
 ///
 /// Two parameters are there for the two things this block no longer takes from a constant: `standing`,
 /// which places the agent where the character actually is (`WORLD_CREATE_AGENT`), and `inventory`, which
-/// says what the agent is wearing (`UPDATE_AGENT_VISUAL_EQUIPMENT`) — the nine ids read out of the
+/// says what the agent is wearing (`UPDATE_AGENT_VISUAL_EQUIPMENT`) â€” the nine ids read out of the
 /// equipped-items bag, because they belong to *this* character's items.
 pub fn player_block(
     name: &str,
     standing: Standing,
     inventory: &Inventory,
     started: Instant,
+    player_id: u32,
+    agent_id: u32,
 ) -> Vec<Frame> {
     let mut frames = Vec::with_capacity(30);
 
@@ -1638,7 +1871,7 @@ pub fn player_block(
     // The unlocked-map list. The three bitmaps a character can have progress in are sent at their
     // **full length, zero-filled**, because that is what the reference sends for a character with no
     // progress: 31 words each for the two hard-mode lists, and nothing for the two normal-mode ones.
-    // An empty list is not the same message — it is an array the client can index past the end of.
+    // An empty list is not the same message â€” it is an array the client can index past the end of.
     frames.push(game::map_update_unlocked_list([
         &[][..],
         &[],
@@ -1651,23 +1884,23 @@ pub fn player_block(
     // Skills and attributes, then factions, then the attribute spread. The profession values are the
     // reference's own for its default character, read off its send log: primary 1 (Warrior) and one
     // unlocked-profession bit.
-    frames.push(game::agent_update_attribute_points(AGENT_ID, 50, 50));
+    frames.push(game::agent_update_attribute_points(agent_id, 50, 50));
     frames.push(game::player_update_profession(
-        AGENT_ID,
+        agent_id,
         DEFAULT_PRIMARY_PROFESSION,
         0,
         0,
     ));
     frames.push(game::player_update_unlocked_professions(
-        AGENT_ID,
+        agent_id,
         DEFAULT_UNLOCKED_PROFESSIONS,
     ));
-    frames.push(game::skillbar_update(AGENT_ID, &[0; 8], &[0; 8], 1));
+    frames.push(game::skillbar_update(agent_id, &[0; 8], &[0; 8], 1));
     frames.push(game::update_unlocked_skills(&[]));
     frames.push(game::character_update_factions(
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ));
-    frames.push(game::agent_update_attributes(AGENT_ID, &[0; 42]));
+    frames.push(game::agent_update_attributes(agent_id, &[0; 42]));
     frames.push(game::world_update_load_time(
         started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32,
     ));
@@ -1676,8 +1909,8 @@ pub fn player_block(
     // the profession the model is built from: all-zero bits say `Profession_None`, which is not a
     // character the client can draw, so the reference's own default is used.
     frames.push(game::player_create(
-        PLAYER_ID,
-        AGENT_ID,
+        player_id,
+        agent_id,
         game::Appearance::REFERENCE_DEFAULT.pack(),
         name,
     ));
@@ -1685,16 +1918,16 @@ pub fn player_block(
     // again here, immediately after the player is created and before the agent exists
     // (`GameSrv_HandleInstanceLoadRequestPlayers`: `BroadcastPlayerCreate` then
     // `SendPlayerProfession`). It is the second one that gives the freshly created player the
-    // profession its model is built from — without it the client draws an agent it has no model for.
+    // profession its model is built from â€” without it the client draws an agent it has no model for.
     frames.push(game::player_update_profession(
-        AGENT_ID,
+        agent_id,
         DEFAULT_PRIMARY_PROFESSION,
         0,
         0,
     ));
     frames.push(game::world_create_agent(&game::CreateAgent {
-        agent_id: AGENT_ID,
-        model_id: game::CHAR_CLASS_PLAYER_BASE | PLAYER_ID,
+        agent_id,
+        model_id: game::CHAR_CLASS_PLAYER_BASE | player_id,
         agent_type: game::AGENT_TYPE_LIVING,
         position: standing.position,
         plane: standing.plane,
@@ -1707,35 +1940,35 @@ pub fn player_block(
     // level 0 (it never sets `energy_per_sec` or `level` on a fresh agent).
     frames.push(game::agent_property_update_int(
         game::AGENT_PROPERTY_ENERGY,
-        AGENT_ID,
+        agent_id,
         game::PLAYER_ENERGY_MAX,
     ));
     frames.push(game::agent_property_update_int(
         game::AGENT_PROPERTY_HEALTH,
-        AGENT_ID,
+        agent_id,
         game::PLAYER_HEALTH_MAX,
     ));
     frames.push(game::agent_property_update_float(
         game::AGENT_PROPERTY_ENERGY_REGEN,
-        AGENT_ID,
+        agent_id,
         0.0,
     ));
     frames.push(game::agent_property_update_int(
         game::AGENT_PROPERTY_PUBLIC_LEVEL,
-        AGENT_ID,
+        agent_id,
         0,
     ));
-    frames.push(game::agent_initial_effects(AGENT_ID, 0));
+    frames.push(game::agent_initial_effects(agent_id, 0));
     frames.push(game::update_agent_visual_equipment(
-        AGENT_ID,
+        agent_id,
         inventory.equipped_item_ids(),
     ));
-    frames.push(game::agent_display_cape(AGENT_ID, 1));
-    frames.push(game::world_update_controlled_agent(AGENT_ID, 3));
+    frames.push(game::agent_display_cape(agent_id, 1));
+    frames.push(game::world_update_controlled_agent(agent_id, 3));
 
     // The party: one member, this player, and the client's own party pointer.
     frames.push(game::party_create(PARTY_ID));
-    frames.push(game::party_player_add(PARTY_ID, PLAYER_ID as u16, 1));
+    frames.push(game::party_player_add(PARTY_ID, player_id as u16, 1));
     frames.push(game::party_member_stream_end(PARTY_ID));
     frames.push(game::character_update_party(PARTY_ID, 1));
 
@@ -1834,6 +2067,8 @@ mod tests {
             Standing::from_map(&test_map()),
             &db_inventory::default_inventory(),
             Instant::now(),
+            PLAYER_ID,
+            AGENT_ID,
         );
         assert_eq!(
             frames.last().expect("a block").header,
@@ -1867,6 +2102,8 @@ mod tests {
             Standing::from_map(&test_map()),
             &db_inventory::default_inventory(),
             Instant::now(),
+            PLAYER_ID,
+            AGENT_ID,
         );
         let named: Vec<u16> = frames
             .iter()
@@ -1892,7 +2129,7 @@ mod tests {
     ///
     /// The capture (`asura_protocol::game::default_inventory::REFERENCE_ITEM_MESSAGES`) is GWPS answering
     /// the same request for its default character. Every message in it, in its order, byte for byte, is
-    /// what this server now writes out of six bag rows and nine item rows — including the ids, which come
+    /// what this server now writes out of six bag rows and nine item rows â€” including the ids, which come
     /// out of the rows rather than out of a byte table.
     #[test]
     fn the_item_block_from_rows_is_the_capture_byte_for_byte() {
@@ -1972,6 +2209,8 @@ mod tests {
             Standing::from_map(&test_map()),
             &reference_inventory(),
             Instant::now(),
+            PLAYER_ID,
+            AGENT_ID,
         );
         let worn = frames
             .iter()
