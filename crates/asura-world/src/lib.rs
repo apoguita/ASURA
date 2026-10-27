@@ -193,6 +193,9 @@ pub struct World {
     /// carries a `sockaddr_in`, and a world that hands out its *bind* address hands out the wrong one
     /// whenever the two differ — which is the normal case behind a realmlist.
     pub public: std::net::SocketAddr,
+    /// The maps' path graphs, imported from `Gw.dat` at startup, and one finder per map. This is the
+    /// reference's `srv->map_context`: what a `MOVE_TO_COORD` is answered from.
+    pub graphs: PathGraphs,
 }
 
 /// One player in the world, plus the channel that reaches its connection.
@@ -392,6 +395,107 @@ impl World {
     /// The map entry for `map_id`, if this world publishes it.
     pub fn map(&self, map_id: i32) -> Option<&MapEntry> {
         self.maps.iter().find(|map| map.map_id == map_id)
+    }
+}
+
+/// What the finder said about a walk.
+#[derive(Debug, Clone)]
+pub enum Walk {
+    /// A path, in the reference's reduced form. It may hold a single waypoint naming the destination.
+    Found(Vec<pathfind::Waypoint>),
+    /// The finder ran and refused: the destination is not reachable from where the agent stands.
+    NoPath,
+    /// This world has no graph for the map, so nothing can be said about reachability. That happens when
+    /// the map's blob could not be imported from `Gw.dat` -- a server whose archive is missing or older
+    /// than the catalogue refuses walks rather than inventing them.
+    NoGraph,
+}
+
+/// The path graphs of the maps this world hosts, and one finder per map.
+///
+/// The reference keeps both inside its server (`srv->map_context`, `GameSrv_LoadMap`), because it runs one
+/// server per map; this hosts several maps in one process, so it keeps a graph per map and one finder per
+/// map, built on first use. Cheap to clone (it is shared), because `World` is cloned per connection.
+#[derive(Clone, Default)]
+pub struct PathGraphs(std::sync::Arc<PathGraphsInner>);
+
+#[derive(Default)]
+struct PathGraphsInner {
+    data: std::collections::HashMap<i32, std::sync::Arc<map_data::PathStaticData>>,
+    /// One finder per map, behind one lock. The finder keeps scratch arrays between searches, so sharing
+    /// it is the point; the searches themselves are short and a world serves a handful of players.
+    finders: std::sync::Mutex<std::collections::HashMap<i32, pathfind::PathContext>>,
+}
+
+impl PathGraphs {
+    /// Import every map's graph out of a `Gw.dat`, which is what `GameSrv_LoadMap` does with the blob its
+    /// map config names.
+    ///
+    /// A map whose blob is missing or does not import is left out, with a line saying so: the world still
+    /// serves that map (a client can load it from its own copy of the archive), it just cannot say
+    /// anything about where an agent in it may walk. Only an archive that cannot be opened at all is an
+    /// error, and the caller decides what to do about that.
+    pub fn load(archive_path: &str, maps: &[MapEntry]) -> io::Result<PathGraphs> {
+        let mut archive = gwdat::GwDat::open(archive_path)?;
+        let mut data = std::collections::HashMap::new();
+
+        for map in maps {
+            match archive.file(map.map_file_id) {
+                Ok(Some(content)) => match map_data::PathStaticData::import(&content) {
+                    Ok(imported) => {
+                        data.insert(map.map_id, std::sync::Arc::new(imported));
+                    }
+                    Err(err) => eprintln!(
+                        "world: map {} ({}) has no path graph: blob {:#X} did not import: {err}",
+                        map.map_id, map.name, map.map_file_id
+                    ),
+                },
+                Ok(None) => eprintln!(
+                    "world: map {} ({}) has no path graph: blob {:#X} is not in {archive_path}",
+                    map.map_id, map.name, map.map_file_id
+                ),
+                Err(err) => eprintln!(
+                    "world: map {} ({}) has no path graph: blob {:#X} could not be read: {err}",
+                    map.map_id, map.name, map.map_file_id
+                ),
+            }
+        }
+
+        Ok(PathGraphs(std::sync::Arc::new(PathGraphsInner {
+            data,
+            finders: std::sync::Mutex::new(std::collections::HashMap::new()),
+        })))
+    }
+
+    /// A world with no graphs: every walk is refused with [`Walk::NoGraph`].
+    pub fn empty() -> PathGraphs {
+        PathGraphs::default()
+    }
+
+    /// The maps this world can path in, for a startup line and for tests.
+    pub fn maps(&self) -> Vec<i32> {
+        let mut maps: Vec<i32> = self.0.data.keys().copied().collect();
+        maps.sort_unstable();
+        maps
+    }
+
+    /// Ask the finder for a walk from `from` to `to` on `map_id`.
+    pub fn walk(&self, map_id: i32, from: pathfind::Pos, to: pathfind::Pos) -> Walk {
+        let Some(data) = self.0.data.get(&map_id) else {
+            return Walk::NoGraph;
+        };
+
+        let mut finders = self.0.finders.lock().unwrap_or_else(|err| err.into_inner());
+        let finder = finders
+            .entry(map_id)
+            .or_insert_with(|| pathfind::PathContext::new(std::sync::Arc::clone(data)));
+
+        let mut waypoints = Vec::new();
+        if finder.path_finding(from, to, &mut waypoints) {
+            Walk::Found(waypoints)
+        } else {
+            Walk::NoPath
+        }
     }
 }
 
@@ -866,8 +970,32 @@ async fn run(
             }
 
             _ = tick.tick() => {
-                let delta = TICK_INTERVAL.as_millis() as u32;
-                send(stream, session, vec![game::world_simulation_tick(delta)], trace).await?;
+                // `GameSrv_WorldTick`: announce the elapsed time, then move every agent along its own
+                // walk. The announcement goes to this connection only -- each connection keeps its own
+                // ticker here, where the reference has one loop for the whole server, so every client
+                // still hears one tick per interval.
+                let delta_ms = TICK_INTERVAL.as_millis() as u32;
+                let crossed = play.agents.player.advance(TICK_INTERVAL.as_secs_f32());
+                let mut frames = vec![game::world_simulation_tick(delta_ms)];
+                if let Some(waypoint) = crossed {
+                    // A crossed waypoint is a new destination, and the reference broadcasts it: `every`
+                    // client is drawing this agent from the last destination it was told
+                    // (`GameSrv_UpdateAgentDestination` -> `GameSrv_BroadcastAgentMoveToPoint`).
+                    let walk = game::agent_move_to_point(
+                        play.agents.player.agent_id,
+                        (waypoint.pos.x, waypoint.pos.y),
+                        waypoint.pos.plane,
+                        play.agents.player.plane,
+                    );
+                    world
+                        .peers
+                        .broadcast(play.player_id, std::slice::from_ref(&walk));
+                    frames.push(walk);
+                }
+                send(stream, session, frames, trace).await?;
+                // What the world believes about this player advances with it, so a joining client is told
+                // where a walker is now rather than where it was when it asked.
+                world.peers.update(play.player_id, play.standing());
             }
 
             _ = ping.tick() => {
@@ -1219,11 +1347,13 @@ async fn answer(
             Ok(true)
         }
 
-        // Movement. This world has no simulation yet, so a move is acknowledged the only honest way
-        // available: nothing is sent, and the trace says why. The client keeps its own prediction; a
-        // The client asks to walk somewhere (`GameSrv_HandleMoveToCoord`). The reference answers with the
-        // next waypoint of its own path; this server has no navmesh, so it answers with the client's own
-        // destination -- a straight line, which is what it can honestly promise.
+        // The client asks to walk somewhere (`GameSrv_HandleMoveToCoord`, `GmAgent.c:371-398`).
+        //
+        // The reference asks its path finder for the walk and then answers with **the first waypoint of
+        // its own path**, not with the client's destination: the client predicts a straight line, and a
+        // straight line through a wall is exactly what this message corrects. When the finder refuses, the
+        // reference sends no refusal of its own -- it cancels the walk and broadcasts where the agent
+        // really is, which is what makes the client snap back.
         0x803E => {
             if frame.body.len() < 12 {
                 return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
@@ -1235,25 +1365,64 @@ async fn answer(
             let plane =
                 u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]])
                     as u16;
+            let agent_id = play.agents.player.agent_id;
+            let from = play.agents.player.here();
+            let to = pathfind::Pos {
+                x: destination.0,
+                y: destination.1,
+                plane,
+            };
+
+            let walked = world.graphs.walk(play.map.map_id, from, to);
             if trace {
+                let said = match &walked {
+                    Walk::Found(waypoints) => format!("{} waypoint(s)", waypoints.len()),
+                    Walk::NoPath => "no path".to_string(),
+                    Walk::NoGraph => "no path graph for this map".to_string(),
+                };
                 eprintln!(
-                    "world: agent {} walks to ({:.1}, {:.1}) plane {plane}",
-                    play.agents.player.agent_id, destination.0, destination.1
+                    "world: agent {agent_id} walks from ({:.1}, {:.1}) plane {} to ({:.1}, {:.1}) \
+                     plane {plane}: {said}",
+                    from.x, from.y, from.plane, destination.0, destination.1
                 );
             }
-            let walk = game::agent_move_to_point(
-                play.agents.player.agent_id,
-                destination,
-                plane,
-                play.agents.player.plane,
-            );
-            // Anyone else in the map is told where this agent is walking: the reference broadcasts the
-            // same message (`GameSrv_BroadcastAgentMoveToPoint`), and a client that is not told keeps
-            // drawing the walker where it last stood.
-            world
-                .peers
-                .broadcast(play.player_id, std::slice::from_ref(&walk));
-            send(stream, session, vec![walk], trace).await?;
+
+            match walked {
+                // An empty path sends nothing: the reference checks `0 < agent->waypoints.len`.
+                Walk::Found(waypoints) => {
+                    if let Some(first) = play.agents.player.begin_walk(waypoints) {
+                        let walk = game::agent_move_to_point(
+                            agent_id,
+                            (first.pos.x, first.pos.y),
+                            first.pos.plane,
+                            play.agents.player.plane,
+                        );
+                        // Everyone else is told where this agent is walking: the reference broadcasts the
+                        // same message (`GameSrv_BroadcastAgentMoveToPoint`), and a client that is not
+                        // told keeps drawing the walker where it last stood.
+                        world
+                            .peers
+                            .broadcast(play.player_id, std::slice::from_ref(&walk));
+                        send(stream, session, vec![walk], trace).await?;
+                    }
+                }
+                Walk::NoPath | Walk::NoGraph => {
+                    if trace {
+                        eprintln!(
+                            "world: path finding failed for agent {agent_id}; standing still"
+                        );
+                    }
+                    play.agents.player.cancel_movement();
+                    let standing = play.standing();
+                    let position =
+                        game::agent_update_position(agent_id, standing.position, standing.plane);
+                    world.peers.update(play.player_id, standing);
+                    world
+                        .peers
+                        .broadcast(play.player_id, std::slice::from_ref(&position));
+                    send(stream, session, vec![position], trace).await?;
+                }
+            }
             Ok(true)
         }
 

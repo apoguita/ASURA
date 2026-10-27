@@ -17,7 +17,7 @@ python tools/parity-summary.py --write docs/11-parity-state.md --fast
 | the load block | `(header, size)` against the reference's own trace | **480 of 480** matched, **0 missing**, **0 extra**, **0 size** disagreement(s) |
 | generated files | `--check` against the reference's sources | **10 of 10 current** |
 | the map data | `Gw.dat` through the ported importer, against the reference's own tool | **the importer matches the reference on 7 blob(s): 283 plane(s), 34806 trapezoid(s), same bounding boxes** |
-| the path finder | the same walks through both A*s, waypoint bits compared | **the path finder matches the reference on 96 case(s): 41 walk(s) found, 127 waypoint(s) identical, 1 case(s) compared on the answer alone** |
+| the path finder | `tools/parity-path.py --check` | **differs from the reference**: 1 difference(s) between the reference and this repo |
 
 ## What the numbers say
 

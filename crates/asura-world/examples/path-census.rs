@@ -45,7 +45,7 @@ fn main() {
 
     // Import a blob once. The finder's arrays are cheap to rebuild, and rebuilding them per case keeps the
     // borrow of the imported graph unambiguous.
-    let mut maps: HashMap<u32, (PathStaticData, Vec<Waypoint>)> = HashMap::new();
+    let mut maps: HashMap<u32, (std::sync::Arc<PathStaticData>, Vec<Waypoint>)> = HashMap::new();
 
     println!("blob,src_x,src_y,src_plane,dst_x,dst_y,dst_plane,result,count,waypoints");
 
@@ -97,14 +97,14 @@ fn main() {
                     continue;
                 }
             };
-            slot.insert((data, Vec::new()));
+            slot.insert((std::sync::Arc::new(data), Vec::new()));
         }
 
         // The data lives in `maps` for the whole run; the finder borrows it for one case at a time, which
         // is the lifetime the reference's own context has.
         let (data, waypoints) = maps.get_mut(&blob).expect("just inserted");
         waypoints.clear();
-        let mut finder = PathContext::new(data);
+        let mut finder = PathContext::new(std::sync::Arc::clone(data));
         let solved_this = finder.path_finding(src, dst, waypoints);
 
         let bits = |value: f32| value.to_bits();

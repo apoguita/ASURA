@@ -456,8 +456,13 @@ fn precise_cross(left: Vec2f, right: Vec2f) -> f32 {
 /// The node array, the priority queue and the corridor steps are kept between searches, because the
 /// reference keeps them in its context: a second search on the same map does not reallocate, and the
 /// node array is cleared rather than rebuilt.
-pub struct PathContext<'a> {
-    data: &'a PathStaticData,
+///
+/// The graph itself is shared (`Arc`) rather than borrowed: a world keeps one finder per map for as long
+/// as the map is served, and the graph is the same object for every walk. That is the reference's
+/// `srv->map_context` with one difference -- it has one context per server because it runs one server per
+/// map, while this hosts several maps in one process.
+pub struct PathContext {
+    data: std::sync::Arc<PathStaticData>,
     /// Trap id to `(plane id, position in that plane's trapezoids)`. Trap ids are dense and assigned in
     /// plane order by the importer, so this is the reference's `array_at(&nodes, trap->trap_id)` and its
     /// `PathTrapezoid *` in one table.
@@ -467,8 +472,8 @@ pub struct PathContext<'a> {
     steps: Vec<BuildStep>,
 }
 
-impl<'a> PathContext<'a> {
-    pub fn new(data: &'a PathStaticData) -> PathContext<'a> {
+impl PathContext {
+    pub fn new(data: std::sync::Arc<PathStaticData>) -> PathContext {
         let mut index = vec![(0u16, 0u32); data.traps_count as usize];
         for plane in &data.planes {
             for (position, trapezoid) in plane.trapezoids.iter().enumerate() {
@@ -912,8 +917,8 @@ struct Bound {
 }
 
 /// `PathBuildHelper` (`GmPaths.c:558`).
-struct BuildHelper<'c, 'd> {
-    context: &'c mut PathContext<'d>,
+struct BuildHelper<'c> {
+    context: &'c mut PathContext,
     left_bound: Bound,
     right_bound: Bound,
     curr_start_point: FindPoint,
@@ -923,7 +928,7 @@ struct BuildHelper<'c, 'd> {
     waypoints: &'c mut Vec<Waypoint>,
 }
 
-impl BuildHelper<'_, '_> {
+impl BuildHelper<'_> {
     /// The loop of `PathCreateWaypoints`: follow `next` links and decide, per edge, whether the corridor
     /// can continue or has to be cut.
     fn run(&mut self, src_trap: u32) {

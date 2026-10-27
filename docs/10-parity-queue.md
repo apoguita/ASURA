@@ -341,29 +341,35 @@ load tests and the movement tests already pin, so it is the next unit.
 
 ### D4. Adopting the finder (`MOVE_TO_COORD` and the tick)
 
-Read off the reference, so the work is mechanical rather than a design question:
+**D4 landed.** `MOVE_TO_COORD` now asks the finder, and the world walks agents itself:
 
-- **`GameSrv_HandleMoveToCoord` (`GmAgent.c:371-398`)** clears the agent's waypoint list, asks
-  `PathFinding` for a walk from `agent->position` (the *server's* copy, which position reports keep honest)
-  to the requested destination, and then either takes waypoint 0 as the destination —
-  `GameSrv_UpdateAgentDestination`, which sets `direction` from the agent's own position, sets
-  `rotation = atan2(dir.y, dir.x)`, and broadcasts `AGENT_MOVE_TO_POINT` — or, when the finder says no,
-  logs, runs a world tick, cancels the movement and broadcasts the agent's position. The client is never
-  told "no" in a message of its own; it is told where the agent actually is.
-- **The tick (`GmAgent.c:462-501`)** advances the agent by `speed * delta` along `direction`; when that
-  overshoots the current waypoint it snaps to it, takes the next one from the list and broadcasts the new
-  destination, and when the list is exhausted it clears movement (destination zero, speed zero, empty
-  list). Completion is tested on position *and* plane.
-- **This repo's counterparts**, which the unit edits rather than adds: `lib.rs:1227` (the `0x803E` arm,
-  today an echo plus a broadcast), `Player::adopt_report`/`adopt_correction` (the position half, which the
-  reference keeps alongside pathing), `WORLD_SIMULATION_TICK` (already on the reference's interval but
-  advancing nothing), and `Play::standing()`/`World::peers.update`, which is how everyone else learns
-  where the agent is.
+- `lib.rs` keeps a `PathGraphs` — one imported graph per map plus one finder per map, behind one lock —
+  loaded at startup from `Gw.dat` (`--gwdat`, `ASURA_GW_DAT`, then `Gw.dat`, then `..\PreSearing\Gw.dat`).
+  That is the reference's `srv->map_context`, with one difference: the reference runs one server per map,
+  so it has one context per process, while this hosts several maps in one process.
+- The handler (`GameSrv_HandleMoveToCoord`) pathfinds from **the server's own position**, takes waypoint 0
+  as the destination and broadcasts `AGENT_MOVE_TO_POINT`; on a refusal it cancels the walk and broadcasts
+  `AGENT_UPDATE_POSITION`, which is the reference's whole answer to a walk it cannot make. An empty path
+  sends nothing, as the reference's `0 < agent->waypoints.len` does.
+- The world tick advances the agent `speed_base * delta` along the path (`GameSrv_UpdateAgentMovement`),
+  hands over to the next waypoint when a segment ends — broadcasting the new destination as the reference's
+  `GameSrv_UpdateAgentDestination` does — and ends the walk on arrival. `agent.rs` keeps that state as
+  `Motion`, the reference's `destination`/`direction`/`speed`/`waypoints`/`waypoint_idx`.
 
-One consequence needs a decision recorded before the code: the finder needs a map's graph, so the world
-would have to import it from `Gw.dat` at load time. Today only the tests read the archive. Parity means the
-world requires it (the reference's `GameSrv_LoadMap` fails without it); the alternative — silently keeping
-the echo when the archive is absent — is exactly the kind of quiet difference this queue exists to avoid.
+What is asserted: `a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path` asks `World::graphs`
+what the path is, sends a `MOVE_TO_COORD` that needs more than one waypoint, and requires the wire answer to
+be waypoint 0 (and *not* the requested destination), the other player to see the same waypoint, and the
+agent to have moved within a few ticks; `a_walk_the_finder_refuses_is_answered_with_the_agents_position`
+sends one off the map's geometry and requires a position and no move message.
+
+One deliberate difference, and the only one in the movement code: the reference divides by the distance when
+it points an agent at a destination, so a walk to exactly where the agent stands gives it a NaN direction and
+then a NaN position — which would be saved to the database and reloaded on the next visit. This keeps the
+direction it had and lets the walk end immediately instead.
+
+Still not integrated, and recorded rather than hidden: the reference's tick also regenerates
+`health_per_sec`/`energy_per_sec` (`GmAgent.c:524-529`), which this sends once per load rather than once per
+tick — invisible with no combat and no second player spending energy, and the audit's §3 row says so.
 
 ### E. Item lifecycle (T12)
 

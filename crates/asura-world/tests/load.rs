@@ -53,6 +53,24 @@ fn unique_world() -> i32 {
     20_000 + (Uuid::new_v4().as_u128() % 10_000) as i32
 }
 
+/// The client archive beside the reference checkout, or `ASURA_GW_DAT`: where a map's path graph comes
+/// from. Absent, the harness serves a world without graphs and the movement tests skip.
+fn gw_dat_path() -> Option<String> {
+    if let Ok(path) = std::env::var("ASURA_GW_DAT") {
+        return Some(path);
+    }
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()?
+        .parent()?
+        .to_path_buf();
+    let path = repo.parent()?.join("PreSearing").join("Gw.dat");
+    if path.exists() {
+        Some(path.to_string_lossy().into_owned())
+    } else {
+        None
+    }
+}
+
 /// A world server on a loopback port, and everything the test needs to check behind it.
 struct Harness {
     pool: PgPool,
@@ -73,6 +91,10 @@ struct Harness {
     /// The world the server task is serving, kept so a test can look at its state (the peer count an
     /// idle run must not grow).
     world: Arc<World>,
+    /// Whether this harness has a path graph, which needs `Gw.dat` beside the reference checkout. The
+    /// movement tests skip when it does not: without a graph every walk is refused, and a test that
+    /// checked walking would be checking the refusal.
+    walks: bool,
 }
 
 impl Harness {
@@ -96,33 +118,45 @@ impl Harness {
             .expect("bind a loopback port");
         let address = listener.local_addr().expect("local address");
 
+        let maps = vec![
+            MapEntry {
+                map_id,
+                // The reference's blob for the pre-Searing region.
+                map_file_id: 0x1B97D,
+                map_type,
+                spawn: (6602.0, 4485.0),
+                spawn_plane: 0,
+                name: "Lakeside County".to_string(),
+                capacity: 2,
+            },
+            MapEntry {
+                map_id: other_map_id,
+                map_file_id: 0x1B97D,
+                map_type: 0,
+                spawn: (1.0, 2.0),
+                spawn_plane: 0,
+                name: "Ascalon City".to_string(),
+                capacity: 2,
+            },
+        ];
+
+        // The graphs, from the same archive the client would load the map from.
+        let graphs = match gw_dat_path() {
+            Some(path) => asura_world::PathGraphs::load(&path, &maps).unwrap_or_else(|err| {
+                panic!("{path} does not open: {err}");
+            }),
+            None => asura_world::PathGraphs::empty(),
+        };
+        let walks = !graphs.maps().is_empty();
+
         let world = Arc::new(World {
             pool: pool.clone(),
             world_id,
-            maps: vec![
-                MapEntry {
-                    map_id,
-                    // The reference's blob for the pre-Searing region.
-                    map_file_id: 0x1B97D,
-                    map_type,
-                    spawn: (6602.0, 4485.0),
-                    spawn_plane: 0,
-                    name: "Lakeside County".to_string(),
-                    capacity: 2,
-                },
-                MapEntry {
-                    map_id: other_map_id,
-                    map_file_id: 0x1B97D,
-                    map_type: 0,
-                    spawn: (1.0, 2.0),
-                    spawn_plane: 0,
-                    name: "Ascalon City".to_string(),
-                    capacity: 2,
-                },
-            ],
+            maps,
             replay: None,
             peers: Default::default(),
             public: address,
+            graphs,
         });
         let server = tokio::spawn({
             let world = world.clone();
@@ -183,6 +217,7 @@ impl Harness {
             player_token,
             server,
             world,
+            walks,
         })
     }
 
@@ -1841,25 +1876,31 @@ async fn a_ten_minute_idle_pair_keeps_its_rhythm() {
     harness.stop();
 }
 
-/// T10, the half that can be asserted without a path graph.
+/// T10 landed: the walk is the reference's own.
 ///
-/// The reference pathfinds (`GmPaths.c`: trapezoid A* over the graph `GmMapDataImport.c` reads out of
-/// Gw.dat) and answers `MOVE_TO_COORD` with the *first waypoint of its own path*, refusing a destination it
-/// cannot reach by sending a tick, a cancel and a position (`GmAgent.c:371-398`). This server has no graph,
-/// so it answers with the client's own destination — a straight line — and refuses nothing.
+/// `GameSrv_HandleMoveToCoord` (`GmAgent.c:371-398`) asks the path finder for a walk and answers with the
+/// **first waypoint of its own path**, not with the client's destination -- a straight line through a wall
+/// is exactly what that message exists to correct. Then the world tick walks the agent along the path
+/// (`GameSrv_UpdateAgentMovement`), and `GameSrv_UpdateAgentDestination` broadcasts each new destination as
+/// the agent crosses it.
 ///
-/// That is a deviation, and a deviation that is not asserted is a deviation nobody can see break. This test
-/// pins the behaviour that exists: the echo is the destination the client sent, it reaches the other player
-/// too, and the *position* budget — which does not need a graph and is the reference's own — is enforced on
-/// the wire.
+/// The test asks the same finder the server used (`World::graphs` is public for this) what the path is, so
+/// the wire can be compared against it rather than against a guess. The destination is one the map's graph
+/// reaches in more than one waypoint, which is what makes "the first waypoint" different from "what the
+/// client asked for".
 #[tokio::test]
-async fn a_move_is_echoed_as_sent_and_a_far_report_is_clamped() {
+async fn a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path() {
     if skip() {
         return;
     }
     let Some(harness) = Harness::start().await else {
         return;
     };
+    if !harness.walks {
+        eprintln!("skipped: no Gw.dat, so this world has no path graph");
+        harness.stop();
+        return;
+    }
 
     // Two players, because the broadcast is what the second one observes.
     let version = harness.version(harness.player_token);
@@ -1914,39 +1955,118 @@ async fn a_move_is_echoed_as_sent_and_a_far_report_is_clamped() {
     // The first player's introduction arrives in the same chunk as this client's own block, so the read
     // above already consumed it: no drain, and no second read that would wait for a frame that is gone.
 
-    // ---- the echo: a walk is answered with exactly the destination that was sent ----
-    let destination = (6702.0f32, 4585.0f32);
+    // ---- the walk: answered with the graph's first waypoint, not with the request --------------
+    let spawn = (6602.0f32, 4485.0f32);
+    let destination = (5602.0f32, 5485.0f32);
+    let expected = match harness.world.graphs.walk(
+        harness.map_id,
+        asura_world::pathfind::Pos {
+            x: spawn.0,
+            y: spawn.1,
+            plane: 0,
+        },
+        asura_world::pathfind::Pos {
+            x: destination.0,
+            y: destination.1,
+            plane: 0,
+        },
+    ) {
+        asura_world::Walk::Found(waypoints) => waypoints,
+        other => panic!("the map's graph cannot walk to {destination:?}: {other:?}"),
+    };
+    assert!(
+        expected.len() > 1,
+        "this case is a corridor around something, not a straight line: {} waypoint(s)",
+        expected.len()
+    );
+
     let mut walk = Vec::new();
     walk.extend_from_slice(&destination.0.to_le_bytes());
     walk.extend_from_slice(&destination.1.to_le_bytes());
     walk.extend_from_slice(&0u32.to_le_bytes()); // plane
     say(&mut stream_a, &mut client_a, 0x803E, &walk).await;
 
-    let echoed = read_until(&mut stream_a, &mut client_a, game::AGENT_MOVE_TO_POINT).await;
-    let move_to = echoed
+    let answered = read_until(&mut stream_a, &mut client_a, game::AGENT_MOVE_TO_POINT).await;
+    let move_to = answered
         .iter()
         .find(|frame| frame.header == game::AGENT_MOVE_TO_POINT)
-        .expect("the walk is answered");
-    assert_eq!(
+        .expect("the walk is answered with a destination");
+    let first = (
         f32::from_le_bytes([
             move_to.body[4],
             move_to.body[5],
             move_to.body[6],
-            move_to.body[7]
+            move_to.body[7],
         ]),
-        destination.0,
-        "the x the client asked for, echoed -- not a waypoint from a graph this server does not have"
+        f32::from_le_bytes([
+            move_to.body[8],
+            move_to.body[9],
+            move_to.body[10],
+            move_to.body[11],
+        ]),
     );
+    assert_eq!(
+        first,
+        (expected[0].pos.x, expected[0].pos.y),
+        "the answer is the first waypoint of the server's own path"
+    );
+    assert_ne!(
+        first, destination,
+        "and the first waypoint of a corridor is not where the client asked to go"
+    );
+
     // And the other player is told, which is what makes a second client see the first one move.
     let seen = read_until(&mut stream_b, &mut client_b, game::AGENT_MOVE_TO_POINT).await;
+    let seen_at = seen
+        .iter()
+        .find(|frame| frame.header == game::AGENT_MOVE_TO_POINT)
+        .expect("the other player sees the walk");
+    assert_eq!(
+        f32::from_le_bytes([
+            seen_at.body[4],
+            seen_at.body[5],
+            seen_at.body[6],
+            seen_at.body[7]
+        ]),
+        first.0,
+        "and sees the same waypoint"
+    );
+
+    // ---- the tick walks the agent ------------------------------------------------------------
+    // Nothing is sent when a walk starts: the agent moves itself, `speed_base * delta` per world tick
+    // (`GameSrv_UpdateAgentMovement`), and the world's idea of where it stands follows.
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let mut travelled = 0.0f32;
+    while std::time::Instant::now() < deadline {
+        for peer in harness.world.peers.others(0) {
+            let dx = peer.standing.position.0 - spawn.0;
+            let dy = peer.standing.position.1 - spawn.1;
+            travelled = travelled.max(((dx * dx) + (dy * dy)).sqrt());
+        }
+        if travelled > 100.0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     assert!(
-        seen.iter()
-            .any(|frame| frame.header == game::AGENT_MOVE_TO_POINT),
-        "the other player sees the walk"
+        travelled > 100.0,
+        "the agent walks on the world tick: it has moved {travelled:.1} units"
     );
 
     // ---- the budget: a report a kilometre away is clamped, and the clamp is what is broadcast ----
-    let far = (destination.0 + 1000.0, destination.1 + 1000.0);
+    let far = (spawn.0 + 2500.0, spawn.1 + 3000.0);
+    // Where the walker stood when it made the report. The first client to join takes player id 1
+    // (`Peers::join` hands out the lowest free id), and the second client is the one that observes.
+    let before = harness
+        .world
+        .peers
+        .others(0)
+        .into_iter()
+        .find(|peer| peer.player_id == 1)
+        .map(|peer| peer.standing.position)
+        .expect("the walker is in the world");
+    let distance_before = ((before.0 - far.0).powi(2) + (before.1 - far.1).powi(2)).sqrt();
+
     let mut report = Vec::new();
     report.extend_from_slice(&far.0.to_le_bytes());
     report.extend_from_slice(&far.1.to_le_bytes());
@@ -1971,24 +2091,96 @@ async fn a_move_is_echoed_as_sent_and_a_far_report_is_clamped() {
         position.body[10],
         position.body[11],
     ]);
-    let travelled = ((x - destination.0).powi(2) + (y - destination.1).powi(2)).sqrt();
+    let jumped = ((x - far.0).powi(2) + (y - far.1).powi(2)).sqrt();
     // The reference's budget: `speed_base * elapsed + POSITION_UPDATE_TOLERANCE`, with the elapsed time
     // capped at `POSITION_UPDATE_MAX_ELAPSED_MS` (2000 ms) -- 288 * 2 + 50 = 626 units.
     assert!(
-        travelled > 0.0,
-        "an out-of-budget report still moves the agent along the reported direction"
+        jumped < distance_before,
+        "an out-of-budget report still moves the agent toward what it said"
     );
     assert!(
-        travelled <= 700.0,
-        "and only as far as the budget allows: {travelled:.1} units"
+        distance_before - jumped <= 700.0,
+        "but only as far as the budget allows: it moved {:.1} units",
+        distance_before - jumped
     );
     assert!(
-        (x - far.0).abs() > 100.0 && (y - far.1).abs() > 100.0,
-        "the far report itself was not believed"
+        jumped > 500.0,
+        "and the far report itself was not believed: {jumped:.1} units from it"
     );
 
     drop(stream_a);
     drop(stream_b);
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
+/// T10's refusal half: a destination the finder cannot reach is answered with **where the agent is**, not
+/// with a walk and not with an error of its own.
+///
+/// The reference sends a world tick, cancels the movement and broadcasts the position
+/// (`GmAgent.c:391-394`); the client is left to snap back from the walk it predicted. That is the only
+/// thing this test can observe, and it is the thing that matters: no `AGENT_MOVE_TO_POINT` was promised.
+#[tokio::test]
+async fn a_walk_the_finder_refuses_is_answered_with_the_agents_position() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+    if !harness.walks {
+        eprintln!("skipped: no Gw.dat, so this world has no path graph");
+        harness.stop();
+        return;
+    }
+
+    let version = harness.version(harness.player_token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused the client");
+    };
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_INFO).await;
+
+    // Far outside the map's geometry: `PathFindTrapezoid` has no trapezoid for it, so the finder answers
+    // "no path" before it searches anything.
+    let nowhere = (30_000.0f32, 30_000.0f32);
+    let mut walk = Vec::new();
+    walk.extend_from_slice(&nowhere.0.to_le_bytes());
+    walk.extend_from_slice(&nowhere.1.to_le_bytes());
+    walk.extend_from_slice(&0u32.to_le_bytes());
+    say(&mut stream, &mut client, 0x803E, &walk).await;
+
+    let answered = read_until(&mut stream, &mut client, game::AGENT_UPDATE_POSITION).await;
+    assert!(
+        !answered
+            .iter()
+            .any(|frame| frame.header == game::AGENT_MOVE_TO_POINT),
+        "a refused walk must not promise a destination"
+    );
+    let position = answered
+        .iter()
+        .find(|frame| frame.header == game::AGENT_UPDATE_POSITION)
+        .expect("the refusal is a position");
+    let x = f32::from_le_bytes([
+        position.body[4],
+        position.body[5],
+        position.body[6],
+        position.body[7],
+    ]);
+    let y = f32::from_le_bytes([
+        position.body[8],
+        position.body[9],
+        position.body[10],
+        position.body[11],
+    ]);
+    assert_eq!(
+        (x, y),
+        (6602.0, 4485.0),
+        "the agent is told it is still where it was standing"
+    );
+
+    drop(stream);
     placement::remove_world(&harness.pool, harness.world_id)
         .await
         .expect("remove the world");

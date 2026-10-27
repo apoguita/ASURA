@@ -16,11 +16,18 @@
 //! * a plane change is allowed only when it is short (stairs, a small portal);
 //! * a correction after a cancelled move is accepted only within 100 units and only on the same plane.
 //!
-//! What this does *not* do is pathfinding. The reference walks the map's navmesh and hands the client
-//! one waypoint at a time; with no navmesh here, the client's own destination is what comes back, and a
-//! straight line can cut a corner. That is a limitation of this server, stated rather than hidden.
+//! ## Walking
+//!
+//! The other half is the server's own idea of a walk, and it is the reference's too: a `MOVE_TO_COORD`
+//! becomes a path (`pathfind.rs`, from `GmPaths.c`), the agent walks the first segment at its own
+//! `speed_base` (288 units a second, `GameSrv.c:1088`), and every world tick moves it `speed_base * delta`
+//! further along. When a segment ends the next waypoint becomes the destination and the world is told;
+//! when the last one ends the walk is over and the agent stands still. That state is [`Motion`], which is
+//! the reference's `GmAgent.destination`, `.direction`, `.speed`, `.waypoints` and `.waypoint_idx`.
 
 use std::time::{Duration, Instant};
+
+use crate::pathfind::{Pos, Waypoint};
 
 /// The reference's `POSITION_UPDATE_TOLERANCE`: how far a client may be from where the server thought,
 /// before distance is even considered.
@@ -86,6 +93,25 @@ pub struct AgentState {
     last_report: Option<Instant>,
     /// The agent's walking speed, which is what the budget is computed from.
     speed_base: f32,
+    /// The walk in progress, if any (`GmAgent.destination`, `.direction`, `.speed`, `.waypoints`,
+    /// `.waypoint_idx`).
+    pub motion: Motion,
+}
+
+/// The reference's `GmAgent` walking state: one segment being walked, and the waypoints after it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Motion {
+    /// `GmAgent.waypoints`: the path the server chose. The segment being walked has already been taken
+    /// off the front of it, exactly as `waypoint_idx` does in the reference.
+    pub waypoints: Vec<Waypoint>,
+    /// `GmAgent.waypoint_idx`: the next waypoint to take when the current segment ends.
+    pub waypoint_idx: usize,
+    /// `GmAgent.destination`: where the current segment ends, plane included.
+    pub destination: Pos,
+    /// `GmAgent.direction`: a unit vector from the agent toward `destination`.
+    pub direction: (f32, f32),
+    /// `GmAgent.speed`: zero when the agent is standing still.
+    pub speed: f32,
 }
 
 impl AgentState {
@@ -97,7 +123,106 @@ impl AgentState {
             plane,
             last_report: None,
             speed_base,
+            motion: Motion::default(),
         }
+    }
+
+    /// The agent's position as a point on the map's graph.
+    pub fn here(&self) -> Pos {
+        Pos {
+            x: self.position.0,
+            y: self.position.1,
+            plane: self.plane,
+        }
+    }
+
+    /// Begin walking a path the finder produced (`GameSrv_HandleMoveToCoord`'s success half).
+    ///
+    /// The reference takes the first waypoint as the destination and leaves the rest in the list; this is
+    /// that, and it returns the waypoint so the caller can broadcast it. `None` when the path is empty,
+    /// which the reference also ignores (`if (0 < agent->waypoints.len)`).
+    pub fn begin_walk(&mut self, waypoints: Vec<Waypoint>) -> Option<Waypoint> {
+        self.motion.waypoints = waypoints;
+        self.motion.waypoint_idx = 0;
+        let first = *self.motion.waypoints.first()?;
+        self.motion.waypoint_idx = 1;
+        self.set_destination(first.pos);
+        Some(first)
+    }
+
+    /// `GameSrv_UpdateAgentDestination`, without the broadcast: point at `destination` and start moving.
+    ///
+    /// The reference divides by the distance without checking it, so a destination equal to the current
+    /// position produces a NaN direction and then a NaN position -- which would be saved to the database
+    /// and reloaded on the next visit. This keeps the direction it had instead, which makes such a walk a
+    /// no-op that the arrival test below clears on the next tick. That is a deliberate difference, and
+    /// the only one in this file.
+    fn set_destination(&mut self, destination: Pos) {
+        self.motion.speed = self.speed_base;
+        self.motion.destination = destination;
+        let dx = destination.x - self.position.0;
+        let dy = destination.y - self.position.1;
+        let norm = ((dx * dx) + (dy * dy)).sqrt();
+        if norm > 0.0 {
+            self.motion.direction = (dx / norm, dy / norm);
+        }
+    }
+
+    /// `GameSrv_CancelAgentMovement`: stand where you are -- the destination collapses to the position and
+    /// the speed to zero. The waypoint list is the caller's business, as it is in the reference.
+    pub fn cancel_movement(&mut self) {
+        self.motion.destination = self.here();
+        self.motion.speed = 0.0;
+    }
+
+    /// `GameSrv_UpdateAgentMovement`: walk `delta` seconds of the current segment.
+    ///
+    /// Returns the waypoint that became the new destination, if the agent crossed one during the tick --
+    /// the caller broadcasts it, because every client is drawing this agent from the last destination it
+    /// was told. Arrival clears the walk, as the reference does.
+    pub fn advance(&mut self, delta: f32) -> Option<Waypoint> {
+        if self.motion.speed == 0.0 {
+            return None;
+        }
+
+        let mut distance = delta * self.motion.speed;
+        let destination = self.motion.destination;
+        let to_destination = distance_between(self.position, (destination.x, destination.y));
+
+        let mut crossed = None;
+        if to_destination <= distance {
+            distance -= to_destination;
+
+            self.position = (destination.x, destination.y);
+            self.plane = destination.plane;
+
+            if self.motion.waypoint_idx < self.motion.waypoints.len() {
+                let next = self.motion.waypoints[self.motion.waypoint_idx];
+                self.motion.waypoint_idx += 1;
+                self.set_destination(next.pos);
+                crossed = Some(next);
+            } else {
+                distance = 0.0;
+            }
+        }
+
+        if 0.0 < distance {
+            let (dx, dy) = self.motion.direction;
+            self.position.0 += dx * distance;
+            self.position.1 += dy * distance;
+        }
+
+        if self.plane == destination.plane
+            && self.position.0 == destination.x
+            && self.position.1 == destination.y
+        {
+            self.motion.destination = Pos::default();
+            self.motion.speed = 0.0;
+            self.motion.waypoint_idx = 0;
+            self.motion.waypoints.clear();
+        }
+
+        crossed
     }
 
     /// Adopt a position the client reported (`GAME_CMSG_POSITION_UPDATE`).
@@ -166,10 +291,16 @@ impl AgentState {
     }
 
     fn distance_to(&self, other: (f32, f32)) -> f32 {
-        let dx = other.0 - self.position.0;
-        let dy = other.1 - self.position.1;
-        (dx * dx + dy * dy).sqrt()
+        distance_between(self.position, other)
     }
+}
+
+/// `Vec2f_Dist2`: the real square root, which is what the reference's movement uses (its *path* finder
+/// uses the table-driven one, and that is `pathfind::path_sqrt`).
+fn distance_between(left: (f32, f32), right: (f32, f32)) -> f32 {
+    let dx = right.0 - left.0;
+    let dy = right.1 - left.1;
+    ((dx * dx) + (dy * dy)).sqrt()
 }
 
 #[cfg(test)]
@@ -259,5 +390,115 @@ mod tests {
             agent.adopt_report((6602.0 + 500.0, 4485.0), 0, Instant::now()),
             Adopted::Accepted
         );
+    }
+
+    fn waypoint(x: f32, y: f32, trap_id: u32) -> Waypoint {
+        Waypoint {
+            pos: Pos { x, y, plane: 0 },
+            trap_id,
+        }
+    }
+
+    #[test]
+    fn a_walk_starts_at_the_paths_first_waypoint() {
+        let mut walker = agent();
+        let started = walker
+            .begin_walk(vec![
+                waypoint(6702.0, 4485.0, 1),
+                waypoint(6802.0, 4485.0, 2),
+            ])
+            .expect("a walk with waypoints starts");
+        assert_eq!(started.trap_id, 1, "the reference takes waypoint 0");
+        assert_eq!(walker.motion.destination.x, 6702.0);
+        assert_eq!(
+            walker.motion.speed, 288.0,
+            "and starts moving at speed_base"
+        );
+        assert_eq!(walker.motion.direction, (1.0, 0.0), "pointing at it");
+        assert_eq!(walker.motion.waypoint_idx, 1, "with the rest still to walk");
+
+        // An empty path is the reference's `0 < agent->waypoints.len` check: nothing starts.
+        let mut empty = agent();
+        assert!(empty.begin_walk(Vec::new()).is_none());
+    }
+
+    #[test]
+    fn the_tick_walks_the_segment_and_hands_over_to_the_next_waypoint() {
+        // 288 units a second, half a second at a time: 144 units a tick, and what is left of a tick after
+        // a waypoint is spent on the next segment -- which is what the reference's `dist -=` does.
+        let mut walker = agent();
+        walker.begin_walk(vec![
+            waypoint(6602.0 + 200.0, 4485.0, 1),
+            waypoint(6602.0 + 500.0, 4485.0, 2),
+        ]);
+
+        assert_eq!(walker.advance(0.5), None, "still on the first segment");
+        assert!((walker.position.0 - (6602.0 + 144.0)).abs() < 0.01);
+
+        // The second tick covers the 56 units left to the first waypoint and spends the other 88 on the
+        // segment after it, taking that waypoint as the new destination as it goes.
+        let next = walker.advance(0.5).expect("a waypoint was crossed");
+        assert_eq!(next.trap_id, 2);
+        assert_eq!(walker.motion.destination.x, 6602.0 + 500.0);
+        assert!(
+            (walker.position.0 - (6602.0 + 200.0 + 88.0)).abs() < 0.01,
+            "position {} after the overshoot",
+            walker.position.0
+        );
+    }
+
+    #[test]
+    fn arriving_ends_the_walk() {
+        let mut agent = agent();
+        agent.begin_walk(vec![waypoint(6602.0 + 100.0, 4485.0, 1)]);
+        // 100 units at 288 a second is inside one tick.
+        assert_eq!(
+            agent.advance(0.5),
+            None,
+            "the last waypoint is the destination"
+        );
+        assert_eq!(agent.position, (6602.0 + 100.0, 4485.0));
+        assert_eq!(agent.motion.speed, 0.0, "and the walk is over");
+        assert!(agent.motion.waypoints.is_empty());
+        assert_eq!(agent.motion.destination, Pos::default());
+        assert_eq!(agent.advance(0.5), None, "a standing agent does not move");
+    }
+
+    #[test]
+    fn a_walk_to_where_the_agent_stands_does_not_poison_its_direction() {
+        // The reference divides by the distance here without checking it, so this exact case gives it a
+        // NaN direction and then a NaN position. This keeps the direction it had and ends the walk on the
+        // next tick instead -- the one deliberate difference in the movement code.
+        let mut walker = agent();
+        walker.begin_walk(vec![waypoint(6602.0, 4485.0, 1)]);
+        assert_eq!(
+            walker.motion.direction,
+            (0.0, 0.0),
+            "unchanged (nothing to point at yet), not NaN"
+        );
+        walker.advance(0.5);
+        assert_eq!(walker.position, (6602.0, 4485.0));
+        assert_eq!(
+            (walker.motion.speed, walker.motion.destination),
+            (0.0, Pos::default()),
+            "the walk is over immediately"
+        );
+        assert!(walker.position.0.is_finite() && walker.position.1.is_finite());
+    }
+
+    #[test]
+    fn cancelling_stands_still_without_forgetting_the_path() {
+        // `GameSrv_CancelAgentMovement` sets the destination to the position and the speed to zero; the
+        // waypoint list is the caller's business, and `MOVE_TO_COORD` clears it first.
+        let mut agent = agent();
+        agent.begin_walk(vec![
+            waypoint(6802.0, 4485.0, 1),
+            waypoint(6902.0, 4485.0, 2),
+        ]);
+        agent.cancel_movement();
+        assert_eq!(agent.motion.speed, 0.0);
+        assert_eq!(agent.motion.destination.x, 6602.0);
+        assert_eq!(agent.advance(0.5), None, "and nothing moves");
+        assert_eq!(agent.position, (6602.0, 4485.0));
     }
 }

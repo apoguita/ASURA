@@ -274,6 +274,33 @@ async fn main() -> ExitCode {
         );
     }
 
+    // The path graphs, which is what a `MOVE_TO_COORD` is answered from (`GameSrv_LoadMap` reads the same
+    // blob). A map whose blob cannot be imported is served without one, and every walk in it is refused.
+    let archive = archive_path(&args);
+    let graphs = match asura_world::PathGraphs::load(&archive, &maps) {
+        Ok(graphs) => {
+            let with_graphs = graphs.maps();
+            eprintln!(
+                "asura-world: path graphs from {archive}: {} of {} map(s) ({})",
+                with_graphs.len(),
+                maps.len(),
+                with_graphs
+                    .iter()
+                    .map(|map_id| map_id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            graphs
+        }
+        Err(err) => {
+            eprintln!(
+                "asura-world: no path graphs, so every walk will be refused: could not open {archive}: \
+                 {err}. Set ASURA_GW_DAT or pass --gwdat."
+            );
+            asura_world::PathGraphs::empty()
+        }
+    };
+
     let world = Arc::new(World {
         pool,
         world_id,
@@ -281,12 +308,34 @@ async fn main() -> ExitCode {
         replay,
         peers: Default::default(),
         public,
+        graphs,
     });
     if let Err(err) = serve(listener, world, trace.on()).await {
         eprintln!("asura-world: the listener stopped: {err}");
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
+}
+
+/// Where the client's archive is, for the path graphs: `--gwdat`, then `ASURA_GW_DAT`, then the two places
+/// a development machine keeps it.
+///
+/// A world that cannot open it still serves (a client loads a map from its own copy of the same archive),
+/// but it refuses every walk instead of inventing one, and says so at startup.
+fn archive_path(args: &[String]) -> String {
+    if let Some(given) = argument(args, "--gwdat") {
+        return given;
+    }
+    if let Ok(from_env) = std::env::var("ASURA_GW_DAT") {
+        return from_env;
+    }
+    let beside_reference = std::path::Path::new("..").join("PreSearing").join("Gw.dat");
+    for candidate in [std::path::PathBuf::from("Gw.dat"), beside_reference] {
+        if candidate.exists() {
+            return candidate.to_string_lossy().into_owned();
+        }
+    }
+    "Gw.dat".to_string()
 }
 
 /// The value after `name`, if the flag was given.
@@ -315,10 +364,13 @@ fn print_help() {
     println!("                      or ASURA_WORLD_PUBLIC)");
     println!("    --maps LIST       comma-separated map ids to host (default {DEFAULT_MAP})");
     println!("    --capacity N      slots per map (default {DEFAULT_CAPACITY})");
+    println!("    --gwdat PATH      the client archive the path graphs come from (default: ASURA_GW_DAT,");
+    println!("                      then Gw.dat, then ..\\PreSearing\\Gw.dat)");
     println!("    -V, --version     print the version and exit");
     println!("    -h, --help        print this and exit");
     println!();
     println!("ENVIRONMENT:");
     println!("    ASURA_DATABASE_URL    the PostgreSQL URL (falls back to the repository .env)");
+    println!("    ASURA_GW_DAT          the client archive, for the path graphs");
     println!("    ASURA_TRACE=1         log every message: direction, header, size");
 }

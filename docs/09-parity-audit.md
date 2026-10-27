@@ -98,7 +98,7 @@ GWPS dispatch: `GameSrv.c:2007-2074`. ASURA dispatch: `crates/asura-world/src/li
 | 11 | `CHAR_CREATION_CONFIRM` | Creates the character's bags **and writes the item rows once**, then enters the map (`GameSrv.c:1855-1976`; `GameSrv_CreatePlayerBags` at `GameSrv.c:1230`). | No arm; ASURA seeds rows at login instead (`crates/asura-db/src/inventory.rs:358`). | BEHIND (mechanism) / 1:1 (rows) |
 | 12 | `ITEM_UPDATE_EQUIPPED_COLOR` | Declared as a handler but a no-op: it ignores all three parameters (`GameSrv.c:1847-1853`) | No arm: the fallthrough frames it and ignores it, naming it under trace (`lib.rs:1200-1208`). `docs/07-status.md` lists it as a missing arm because it counts dispatch entries, not behaviour | 1:1 (effect) |
 | 13 | `SEND_CHAT_MESSAGE` | `GameSrv_HandleChatMessage` (`GmChat.c:279-306`). | `0x8064` (`lib.rs:982-1102`). | 1:1 (effect) |
-| 14 | `MOVE_TO_COORD` | Pathfinds and broadcasts the first waypoint (`GmAgent.c:371-398`). | Echoes the client's own destination as `AGENT_MOVE_TO_POINT` (`lib.rs:873-903`). | DEVIATION (no navmesh — see §3) |
+| 14 | `MOVE_TO_COORD` | Pathfinds and broadcasts the first waypoint (`GmAgent.c:371-398`). | The same finder, the same first waypoint, the same refusal (`lib.rs`, `0x803E`; docs §3). | 1:1 |
 | 15 | `POSITION_UPDATE` | Adopts / clamps / refuses by a speed budget (`GmAgent.c:409-462`). | `adopt_report` with the same budget (`lib.rs:909-932`). | 1:1 (effect) |
 | 16 | `CANCEL_MOVEMENT` | Tick, cancel, broadcast `AGENT_STOP_MOVING` (`GmAgent.c:533-545`). | `agent_stop_moving` (`lib.rs:936-945`). | 1:1 |
 | 17 | `LAST_POS_BEFORE_MOVE_CANCELED` | Accepts a short same-plane correction, refuses a long one, sends nothing (`GmAgent.c:547-563`). | `adopt_correction` (`lib.rs:950-972`). | 1:1 (effect) |
@@ -116,14 +116,14 @@ search over it.
 The navmesh is no longer the unknown it was: `Gw.dat`'s index, its decompressor, `GmMapDataImport.c` and
 `GmPaths.c`'s A* are all ported and measured against the reference's own code (docs/10-parity-queue.md,
 item D) — 96 walks, 41 of them found, with every waypoint identical to the last bit except the one case the
-reference answers differently on different runs. What has not happened yet is *adoption*: `MOVE_TO_COORD`
-still echoes the client's destination instead of asking the finder, so the walk verdict below does not
-change yet.
+reference answers differently on different runs. The finder is also **adopted**: `MOVE_TO_COORD` pathfinds,
+answers with the first waypoint, and refuses what it cannot reach by broadcasting where the agent is, while
+the world tick walks the agent along the path (`lib.rs`, `agent.rs`). The walk verdict below reflects that.
 
 | Behaviour | GWPS | ASURA | Verdict |
 |---|---|---|---|
-| Walk to a coordinate | A* over the map's path graph; the agent walks waypoint by waypoint (`GmAgent.c:385-395`) | One straight leg to the client's destination (`lib.rs:890-901`) | DEVIATION — no navmesh in ASURA; the client's own prediction carries the walk, and the server never claims a path it did not compute |
-| World tick | Every `GAME_SRV_MAX_TIME_BETWEEN_WORLD_TICK_MS`, broadcast + advance movement + regen health/energy (`GmAgent.c:502-531`) | `WORLD_SIMULATION_TICK` on the reference's interval; position comes from the client's reports instead of server-side integration | 1:1 (effect) — the tick is the same message on the same clock |
+| Walk to a coordinate | A* over the map's path graph; the answer is the **first waypoint of its own path**, and the refusal is a tick, a cancel and a position broadcast (`GmAgent.c:371-398`) | The same finder (`pathfind.rs`, `GmPaths.c` ported and compared case by case), the same first waypoint, the same refusal shape (`lib.rs`, `0x803E`) | 1:1 — with one deliberate difference: the reference divides by zero when a walk's destination is where the agent stands, which poisons its position with NaN; this keeps the agent where it is |
+| World tick | Every `GAME_SRV_MAX_TIME_BETWEEN_WORLD_TICK_MS`, broadcast + advance movement + regen health/energy (`GmAgent.c:502-531`) | `WORLD_SIMULATION_TICK` on the reference's interval; movement advances `speed_base * delta` along the path (`agent.rs`, `advance`) | 1:1 for movement; regen is not integrated — see the health/energy row below |
 | Position reports | Adopted within a speed budget, clamped beyond it, refused across a long plane change (`GmAgent.c:409-462`) | Same three outcomes (`lib.rs:920-931`) | 1:1 (effect) |
 | Cancel a walk | `AGENT_STOP_MOVING` after a tick (`GmAgent.c:533-545`) | `AGENT_STOP_MOVING` (`lib.rs:936-945`) | 1:1 |
 | Correct after a cancel | Short correction on the same plane taken, long refused, nothing sent (`GmAgent.c:547-563`) | Same (`lib.rs:950-972`) | 1:1 (effect) |

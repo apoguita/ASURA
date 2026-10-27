@@ -77,14 +77,14 @@ fn parse_answer(line: &str) -> Answer {
 
 /// The row this repo's finder produces for one case, in the fixture's exact spelling.
 fn answer_for(
-    data: &PathStaticData,
+    data: &std::sync::Arc<PathStaticData>,
     waypoints: &mut Vec<Waypoint>,
     src: Pos,
     dst: Pos,
     case: &str,
 ) -> (Answer, usize, bool) {
     waypoints.clear();
-    let mut finder = PathContext::new(data);
+    let mut finder = PathContext::new(std::sync::Arc::clone(data));
     let found = finder.path_finding(src, dst, waypoints);
 
     let joined = waypoints
@@ -200,7 +200,7 @@ fn every_case_produces_the_references_own_waypoints() {
     );
 
     let mut archive = GwDat::open(&path).expect("open Gw.dat");
-    let mut imported: HashMap<u32, PathStaticData> = HashMap::new();
+    let mut imported: HashMap<u32, std::sync::Arc<PathStaticData>> = HashMap::new();
     let mut waypoints: Vec<Waypoint> = Vec::new();
     let mut checked = 0usize;
     let mut found_walks = 0usize;
@@ -213,7 +213,7 @@ fn every_case_produces_the_references_own_waypoints() {
                 .unwrap_or_else(|| panic!("{:#010X} is not in the archive", case.blob));
             let data = PathStaticData::import(&content)
                 .unwrap_or_else(|err| panic!("{:#010X}: {err}", case.blob));
-            slot.insert(data);
+            slot.insert(std::sync::Arc::new(data));
         }
         let data = &imported[&case.blob];
         let (answer, count, found) =

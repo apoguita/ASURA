@@ -301,6 +301,9 @@ archive's index, its decompressor, and `GmMapDataImport.c`'s chunk reader. All t
 | the reference's own answers for them, waypoint bits included | `tools/parity-path.py --write` -> `tests/fixtures/path-results.csv` |
 | the reference's path finder as a runnable oracle (its translation unit, unmodified) | `tools/path-oracle.c`, built by `tools/build-path-oracle.ps1` |
 | the case-by-case comparison, and the four in-module tests | `crates/asura-world/tests/pathfind.rs`, `src/pathfind.rs` |
+| the graphs a world serves with, imported at startup from `Gw.dat` | `crates/asura-world/src/lib.rs` (`PathGraphs`), `src/main.rs` (`--gwdat`, `ASURA_GW_DAT`) |
+| the walk itself: destination, direction, speed, waypoints, and the tick that advances them | `crates/asura-world/src/agent.rs` (`Motion`, `begin_walk`, `advance`) |
+| `MOVE_TO_COORD`'s answer: waypoint 0, or the refusal that is a position broadcast | `crates/asura-world/src/lib.rs` (`0x803E`) |
 
 The grep that matters is `python tools/parity-pathing.py --check`: it runs
 `..\PreSearing\build\RelWithDebInfo\gwdat_pathing.exe` over the catalogue's blobs, compares its output to
