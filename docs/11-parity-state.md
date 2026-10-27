@@ -15,6 +15,7 @@ python tools/parity-summary.py --write docs/11-parity-state.md --fast
 | dispatch | the reference's client-message handlers | auth **15/15**, game **18/18** - **complete**; 1 of them are no-ops in the reference itself |
 | emit | every message the reference can send | **76 of 81** reachable, **0 real gap(s)**, 5 explained |
 | the load block | `(header, size)` against the reference's own trace | **480 of 480** matched, **0 missing**, **0 extra**, **0 size** disagreement(s) |
+| the load block's bytes | the same messages, payload against payload | **91 of 480 message(s) are byte-identical to the reference; 389 allowed difference(s) in 3 message(s), each with a recorded reason** |
 | generated files | `--check` against the reference's sources | **10 of 10 current** |
 | the map data | `Gw.dat` through the ported importer, against the reference's own tool | **the importer matches the reference on 7 blob(s): 283 plane(s), 34806 trapezoid(s), same bounding boxes** |
 | the path finder | the same walks through both A*s, waypoint bits compared | **the path finder matches the reference on 96 case(s): 41 walk(s) found, 127 waypoint(s) identical, 1 case(s) compared on the answer alone** |

@@ -159,7 +159,7 @@ def main():
             return 0
     if not os.path.exists(args.oracle):
         print(
-            "skipped: no oracle at {} -- build it with tools/build-path-oracle.ps1".format(
+            "skipped: no oracle at {} -- build it with tools/build-oracle.ps1".format(
                 args.oracle
             )
         )

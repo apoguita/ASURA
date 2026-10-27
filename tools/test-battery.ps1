@@ -224,7 +224,7 @@ if ($python) {
         ($result.Output | Select-String -Pattern 'FAIL|reference:|this repo:' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
     }
 
-    # The finder needs an oracle built out of the reference's sources (`tools/build-path-oracle.ps1`); with
+    # The finder needs an oracle built out of the reference's sources (`tools/build-oracle.ps1`); with
     # no oracle the tool says so and exits 0, and the tests still check the committed answers.
     $result = Invoke-Native $python @("tools/parity-path.py", "--check")
     $detail = ($result.Output | Select-Object -Last 1) -join ""
@@ -240,6 +240,16 @@ if ($python) {
     Write-Verdict ($result.ExitCode -eq 0) "the database schema" $detail
     if ($result.ExitCode -ne 0) {
         ($result.Output | Select-String -Pattern 'FAIL|out of date' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
+    }
+
+    # The load block's *payloads*, not only its sizes (step 8's `parity-load.py` compares `(header, size)`).
+    # Three messages differ for measured reasons -- a packer bug, buffer residue and a clock -- and every
+    # other one has to be the reference's bytes.
+    $result = Invoke-Native $python @("tools/parity-load-bytes.py", "--check")
+    $detail = ($result.Output | Select-Object -Last 1) -join ""
+    Write-Verdict ($result.ExitCode -eq 0) "the load block's bytes" $detail
+    if ($result.ExitCode -ne 0) {
+        ($result.Output | Select-String -Pattern 'FAIL' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
     }
 } else {
     Write-Skip "python is not installed"

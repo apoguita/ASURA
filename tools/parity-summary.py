@@ -169,6 +169,17 @@ def schema_axis():
     return {"ok": code == 0, "detail": lines[-1] if lines else "no output"}
 
 
+def load_bytes_axis():
+    """The load block's payloads: the same 480 messages, compared byte for byte with the capture.
+
+    `load_axis` compares `(header, size)`; this compares the bytes, and fails unless every difference is one
+    of the three the tool records with a measured reason. It runs the dump itself, so there is no stale file.
+    """
+    code, output = run([sys.executable, os.path.join(REPO, "tools", "parity-load-bytes.py"), "--check"])
+    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
+    return {"ok": code == 0, "detail": lines[-1] if lines else "no output"}
+
+
 def test_axis():
     code, output = run(["cargo", "test", "--workspace", "--quiet"])
     passed = sum(
@@ -198,6 +209,7 @@ def main():
     dispatch = dispatch_axis()
     emit = emit_axis()
     load = load_axis()
+    load_bytes = load_bytes_axis()
     maps = map_axis()
     paths = path_axis()
     schema = schema_axis()
@@ -261,6 +273,14 @@ def main():
         )
     else:
         lines.append("| the load block | `tools/parity-load.py` | **the tool failed** |")
+
+    if load_bytes["ok"]:
+        lines.append("| the load block's bytes | the same messages, payload against payload | **%s** |" % load_bytes["detail"])
+    else:
+        lines.append(
+            "| the load block's bytes | `tools/parity-load-bytes.py --check` | **differs from the capture**: %s |"
+            % load_bytes["detail"]
+        )
 
     failed = [name for name, ok in generated if not ok]
     lines.append(

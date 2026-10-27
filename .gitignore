@@ -36,9 +36,12 @@ desktop.ini
 __pycache__/
 *.pyc
 
-# The path oracle: a host tool compiled out of the reference's own sources (tools/path-oracle.c) by
-# tools/build-path-oracle.ps1. What it prints is committed as a fixture instead; the binary is rebuilt
-# when someone wants to check the fixture against the reference again.
+# The oracles: host tools compiled out of the reference's own sources (tools/path-oracle.c,
+# tools/pack-oracle.c) by tools/build-oracle.ps1. What they print is committed as a fixture instead; a
+# binary is rebuilt when someone wants to check the fixture against the reference again.
 /tools/path-oracle.exe
 /tools/path-oracle.obj
 /tools/path-oracle.pdb
+/tools/pack-oracle.exe
+/tools/pack-oracle.obj
+/tools/pack-oracle.pdb

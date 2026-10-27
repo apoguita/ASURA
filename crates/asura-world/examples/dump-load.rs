@@ -46,6 +46,19 @@ fn main() {
     println!("# the answer to 0x8088 (spawn)");
     dump(&spawn_block(&map, standing));
     println!("# the answer to 0x8090 (players)");
+    // The character the reference session used, as its own row held it: a Warrior (`appearance` 0x03100000,
+    // `primary_profession` 1, `unlocked_professions` `1 << 1`), campaign Prophecies, level 1 -- the values
+    // its character-settings blob decodes to (see `CHARACTER_SETTINGS_EXTENDED`). Passing the *default*
+    // traits instead made `PLAYER_UPDATE_PROFESSION` and `_UNLOCKED_PROFESSIONS` differ from the capture by
+    // exactly those two fields, which was a difference in this dump rather than in the server.
+    let traits = asura_db::game::Traits {
+        appearance: 0x0310_0000,
+        profession: 1,
+        unlocked_professions: 2,
+        gold: 0,
+        campaign: 1,
+        secondary_profession: 0,
+    };
     dump(&player_block(
         &name,
         standing,
@@ -53,7 +66,7 @@ fn main() {
         std::time::Instant::now(),
         asura_world::PLAYER_ID,
         asura_world::AGENT_ID,
-        asura_db::game::Traits::default(),
+        traits,
     ));
 }
 

@@ -299,7 +299,7 @@ archive's index, its decompressor, and `GmMapDataImport.c`'s chunk reader. All t
 | its fixed-point reciprocal and square-root tables, generated from `GmPaths.c` | `tools/gen-path-tables.py` -> `src/path_tables.rs` |
 | the walks both sides run: every catalogue spawn point and eight offsets from it | `tools/gen-path-cases.py` -> `tests/fixtures/path-cases.txt` |
 | the reference's own answers for them, waypoint bits included | `tools/parity-path.py --write` -> `tests/fixtures/path-results.csv` |
-| the reference's path finder as a runnable oracle (its translation unit, unmodified) | `tools/path-oracle.c`, built by `tools/build-path-oracle.ps1` |
+| the reference's path finder as a runnable oracle (its translation unit, unmodified) | `tools/path-oracle.c`, built by `tools/build-oracle.ps1` |
 | the case-by-case comparison, and the four in-module tests | `crates/asura-world/tests/pathfind.rs`, `src/pathfind.rs` |
 | the graphs a world serves with, imported at startup from `Gw.dat` | `crates/asura-world/src/lib.rs` (`PathGraphs`), `src/main.rs` (`--gwdat`, `ASURA_GW_DAT`) |
 | the walk itself: destination, direction, speed, waypoints, and the tick that advances them | `crates/asura-world/src/agent.rs` (`Motion`, `begin_walk`, `advance`) |
@@ -313,7 +313,7 @@ the fixture, and compares both to this repo's importer. Any of the three driftin
 `python tools/parity-path.py --check` is the same shape for the search, with one difference: the reference
 has no tool of its own for `PathFinding`, so `tools/path-oracle.c` supplies one by compiling the reference's
 own translation unit and calling it. That needs MSVC and the libraries the reference's CMake build already
-produced, which is why `tools/build-path-oracle.ps1` exists and why the binary is gitignored — the fixture
+produced, which is why `tools/build-oracle.ps1` exists and why the binary is gitignored — the fixture
 it produced is committed, and the tests run from the fixture without a compiler.
 
 One corner of that comparison is a reference defect rather than a port difference:
@@ -337,6 +337,8 @@ the same captured one for every character. It is now built from the row.
 | the creation defaults the reference writes (`level = 1`, `is_pvp` when the campaign is none, helmet shown) | `asura_db::inventory::create_character` |
 | the proof: the built block equals the reference's, the seeded character's does not, and the row round-trips | `messages.rs` tests, `crates/asura-auth/tests/login.rs`, `crates/asura-db/tests/inventory.rs` |
 | the schema diff itself: 95 reference columns, each stored, derived or explained | `tools/parity-schema.py` -> `docs/12-schema-parity.md` |
+| the load block's payloads against the capture, with the three measured allowances | `tools/parity-load-bytes.py --check` |
+| a message's bytes from the reference's own packer, and that message's field list | `tools/pack-oracle.c`, built by `tools/build-oracle.ps1 -Source .\tools\pack-oracle.c` |
 
 Two schema details worth not re-learning: `smallint` and `integer` are *different Rust types* to sqlx, so a
 query that reads a mixed set of them needs `::int` casts or it fails at runtime; and the settings block is

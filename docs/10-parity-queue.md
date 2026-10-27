@@ -329,7 +329,7 @@ walk.
 
 **How it is measured.** `tools/path-oracle.c` is a host tool that compiles the reference's single
 translation unit *unmodified* (`#define COMPILE_TOOLS 1`, the same trick the reference's own tools use)
-and calls `PathFinding` directly; `tools/build-path-oracle.ps1` compiles it with the MSVC the reference
+and calls `PathFinding` directly; `tools/build-oracle.ps1` compiles it with the MSVC the reference
 was built with, linking the static libraries its CMake build already produced. Nothing under
 `PreSearing/` is written to. Both sides then run the same 96 cases
 (`crates/asura-world/tests/fixtures/path-cases.txt`, generated from the map catalogue's spawn points) and
@@ -427,6 +427,38 @@ battery.
 
 The finding that started this item is closed by it: the two party messages are in the stream, in the
 reference's position, at the reference's size.
+
+**F3 landed: the payloads are compared too, and three messages differ for measured reasons.**
+`tools/parity-load-bytes.py` walks the same 480 messages and compares the bytes — a wrong *value* is the same
+size, which is exactly what a `(header, size)` diff cannot see. The result:
+
+```
+91 of 480 message(s) are byte-identical to the reference; 389 allowed difference(s) in 3 message(s)
+```
+
+The three, each with the reference's own code as the evidence:
+
+- **`0x001A` `PVP_ITEM_STREAM_ADD` (387 messages).** The reference sends `params[0]` once per parameter:
+  `pack_helper`'s nested-struct case (`msgpack.c:411-436`) calls **`unpack_helper`** — the other direction —
+  and never advances `consumed`, so every element is read from the same place. The capture shows
+  `0x24080081` three times for item 1, where the reference's own table has
+  `{0x24080081, 0x25300102, 0x24B80300}`. This server sends the table's real values (generated from that same
+  array by `tools/gen-pvp-items.py`), so the check compares the header, the item id and the count.
+- **`0x0094` `MAP_UPDATE_UNLOCKED_LIST` (1).** 260 bytes of which the reference fills the list lengths and
+  the bitmap copies of a fresh character — the rest is whatever the previous message left in its per-server
+  buffer. The capture's payload carries armour file ids and dye colours in those bytes. This server sends
+  zeros, and the check requires every byte it *does* set to be the reference's.
+- **`0x001F` `WORLD_UPDATE_LOAD_TIME` (1).** A wall-clock measurement; only the size is comparable.
+
+Everything else — the agent record, the player record, the whole item stream and the tail of the block — is
+the reference's bytes. Two *dump* bugs surfaced on the way and are fixed: the example passed the default
+traits, so `PLAYER_UPDATE_PROFESSION` sent 0 where the reference's character row held 1 (Warrior) and
+`_UNLOCKED_PROFESSIONS` sent 0 where it held 2 — a difference in the dump rather than in the server.
+
+`tools/pack-oracle.c` came out of the work and stays: it puts a message struct through the reference's own
+`pack_msg` with the reference's format table (and prints that table's field list with `pack-oracle fields
+<header>`), so a message's bytes can be asked for rather than reasoned about. `tools/build-oracle.ps1` now
+builds either oracle.
 
 ### G. Chat (T11) — equal to the reference, and that is the ceiling
 

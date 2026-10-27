@@ -1,34 +1,49 @@
 <#
 .SYNOPSIS
-    Build the path oracle: the reference's own path finder, compiled here and run there.
+    Build an oracle: a small tool that compiles the reference's own code, unmodified, and runs it here.
 
 .DESCRIPTION
-    `tools/path-oracle.c` includes the reference's single translation unit unmodified
-    (`PreSearing/code/OpenTyria/build_open_tyria.c`) and calls `PathFinding` directly, which is the only
-    way to ask the reference "what waypoints would you produce for this walk" without a game client and
-    without editing the reference.
+    Two of them so far, both in `tools/`:
+
+      * `path-oracle.c` calls `PathFinding`, so a port of the A* can be asked "what waypoints would the
+        reference produce for this walk";
+      * `pack-oracle.c` calls `pack_msg` with the reference's own format table, so a message's *bytes* can
+        be produced by the reference rather than by my reading of its field list.
+
+    Both `#include` the reference's single translation unit (`PreSearing/code/OpenTyria/
+    build_open_tyria.c`) with `COMPILE_TOOLS`, exactly as the reference's own host tools do.
 
     Nothing under `PreSearing/` is written to. Its sources, its headers, the vendored mbedtls, and the
     static libraries and object files its own CMake build already produced are read; the tool lands here.
 
     Why MSVC and not gcc: the reference was built with Visual Studio 17 2022 (`build/CMakeCache.txt`), and
-    the search's result is sensitive to floating-point code generation. Compiling with the toolchain the
+    an A*'s result is sensitive to floating-point code generation. Compiling with the toolchain the
     reference was built with removes one source of difference between the two sides.
 
     The libraries are the ones CMake built into `PreSearing/build/`; if they are missing, build the
     reference first (`cmake --build build --config RelWithDebInfo`), which this script never does itself.
 
 .EXAMPLE
-    .\tools\build-path-oracle.ps1
+    .\tools\build-oracle.ps1
 
 .EXAMPLE
-    .\tools\build-path-oracle.ps1 -Reference "D:\GWPS"
+    .\tools\build-oracle.ps1 -Source .\tools\pack-oracle.c -OutFile .\tools\pack-oracle.exe
+
+.EXAMPLE
+    .\tools\build-oracle.ps1 -Reference "D:\GWPS"
 #>
 
 param(
     [string] $Reference = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "PreSearing"),
-    [string] $OutFile = (Join-Path $PSScriptRoot "path-oracle.exe")
+    [string] $Source = (Join-Path $PSScriptRoot "path-oracle.c"),
+    [string] $OutFile = ""
 )
+
+if (-not $OutFile) {
+    $OutFile = [System.IO.Path]::ChangeExtension($Source, ".exe")
+}
+$OutFile = [System.IO.Path]::GetFullPath($OutFile)
+$Source = [System.IO.Path]::GetFullPath($Source)
 
 $ErrorActionPreference = "Stop"
 
@@ -54,7 +69,7 @@ if (-not $vcvars) {
     exit 2
 }
 
-$source = Join-Path $Reference "code\OpenTyria"
+$includeDir = Join-Path $Reference "code\OpenTyria"
 $mbedtls = Join-Path $Reference "deps\mbedtls-3.6.0\include"
 $build = Join-Path $Reference "build"
 $sqlite = Join-Path $build "RelWithDebInfo\gwps_sqlite.lib"
@@ -80,14 +95,14 @@ $command = @(
     # silences the compiler and reports only "the compiler refused".
     "call `"$vcvars`" >nul 2>&1 &&",
     "cl /nologo /O2 /MD /W0 /DCOMPILE_TOOLS",
-    "/I `"$source`" /I `"$mbedtls`"",
-    "`"$(Join-Path $PSScriptRoot 'path-oracle.c')`"",
+    "/I `"$includeDir`" /I `"$mbedtls`"",
+    "`"$Source`"",
     "/Fe:`"$OutFile`" /Fo:`"$object`"",
     "/link `"$sqlite`" " + (($mbedLibs | ForEach-Object { "`"$_`"" }) -join " "),
     "Ws2_32.lib bcrypt.lib ntdll.lib"
 ) -join " "
 
-Write-Host "compiling the reference's path finder with the toolchain it was built with"
+Write-Host ("compiling {0} with the toolchain the reference was built with" -f (Split-Path -Leaf $Source))
 cmd /c $command
 if ($LASTEXITCODE -ne 0) {
     Write-Host "the compiler refused; nothing was written" -ForegroundColor Red
