@@ -78,6 +78,11 @@ pub const PARTY_ID: u16 = 1;
 /// as a map of its own, which is why `main.rs` accepts it alongside a main town.
 pub const MAP_TYPE_CHARACTER_CREATION: i32 = 11;
 
+/// MapType_MainTown (0) and MapType_MainExplorable (1), the GmMap.h names for the two kinds of place a
+/// client walks around in.
+pub const MAP_TYPE_MAIN_TOWN: i32 = 0;
+pub const MAP_TYPE_MAIN_EXPLORABLE: i32 = 1;
+
 /// The energy and health a character-creation screen's player-data block reports. **Not** the load block's
 /// numbers: `GameSrv_SendPlayerHealthEnergy` (`GmPlayer.c:178-199`) sends 20 and 100, while the load path
 /// sends 25 and 400 (measured from the reference's own send log). Two paths, two sets of numbers, and mixing

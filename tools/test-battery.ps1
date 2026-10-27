@@ -195,7 +195,8 @@ if ($python) {
         @("tools/gen-pvp-items.py", @("--check"), "the PvP item table"),
         @("tools/gen-default-inventory.py", @("--check", "--capture", "C:\Users\Apo\Documents\GitHub\PreSearing\gwps-capture.log"), "the default inventory"),
         @("tools/parity-load.py", @("--check", "crates/asura-world/src/load_fixture.rs"), "the reference's load stream"),
-        @("tools/gen-default-equipment.py", @("--check"), "the default-equipment table")
+        @("tools/gen-default-equipment.py", @("--check"), "the default-equipment table"),
+        @("tools/gen-map-config.py", @("--check"), "the map catalogue")
     )
     foreach ($check in $checks) {
         $result = Invoke-Native $python (@($check[0]) + $check[1])

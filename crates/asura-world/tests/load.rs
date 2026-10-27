@@ -1260,7 +1260,10 @@ async fn a_second_player_is_introduced_to_the_first_and_withdrawn_again() {
 
     // T14: the second client goes away, and the first one's world loses the agent.
     drop(stream_b);
-    let left = read_until(&mut stream_a, &mut client_a, game::PLAYER_DESTROY).await;
+    // Wait for the *second* frame of the farewell pair: the two are pushed together, but TCP may hand them
+    // over in separate reads, and a read that stops at the first one can miss the second by a scheduling
+    // hair. Asking for the last frame is the read that cannot race.
+    let left = read_until(&mut stream_a, &mut client_a, game::WORLD_REMOVE_AGENT).await;
     let destroyed = left
         .iter()
         .find(|frame| frame.header == game::PLAYER_DESTROY)

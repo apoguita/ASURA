@@ -24,7 +24,10 @@ use std::time::Duration;
 use asura_db::migrations::{self, EnsureError};
 use asura_db::{game as db_game, placement};
 use asura_protocol::Trace;
-use asura_world::{serve, MapEntry, World, MAP_TYPE_CHARACTER_CREATION};
+use asura_world::{
+    serve, MapEntry, World, MAP_TYPE_CHARACTER_CREATION, MAP_TYPE_MAIN_EXPLORABLE,
+    MAP_TYPE_MAIN_TOWN,
+};
 
 /// How often the world tells the database it is alive. Placement stops offering a world whose
 /// heartbeat is older than a minute, so this is comfortably inside that window.
@@ -162,13 +165,19 @@ async fn main() -> ExitCode {
                     );
                     return ExitCode::from(4);
                 }
-                if !matches!(configured.map_type, 0 | MAP_TYPE_CHARACTER_CREATION) {
-                    // Two kinds of instance are hosted: a main town, where a client lands, and the
-                    // character-creation instance, which the reference hosts the same way (map type 11).
-                    // An explorable is still a later milestone: this server cannot spawn anything into one.
+                if !matches!(
+                    configured.map_type,
+                    MAP_TYPE_MAIN_TOWN | MAP_TYPE_MAIN_EXPLORABLE | MAP_TYPE_CHARACTER_CREATION
+                ) {
+                    // A world hosts what the reference hosts: main towns (0), explorable areas (1) and the
+                    // character-creation instance (11). Explorable hosting used to be refused here on the
+                    // theory that this server "cannot spawn anything into one" — but a world server does not
+                    // spawn content, it hands the client the blob and the spawn point, which is exactly what
+                    // the reference does with Lakeside County (146), its verified explorable. Refusing it made
+                    // this server unable to host the reference's flagship map.
                     eprintln!(
-                        "asura-world: map {map_id} is type {} (main towns and the character-creation \
-                         instance are hosted so far), skipping it",
+                        "asura-world: map {map_id} is type {} (main towns, explorable areas and the \
+                         character-creation instance are hosted), skipping it",
                         configured.map_type
                     );
                     continue;

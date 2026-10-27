@@ -45,6 +45,7 @@ generated audits in the battery.
 | server → client emit | `tools/parity-emit.py` | **complete for every message the reference sends**: 76 of 81 reachable, **0 real gaps**, 5 explained absences |
 | state kept per player | `docs/09` §9, hand-checked against `GmPlayer.h:21-33` and `DbCharacterColumnsDef` | the four traits a message reads are stored (migration 0008) and the block sends them instead of constants; the rest of the reference's ~44 character columns are queue item **B5**, listed with the reason |
 | schema | migrations vs `Db.c` queries | equivalent for what is used; no `friendships` table (the stream is empty anyway) |
+| the map catalogue | `tools/gen-map-config.py` against the reference's three tables | **12 maps, the reference's own list**: aliases and `MapType` from its teleport table (`GmCommands.c:32-53`), numbers from `GmMaps.h`, file ids and spawns from `GmMapsConfig.c`. The seed used to carry two hand-typed maps |
 | the load block | `tools/parity-load.py` against the reference's own `GWPS_TRACE=1` log, as a generated fixture (`crates/asura-world/src/load_fixture.rs`) | **measured: 480 messages, 0 missing, 0 extra, 0 size disagreements** — it matches message for message |
 
 The emit tool counts a message as emitted only when a **send path** reaches the builder: a builder

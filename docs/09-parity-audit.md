@@ -214,6 +214,19 @@ character created through GWPS has its items written by the confirm handler.
 
 ---
 
+**The catalogue is data, and it is now generated.** The reference's three tables describe twelve maps a
+client can be sent to: `GmCommands.c:32-53` (every map with a config, its aliases and its **`MapType`**),
+`GmMaps.h` (the numbers) and `GmMapsConfig.c` (file id and spawn point). `tools/gen-map-config.py` reads all
+three and writes `tools/map-config.sql`, which `tools/seed-map.ps1` applies; the battery re-generates with
+`--check`. Before that, this repo's seed carried two hand-typed maps and called Lakeside County (146) an
+**outpost** — the reference says `MapType_MainExplorable`, and its roadmap records that map as *verified*
+loading.
+
+That correction exposed a second liberty: this world refused to host explorables at all, on the theory that
+it "cannot spawn anything into one". A world server does not spawn content — it hands the client the blob and
+the spawn point, which is what the reference does with 146. Explorable hosting is allowed now (types 0, 1 and
+11), and a world started with `--maps 146` registers and listens.
+
 ## 7. World hosting & map config
 
 GWPS: `GmMapsConfig.c` (252 lines) + pre-spawned map servers + `CtrlConn` (`GameSrv.c:48-75`,
