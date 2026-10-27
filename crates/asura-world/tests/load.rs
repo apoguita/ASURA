@@ -1794,3 +1794,157 @@ async fn a_ten_minute_idle_pair_keeps_its_rhythm() {
         .expect("remove the world");
     harness.stop();
 }
+
+/// T10, the half that can be asserted without a path graph.
+///
+/// The reference pathfinds (`GmPaths.c`: trapezoid A* over the graph `GmMapDataImport.c` reads out of
+/// Gw.dat) and answers `MOVE_TO_COORD` with the *first waypoint of its own path*, refusing a destination it
+/// cannot reach by sending a tick, a cancel and a position (`GmAgent.c:371-398`). This server has no graph,
+/// so it answers with the client's own destination — a straight line — and refuses nothing.
+///
+/// That is a deviation, and a deviation that is not asserted is a deviation nobody can see break. This test
+/// pins the behaviour that exists: the echo is the destination the client sent, it reaches the other player
+/// too, and the *position* budget — which does not need a graph and is the reference's own — is enforced on
+/// the wire.
+#[tokio::test]
+async fn a_move_is_echoed_as_sent_and_a_far_report_is_clamped() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    // Two players, because the broadcast is what the second one observes.
+    let version = harness.version(harness.player_token);
+    let Some((mut stream_a, mut client_a)) = connect_properly(harness.address, &version).await
+    else {
+        panic!("the world refused the first client");
+    };
+    read_until(&mut stream_a, &mut client_a, game::INSTANCE_LOAD_INFO).await;
+    ask(&mut stream_a, &mut client_a, 0x8090, 19).await;
+    read_until(&mut stream_a, &mut client_a, game::INSTANCE_LOAD_FINISH).await;
+
+    let second = db::seed_identity(
+        &harness.pool,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        &format!("m4-move-{}", Uuid::new_v4()),
+        "Walker",
+        harness.map_id,
+    )
+    .await
+    .expect("seed a second identity");
+    placement::reserve(
+        &harness.pool,
+        harness.world_id,
+        harness.map_id,
+        second.session,
+    )
+    .await
+    .expect("reserve");
+    let token_b = (Uuid::new_v4().as_u128() & 0xFFFF_FFFF) as u32;
+    placement::begin_transfer(
+        &harness.pool,
+        token_b,
+        harness.world_id,
+        harness.map_id,
+        second.session,
+        second.account,
+        second.character,
+    )
+    .await
+    .expect("write the transfer");
+    let mut version_b = harness.version(token_b);
+    version_b.account = second.account.to_bytes_le();
+    version_b.character = second.character.to_bytes_le();
+    let Some((mut stream_b, mut client_b)) = connect_properly(harness.address, &version_b).await
+    else {
+        panic!("the world refused the second client");
+    };
+    read_until(&mut stream_b, &mut client_b, game::INSTANCE_LOAD_INFO).await;
+    ask(&mut stream_b, &mut client_b, 0x8090, 19).await;
+    read_until(&mut stream_b, &mut client_b, game::INSTANCE_LOAD_FINISH).await;
+    // The first player's introduction arrives in the same chunk as this client's own block, so the read
+    // above already consumed it: no drain, and no second read that would wait for a frame that is gone.
+
+    // ---- the echo: a walk is answered with exactly the destination that was sent ----
+    let destination = (6702.0f32, 4585.0f32);
+    let mut walk = Vec::new();
+    walk.extend_from_slice(&destination.0.to_le_bytes());
+    walk.extend_from_slice(&destination.1.to_le_bytes());
+    walk.extend_from_slice(&0u32.to_le_bytes()); // plane
+    say(&mut stream_a, &mut client_a, 0x803E, &walk).await;
+
+    let echoed = read_until(&mut stream_a, &mut client_a, game::AGENT_MOVE_TO_POINT).await;
+    let move_to = echoed
+        .iter()
+        .find(|frame| frame.header == game::AGENT_MOVE_TO_POINT)
+        .expect("the walk is answered");
+    assert_eq!(
+        f32::from_le_bytes([
+            move_to.body[4],
+            move_to.body[5],
+            move_to.body[6],
+            move_to.body[7]
+        ]),
+        destination.0,
+        "the x the client asked for, echoed -- not a waypoint from a graph this server does not have"
+    );
+    // And the other player is told, which is what makes a second client see the first one move.
+    let seen = read_until(&mut stream_b, &mut client_b, game::AGENT_MOVE_TO_POINT).await;
+    assert!(
+        seen.iter()
+            .any(|frame| frame.header == game::AGENT_MOVE_TO_POINT),
+        "the other player sees the walk"
+    );
+
+    // ---- the budget: a report a kilometre away is clamped, and the clamp is what is broadcast ----
+    let far = (destination.0 + 1000.0, destination.1 + 1000.0);
+    let mut report = Vec::new();
+    report.extend_from_slice(&far.0.to_le_bytes());
+    report.extend_from_slice(&far.1.to_le_bytes());
+    report.extend_from_slice(&0u32.to_le_bytes());
+    report.extend_from_slice(&[0u8; 12]); // the two trailing fields, which the world does not read
+    say(&mut stream_a, &mut client_a, 0x803D, &report).await;
+
+    let observed = read_until(&mut stream_b, &mut client_b, game::AGENT_UPDATE_POSITION).await;
+    let position = observed
+        .iter()
+        .find(|frame| frame.header == game::AGENT_UPDATE_POSITION)
+        .expect("the clamp is broadcast");
+    let x = f32::from_le_bytes([
+        position.body[4],
+        position.body[5],
+        position.body[6],
+        position.body[7],
+    ]);
+    let y = f32::from_le_bytes([
+        position.body[8],
+        position.body[9],
+        position.body[10],
+        position.body[11],
+    ]);
+    let travelled = ((x - destination.0).powi(2) + (y - destination.1).powi(2)).sqrt();
+    // The reference's budget: `speed_base * elapsed + POSITION_UPDATE_TOLERANCE`, with the elapsed time
+    // capped at `POSITION_UPDATE_MAX_ELAPSED_MS` (2000 ms) -- 288 * 2 + 50 = 626 units.
+    assert!(
+        travelled > 0.0,
+        "an out-of-budget report still moves the agent along the reported direction"
+    );
+    assert!(
+        travelled <= 700.0,
+        "and only as far as the budget allows: {travelled:.1} units"
+    );
+    assert!(
+        (x - far.0).abs() > 100.0 && (y - far.1).abs() > 100.0,
+        "the far report itself was not believed"
+    );
+
+    drop(stream_a);
+    drop(stream_b);
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}

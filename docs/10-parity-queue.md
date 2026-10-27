@@ -26,7 +26,7 @@ Two rules, both learned the hard way in this repo:
 | T7 | select → transfer → spawn in the map | **pass** for one client | — |
 | T8 | no crash on the configured map | **pass** | — |
 | T9 | a **second client sees the first** | **server side passes**: two agents, each introduced to the other, and each told when one leaves (`a_second_player_is_introduced_to_the_first_and_withdrawn_again`) — a live second client is unverified | queue A is done on the wire |
-| T10 | movement, and invalid destinations refused | **partial** — destination echoed, never validated; no path graph | queue D |
+| T10 | movement, and invalid destinations refused | **the deviation is now asserted, not assumed**: `a_move_is_echoed_as_sent_and_a_far_report_is_clamped` pins that a walk is answered with exactly the destination sent (no path graph, so no waypoint and no refusal) and that the reference's own *position* budget is enforced on the wire (an out-of-budget report is clamped and the clamp is what the other player sees) | queue D, sized below |
 | T11 | chat displays on both clients | **equal to GWPS** — both send it, neither renders it | queue G (unachievable without a layout) |
 | T12 | drop: the entity appears and disappears consistently | **partial** — the stack is deducted and persisted, nothing is sent | queue E |
 | T13 | 10 minutes idle, no crash | **rhythm and accounting pass at a scaled window** (`an_idle_pair_keeps_its_rhythm_and_its_count`: the 500 ms tick and 5 s ping keep arriving, an idle client is told nothing else, and the world's player list stays a pair and empties on departure); the ten-minute variant exists as an `#[ignore]`d test and the memory clause stays part of that hand run | queue H is down to the memory clause |
@@ -159,10 +159,24 @@ ASURA echoes the client's destination, so the client's own prediction carries th
 not a wall. GWPS pathfinds (`GmPaths.c`, A* over the map's path graph from `Gw.dat`) and refuses what
 it cannot reach. Evidence: `GmAgent.c:371-398`, `GmAgent.c:409-462`.
 
-| # | item | done when |
+**D is sized, not started, and here is the measurement.** The reference's refusal is its pathfinder, and the
+pathfinder is a subsystem with three parts, all in C:
+
+| part | lines | what it needs |
 |---|---|---|
-| D1 | a position budget on `MOVE_TO_COORD`, not only on `POSITION_UPDATE` | a move far beyond walking distance is refused |
-| D2 | the path graph, or a written decision not to port it | T10's third clause is either met or recorded as unported with the reason |
+| `GmPaths.c` | 1,057 | trapezoid A*: `PathFindTrapezoid`, portal walking, waypoint reduction |
+| `GmMapDataImport.c` | 590 | the graph's own chunk format: planes, trapezoids, vectors, root/X/Y/sink nodes, portal traps |
+| `FaArchive.c` + the Gw.dat reader | — | the archive the chunks live in, which this repo has never opened |
+
+So `MOVE_TO_COORD` cannot validate anything here: a reachability answer needs the graph, the graph needs the
+archive, and none of the three exists in this repo. That is a *scope* boundary rather than a missing
+measurement — nothing about it is unknown, and the reference's behaviour is fully readable. Porting it is a
+milestone of its own, and it is the one item in this document that is deliberately not being attempted inside
+a parity round.
+
+What *can* be matched without it is matched, and now asserted: the reference's position budget
+(`speed_base * elapsed + tolerance`, clamped at 2 s of elapsed time) is the same rule on the same message, and
+the test above says so on the wire.
 
 ### E. Item lifecycle (T12)
 
