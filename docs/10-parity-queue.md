@@ -99,6 +99,21 @@ Four handlers plus a map type this world refuses to host. Evidence: `GameSrv.c:1
 | B3 | `_CHANGE_PROF` with the default-equipment table ported from `GmDefaultArmors.c` | picking a profession swaps the equipped items |
 | B4 | `_CONFIRM`: write `characters`, `bags`, `items` rows | the same three `count(*)` that T6 prints |
 
+**Half of B landed, measured.** The *data* is ported and generated: `tools/gen-default-equipment.py`
+reads `GmDefaultArmors.c` and writes `crates/asura-world/src/default_equipment.rs` — **32 (campaign,
+profession) rows, 179 items**, the field set being the reference's own `GmItem` literal, which is also what
+`CREATE_NAMED_ITEM` writes. `every_profession_starts_with_the_references_own_equipment` pins a Prophecies
+Warrior's chest piece to the reference's bytes, and the battery re-generates with `--check`.
+
+The *messages* are built too: `char_creation_start` (2 bytes), `char_creation_error` (6, header plus the
+reference's `GM_ERROR_CHARACTER_NAME_ALREADY_EXIST` slot), `char_creation_success` (uuid + counted name +
+the reference's own `0x2211` + counted settings) and `instance_player_data_done` (2), all sized by the
+table and asserted in `the_fixed_size_messages_match_the_size_the_reference_sends`.
+
+What remains for B is the flow itself: hosting map type 11, the four handlers, and the confirm writing the
+rows — which is also what closes the last three emit gaps, because a builder with no call site is still a
+gap to `tools/parity-emit.py`.
+
 ### C. Teleport (`/tp`, `/teleport`) — measured, not blocked
 
 The redirect is known: `TRANSFER_GAME_SERVER_INFO` (`0x01A6`, 46 bytes as GWPS sends it) then

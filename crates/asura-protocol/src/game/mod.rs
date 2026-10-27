@@ -31,6 +31,14 @@ pub mod default_inventory;
 pub const INSTANCE_LOAD_HEAD: u16 = 0x017C;
 /// `GAME_SMSG_INSTANCE_PLAYER_DATA_START` (`0x0186`): 2 bytes.
 pub const INSTANCE_PLAYER_DATA_START: u16 = 0x0186;
+/// `GAME_SMSG_INSTANCE_PLAYER_DATA_DONE` (`0x018A`): 2 bytes.
+pub const INSTANCE_PLAYER_DATA_DONE: u16 = 0x018A;
+/// `GAME_SMSG_CHAR_CREATION_SUCCESS` (`0x0188`): 16-byte uuid, counted name, `0x2211`, counted settings.
+pub const CHAR_CREATION_SUCCESS: u16 = 0x0188;
+/// `GAME_SMSG_CHAR_CREATION_START` (`0x0189`): 2 bytes.
+pub const CHAR_CREATION_START: u16 = 0x0189;
+/// `GAME_SMSG_CHAR_CREATION_ERROR` (`0x018B`): 6 bytes, header and an error code.
+pub const CHAR_CREATION_ERROR: u16 = 0x018B;
 /// `GAME_SMSG_INSTANCE_LOAD_PLAYER_NAME` (`0x017D`): `2 + 2 + 2n`.
 pub const INSTANCE_LOAD_PLAYER_NAME: u16 = 0x017D;
 /// `GAME_SMSG_INSTANCE_LOAD_INFO` (`0x019A`): 16 bytes.
@@ -460,6 +468,52 @@ pub fn instance_load_head_default() -> crate::client::Frame {
 /// `GAME_SMSG_INSTANCE_PLAYER_DATA_START`: a bare header; it opens the player-data stream.
 pub fn instance_player_data_start() -> crate::client::Frame {
     Builder::new(INSTANCE_PLAYER_DATA_START).frame()
+}
+
+/// `GAME_SMSG_INSTANCE_PLAYER_DATA_DONE` (`0x018A`): the player-data block is over. Two bytes — the
+/// reference sends `sizeof(buffer->header)` (`GameSrv.c:311`), and its only caller is the
+/// character-creation flow, which is why the map-load block never carries it (`docs/10-parity-queue.md` B).
+pub fn instance_player_data_done() -> crate::client::Frame {
+    Builder::new(INSTANCE_PLAYER_DATA_DONE).frame()
+}
+
+/// `GAME_SMSG_CHAR_CREATION_START` (`0x0189`): the creation instance may show its screen. Two bytes,
+/// header only (`GameSrv.c:305`).
+pub fn char_creation_start() -> crate::client::Frame {
+    Builder::new(CHAR_CREATION_START).frame()
+}
+
+/// `GAME_SMSG_CHAR_CREATION_ERROR` (`0x018B`): six bytes, header and an error code. The reference's only
+/// code so far is `GM_ERROR_CHARACTER_NAME_ALREADY_EXIST` (`GameSrv.c:1939`).
+pub fn char_creation_error(error_code: u32) -> crate::client::Frame {
+    Builder::new(CHAR_CREATION_ERROR).u32(error_code).frame()
+}
+
+/// `GAME_SMSG_CHAR_CREATION_SUCCESS` (`0x0188`): the character was written. The reference's own shape
+/// (`GameSrv.c:1951`): a 16-byte little-endian uuid, the name as a counted string of at most 20 units,
+/// the constant `0x2211` its source asks "what is that?" about, and the settings blob as a counted array
+/// of at most 1024 bytes.
+///
+/// `n_settings` counts **bytes** here, not units: the table's field is `Array8`.
+pub fn char_creation_success(
+    char_id: [u8; 16],
+    name: &str,
+    settings: &[u8],
+) -> crate::client::Frame {
+    let units: Vec<u16> = name.encode_utf16().take(20).collect();
+    Builder::new(CHAR_CREATION_SUCCESS)
+        .raw(&char_id)
+        .u16(units.len() as u16)
+        .raw(
+            &units
+                .iter()
+                .flat_map(|unit| unit.to_le_bytes())
+                .collect::<Vec<u8>>(),
+        )
+        .u16(0x2211) // the reference's own constant, unexplained there too
+        .u16(settings.len().min(1024) as u16)
+        .raw(&settings[..settings.len().min(1024)])
+        .frame()
 }
 
 /// `GAME_SMSG_INSTANCE_LOAD_PLAYER_NAME`: the character's name, as a counted UTF-16 string.
@@ -1199,6 +1253,16 @@ mod tests {
         // (docs/03-protocol.md section 11), not from a struct: `sizeof` is a maximum, the wire is not.
         assert_eq!(wire(&instance_load_head_default()), 6);
         assert_eq!(wire(&instance_player_data_start()), 2);
+        // The character-creation block: header-only messages, a six-byte error, and the success message
+        // whose two counted fields make it variable (16 + 2 + 2n + 2 + 2 + m).
+        assert_eq!(wire(&instance_player_data_done()), 2);
+        assert_eq!(wire(&char_creation_start()), 2);
+        assert_eq!(wire(&char_creation_error(0x0106)), 6);
+        assert_eq!(wire(&char_creation_success([0; 16], "Asura", &[])), 34);
+        assert_eq!(
+            wire(&char_creation_success([0; 16], "Asura", &[1, 2, 3])),
+            37
+        );
         assert_eq!(wire(&instance_load_info(1, 146, 1, 1, 0, 0)), 16);
         assert_eq!(wire(&instance_load_spawn_point(1, 0.0, 0.0, 0)), 26);
         assert_eq!(wire(&instance_loaded(0xBAAD_F00D)), 6);
