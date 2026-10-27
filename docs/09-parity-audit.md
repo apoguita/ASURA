@@ -154,7 +154,8 @@ never seen one appear — in either server.
 | `/maps` | Chat aliases via the gated sender **plus** an unconditional `log_info` table: `Teleport targets (N aliases, every one with a map config):` then `  /tp %-15s -> map %3d  %s` (`GmCommands.c:113-152`) | The same table, printed, character for character (`maps_answer`, `lib.rs:1497-1529`); the chat half is printed only under trace and never sent (`lib.rs:1063-1078`) | 1:1 |
 | Unknown `/command` | "Unknown command" through the gated sender ⇒ log line only (`GmChat.c:145-180`) | `world: Unknown command` (`lib.rs:1082`) | 1:1 |
 | `/stuck` | Cancel + position broadcast (`GmChat.c:243-251`) | `AGENT_UPDATE_POSITION` (`lib.rs:1038-1062`) | 1:1 |
-| `/tp`, `/teleport` | `GameSrv_HandleTeleportCommand` (`GmCommands.c:155-216`): refuses a missing or unknown alias, refuses a map with no config (it would silently fall back to Kamadan, `GmCommands.c:180-190`), refuses "already here", then `GameSrvCtrl_StartPlayerTransferTo` starts a real server transfer. **It works in normal play** (`docs/08-gm-commands.md`, "Teleports work in normal play"), with a documented race under latency. Both refusals go through the gated chat sender, so with the gate off they are log lines. | Not implemented — this world cannot originate a travel (`lib.rs:1034-1036`) | BEHIND |
+| `/tp`, `/teleport` | `GameSrv_HandleTeleportCommand` (`GmCommands.c:155-216`): refuses a missing or unknown alias, refuses a map with no config (it would silently fall back to Kamadan, `GmCommands.c:180-190`), refuses "already here", then `GameSrvCtrl_StartPlayerTransferTo` starts a real server transfer. Both refusals go through the gated chat sender, so with the gate off they are log lines. | The same four outcomes, in the same order, with the same lines (`teleport`, `lib.rs`): unknown alias, no config, already here, then a `transfer` row and the reference's redirect. The alias table is the reference's own, generated (`travel_targets.rs`) | 1:1 |
+| The alias table `/tp` and `/maps` read | `s_teleport_targets` (`GmCommands.c:32-53`): twenty aliases over twelve maps, two for most (`lakeside` and `lakeside county`) | The same twenty, generated from that table by `tools/gen-map-config.py` and compared row for row by `tools/parity-commands.py` (`docs/13-command-parity.md`). Until it was generated, `/tp` matched the map's **name**, so six of the twenty worked | 1:1 |
 
 ### What a teleport is, measured
 
@@ -244,7 +245,7 @@ GWPS: `GmMapsConfig.c` (252 lines) + pre-spawned map servers + `CtrlConn` (`Game
 | Behaviour | GWPS | ASURA | Verdict |
 |---|---|---|---|
 | Where a map's facts come from | `GmMapsConfig.c`: file id, type, spawn point, spawn plane, capacity, aliases | `map_config` rows + migration 0007's `name` column | 1:1 (effect) |
-| Aliases for `/tp` and `/maps` | Config string, spaces collapsed | Derived from the name (`MapEntry::alias`, `lib.rs:129`) | 1:1 (effect) |
+| Aliases for `/tp` and `/maps` | Config string, spaces collapsed | The reference's own table, generated (`travel_targets.rs`); derived from the map name only for a map the table does not know | 1:1 |
 | Refusing a map a client cannot load | `map_file_id == 0` refused | Refused with a reason (`main.rs:161-176`) | 1:1 |
 | Refusing explorable areas as hosts | Type check | Same check (`main.rs:170`) | 1:1 |
 | Advertising a world | `CtrlConn` message to the auth service; heartbeat keeps it alive | `register_world`, heartbeat task (`main.rs:206-240`) | 1:1 (effect) |

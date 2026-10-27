@@ -45,9 +45,15 @@ fn skip() -> bool {
     false
 }
 
-fn unique_map() -> i32 {
-    50_000 + (Uuid::new_v4().as_u128() % 10_000) as i32
-}
+/// The map every harness serves first: the reference's own `MapId_LakesideCounty`.
+///
+/// The harness used to invent an id per run (50000 + a random offset) to keep parallel runs apart, which
+/// worked until `/tp` started resolving through the reference's **alias table**: `lakeside county` names map
+/// 146 there, and a world hosting that map under a made-up id could only answer "not hosted". The real ids
+/// are safe to share because everything a harness reserves is keyed by its own `world_id`.
+const HARNESS_MAP: i32 = 146;
+/// `MapId_AscalonCityPreSearing`, the second map, so `/tp ascalon city` has somewhere to go.
+const HARNESS_OTHER_MAP: i32 = 148;
 
 fn unique_world() -> i32 {
     20_000 + (Uuid::new_v4().as_u128() % 10_000) as i32
@@ -111,8 +117,8 @@ impl Harness {
             .expect("connect the database");
 
         let world_id = unique_world();
-        let map_id = unique_map();
-        let other_map_id = unique_map();
+        let map_id = HARNESS_MAP;
+        let other_map_id = HARNESS_OTHER_MAP;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind a loopback port");
