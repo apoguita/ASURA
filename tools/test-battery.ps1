@@ -124,6 +124,20 @@ Write-Verdict ([bool]$psql) "psql" $(if ($psql) { "" } else { "install PostgreSQ
 Write-Verdict ([bool]$python) "python" $(if ($python) { "" } else { "install Python 3 (the generators need it)" })
 Write-Verdict ([bool]$url) "ASURA_DATABASE_URL" $(if ($url) { "" } else { "copy .env.example to .env, or run tools/db-setup.ps1" })
 
+# Every script in tools/ must at least parse. A missing comma in a param block broke `play.ps1` and the
+# only symptom was "cannot start the server", a long way from the cause -- so the battery reads each one
+# with PowerShell's own parser instead of trusting that an edit left it valid.
+$brokenScripts = New-Object System.Collections.ArrayList
+foreach ($script in Get-ChildItem (Join-Path $PSScriptRoot "*.ps1")) {
+    $parseErrors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$null, [ref]$parseErrors)
+    if ($parseErrors -and $parseErrors.Count -gt 0) {
+        $first = $parseErrors[0]
+        [void]$brokenScripts.Add("$($script.Name) line $($first.Extent.StartLineNumber): $($first.Message)")
+    }
+}
+Write-Verdict ($brokenScripts.Count -eq 0) "every tools/*.ps1 parses" ($brokenScripts -join " | ")
+
 if (-not $cargo -or -not $url) {
     Write-Host ""
     Write-Host "the first two are required before anything else can run" -ForegroundColor Yellow

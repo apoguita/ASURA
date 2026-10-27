@@ -53,7 +53,7 @@ param(
     # for the times a packet log is exactly what is wanted.
     [switch] $Trace,
     # The old spelling, kept so an existing command line does not break. It is the default now.
-    [switch] $Quiet,
+    [switch] $Quiet
 )
 
 $ErrorActionPreference = "Stop"
