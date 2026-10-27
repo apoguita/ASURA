@@ -119,6 +119,26 @@ def classify(runs):
     return answers, order
 
 
+def read_fixture(path):
+    """The fixture's stable rows, and the cases it recorded as unstable (with their agreed result)."""
+    rows = {}
+    unstable = {}
+    if not os.path.exists(path):
+        return rows, unstable
+    with open(path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if line.startswith("# unstable,"):
+                fields = line[len("# unstable,") :].split(",")
+                unstable[",".join(fields[:CASE_FIELDS])] = fields[CASE_FIELDS]
+                continue
+            if not line or line.startswith("#") or line.startswith("blob,"):
+                continue
+            fields = line.split(",")
+            rows[",".join(fields[:CASE_FIELDS])] = line
+    return rows, unstable
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--gwdat", default=os.environ.get("ASURA_GW_DAT", DEFAULT_GWDAT))
@@ -145,16 +165,25 @@ def main():
         )
         return 0
 
+    # A case the reference answers two ways cannot be pinned, and *which* answers a given run happens to
+    # produce is a coin flip -- so the unstable set is remembered in the fixture and unioned with what
+    # these runs see. Detecting it afresh each time is how a check reports a "difference" on the runs where
+    # the reference happens to agree with itself.
+    recorded_rows, recorded_unstable = read_fixture(args.fixture)
+
     runs = []
-    for index in range(max(2, args.runs)):
+    # Writing wants enough runs to see a coin flip; checking only has to catch a *new* one, and the
+    # recorded set already covers the known one.
+    for index in range(max(6, args.runs) if args.write else max(2, args.runs)):
         run, reason = run_oracle(args.oracle, args.gwdat, args.cases)
         if run is None:
             print("FAIL  the oracle did not run: {}".format(reason))
             return 1
         runs.append(run)
     answers, order = classify(runs)
-    unstable = [key for key in order if len(answers[key]) > 1]
-    stable = [key for key in order if len(answers[key]) == 1]
+    unstable = set(key for key in order if len(answers[key]) > 1) | set(recorded_unstable)
+    unstable = [key for key in order if key in unstable]
+    stable = [key for key in order if key not in unstable]
     print(
         "reference: {} case(s), {} deterministic, {} not".format(
             len(order), len(stable), len(unstable)
@@ -198,23 +227,11 @@ def main():
 
     failures = 0
 
-    fixture_rows = {}
-    fixture_unstable = {}
+    fixture_rows = recorded_rows
+    fixture_unstable = recorded_unstable
     if not os.path.exists(args.fixture):
         print("FAIL  no fixture at {}".format(args.fixture))
         failures += 1
-    else:
-        with open(args.fixture, "r", encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if line.startswith("# unstable,"):
-                    fields = line[len("# unstable,") :].split(",")
-                    fixture_unstable[",".join(fields[:CASE_FIELDS])] = fields[CASE_FIELDS]
-                    continue
-                if not line or line.startswith("#") or line.startswith("blob,"):
-                    continue
-                fields = line.split(",")
-                fixture_rows[",".join(fields[:CASE_FIELDS])] = line
 
     for key in order:
         if key in unstable:
