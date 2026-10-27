@@ -45,7 +45,7 @@ instead of work.
 | server → client emit | `tools/parity-emit.py` | reference **81**, ASURA **72**, **9 cannot** — **4 real** gaps and 5 explained absences |
 | state kept per player | `docs/09` §9, hand-checked against `GmPlayer.h:21-33` | 12 fields vs 6; `account_id` missing, which is what `/tp` needs |
 | schema | migrations vs `Db.c` queries | equivalent for what is used; no `friendships` table (the stream is empty anyway) |
-| the load block | **not measured** — only the item block is byte-compared | 2 messages missing on every map load (captures: 48 and 49 occurrences) |
+| the load block | `tools/parity-load.py` against the reference's own `GWPS_TRACE=1` log, as a generated fixture (`crates/asura-world/src/load_fixture.rs`) | **measured: 480 messages, 0 missing, 0 extra, 0 size disagreements** — it matches message for message |
 
 The emit tool counts a message as emitted only when a **send path** reaches the builder: a builder
 nothing calls is a gap, and so is one only a unit test calls. That rule is why the four party/leave
@@ -155,6 +155,17 @@ missing party messages survived an audit that called the block equivalent.
 |---|---|---|
 | F1 | a generated fixture from the capture (headers + sizes only, no names or UUIDs) | a test that fails when a message is dropped from the block |
 | F2 | reconcile the block with the fixture | T15's audit is clean for the load |
+
+**F1–F2 landed.** `tools/parity-load.py` reads the reference's own `GWPS_TRACE=1` log, drops the periodic
+traffic (pings and simulation ticks, which the log has and a block dump does not — the reference's own "N
+(non-feature)" tier), and compares the ordered `(header, size)` stream. Result: **480 messages, 0 missing,
+0 extra, 0 size disagreements**. That measurement is committed as `crates/asura-world/src/load_fixture.rs`
+(headers and sizes only, no payload), `the_load_stream_is_the_references_message_for_message` compares the
+four blocks against it, and `tools/test-battery.ps1` step 8 re-measures with `--check` so a drift fails the
+battery.
+
+The finding that started this item is closed by it: the two party messages are in the stream, in the
+reference's position, at the reference's size.
 
 ### G. Chat (T11) — equal to the reference, and that is the ceiling
 
