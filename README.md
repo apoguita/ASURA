@@ -32,6 +32,11 @@ service**; when it means a map-running process it says **world server**.
 - **Sibling project:** [`PreSearing`/GWPS](https://github.com/apoguita/GWPS) is the existing
   single-process implementation, and remains the *reference* for every protocol fact in this repo.
   Nothing here is proven until it behaves against a real client the way GWPS does.
+- **A port is a port:** when the user asks for a feature to be ported from the reference, the
+  reference is copied verbatim — its code, its message bytes, its field order, its sizes. The
+  user's command is the specification; it is not re-decided here. This is binding:
+  `docs/HANDOFF.md` § *Working directive*, and it exists because the teleport port was done wrong
+  first (`e0f671c`).
 
 ## Why this exists
 

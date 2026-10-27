@@ -2,6 +2,34 @@
 
 State of the project as of the last commit, so a new session can begin without re-reading everything.
 
+## Working directive: the user's command is the requirement
+
+Verbatim, from the owner of this repository (2026-10-27):
+
+> "If I ask you to port a feature as the source, you port the feature as the source."
+
+- **The user's instruction is the specification.** It is not a suggestion to be weighed against my own
+  analysis, measurements, preferences, or what I think is "correct". When the two disagree, the user's
+  command wins and the disagreement is reported, not acted on.
+- **A port is a port.** "Port feature X as the source" means: the reference implementation IS the
+  target. Port its behaviour, its message bytes, its field order, its sizes, and its order of
+  operations — verbatim. Do not "fix", "modernise", "improve" or "correct" the source. If the source
+  looks wrong to me, that is a reason to say so, never licence to ship something else.
+- **Never re-decide a decision the user has already made** (e.g. "do not gate the server under any
+  tag or key, the server must work as is"; "we need parity at least with GWPS"; "if it works on GWPS,
+  make it work here"). If evidence suggests the chosen direction is wrong, present the evidence and
+  wait for the user — do not silently substitute my own choice.
+- **"Works" means the user's definition**, not mine: a *real client* does the thing (logs in, loads
+  the map, teleports) exactly as it does on the reference. Unit tests passing is not "works".
+- Any deviation is a defect in the work, not a design choice. When in doubt, ask one short question.
+
+**The incident this rule exists because of** (`/tp`, 2026-10-27, commit `e0f671c`). The user asked
+from the first message for the teleport to be ported from GWPS, whose code works. I instead sent my
+own inferred `0x01A6` layout: 46 bytes in *my* dword order → client error `007`; then 52 bytes in a
+captured order → client error `005`. The feature only worked once GWPS's **own struct** was copied
+verbatim (`GameMsg.h:659`: 46 bytes, two-byte header, `map_token, region, player_token,
+is_explorable, map_id`). The port target was named by the user all along.
+
 ## Where this stands
 
 - **Items work on a live client.** Dropping takes the stack down (`count = 1` of a hundred is what a

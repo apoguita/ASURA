@@ -6,6 +6,12 @@
 > shape the new stack must have, not edits to the old project
 > (`docs/adr/0005-gwps-reference-only.md`).
 
+> **But when the user says "port it from GWPS", GWPS is copied verbatim.** That is a standing
+> directive, not a design discussion: `docs/HANDOFF.md` § "Working directive". The user has the
+> final say on what a feature must do; a port follows the source's code and bytes exactly, even
+> where this document's own reasoning would choose otherwise. The `/tp` incident
+> (`docs/HANDOFF.md`, same section) is the worked example: GWPS's exact struct is what worked.
+
 GWPS is not being thrown away. It is the working reference: every protocol fact, every client
 quirk, and every "this made the client fail with error 007" was discovered there. This document
 maps what to reuse as knowledge, what to port, and what to leave behind.
