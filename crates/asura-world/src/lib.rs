@@ -1832,6 +1832,10 @@ async fn answer(
                 profession: creation.profession,
                 unlocked_professions: 1 << creation.profession,
                 gold: 0,
+                campaign: creation.campaign,
+                // The creation flow has no secondary profession: the reference sets one only through
+                // `CHAR_CREATION_CHANGE_PROF`, and its confirm leaves the field zero.
+                secondary_profession: 0,
             };
             match db_inventory::create_character(
                 &world.pool,
@@ -2964,6 +2968,8 @@ mod tests {
             profession: 9,
             unlocked_professions: 0x40,
             gold: 0,
+            campaign: 1,
+            secondary_profession: 0,
         };
         let frames = player_block(
             "Asura",

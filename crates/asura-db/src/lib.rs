@@ -42,10 +42,15 @@ pub const SCHEMA_V7: &str = include_str!("../migrations/0007_map_names.sql");
 /// The character traits the reference stores and this server used to send as constants.
 pub const SCHEMA_V8: &str = include_str!("../migrations/0008_character_traits.sql");
 
+/// The rest of the character settings blob: level, campaign, the helmet status, the secondary profession
+/// and the is-pvp flag, all of which `CharacterSettings_FromDbCharacter` (`GmChar.c`) puts on the wire.
+pub const SCHEMA_V9: &str = include_str!("../migrations/0009_character_settings.sql");
+
 /// Every migration, in application order. A developer applying the schema gets one string per
 /// migration file, so a new file is picked up without editing the tooling.
 pub const SCHEMA: &[&str] = &[
-    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7,
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
+    SCHEMA_V9,
 ];
 
 /// The tables the coordination model depends on. Used by the startup check: a service refuses to run

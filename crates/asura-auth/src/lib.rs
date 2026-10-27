@@ -29,6 +29,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use asura_db::game as db_game;
 use asura_db::login as db_login;
 use asura_db::PgPool;
 use asura_protocol::client::filecheck;
@@ -684,12 +685,44 @@ async fn answer_login(
     session.character = selected;
     let mut replies = Vec::with_capacity(characters.len() + 4);
     for character in &characters {
+        // The settings block, built from this character's row (`CharacterSettings_FromDbCharacter`,
+        // `GmChar.c`) rather than the constant that used to stand in for every character: the list is
+        // where the client gets the appearance, level, campaign and armour it draws at character select.
+        let settings = match db_game::settings(pool, character.id).await {
+            Ok(Some(settings)) => messages::character_settings(&messages::CharacterSettings {
+                last_outpost: settings.last_outpost,
+                appearance: settings.appearance,
+                campaign: settings.campaign,
+                level: settings.level,
+                is_pvp: settings.is_pvp,
+                secondary_profession: settings.secondary_profession,
+                helm_status: settings.helm_status,
+                pieces: settings
+                    .pieces
+                    .iter()
+                    .map(|piece| messages::ArmourPiece {
+                        file_id: piece.file_id,
+                        colors: piece.colors,
+                    })
+                    .collect(),
+            }),
+            Ok(None) => Vec::new(),
+            Err(err) => {
+                // A settings read that fails is not worth losing a login over: the client gets the row it
+                // already knows (nothing) and the list still arrives.
+                eprintln!(
+                    "auth: could not read the settings of {}: {err}",
+                    character.id
+                );
+                Vec::new()
+            }
+        };
         replies.push(
             messages::character_info(
                 login.request,
                 character.id.to_bytes_le(),
                 &character.name,
-                &messages::CHARACTER_SETTINGS_EXTENDED,
+                &settings,
             )
             .map_err(ConnectionError::Message)?,
         );

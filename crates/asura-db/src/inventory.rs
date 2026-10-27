@@ -139,6 +139,21 @@ impl Inventory {
         }
         ids
     }
+
+    /// The item in one slot of the equipped-items bag, if anything is worn there.
+    ///
+    /// The slots are the reference's `EquippedItemSlot` (`GmInventory.h`): 2 body, 3 legs, 4 head, 5 boots,
+    /// 6 gloves. The character settings blob is built from the five armour slots, which is why this asks by
+    /// slot rather than by the ids `UPDATE_AGENT_VISUAL_EQUIPMENT` carries.
+    pub fn item_in_equipped_slot(&self, slot: u8) -> Option<&Item> {
+        let bag = self
+            .bags
+            .iter()
+            .find(|bag| bag.bag_model_id == EQUIPPED_ITEMS_MODEL)?;
+        self.items_in(bag.bag_id)
+            .into_iter()
+            .find(|item| item.slot == Some(i32::from(slot)))
+    }
 }
 
 /// `BagModelId_EquippedItems` (`GmInventory.h`): the bag whose slots are the nine worn items.
@@ -391,11 +406,14 @@ pub async fn create_character(
     let mut tx = pool.begin().await?;
 
     // The traits go in with the row: they are what the load block sends, and a character created from a
-    // creation screen must load as what the screen chose.
+    // creation screen must load as what the screen chose. The last five columns are the reference's own
+    // creation defaults (`GameSrv.c:1880-1886`): level 1, `is_pvp` when the campaign is none, the helmet
+    // shown, the secondary profession the screen chose, and the unlocked-professions bit for the primary.
     sqlx::query(
         "INSERT INTO characters (id, account_id, name, map_id, appearance, primary_profession,
-                                 unlocked_professions, gold)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                                 unlocked_professions, gold, campaign, secondary_profession, level,
+                                 is_pvp, helm_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, 1)",
     )
     .bind(character)
     .bind(account)
@@ -405,6 +423,9 @@ pub async fn create_character(
     .bind(i32::from(traits.profession))
     .bind(i64::from(traits.unlocked_professions))
     .bind(traits.gold as i32)
+    .bind(i32::from(traits.campaign))
+    .bind(i32::from(traits.secondary_profession))
+    .bind(traits.campaign == 0) // `is_pvp`: `player->char_creation_campaign == Campaign_None`
     .execute(&mut *tx)
     .await?;
 

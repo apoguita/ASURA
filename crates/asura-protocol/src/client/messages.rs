@@ -379,19 +379,116 @@ impl RequestResponse {
 
 /// The character-settings block the reference sends inside `AUTH_SMSG_CHARACTER_INFO`.
 ///
-/// Copied from a live response (2026-10-26), not from a struct definition: 62 bytes that decode as
-/// `version = 6`, `last_outpost = 146`, then the appearance, the guild-hall id and the packed
-/// campaign/level/profession bits. Nothing here understands most of it, which is exactly why it is
-/// copied — a client that gets zeros where this belongs is a client that cannot draw the character.
+/// Copied from a live response (2026-10-26): 62 bytes of the *seeded* character -- `version = 6`,
+/// `last_outpost = 146`, a Warrior's appearance, level 1, campaign Prophecies, helmet shown, and five
+/// armour pieces dyed the same colour.
 ///
-/// To be built from the database when character creation exists; until then this is the reference's
-/// own answer for its seeded character.
+/// The blob is now **built from the character row** ([`character_settings`]) instead of sent as this
+/// constant, and that is what makes this constant useful: it is the reference's own answer for one
+/// character, so [`character_settings`] reproducing it byte for byte from that character's fields is the
+/// test that the packing is right.
 pub const CHARACTER_SETTINGS_EXTENDED: [u8; 62] = [
     0x06, 0x00, 0x92, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x03, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x40, 0x00, 0x00,
     0x05, 0x00, 0x00, 0x00, 0x00, 0x5b, 0x00, 0x0b, 0x00, 0x00, 0x5e, 0x00, 0x0b, 0x00, 0x00, 0x5d,
     0x00, 0x0b, 0x00, 0x00, 0x5a, 0x00, 0x0b, 0x00, 0x00, 0x5c, 0x00, 0x0b, 0x00, 0x00,
 ];
+
+/// `CHARACTER_SETTINGS_VERSION` (`GmChar.h`): the only version the reference ever writes.
+pub const CHARACTER_SETTINGS_VERSION: u16 = 6;
+
+/// One armour piece of the settings block: `GmChar.h`'s inline `pieces[]` entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ArmourPiece {
+    /// The piece's `file_id`, sixteen bits of it (`GameSrv.c:1903`: `item->file_id & 0xFFFF`).
+    pub file_id: u16,
+    /// The four dye colours, packed as the item's `dye_colors` holds them.
+    pub colors: u16,
+}
+
+/// `CharacterSettings` (`GmChar.h`), as the fields a server has to fill in.
+///
+/// The reference's struct is a packed bitfield mix; this keeps the same values in the same widths and
+/// leaves the packing to [`character_settings`]. The fields it leaves out are the ones the reference
+/// leaves zero: `last_time_played`, `h001E` (uninitialised padding in the reference) and `h0021`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CharacterSettings {
+    /// The map the character was last in. `last_outpost` in the reference's row.
+    pub last_outpost: u16,
+    /// The packed `Appearance` word: `sex` 1 bit, `height` 4, `skin_color` 5, `hair_color` 5,
+    /// `face_style` 5, `primary_profession` 4, `hair_style` 6, `race` 2.
+    pub appearance: u32,
+    /// `Campaign`: 0 none (pvp), 1 Prophecies, 2 Factions, 3 Nightfall, 4 Eye of the North.
+    pub campaign: u8,
+    /// Four bits on the wire (`LEVEL_BITS`).
+    pub level: u8,
+    pub is_pvp: bool,
+    /// Four bits on the wire.
+    pub secondary_profession: u8,
+    /// Two bits: 0 none, 1 show, 2 hide.
+    pub helm_status: u8,
+    /// The armour pieces, in the reference's order: body, legs, head, boots, gloves.
+    pub pieces: Vec<ArmourPiece>,
+}
+
+/// The 62-byte settings block, packed exactly as `CharacterSettings_FromDbCharacter` (`GmChar.c`) fills
+/// the struct and the compiler lays it out.
+///
+/// The layout, in bytes: `version` 2, `last_outpost` 2, `last_time_played` 4 (always zero), `appearance`
+/// 4, the guild-hall uuid 16 (zero: nothing here creates guilds), one packed word -- `campaign` 4 bits,
+/// `level` 5, `is_pvp` 1, `secondary_profession` 4, `helm_status` 2, then sixteen bits of padding the
+/// reference happens to write as zero -- `number_of_pieces` 1, four more bytes the reference leaves zero,
+/// and five bytes per piece: `file_id` 2, two dye nibbles, a byte that is almost always zero, two more dye
+/// nibbles.
+///
+/// **The size never changes**: the reference sends `sizeof(CharacterSettings)` -- the whole struct, all
+/// five piece slots -- so a character wearing nothing still sends 62 bytes, with `number_of_pieces` zero
+/// and the slots blank. A shorter block would be a client reading the pieces that are not there.
+///
+/// At most five pieces are carried (`pieces[5]` in the reference); a sixth is dropped rather than
+/// overflowing the field.
+pub fn character_settings(settings: &CharacterSettings) -> Vec<u8> {
+    /// `pieces[5]`: the array is fixed, the count is not.
+    const PIECE_SLOTS: usize = 5;
+
+    let pieces = settings.pieces.len().min(PIECE_SLOTS);
+    let mut blob = Vec::with_capacity(62);
+
+    blob.extend_from_slice(&CHARACTER_SETTINGS_VERSION.to_le_bytes());
+    blob.extend_from_slice(&settings.last_outpost.to_le_bytes());
+    blob.extend_from_slice(&0u32.to_le_bytes()); // last_time_played: the reference zeroes it
+    blob.extend_from_slice(&settings.appearance.to_le_bytes());
+    blob.extend_from_slice(&[0u8; 16]); // last_guild_hall_id
+
+    let packed = (u32::from(settings.campaign & 0xF))
+        | ((u32::from(settings.level) & 0x1F) << 4)
+        | (u32::from(settings.is_pvp) << 9)
+        | ((u32::from(settings.secondary_profession) & 0xF) << 10)
+        | ((u32::from(settings.helm_status) & 0x3) << 14);
+    blob.extend_from_slice(&packed.to_le_bytes());
+
+    blob.push(pieces as u8);
+    blob.extend_from_slice(&0u32.to_le_bytes()); // h0021: uninitialised in the reference, zero here
+
+    for index in 0..PIECE_SLOTS {
+        match settings.pieces.get(index) {
+            Some(piece) => {
+                blob.extend_from_slice(&piece.file_id.to_le_bytes());
+                blob.push((piece.colors & 0xF) as u8 | (((piece.colors >> 4) & 0xF) as u8) << 4);
+                blob.push(0); // the piece's `unk`: zero for every piece the reference sends
+                blob.push(
+                    (((piece.colors >> 8) & 0xF) as u8)
+                        | ((((piece.colors >> 12) & 0xF) as u8) << 4),
+                );
+            }
+            // A slot past `number_of_pieces` is present in the struct and zero in the reference's copy.
+            None => blob.extend_from_slice(&[0u8; 5]),
+        }
+    }
+
+    blob
+}
+
 /// `AUTH_SMSG_CHARACTER_INFO` (`0x0007`): one character in the list, sent once per character.
 ///
 /// Layout (`AuthSrv_CharacterInfo`): `req_id`, `uuid[16]`, `unk0`, a counted name, a counted
@@ -941,6 +1038,78 @@ mod tests {
                 expected: 20
             })
         );
+    }
+
+    #[test]
+    fn the_settings_block_built_from_a_row_is_the_references_own_for_that_character() {
+        // `CHARACTER_SETTINGS_EXTENDED` is the reference's reply for the character it seeded, so building
+        // the block from that character's fields has to reproduce it byte for byte. The fields are read
+        // out of the blob: appearance 0x03100000 (a Warrior, hair style 3), last outpost 146, the packed
+        // word 0x00004011 (Prophecies, level 1, helmet shown), and five armour pieces dyed 0x000b.
+        let seeded = CharacterSettings {
+            last_outpost: 0x0092,
+            appearance: 0x0310_0000,
+            campaign: 1,
+            level: 1,
+            is_pvp: false,
+            secondary_profession: 0,
+            helm_status: 1,
+            pieces: vec![
+                ArmourPiece {
+                    file_id: 0x005b,
+                    colors: 0x000b,
+                },
+                ArmourPiece {
+                    file_id: 0x005e,
+                    colors: 0x000b,
+                },
+                ArmourPiece {
+                    file_id: 0x005d,
+                    colors: 0x000b,
+                },
+                ArmourPiece {
+                    file_id: 0x005a,
+                    colors: 0x000b,
+                },
+                ArmourPiece {
+                    file_id: 0x005c,
+                    colors: 0x000b,
+                },
+            ],
+        };
+        assert_eq!(
+            character_settings(&seeded).as_slice(),
+            CHARACTER_SETTINGS_EXTENDED.as_slice(),
+            "the packing reproduces the reference's own 62 bytes"
+        );
+
+        // A character wearing nothing still sends all five slots (`sizeof(CharacterSettings)`), with the
+        // count zero and the slots blank -- a shorter block would be a client reading past the end.
+        let bare = CharacterSettings {
+            last_outpost: 0,
+            ..CharacterSettings::default()
+        };
+        let blob = character_settings(&bare);
+        assert_eq!(blob.len(), 62);
+        assert_eq!(blob[32], 0, "number_of_pieces");
+        assert!(
+            blob[37..].iter().all(|byte| *byte == 0),
+            "the slots are blank"
+        );
+
+        // Six pieces are five on the wire: `pieces[5]` is the array, and the count is one byte.
+        let crowded = CharacterSettings {
+            pieces: (0..6)
+                .map(|index| ArmourPiece {
+                    file_id: index as u16,
+                    colors: 0,
+                })
+                .collect(),
+            ..CharacterSettings::default()
+        };
+        let blob = character_settings(&crowded);
+        assert_eq!(blob.len(), 62);
+        assert_eq!(blob[32], 5, "five pieces, the sixth dropped");
     }
 
     #[test]

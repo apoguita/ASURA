@@ -286,7 +286,7 @@ GWPS keeps twelve fields per player (`GmPlayer.h:21-33`). ASURA keeps six (`Play
 | connection | `GmPlayer.conn_token` | the connection is the task; no id | 1:1 (effect) |
 | **character id** | `GmPlayer.char_id` | `Play.character` | 1:1 |
 | **account id** | `GmPlayer.account_id` — used 63 times on the game side, including every bag and item read (`GameSrv.c:1136`, `GameSrv.c:1174`) and the transfer request (`GameSrv.c:1456`) | **not kept**: read from the claimed transfer and dropped | **BEHIND** — and it is exactly what `/tp` cannot write without |
-| character row | `GmPlayer.character` (a whole `DbCharacter`: ~44 columns) | `Play.name` plus the traits the load block sends (`appearance`, `primary_profession`, `unlocked_professions`, `gold`, migration 0008); the rest of the reference's row is queue item B5 | **partial, and it used to be worse**: until migration 0008 the load block sent the reference's *default* character to everyone — `Appearance::REFERENCE_DEFAULT`, Warrior, unlocked `2`, gold 0 |
+| character row | `GmPlayer.character` (a whole `DbCharacter`: ~44 columns) | the columns a message reads — `appearance`, `primary_profession`, `unlocked_professions`, `gold` (migration 0008) and `level`, `campaign`, `is_pvp`, `secondary_profession`, `helm_status` (migration 0009), plus the position this schema keeps for itself — and the settings blob built from them | **1:1 for what is sent, and it used to be worse**: until migration 0008 the load block sent the reference's *default* character to everyone, and until migration 0009 the login reply's character list sent **one captured 62-byte blob for every character** (a Warrior, level 1, outpost 146, five dyed armour pieces) instead of each character's own |
 | account row | `GmPlayer.account` (a whole `DbAccount`) | nothing; read per request | 1:1 (effect) |
 | bags | `GmPlayer.bags` (in memory, written once) | `Play.inventory` (rows, reloaded) | 1:1 (effect) |
 | campaign | `GmPlayer.char_creation_campaign` | none — no creation | BEHIND (the creation gap, §6) |
@@ -308,10 +308,13 @@ Two conclusions, and they are the answer to "why does this project take libertie
    field that was never kept because nothing had needed it yet.
 
 **What is still not stored, and why that is written down rather than fixed.** The reference's
-`DbCharacter` carries about forty-four columns. This server stores the four that a message reads today
-(appearance, primary profession, unlocked professions, gold — migration 0008) and no more: skills, the
-1024-bit unlocked-skill bitmap, the four 256-bit completion bitmaps, skill points, experience, level,
-campaign and the per-slot armour file ids and colours are queue item B5. A column nothing loads is the same
+`DbCharacter` carries about forty-four columns. This server stores the one every message that exists reads:
+`appearance`, `primary_profession`, `unlocked_professions`, `gold` (migration 0008) and `level`, `campaign`,
+`is_pvp`, `secondary_profession`, `helm_status` (migration 0009), and the armour pieces the settings blob
+carries are *derived* from the equipped bag rather than denormalised. The rest — skills, the 1024-bit
+unlocked-skill bitmap, the four 256-bit completion bitmaps, skill points, experience — stay out because
+nothing writes them (GWPS's own confirm sets them to zero and no handler ever assigns one) so the zeros are
+parity; argument and evidence in `docs/10-parity-queue.md`, item B5. A column nothing loads is the same
 liberty in a new place, which is the rule this section exists to enforce.
 
 ASURA additionally needs its own `session_id` on the connection. That is **not** parity with `GmPlayer` —

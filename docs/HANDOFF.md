@@ -323,6 +323,25 @@ waypoint list on different runs. `tools/parity-path.py` detects that by running 
 compares those cases on the answer alone, and lists them in the fixture's header. If a future case starts
 flapping, that is how it will show up.
 
+## The pieces the character settings added (B5)
+
+The login reply's character list carries a 62-byte settings block per character, and this server used to send
+the same captured one for every character. It is now built from the row.
+
+| piece | where |
+|---|---|
+| the five columns the blob needs (level, campaign, is-pvp, secondary profession, helmet status) | `crates/asura-db/migrations/0009_character_settings.sql` |
+| reading them back, plus the armour pieces derived from the equipped bag | `asura_db::game::settings` |
+| `CharacterSettings`'s packing, byte for byte, and the reference's own blob kept as the expected output | `crates/asura-protocol/src/client/messages.rs` (`character_settings`, `CHARACTER_SETTINGS_EXTENDED`) |
+| the login reply building it per character instead of sending the constant | `crates/asura-auth/src/lib.rs` |
+| the creation defaults the reference writes (`level = 1`, `is_pvp` when the campaign is none, helmet shown) | `asura_db::inventory::create_character` |
+| the proof: the built block equals the reference's, the seeded character's does not, and the row round-trips | `messages.rs` tests, `crates/asura-auth/tests/login.rs`, `crates/asura-db/tests/inventory.rs` |
+
+Two schema details worth not re-learning: `smallint` and `integer` are *different Rust types* to sqlx, so a
+query that reads a mixed set of them needs `::int` casts or it fails at runtime; and the settings block is
+always 62 bytes even for a character wearing nothing, because the reference sends `sizeof(CharacterSettings)`
+— the five piece slots are blank, not absent.
+
 ## The pieces M3 added
 
 | piece | where |

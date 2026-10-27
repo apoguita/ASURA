@@ -19,6 +19,7 @@
 
 use crate::{
     PgPool, SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
+    SCHEMA_V9,
 };
 
 /// One migration: a version number (its file's number) and its statements.
@@ -63,10 +64,14 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 8,
         sql: SCHEMA_V8,
     },
+    Migration {
+        version: 9,
+        sql: SCHEMA_V9,
+    },
 ];
 
 /// The newest version this build knows about. A database reporting less is behind the code.
-pub const LATEST_VERSION: i32 = 8;
+pub const LATEST_VERSION: i32 = 9;
 
 /// What [`apply_pending`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]

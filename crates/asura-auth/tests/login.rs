@@ -237,6 +237,39 @@ async fn a_client_logs_in_and_receives_the_whole_login_batch() {
         "the settings block the client draws from"
     );
 
+    // The block is built from **this character's row**, not from the constant that stood in for every
+    // character (`CharacterSettings_FromDbCharacter`, `GmChar.c`). The constant is the reference's seeded
+    // Warrior: outpost 146, an appearance word, five armour pieces. This seeded character has none of
+    // those, and the login reply has to say so.
+    let settings_at = 28 + name_length * 2;
+    let settings = &character.body[settings_at..settings_at + 62];
+    let version = u16::from_le_bytes([settings[0], settings[1]]);
+    let last_outpost = u16::from_le_bytes([settings[2], settings[3]]);
+    let appearance = u32::from_le_bytes([settings[8], settings[9], settings[10], settings[11]]);
+    let packed = u32::from_le_bytes([settings[28], settings[29], settings[30], settings[31]]);
+    assert_eq!(version, 6, "CHARACTER_SETTINGS_VERSION");
+    assert_eq!(
+        u32::from(last_outpost),
+        MAP as u32,
+        "last_outpost is the map the character was left in"
+    );
+    assert_eq!(
+        appearance, 0,
+        "a seeded character has no appearance bits set"
+    );
+    assert_eq!((packed >> 4) & 0x1F, 1, "level: the creation default");
+    assert_eq!(settings[32], 0, "number_of_pieces: it is wearing nothing");
+    assert_eq!(
+        &settings[37..],
+        &[0u8; 25],
+        "and the five piece slots are the blanks the struct always carries"
+    );
+    assert_ne!(
+        settings,
+        &messages::CHARACTER_SETTINGS_EXTENDED[..],
+        "the reference's own blob for its seeded Warrior is not this character's"
+    );
+
     // And the request is answered, successfully, on the id it was asked with.
     let reply =
         peer::as_request_response(frames.last().expect("a reply")).expect("a request response");

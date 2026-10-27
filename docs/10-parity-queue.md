@@ -118,12 +118,27 @@ gap to `tools/parity-emit.py`.
 ### B5. The rest of the character row (~40 columns)
 
 The reference's `DbCharacter` (`DbSchema.h:66-110`) stores about forty-four columns per character. This
-server stores the ones a message reads *today* — appearance, primary profession, unlocked professions, gold
-(migration `0008_character_traits.sql`) — and nothing else, deliberately: a column nothing loads is the same
-liberty in a new place.
+server stored the ones a message read *when the column was added* — appearance, primary profession, unlocked
+professions, gold (migration `0008_character_traits.sql`) — and now also the five the **character settings
+blob** needs: `level`, `campaign`, `is_pvp`, `secondary_profession`, `helm_status` (migration
+`0009_character_settings.sql`).
 
-**Most of what is left is *not* work, and that was measured rather than assumed.** Checking the columns
-against what the reference actually sends split the list in two:
+**What B5 actually was: one captured blob sent for everybody.** `AUTH_SMSG_CHARACTER_INFO` carries a 62-byte
+`CharacterSettings` block per character — the appearance, level, campaign, professions, helmet status, last
+outpost and five armour pieces with their dyes, which is what the character-select screen draws. The auth
+service was sending a constant copied from a live reference reply: *the reference's seeded Warrior*, level 1,
+last seen in outpost 146, wearing five pieces dyed the same colour. Every character in the list looked like
+that one. Now the block is built from the row (`messages::character_settings`, `GmChar.c`'s packing), and the
+armour pieces come from the equipped bag instead of the reference's denormalised `file_id_*`/`colors_*`
+columns — same answer, one copy of it.
+
+The measurement that the packing is right: `the_settings_block_built_from_a_row_is_the_references_own_for_that_character`
+builds the block from that captured Warrior's fields and requires it to equal the reference's own bytes, all
+62 of them. The auth test then requires the *seeded* character's block to differ from that constant and to
+carry its own row's values, and the database test that `create_character` writes what `settings` reads back.
+
+**Most of the remaining columns are still *not* work, and that was measured rather than assumed.** Checking
+them against what the reference actually does split the list in two:
 
 | column(s) | the reference's own behaviour | verdict |
 |---|---|---|
@@ -131,14 +146,18 @@ against what the reference actually sends split the list in two:
 | `unlocked_skills` | `GameSrv_SendUpdateUnlockedSkills` sends the bitmap, which is written as all-zero by the same confirm and assigned nowhere | an empty list is parity |
 | skill/attribute points | `GameSrv_SendAgentAttributePoints` **hardcodes** unused 50 / used 50 | the constant is parity |
 | the attribute spread | `GameSrv_SendPlayerAttributes` sends `data_len = Attribute_Count` and no values at all | the zeros are parity |
-| `experience`, `skill_points`, `campaign`, `helm_status`, `is_pvp`, `secondary_profession`, the completion bitmaps | stored, never read into a message that exists | no observable difference |
-| the per-slot armour `file_id_*`/`colors_*` | the reference denormalises what it already has in the equipped bag | this server derives the same answer from the items |
+| `unlocked_maps`, the four completion bitmaps | stored, never read into a message that exists | no observable difference |
+| `experience`, `skill_points`, `skill_points_total` | read by `GameSrv_SendPlayerFactions` (`0x00E9`) and written by nothing: no handler awards experience | the zeros this server sends are parity |
+| faction points (twelve `balthazar`/`kurzick`/`luxon`/`imperial` columns) | read into `0x00E9` and the four `FACTION_MAX_*` messages | this server sends the fresh-account defaults (max 10000, everything else zero), which is what the reference's own columns hold for an account that has done nothing |
+| `last_guild_hall_id` | read into the settings blob | zero: nothing here creates guilds, and the reference's own value for a lone character is the null uuid |
+| `storage_gold` | `GameSrv.c:825` puts it in the storage-gold message | not sent: this server sends the character's gold, and an account-level storage pane needs storage bags that the reference never fills either |
+| `eula_accepted` | read from the row, but `AuthSrv.c:684` sends a **hardcoded 24** to the client | unobservable: the value on the wire is a constant in the reference too |
 
-What *was* wrong surfaced through the same reading: the character-creation block was sending the **load**
-path's health and energy (25, 400 and a regen float) where the reference's creation path sends its own three
-int properties — energy 20, health 100, property 64 zero (`GameSrv_SendPlayerHealthEnergy`,
-`GmPlayer.c:178-199`). Fixed, and asserted: the creation test now checks those three values and the absence of
-a float property.
+One thing that *was* wrong surfaced through the same reading, and is fixed: the character-creation block sent
+the **load** path's health and energy (25, 400 and a regen float) where the reference's creation path sends
+its own three int properties — energy 20, health 100, property 64 zero (`GameSrv_SendPlayerHealthEnergy`,
+`GmPlayer.c:178-199`). Asserted: the creation test checks those three values and the absence of a float
+property.
 
 ### C. Teleport (`/tp`, `/teleport`) — measured, not blocked
 

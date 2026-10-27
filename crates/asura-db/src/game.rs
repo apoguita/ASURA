@@ -84,6 +84,11 @@ pub struct Traits {
     pub profession: u8,
     pub unlocked_professions: u32,
     pub gold: u32,
+    /// `Campaign` (`GmChar.h`): 0 none (a pvp character), 1 Prophecies, 2 Factions, 3 Nightfall,
+    /// 4 Eye of the North. The character settings blob carries four bits of it.
+    pub campaign: u8,
+    /// The secondary profession, four bits on the wire.
+    pub secondary_profession: u8,
 }
 
 impl Default for Traits {
@@ -96,23 +101,105 @@ impl Default for Traits {
             profession: 0,
             unlocked_professions: 0,
             gold: 0,
+            campaign: 0,
+            secondary_profession: 0,
         }
     }
 }
 
 /// The traits of one character, or `None` if there is no such row.
 pub async fn traits(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Traits>> {
-    let row: Option<(i64, i32, i64, i32)> = sqlx::query_as(
-        "SELECT appearance, primary_profession, unlocked_professions, gold FROM characters WHERE id = $1",
+    let row: Option<(i64, i32, i64, i32, i32, i32)> = sqlx::query_as(
+        "SELECT appearance, primary_profession, unlocked_professions, gold, campaign::int,
+                secondary_profession::int
+           FROM characters WHERE id = $1",
     )
     .bind(character)
     .fetch_optional(pool)
     .await?;
-    Ok(row.map(|(appearance, profession, unlocked, gold)| Traits {
+    Ok(row.map(
+        |(appearance, profession, unlocked, gold, campaign, secondary)| Traits {
+            appearance: appearance as u32,
+            profession: profession as u8,
+            unlocked_professions: unlocked as u32,
+            gold: gold as u32,
+            campaign: campaign as u8,
+            secondary_profession: secondary as u8,
+        },
+    ))
+}
+
+/// One armour piece of the character settings blob: `GmChar.h`'s inline `pieces[]` entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ArmourPiece {
+    /// The piece's `file_id`, truncated to sixteen bits -- what `GameSrv.c:1903` stores.
+    pub file_id: u16,
+    /// The four dye nibbles, packed as the item's `dye_colors` holds them.
+    pub colors: u16,
+}
+
+/// Everything `CharacterSettings_FromDbCharacter` (`GmChar.c`) reads, which is what the auth service sends
+/// for each character in the login reply's character list.
+///
+/// The reference keeps the armour pieces denormalised on the character row (`file_id_body`..`colors_gloves`)
+/// and fills them in at creation from the equipped bag (`GameSrv.c:1893-1921`). This derives them from the
+/// equipped bag on every read instead: same answer, one copy of it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Settings {
+    /// The map the character was last in (`last_outpost` in the reference's row).
+    pub last_outpost: u16,
+    /// The packed `Appearance` word, exactly as `create_character` stored it.
+    pub appearance: u32,
+    pub campaign: u8,
+    pub level: u8,
+    pub is_pvp: bool,
+    pub secondary_profession: u8,
+    pub helm_status: u8,
+    /// Up to five pieces, in the reference's order: body, legs, head, boots, gloves. A piece the character
+    /// is not wearing is absent, not zero-filled -- `number_of_pieces` is the count.
+    pub pieces: Vec<ArmourPiece>,
+}
+
+/// The settings of one character, or `None` if there is no such row.
+pub async fn settings(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Settings>> {
+    // The casts are not decoration: `smallint` and `integer` decode into different Rust types, and a
+    // database that has one of each (a development database that has had migrations applied by hand) is
+    // not worth a runtime error. Everything comes back as `int` and is narrowed below.
+    let row: Option<(i32, i64, i32, i32, bool, i32, i32)> = sqlx::query_as(
+        "SELECT map_id, appearance, campaign::int, level::int, is_pvp, secondary_profession::int,
+                helm_status::int
+           FROM characters WHERE id = $1",
+    )
+    .bind(character)
+    .fetch_optional(pool)
+    .await?;
+    let Some((map_id, appearance, campaign, level, is_pvp, secondary, helm)) = row else {
+        return Ok(None);
+    };
+
+    // The five armour slots of the equipped bag, in the reference's order (`EquippedItemSlot_Body` = 2 ..
+    // `_Gloves` = 6). Read through the inventory because that is where the items are.
+    let inventory = crate::inventory::load(pool, character).await?;
+    let mut pieces = Vec::with_capacity(5);
+    for slot in 2..=6u8 {
+        let Some(item) = inventory.item_in_equipped_slot(slot) else {
+            continue;
+        };
+        pieces.push(ArmourPiece {
+            file_id: (item.file_id as u64 & 0xFFFF) as u16,
+            colors: (item.dye_colors as u32 & 0xFFFF) as u16,
+        });
+    }
+
+    Ok(Some(Settings {
+        last_outpost: u16::try_from(map_id).unwrap_or(0),
         appearance: appearance as u32,
-        profession: profession as u8,
-        unlocked_professions: unlocked as u32,
-        gold: gold as u32,
+        campaign: campaign as u8,
+        level: level as u8,
+        is_pvp,
+        secondary_profession: secondary as u8,
+        helm_status: helm as u8,
+        pieces,
     }))
 }
 

@@ -482,3 +482,76 @@ async fn a_position_is_saved_and_read_back_and_a_new_character_has_none() {
         .await
         .expect("clean up");
 }
+
+/// The character settings blob the auth service sends is built from this row, so what
+/// `create_character` writes has to be what `settings` reads back -- including the armour pieces, which
+/// are derived from the equipped bag rather than stored (the reference denormalises them).
+#[tokio::test]
+async fn the_character_settings_come_back_from_the_row_the_creation_wrote() {
+    let Some(pool) = pool().await else {
+        return skip();
+    };
+    let name = format!("m5-settings-{}", Uuid::new_v4());
+    asura_db::login::seed_identity(
+        &pool,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        &name,
+        "Settings Subject",
+        MAP,
+    )
+    .await
+    .expect("seed identity");
+    let account = account_of(&pool, &name).await;
+
+    // A character created the way `CHAR_CREATION_CONFIRM` creates one: a chosen appearance, a profession,
+    // the campaign the screen was in, and the equipment the profession change swapped in.
+    let traits = db_game::Traits {
+        appearance: 0x0310_0000, // a Warrior with hair style 3, as the reference's own blob has it
+        profession: 1,
+        unlocked_professions: 1 << 1,
+        gold: 0,
+        campaign: 1,
+        secondary_profession: 0,
+    };
+    let created = db::create_character(&pool, account, "Settings Subject Jr", MAP, traits, &[])
+        .await
+        .expect("create the character");
+
+    let settings = db_game::settings(&pool, created)
+        .await
+        .expect("read the settings")
+        .expect("the character exists");
+    assert_eq!(settings.last_outpost, MAP as u16, "where it was created");
+    assert_eq!(settings.appearance, 0x0310_0000, "the appearance it chose");
+    assert_eq!(settings.campaign, 1, "Prophecies");
+    assert_eq!(settings.level, 1, "the reference's creation level");
+    assert!(
+        !settings.is_pvp,
+        "a campaign character is not a pvp character"
+    );
+    assert_eq!(settings.secondary_profession, 0, "the confirm sets none");
+    assert_eq!(settings.helm_status, 1, "HelmStatus_Show");
+
+    // No equipment was passed, so the pieces are whatever the seed put in the equipped bag -- one per
+    // armour item, and no more.
+    let inventory = db::load(&pool, created).await.expect("load");
+    let worn = [2u8, 3, 4, 5, 6]
+        .iter()
+        .filter_map(|slot| inventory.item_in_equipped_slot(*slot))
+        .count();
+    assert_eq!(settings.pieces.len(), worn, "one piece per armour item");
+
+    asura_db::login::remove_account(&pool, &name)
+        .await
+        .expect("clean up");
+}
+
+/// The account id behind a username, for a test that needs to create a character on it.
+async fn account_of(pool: &PgPool, username: &str) -> Uuid {
+    sqlx::query_scalar("SELECT id FROM account WHERE username = $1")
+        .bind(username)
+        .fetch_one(pool)
+        .await
+        .expect("the account exists")
+}
