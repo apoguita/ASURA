@@ -279,14 +279,20 @@ async fn connect_properly(
 }
 
 /// Read until a frame with `header` has arrived, and return everything read so far.
-async fn read_until(
+/// Read frames until `count` of them carry this header.
+///
+/// Waiting for the *first* of a pair that the world writes together is a race: the two frames can land in
+/// different reads, and a caller that stops at the first then sees one where the wire holds two. That is
+/// why the count is explicit rather than implied.
+async fn read_until_count(
     stream: &mut TcpStream,
     client: &mut ReferenceClient,
     header: u16,
+    count: usize,
 ) -> Vec<Frame> {
     let mut frames: Vec<Frame> = Vec::new();
     let mut buffer = [0u8; 8192];
-    while !frames.iter().any(|frame| frame.header == header) {
+    while frames.iter().filter(|frame| frame.header == header).count() < count {
         let read = tokio::time::timeout(TIMEOUT, stream.read(&mut buffer))
             .await
             .expect("read before the timeout")
@@ -295,6 +301,14 @@ async fn read_until(
         frames.extend(client.receive_game(&buffer[..read]).expect("game frames"));
     }
     frames
+}
+
+async fn read_until(
+    stream: &mut TcpStream,
+    client: &mut ReferenceClient,
+    header: u16,
+) -> Vec<Frame> {
+    read_until_count(stream, client, header, 1).await
 }
 
 /// Send a client message: the header and an all-zero body of the reference's length.
@@ -373,7 +387,9 @@ async fn a_placed_client_is_loaded_into_its_map() {
     // The world's clock keeps running while these arrive, so the block is checked for the reference's
     // *order* rather than for being the only thing on the wire.
     ask(&mut stream, &mut client, 0x8091, 4).await;
-    let frames = read_until(&mut stream, &mut client, game::INSTANCE_MANIFEST_DONE).await;
+    // Two DONE frames, not one: the answer ends the bag list and then the stream, and under load the two
+    // can arrive in separate reads.
+    let frames = read_until_count(&mut stream, &mut client, game::INSTANCE_MANIFEST_DONE, 2).await;
     let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
     let at = |header: u16| {
         headers

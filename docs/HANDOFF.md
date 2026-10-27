@@ -278,6 +278,29 @@ carries an inventory and comes back where it logged out.
 | the position saved on leaving and resumed on entering | `asura_db::game::record_position`/`position`, `Standing::resume` |
 | the live-database proof: seeding, round trip, drop scoping, position | `crates/asura-db/tests/inventory.rs` |
 
+## The pieces the map data added (D1-D3)
+
+A map's geometry is one `Gw.dat` entry, compressed, and the reference reads it in three steps: the
+archive's index, its decompressor, and `GmMapDataImport.c`'s chunk reader. All three are here.
+
+| piece | where |
+|---|---|
+| the archive index: header, file table, TOC hash, one entry's bytes | `crates/asura-world/src/gwdat.rs` |
+| `FaCompress.c`'s decoder: the bit window, the node tree, the block loop | `crates/asura-world/src/fa_compress.rs` |
+| its six static tables, generated from the reference and `--check`ed | `tools/gen-fa-compress-tables.py` -> `src/fa_compress_tables.rs` |
+| the container and the path graph: planes, trapezoids, x/y/sink nodes, portals | `crates/asura-world/src/map_data.rs` |
+| "which trapezoid is this position in": `PathFindTrapezoid` | same file (`PathStaticData::trapezoid_at`) |
+| every catalogue map imported out of a real `Gw.dat`, with its spawn point | `crates/asura-world/examples/map-census.rs` |
+| the reference's own fingerprints of the same blobs, as a fixture | `crates/asura-world/tests/fixtures/gwdat-pathing.csv` |
+| the test that compares this repo's import to them, column by column | `crates/asura-world/tests/map_data.rs` |
+| the three-way check: reference binary, fixture, this repo | `tools/parity-pathing.py --check` |
+| the numbers, and what the reference does that a tidier reader would not | `docs/10-parity-queue.md`, item D |
+
+The grep that matters is `python tools/parity-pathing.py --check`: it runs
+`..\PreSearing\build\RelWithDebInfo\gwdat_pathing.exe` over the catalogue's blobs, compares its output to
+the fixture, and compares both to this repo's importer. Any of the three drifting fails it. It skips (exit
+0) when `Gw.dat` or the built reference tool is absent, so it is safe on a machine without them.
+
 ## The pieces M3 added
 
 | piece | where |

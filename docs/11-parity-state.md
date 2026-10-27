@@ -16,13 +16,16 @@ python tools/parity-summary.py --write docs/11-parity-state.md --fast
 | emit | every message the reference can send | **76 of 81** reachable, **0 real gap(s)**, 5 explained |
 | the load block | `(header, size)` against the reference's own trace | **480 of 480** matched, **0 missing**, **0 extra**, **0 size** disagreement(s) |
 | generated files | `--check` against the reference's sources | **7 of 7 current** |
+| the map data | `Gw.dat` through the ported importer, against the reference's own tool | **the importer matches the reference on 7 blob(s): 283 plane(s), 34806 trapezoid(s), same bounding boxes** |
 
 ## What the numbers say
 
 The two lookup axes are complete: every client message the reference dispatches has an arm here, and
 every message it can put on the wire is reachable from a send path here. The load block and the
 generated tables match their sources message for message, and the seeds are regenerated from the same
-sources rather than typed.
+sources rather than typed. The map-data axis is the odd one out: it measures a *port* against the
+reference's own importer output for the same bytes, so a disagreement there is a reading bug, not a
+missing feature.
 
 ## What is not measured here, and is written down elsewhere
 
@@ -30,9 +33,12 @@ Everything in this table is mechanical. The parts of parity that are not are enu
 `docs/10-parity-queue.md`, and the ones that remain are all of one kind - they need something this
 machine cannot supply:
 
-- **T10's pathfinding** is a subsystem port (a `Gw.dat` archive reader, the 590-line graph importer
-  and 1,057 lines of trapezoid A*), sized in the queue and deliberately not attempted inside a parity
-  round. Movement's *rule* half - the position budget - is implemented and asserted on the wire.
+- **T10's search** is the one part of pathfinding that is not here. The data path is: `Gw.dat`'s
+  index, its decompressor and the graph importer are ported, and every map blob the catalogue names
+  imports to the reference's own plane count, trapezoid count and bounding box (`docs/10`, item D1-D3).
+  `GmPaths.c`'s A* over that graph - portal walking, the node heap, waypoint reduction - is still to
+  write, so movement's *rule* half (the position budget) is implemented and asserted while its
+  *refusal* half is not.
 - **T9 and T14's live halves** need a second real client rendering the other player.
 - **T13's memory clause** needs a human watching the process during the ten-minute idle run.
 - **The ground item** waits on a capture of a working drop, which the reference cannot produce because

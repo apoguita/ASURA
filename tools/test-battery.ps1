@@ -16,8 +16,9 @@
       6. asura-auth: login over a socket, travel placed or refused, the game front door
       7. asura-world: the load, the movement rules, the full chain to INSTANCE_LOAD_FINISH
       8. the generated files still match the reference source
-      9. the parity report (informational: what GWPS has that this does not)
-     10. the real client (by hand -- printed, never automated)
+      9. the map data: the importer against the reference's own fingerprints of the same blobs
+     10. the parity report (informational: what GWPS has that this does not)
+     11. the real client (by hand -- printed, never automated)
 
     ASCII only, like every script in tools/ (docs/HANDOFF.md).
 
@@ -207,8 +208,25 @@ if ($python) {
     Write-Skip "python is not installed"
 }
 
-# --- 9. parity ------------------------------------------------------------------------------------
-Write-Step 9 "parity with the reference (informational)"
+# --- 9. the map data -------------------------------------------------------------------------------
+# A map blob is geometry: `Gw.dat` holds it compressed, and `GmMapDataImport.c` turns it into the path
+# graph a walk is refused from. The only honest verdict on a port of that is the reference's own answer
+# for the same bytes, which `gwdat_pathing.exe` prints -- so this step compares the reference binary, the
+# committed fixture and this repo's importer, and fails if any two of them disagree.
+Write-Step 9 "the map data (a real Gw.dat, against the reference's own importer)"
+if ($python) {
+    $result = Invoke-Native $python @("tools/parity-pathing.py", "--check")
+    $detail = ($result.Output | Select-Object -Last 1) -join ""
+    Write-Verdict ($result.ExitCode -eq 0) "the map importer" $detail
+    if ($result.ExitCode -ne 0) {
+        ($result.Output | Select-String -Pattern 'FAIL|reference:|this repo:' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
+    }
+} else {
+    Write-Skip "python is not installed"
+}
+
+# --- 10. parity -----------------------------------------------------------------------------------
+Write-Step 10 "parity with the reference (informational)"
 if ($python) {
     $result = Invoke-Native $python @("tools/parity-report.py", "--write", "docs/07-status.md")
     $missing = ($result.Output | Select-String -Pattern 'real behaviour are missing' | ForEach-Object { $_.Line }) -join ""
@@ -235,8 +253,8 @@ if ($python) {
     Write-Skip "python is not installed"
 }
 
-# --- 10. the real client --------------------------------------------------------------------------
-Write-Step 10 "the real client (by hand)"
+# --- 11. the real client --------------------------------------------------------------------------
+Write-Step 11 "the real client (by hand)"
 Write-Host "    Nothing here can launch it or read its window; these are the steps to follow:"
 Write-Host "      .\tools\play.ps1"
 Write-Host "      F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1"

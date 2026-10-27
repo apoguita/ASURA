@@ -172,8 +172,8 @@ ASURA echoes the client's destination, so the client's own prediction carries th
 not a wall. GWPS pathfinds (`GmPaths.c`, A* over the map's path graph from `Gw.dat`) and refuses what
 it cannot reach. Evidence: `GmAgent.c:371-398`, `GmAgent.c:409-462`.
 
-**D is sized, not started — and the sizing says it is feasible.** The reference's refusal is its pathfinder,
-and the pathfinder is three units of C, all readable, plus the archive they read from:
+**D is sized, and two of its three units are now ported.** The reference's refusal is its pathfinder, and
+the pathfinder is three units of C, all readable, plus the archive they read from:
 
 | part | lines | what it is |
 |---|---|---|
@@ -188,10 +188,9 @@ And the two things a port needs to be verified against both exist:
   `gwdat_scan.exe`) that dump the graph, so a ported reader can be compared message for message with the
   reference's own output rather than with a guess.
 
-So `MOVE_TO_COORD` cannot validate anything *today*, because none of those three units is present — but this is
-a **milestone**, not an unknown and not a missing measurement. The smallest useful first step is
-`FaArchive` alone: 204 lines, no dependence on the graph format, and it can be tested against
-`gwdat_pathing.exe`'s dump of one entry before any A* is written.
+So `MOVE_TO_COORD` could not validate anything while those units were absent, and this was always a
+**milestone, not an unknown**: the archive could be read and tested against `gwdat_pathing.exe`'s dump of
+one entry before any A* was written — which is what D1 did, followed by D2 and D3 below.
 
 What *can* be matched without it is matched, and asserted: the reference's position budget
 (`speed_base * elapsed + tolerance`, clamped at 2 s of elapsed time) is the same rule on the same message, and
@@ -238,7 +237,67 @@ out-of-bounds read. And `next_bit_encoding + 1` relies on **unsigned wraparound*
 and wraps to `u32::MAX`); C wraps silently, Rust panics, so the port wraps explicitly with the reason in a
 comment.
 
-**D3 is next**: `GmMapDataImport.c` (590 lines) over this, then `GmPaths.c`'s A*.
+**D3 landed: the map importer.** `crates/asura-world/src/map_data.rs` is `GmMapDataImport.c` (590 lines)
+a function at a time — `RiffCheckHeader`, `RiffParseChunks`, `RiffGetChunk`, `PathImport_CheckHeader`,
+`PathImport_Step2`, and the ten plane readers (counts, tag 11, vectors, trapezoids, root node, x nodes, y
+nodes, sink nodes, portal traps, portals) — plus `PathFindTrapezoid` from the top of `GmPaths.c`, which is
+the query "which trapezoid is this position in".
+
+The verification is the reference's own tool, not my reading of its C. `tools/gwdat_pathing.c` imports a
+blob with `GmImportMap` and prints `file_id,size,planes,trapezoids,min_x,min_y,max_x,max_y`; if both sides
+read the same file the same way, all eight numbers agree. They do, for every blob the catalogue names:
+
+```
+0x0001B97D,2925267,58,6120,-18432.000,-24576.000,21504.000,24576.000    Lakeside / Ascalon / Ashford
+0x000345CC,1734079,39,1270,-18432.000,1726.000,9081.000,21504.000       Kamadan
+0x0005CEE6,3320363,51,5246,-21504.000,-27648.000,21504.000,20736.000    The Catacombs
+0x0005CEE7,3389269,18,5241,-24576.000,-21302.662,24576.000,25240.000    Wizard's Folly / Foibles Fair
+0x0005CF29,3252319,45,4772,-23328.000,-21504.000,27648.000,16479.221    Green Hills / Barradin
+0x0005CF2A,3713598,24,5267,-30720.000,-16608.000,26592.000,22168.000    Regent Valley / Fort Ranik
+0x8005EA96,3657363,48,6890,-20640.000,-21504.000,24279.000,24331.000    The Northlands
+```
+
+Those are 283 planes and 34,806 trapezoids, and the odd-looking corners (`16479.221`, `-21302.662`) agree
+to three decimals too — which is the point: a misplaced field or an off-by-one in a row size moves a
+bounding box even when the counts happen to survive.
+
+`map-census` (an example) is the runnable form: it imports all twelve catalogue rows out of a real
+`Gw.dat` and prints each one's planes, trapezoids, node counts and where its spawn point lands, plus
+`--fingerprint` for the eight-column shape above.
+
+Three things make that a measurement rather than a claim:
+
+- `crates/asura-world/tests/fixtures/gwdat-pathing.csv` holds the reference's rows;
+  `every_catalogue_blob_imports_to_the_references_own_fingerprint` (tests/map_data.rs) imports the blobs
+  from a real `Gw.dat` and compares all eight columns;
+- `tools/parity-pathing.py --check` re-runs the reference binary, compares it to the fixture, and compares
+  both to this repo's importer — the third leg is what catches the fixture going stale *and* the importer
+  drifting in one run;
+- `the_settled_graph_of_every_catalogue_map_contains_its_own_spawn_point` walks every map's configured
+  spawn point (`tools/map-config.sql`, generated from `GmMapsConfig.c`) and requires a trapezoid: all
+  twelve land inside, three of them from the same blob (Lakeside County serving Ascalon City and Ashford
+  Abbey as well).
+
+Three reference behaviours were kept rather than corrected, and the reason is the same for all three:
+they are what the file holds.
+
+- `PathImport_PlaneTag11` advances `h000C * 8` bytes of a section whose declared length is `sub_length`,
+  and in **all 283 measured planes** `sub_length` is exactly twice that. The next section's tag sits at the
+  midpoint. A reader advancing `sub_length` would step over the vector section; the reference reads
+  *inside* section 11's bounds and so does this port.
+- `PathImport_Step2` takes its length from byte 1 of a five-byte header — an unaligned `u32` that
+  swallows the tag byte. It is what the format is.
+- `GetNodeFromDatId` answers a null pointer, not an error, for a node index past its array, so a graph can
+  import with a dead end in it; `trapezoid_at` stops at a dead end like the reference's walk does.
+
+Pointers became array positions (`NodeRef`, `Option<usize>`, `Option<(plane, portal)>`) — the same graph
+without a self-referential struct.
+
+**D3's remaining half: the search.** `GmPaths.c` after line 52 is the A* — portal walking between planes,
+the `PathFindNode` heap (`GmPathHeap.c`), waypoint reduction, and its own fixed-point `PathReciproc`/
+`PathSqrt` lookup tables (256 entries each) instead of the FPU's. Nothing about it is blocked on a
+measurement any more: the graph, the oracle and the spawn points are all in hand, and
+`gwdat_pathing.exe --trapezoids` dumps per-trapezoid rows to compare against.
 
 ### E. Item lifecycle (T12)
 
@@ -309,7 +368,7 @@ Recorded so nobody adds it later: matching GWPS where GWPS is unfinished or does
 2. **C1 → C4** — `/tp` is measured end to end and unblocks the second map without a rebuild.
 3. **F1 → F2** — the load block becomes provable, which is what keeps the rest honest.
 4. **B1 → B4** — character creation, the largest data port.
-5. **D1** → **E1/E2** → **H1/H2**.
+5. **D1 → D2 → D3** (archive, decompressor, importer — landed) → **D3's search** → **E1/E2** → **H1/H2**.
 
 Each step lands with its test, and the audit documents are regenerated rather than edited:
 `python tools/parity-report.py --write docs/07-status.md`, `python tools/parity-emit.py`.

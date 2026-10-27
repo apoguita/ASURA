@@ -109,7 +109,13 @@ GWPS dispatch: `GameSrv.c:2007-2074`. ASURA dispatch: `crates/asura-world/src/li
 ## 3. Movement & agents
 
 GWPS: `GmAgent.c` (564 lines) plus `GmPaths.c` (A*, 1057 lines) and `GmPathHeap.c`.
-ASURA: `crates/asura-world/src/lib.rs` arms + `Player::adopt_report`/`adopt_correction`.
+ASURA: `crates/asura-world/src/lib.rs` arms + `Player::adopt_report`/`adopt_correction`, plus
+`crates/asura-world/src/gwdat.rs` + `fa_compress.rs` + `map_data.rs` for the graph itself.
+
+The navmesh is no longer the unknown it was: `Gw.dat`'s index, its decompressor and
+`GmMapDataImport.c` are ported, and a map blob imported here carries the reference's own plane and
+trapezoid counts and bounding box (docs/10-parity-queue.md, item D). What is still missing is the
+*search* over that graph (`GmPaths.c`'s A*), so the walk verdict below does not change yet.
 
 | Behaviour | GWPS | ASURA | Verdict |
 |---|---|---|---|
