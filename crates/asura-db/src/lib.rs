@@ -82,6 +82,7 @@ pub mod config;
 
 // Re-exported so the harness and the integration tests (separate crates) can name the pool and the
 // session id without depending on sqlx and uuid themselves.
+pub use sqlx::PgConnection;
 pub use sqlx::PgPool;
 pub use uuid::Uuid;
 

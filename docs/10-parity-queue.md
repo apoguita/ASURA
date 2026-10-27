@@ -22,7 +22,7 @@ Two rules, both learned the hard way in this repo:
 | T3 | handshake past the version check | **pass** (auth reaches the EULA/character list) | — |
 | T4 | account login from the DB | **pass** | — |
 | T5 | EULA + character list renders | **pass** | — |
-| T6 | character creation | **fail** | queue B |
+| T6 | character creation | **pass on the server side**: the four handlers, the rows, and the success message (_character_is_created_in_a_creation_instance) — a live creation screen is unverified | queue B is done on the wire |
 | T7 | select → transfer → spawn in the map | **pass** for one client | — |
 | T8 | no crash on the configured map | **pass** | — |
 | T9 | a **second client sees the first** | **server side passes**: two agents, each introduced to the other, and each told when one leaves (`a_second_player_is_introduced_to_the_first_and_withdrawn_again`) — a live second client is unverified | queue A is done on the wire |
@@ -33,16 +33,16 @@ Two rules, both learned the hard way in this repo:
 | T14 | disconnect removes the agent; a fresh login works | **server side passes**: the farewell pair is sent and asserted | queue A is done on the wire |
 | T15 | log audit: every gap understood | **fail** — no generated audit until `tools/parity-emit.py` | queue H |
 
-**Six of the sixteen tests do not pass, and exactly one of them — T6 — is on the "obvious" list.**
-The others (T9, T10, T12, T14, T15) are the ones my narrative audit treated as "known partials"
-instead of work.
+**What is left: T10 (movement is not validated), T12 (the ground item), T13 (the idle run is unrun) and the
+live half of T9 and T14.** T6 and T15 have moved: T6 passes on the server side, and T15 is now two
+generated audits in the battery.
 
 ## The four axes, as measured today
 
 | axis | how it is measured | current state |
 |---|---|---|
-| client → server dispatch | `tools/parity-report.py` vs `GameSrv.c`/`AuthSrv.c` switches | auth **15/15**, game **14/18** (the four `CHAR_CREATION_*`) |
-| server → client emit | `tools/parity-emit.py` | reference **81**, ASURA **72**, **9 cannot** — **4 real** gaps and 5 explained absences |
+| client → server dispatch | `tools/parity-report.py` vs `GameSrv.c`/`AuthSrv.c` switches | **complete**: auth **15/15**, game **18/18**; the battery reports "nothing missing" |
+| server → client emit | `tools/parity-emit.py` | reference **81**, ASURA **75**, **6 cannot** — **1 real** gap (`CREATE_UNNAMED_ITEM`) and 5 explained absences |
 | state kept per player | `docs/09` §9, hand-checked against `GmPlayer.h:21-33` | 12 fields vs 6; `account_id` missing, which is what `/tp` needs |
 | schema | migrations vs `Db.c` queries | equivalent for what is used; no `friendships` table (the stream is empty anyway) |
 | the load block | `tools/parity-load.py` against the reference's own `GWPS_TRACE=1` log, as a generated fixture (`crates/asura-world/src/load_fixture.rs`) | **measured: 480 messages, 0 missing, 0 extra, 0 size disagreements** — it matches message for message |

@@ -75,6 +75,11 @@ struct Harness {
 impl Harness {
     /// Start a world serving one map, and place a player in it the way the auth service would.
     async fn start() -> Option<Harness> {
+        Harness::start_on(0).await
+    }
+
+    /// A world serving maps of one type: 0 for a main town, 11 for a character-creation instance.
+    async fn start_on(map_type: i32) -> Option<Harness> {
         let url = asura_db::config::database_url()?;
         let pool = placement::connect(&url, 4)
             .await
@@ -96,7 +101,7 @@ impl Harness {
                     map_id,
                     // The reference's blob for the pre-Searing region.
                     map_file_id: 0x1B97D,
-                    map_type: 0,
+                    map_type,
                     spawn: (6602.0, 4485.0),
                     spawn_plane: 0,
                     name: "Lakeside County".to_string(),
@@ -1423,6 +1428,127 @@ async fn a_teleport_redirects_to_the_target_map_and_keeps_its_seat() {
     );
 
     drop(moved_stream);
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
+/// T6: a character can be made in a character-creation instance.
+///
+/// The reference's four messages (`GameSrv_HandleCharCreation*`), in order: the player-data block, the PvP
+/// half, a profession change that swaps the equipped set, and a confirm that writes the rows and answers
+/// `CHAR_CREATION_SUCCESS`. The equipment is memory until the confirm, which is where the reference writes
+/// it too.
+#[tokio::test]
+async fn a_character_is_created_in_a_creation_instance() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start_on(11).await else {
+        return;
+    };
+
+    let version = harness.version(harness.player_token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused a token the auth service had just issued");
+    };
+
+    // 1. the player-data block ends with `INSTANCE_PLAYER_DATA_DONE`, which is creation-only.
+    ask(&mut stream, &mut client, 0x8089, 2).await;
+    let block = read_until(&mut stream, &mut client, game::INSTANCE_PLAYER_DATA_DONE).await;
+    assert!(
+        block
+            .iter()
+            .any(|frame| frame.header == game::INVENTORY_CREATE_BAG),
+        "the creation screen is given bags"
+    );
+    assert!(
+        block
+            .iter()
+            .any(|frame| frame.header == game::CREATE_NAMED_ITEM),
+        "and the starting equipment"
+    );
+
+    // 2. the PvP half: empty streams, as an account with nothing unlocked has.
+    ask(&mut stream, &mut client, 0x808A, 2).await;
+    let pvp = read_until(&mut stream, &mut client, game::PVP_ITEM_STREAM_END).await;
+    assert!(
+        pvp.iter()
+            .any(|frame| frame.header == game::PVP_UPDATE_UNLOCKED_SKILLS),
+        "the unlocked-skill list"
+    );
+
+    // 3. a profession change: Prophecies Ranger (campaign 1, profession 2).
+    say(&mut stream, &mut client, 0x8060, &[1, 2]).await;
+    let changed = read_until(&mut stream, &mut client, game::PLAYER_UPDATE_PROFESSION).await;
+    assert!(
+        changed
+            .iter()
+            .any(|frame| frame.header == game::CREATE_NAMED_ITEM),
+        "the new profession's equipment follows the profession"
+    );
+
+    // 4. the confirm: name, appearance, flags. The reference's confirm is 58 bytes.
+    let mut confirm = Vec::new();
+    let units: Vec<u16> = "Asura Test".encode_utf16().collect();
+    confirm.extend_from_slice(&(units.len() as u16).to_le_bytes());
+    for unit in &units {
+        confirm.extend_from_slice(&unit.to_le_bytes());
+    }
+    confirm.extend_from_slice(&[0u8; 8]); // appearance
+    confirm.extend_from_slice(&0u32.to_le_bytes()); // flags
+    say(&mut stream, &mut client, 0x808B, &confirm).await;
+    let created = read_until(&mut stream, &mut client, game::CHAR_CREATION_SUCCESS).await;
+    let success = created
+        .iter()
+        .find(|frame| frame.header == game::CHAR_CREATION_SUCCESS)
+        .expect("the character was written");
+    // Little endian, which is what the reference writes (`uuid_enc_le`) and what the builder sent.
+    let character = Uuid::from_bytes_le(success.body[0..16].try_into().expect("sixteen bytes"));
+
+    // The rows T6 asks for, read back through this repo's own queries: the character, its six bags, and
+    // the profession's equipment in the equipped bag.
+    assert_eq!(
+        asura_db::game::character_name(&harness.pool, character)
+            .await
+            .expect("read the character"),
+        Some("Asura Test".to_string()),
+        "a row in characters, named as the client named it"
+    );
+    let inventory = db_inventory::load(&harness.pool, character)
+        .await
+        .expect("read the inventory");
+    assert_eq!(inventory.bags.len(), 6, "the reference's six bags");
+    let equipped_bag = inventory
+        .bags
+        .iter()
+        .find(|bag| bag.bag_type == 2)
+        .expect("an equipped bag")
+        .bag_id;
+    let worn: Vec<i64> = inventory
+        .items
+        .iter()
+        .filter(|item| item.bag_id == Some(equipped_bag))
+        .map(|item| item.file_id)
+        .collect();
+    assert!(!worn.is_empty(), "the profession's equipment was written");
+    // And it is the *Ranger's* set, which is what the profession change asked for (campaign 1,
+    // profession 2) — not the Warrior the screen started with.
+    let expected: Vec<i64> = asura_world::default_equipment::default_equipment(1, 2)
+        .iter()
+        .map(|spec| i64::from(spec.file_id))
+        .collect();
+    let mut worn_sorted = worn.clone();
+    let mut expected_sorted = expected.clone();
+    worn_sorted.sort_unstable();
+    expected_sorted.sort_unstable();
+    assert_eq!(
+        worn_sorted, expected_sorted,
+        "the equipped set is the one the chosen profession's table gives"
+    );
+
+    drop(stream);
     placement::remove_world(&harness.pool, harness.world_id)
         .await
         .expect("remove the world");

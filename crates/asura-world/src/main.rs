@@ -24,7 +24,7 @@ use std::time::Duration;
 use asura_db::migrations::{self, EnsureError};
 use asura_db::{game as db_game, placement};
 use asura_protocol::Trace;
-use asura_world::{serve, MapEntry, World};
+use asura_world::{serve, MapEntry, World, MAP_TYPE_CHARACTER_CREATION};
 
 /// How often the world tells the database it is alive. Placement stops offering a world whose
 /// heartbeat is older than a minute, so this is comfortably inside that window.
@@ -162,14 +162,13 @@ async fn main() -> ExitCode {
                     );
                     return ExitCode::from(4);
                 }
-                if configured.map_type != 0 {
-                    // Everything but a main town is a later milestone: an outpost is where a
-                    // client lands, and claiming to host an explorable (or a character-creation
-                    // instance, type 11) would put a player in a map this server cannot spawn
-                    // anything into.
+                if !matches!(configured.map_type, 0 | MAP_TYPE_CHARACTER_CREATION) {
+                    // Two kinds of instance are hosted: a main town, where a client lands, and the
+                    // character-creation instance, which the reference hosts the same way (map type 11).
+                    // An explorable is still a later milestone: this server cannot spawn anything into one.
                     eprintln!(
-                        "asura-world: map {map_id} is type {} (only main towns are hosted so \
-                         far), skipping it",
+                        "asura-world: map {map_id} is type {} (main towns and the character-creation \
+                         instance are hosted so far), skipping it",
                         configured.map_type
                     );
                     continue;

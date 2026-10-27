@@ -57,6 +57,7 @@ EXPLAINED = {
     "PARTY_HERO_ADD": "0 in every capture -- heroes only, and the reference's own scope tier puts them out",
     "CHAT_MESSAGE_SERVER": "gated in the reference too (`GWPS_CHAT=1`); ASURA prints the answer instead (docs/03 section 11)",
     "ITEM_REMOVE": "deliberate: it crashed a live client, and the reference's own drop handler never sends it either",
+    "CHAR_CREATION_START": "declared and never called in the reference (`GameSrv.c:305-308` has no caller), so neither server sends it",
 }
 
 PROTOCOL_FILES = (

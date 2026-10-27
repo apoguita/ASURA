@@ -18,7 +18,7 @@
 //! told *and* by its kind, an item's name and modifiers are stored because `CREATE_NAMED_ITEM` carries
 //! them, and a bag's own item is a row with no slot rather than a struct compiled into the server.
 
-use crate::{PgPool, Uuid};
+use crate::{PgConnection, PgPool, Uuid};
 
 /// The default inventory the reference seeds, generated from a capture of it working.
 pub mod seed;
@@ -344,6 +344,198 @@ pub async fn load(pool: &PgPool, character: Uuid) -> sqlx::Result<Inventory> {
             .collect(),
         items: items.into_iter().map(item_from_row).collect(),
     })
+}
+
+/// One item to write, with its own storage.
+///
+/// `SeedItem` borrows its name and modifiers from the generated seed, which is fine for a constant table
+/// and wrong for anything computed at runtime: a creation screen's equipment is derived from the
+/// profession the client picked, so it owns its slices.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewItem {
+    pub bag_id: Option<i32>,
+    pub slot: Option<i32>,
+    pub file_id: i64,
+    pub item_type: i32,
+    pub model_id: i32,
+    pub dye_tint: i32,
+    pub dye_colors: i32,
+    pub materials: i32,
+    pub unk1: i32,
+    pub flags: i64,
+    pub value: i32,
+    pub quantity: i32,
+    pub profession: i32,
+    pub name: Vec<i32>,
+    pub modifiers: Vec<i64>,
+}
+
+/// Create a character and give it the reference's default inventory, with `equipped` in place of the
+/// capture's equipment.
+///
+/// This is `GameSrv_HandleCharCreationConfirm`'s writing half: the reference creates the row and its bags
+/// with `GameSrv_CreatePlayerBags`, and the bags already hold what the creation screen last chose
+/// (`HandleCharCreationChangeProf` swapped them in memory). Here the choice arrives as rows.
+///
+/// `equipped` items carry their own `bag_id` and `slot`, which the caller takes from the reference's
+/// `GetBagSlotForItemType` mapping.
+pub async fn create_character(
+    pool: &PgPool,
+    account: Uuid,
+    name: &str,
+    map_id: i32,
+    equipped: &[NewItem],
+) -> sqlx::Result<Uuid> {
+    let character = Uuid::new_v4();
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("INSERT INTO characters (id, account_id, name, map_id) VALUES ($1, $2, $3, $4)")
+        .bind(character)
+        .bind(account)
+        .bind(name)
+        .bind(map_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // The equipped bag is the one the reference calls `equipped_items`; everything the seed puts there is
+    // replaced, and every other bag keeps the reference's own contents.
+    let equipped_bag = seed::BAGS
+        .iter()
+        .find(|bag| bag.bag_type == 2)
+        .map(|bag| bag.bag_id)
+        .unwrap_or(0);
+
+    let mut allocated: Vec<(i32, i32)> = Vec::new();
+    for seed_item in seed::ITEMS
+        .iter()
+        .filter(|item| item.bag_id != Some(equipped_bag))
+    {
+        allocated.push((
+            seed_item.id,
+            insert_item(tx.as_mut(), character, seed_item).await?,
+        ));
+    }
+    for item in equipped {
+        allocated.push((0, insert_new_item(tx.as_mut(), character, item).await?));
+    }
+
+    for seed_bag in seed::BAGS {
+        let assoc_item_id = bag_own_item(seed_bag, &allocated)?;
+        sqlx::query(
+            "INSERT INTO bag (character_id, bag_id, bag_model_id, bag_type, slot_count, assoc_item_id)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(character)
+        .bind(seed_bag.bag_id)
+        .bind(seed_bag.bag_model_id)
+        .bind(seed_bag.bag_type)
+        .bind(seed_bag.slot_count)
+        .bind(assoc_item_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(character)
+}
+
+/// One item row from the generated seed, returning the id the sequence gave it.
+async fn insert_item(tx: &mut PgConnection, character: Uuid, seed: &SeedItem) -> sqlx::Result<i32> {
+    insert_row(
+        tx,
+        character,
+        seed.bag_id,
+        seed.slot,
+        seed.file_id,
+        seed.item_type,
+        seed.model_id,
+        seed.dye_tint,
+        seed.dye_colors,
+        seed.materials,
+        seed.unk1,
+        seed.flags,
+        seed.value,
+        seed.quantity,
+        seed.profession,
+        seed.name,
+        seed.modifiers,
+    )
+    .await
+}
+
+/// One item row from a runtime set, returning the id the sequence gave it.
+async fn insert_new_item(
+    tx: &mut PgConnection,
+    character: Uuid,
+    item: &NewItem,
+) -> sqlx::Result<i32> {
+    insert_row(
+        tx,
+        character,
+        item.bag_id,
+        item.slot,
+        item.file_id,
+        item.item_type,
+        item.model_id,
+        item.dye_tint,
+        item.dye_colors,
+        item.materials,
+        item.unk1,
+        item.flags,
+        item.value,
+        item.quantity,
+        item.profession,
+        &item.name,
+        &item.modifiers,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn insert_row(
+    tx: &mut PgConnection,
+    character: Uuid,
+    bag_id: Option<i32>,
+    slot: Option<i32>,
+    file_id: i64,
+    item_type: i32,
+    model_id: i32,
+    dye_tint: i32,
+    dye_colors: i32,
+    materials: i32,
+    unk1: i32,
+    flags: i64,
+    value: i32,
+    quantity: i32,
+    profession: i32,
+    name: &[i32],
+    modifiers: &[i64],
+) -> sqlx::Result<i32> {
+    sqlx::query_scalar(
+        "INSERT INTO item (character_id, bag_id, slot, file_id, item_type, model_id, dye_tint,
+                           dye_colors, materials, unk1, flags, value, quantity, profession,
+                           name, modifiers)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         RETURNING id",
+    )
+    .bind(character)
+    .bind(bag_id)
+    .bind(slot)
+    .bind(file_id)
+    .bind(item_type)
+    .bind(model_id)
+    .bind(dye_tint)
+    .bind(dye_colors)
+    .bind(materials)
+    .bind(unk1)
+    .bind(flags)
+    .bind(value)
+    .bind(quantity)
+    .bind(profession)
+    .bind(name.to_vec())
+    .bind(modifiers.to_vec())
+    .fetch_one(tx)
+    .await
 }
 
 /// Give a character the reference's default inventory, unless it already has bags.
