@@ -201,7 +201,8 @@ if ($python) {
         @("tools/gen-fa-compress-tables.py", @("--check"), "the decompressor tables"),
         @("tools/gen-path-tables.py", @("--check"), "the path finder's tables"),
         @("tools/gen-path-cases.py", @("--check"), "the path finder's cases"),
-        @("tools/parity-commands.py", @("--check"), "the GM command surface")
+        @("tools/parity-commands.py", @("--check"), "the GM command surface"),
+        @("tools/parity-testplan.py", @("--check"), "the reference's test plan")
     )
     foreach ($check in $checks) {
         $result = Invoke-Native $python (@($check[0]) + $check[1])

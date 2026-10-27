@@ -16,7 +16,7 @@ python tools/parity-summary.py --write docs/11-parity-state.md --fast
 | emit | every message the reference can send | **76 of 81** reachable, **0 real gap(s)**, 5 explained |
 | the load block | `(header, size)` against the reference's own trace | **480 of 480** matched, **0 missing**, **0 extra**, **0 size** disagreement(s) |
 | the load block's bytes | the same messages, payload against payload | **91 of 480 message(s) are byte-identical to the reference; 389 allowed difference(s) in 3 message(s), each with a recorded reason** |
-| generated files | `--check` against the reference's sources | **11 of 11 current** |
+| generated files | `--check` against the reference's sources | **12 of 12 current** |
 | the map data | `Gw.dat` through the ported importer, against the reference's own tool | **the importer matches the reference on 7 blob(s): 283 plane(s), 34806 trapezoid(s), same bounding boxes** |
 | the path finder | the same walks through both A*s, waypoint bits compared | **the path finder matches the reference on 96 case(s): 41 walk(s) found, 127 waypoint(s) identical, 1 case(s) compared on the answer alone** |
 | the schema | every column `DbSchema.h` declares, against this database | **the schema accounts for all 95 reference column(s): 55 explained, 11 mapped, 7 packed, 22 stored** |
@@ -61,4 +61,5 @@ machine cannot supply:
 | the path finder's tables | current |
 | the path finder's cases | current |
 | the GM command surface | current |
+| the reference's test plan | current |
 | the reference's load stream | current |

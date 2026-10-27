@@ -14,28 +14,18 @@ Two rules, both learned the hard way in this repo:
 
 ## The yardstick: GWPS's own test plan
 
-| # | Test (`PreSearing/docs/04-scope.md`) | ASURA today | What it needs |
-|---|---|---|---|
-| T0 | build and seed | **pass** (`tools/start-server.ps1`, migrations, seed) | — |
-| T1 | web gate answers without a client | **pass** (same `webgate.py`, started by the launcher) | — |
-| T2 | server binds | **pass** (6112/6113, world registers) | — |
-| T3 | handshake past the version check | **pass** (auth reaches the EULA/character list) | — |
-| T4 | account login from the DB | **pass** | — |
-| T5 | EULA + character list renders | **pass** | — |
-| T6 | character creation | **pass on the server side**: the four handlers, the rows, and the success message (_character_is_created_in_a_creation_instance) — a live creation screen is unverified | queue B is done on the wire |
-| T7 | select → transfer → spawn in the map | **pass** for one client | — |
-| T8 | no crash on the configured map | **pass** | — |
-| T9 | a **second client sees the first** | **server side passes**: two agents, each introduced to the other, and each told when one leaves (`a_second_player_is_introduced_to_the_first_and_withdrawn_again`) — a live second client is unverified | queue A is done on the wire |
-| T10 | movement, and invalid destinations refused | **the deviation is now asserted, not assumed**: `a_move_is_echoed_as_sent_and_a_far_report_is_clamped` pins that a walk is answered with exactly the destination sent (no path graph, so no waypoint and no refusal) and that the reference's own *position* budget is enforced on the wire (an out-of-budget report is clamped and the clamp is what the other player sees) | queue D, sized below |
-| T11 | chat displays on both clients | **equal to GWPS** — both send it, neither renders it | queue G (unachievable without a layout) |
-| T12 | drop: the entity appears and disappears consistently | **partial** — the stack is deducted and persisted, nothing is sent | queue E |
-| T13 | 10 minutes idle, no crash | **rhythm and accounting pass at a scaled window** (`an_idle_pair_keeps_its_rhythm_and_its_count`: the 500 ms tick and 5 s ping keep arriving, an idle client is told nothing else, and the world's player list stays a pair and empties on departure); the ten-minute variant exists as an `#[ignore]`d test and the memory clause stays part of that hand run | queue H is down to the memory clause |
-| T14 | disconnect removes the agent; a fresh login works | **server side passes**: the farewell pair is sent and asserted | queue A is done on the wire |
-| T15 | log audit: every gap understood | **fail** — no generated audit until `tools/parity-emit.py` | queue H |
+The reference's sixteen items (`PreSearing/docs/04-scope.md`) are the closest thing either project has to a
+definition of the observable surface, and the mapping from them to this repo's checks is now **generated**:
+`docs/14-test-plan.md`, by `tools/parity-testplan.py`. It parses the items and their pass criteria out of the
+reference's document, names the check that covers each one, and verifies that every named check still
+exists -- a renamed test breaks the check rather than quietly rotting the page. Today: **12 measured, 3 hand,
+1 blocked**.
 
-**What is left: T10 (movement is not validated), T12 (the ground item), T13 (the idle run is unrun) and the
-live half of T9 and T14.** T6 and T15 have moved: T6 passes on the server side, and T15 is now two
-generated audits in the battery.
+What is left, in that page's own words: **T12** (the ground item) is blocked on a capture of a working drop,
+which the reference cannot produce because its own handler is the unfinished one; **T9, T10 and T11** are
+`hand` -- the server halves are asserted (a second agent, the reference's own path and refusals, the chat
+pair) and the *seeing* of them needs a second real client. The table this section used to carry by hand went
+stale three times; the generated page is what replaced it.
 
 ## The four axes, as measured today
 
@@ -56,15 +46,14 @@ builders (A4) still appear in the gap list — they exist, and nothing sends the
 
 Ordered by dependency, not by size. Every row cites its evidence.
 
-### A. Multi-player maps — the reason half the missing messages are missing
+### A. Multi-player maps — the reason half the missing messages were missing
 
 GWPS handles **N players per map**: it broadcasts a player's arrival to everyone, tells everyone when
-a player leaves, and keeps a party per player. ASURA is single-player **by construction**: `PLAYER_ID`
-is a constant, `PARTY_ID` is a constant, `Play` owns one agent, and `Agents` has one slot.
-
-That is not a small deviation — it is the source of `PLAYER_DESTROY`, `WORLD_REMOVE_AGENT`,
-`PLAYER_UPDATE_PARTY`, `PLAYER_UPDATE_PARTY_SIZE` and the `player_block`'s missing pair (T9, T12
-consistency, T14). Evidence: `tools/parity-emit.py` output; `GmPlayer.c:314`, `GmAgent.c:60`,
+a player leaves, and keeps a party per player. ASURA used to be single-player **by construction** —
+`PLAYER_ID` and `PARTY_ID` constants, one agent per connection, `Agents` with one slot — and that is why
+`PLAYER_DESTROY`, `WORLD_REMOVE_AGENT`, `PLAYER_UPDATE_PARTY`, `PLAYER_UPDATE_PARTY_SIZE` and the
+`player_block`'s pair were missing (T9, T12 consistency, T14). Evidence for the old state:
+`tools/parity-emit.py` output; `GmPlayer.c:314`, `GmAgent.c:60`,
 `GmPlayer.c:322`, `GmPlayer.c:346`; capture `zone-ref-005829.jsonl` seq 254-259.
 
 **A1–A5 landed.** Each connection now allocates its own player and agent id instead of using the
@@ -89,9 +78,9 @@ now applies that per message, with the captures named in `OVERRIDES`.
 
 ### B. Character creation (T6)
 
-Four handlers plus a map type this world refuses to host. Evidence: `GameSrv.c:1691-1976`,
-`GetBagSlotForItemType` (`GameSrv.c:1741`), `GmDefaultArmors.c` (2858 lines of data),
-`CHAR_CREATION_START/SUCCESS/ERROR` in the emit diff.
+Four handlers, and the instance they arrive in (`MapType_CharacterCreation`, 11). Evidence:
+`GameSrv.c:1691-1976`, `GetBagSlotForItemType` (`GameSrv.c:1741`), `GmDefaultArmors.c` (2858 lines of
+data), `CHAR_CREATION_START/SUCCESS/ERROR` in the emit diff.
 
 | # | item | done when |
 |---|---|---|
@@ -100,7 +89,7 @@ Four handlers plus a map type this world refuses to host. Evidence: `GameSrv.c:1
 | B3 | `_CHANGE_PROF` with the default-equipment table ported from `GmDefaultArmors.c` | picking a profession swaps the equipped items |
 | B4 | `_CONFIRM`: write `characters`, `bags`, `items` rows | the same three `count(*)` that T6 prints |
 
-**Half of B landed, measured.** The *data* is ported and generated: `tools/gen-default-equipment.py`
+**B landed, measured.** The *data* is ported and generated: `tools/gen-default-equipment.py`
 reads `GmDefaultArmors.c` and writes `crates/asura-world/src/default_equipment.rs` — **32 (campaign,
 profession) rows, 179 items**, the field set being the reference's own `GmItem` literal, which is also what
 `CREATE_NAMED_ITEM` writes. `every_profession_starts_with_the_references_own_equipment` pins a Prophecies
@@ -111,9 +100,12 @@ reference's `GM_ERROR_CHARACTER_NAME_ALREADY_EXIST` slot), `char_creation_succes
 the reference's own `0x2211` + counted settings) and `instance_player_data_done` (2), all sized by the
 table and asserted in `the_fixed_size_messages_match_the_size_the_reference_sends`.
 
-What remains for B is the flow itself: hosting map type 11, the four handlers, and the confirm writing the
-rows — which is also what closes the last three emit gaps, because a builder with no call site is still a
-gap to `tools/parity-emit.py`.
+**B1–B4 landed.** The data is generated, the messages are built, and the flow itself is in: the world hosts
+map type 11, all four handlers answer (`0x8089`, `0x808A`, `0x808B` and the profession change), and the
+confirm writes the character's row, bags and item rows in one transaction before sending
+`CHAR_CREATION_SUCCESS` with the settings block. What is *not* verified is the screen itself — a live client
+walking the creation UI — which is why `docs/14-test-plan.md` records T6 as measured with the layout as the
+rig's job.
 
 ### B5. The rest of the character row (~40 columns)
 

@@ -117,6 +117,7 @@ CHECKS = (
     ("the path finder's tables", ["tools/gen-path-tables.py", "--check"]),
     ("the path finder's cases", ["tools/gen-path-cases.py", "--check"]),
     ("the GM command surface", ["tools/parity-commands.py", "--check"]),
+    ("the reference's test plan", ["tools/parity-testplan.py", "--check"]),
     (
         "the reference's load stream",
         ["tools/parity-load.py", "--check", "crates/asura-world/src/load_fixture.rs"],

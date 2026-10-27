@@ -92,10 +92,10 @@ GWPS dispatch: `GameSrv.c:2007-2074`. ASURA dispatch: `crates/asura-world/src/li
 | 5 | `INSTANCE_LOAD_REQUEST_SPAWN` | The agent's position and the map file id (`GameSrv.c:1566`). | `spawn_block` (`lib.rs:838-847`, block built at `lib.rs:767`). | 1:1 |
 | 6 | `INSTANCE_LOAD_REQUEST_PLAYERS` | The player block ending on `INSTANCE_LOAD_FINISH` (`GameSrv.c:1600`). | `player_block` (`lib.rs:851-860`, built at `lib.rs:1602`). | 1:1 |
 | 7 | `INSTANCE_LOAD_REQUEST_ITEMS` | Item stream + inventory + weapon slots + gold + faction caps + character info (`GameSrv.c:1660-1690`). | `items_block` (`lib.rs:825-834`, built at `lib.rs:641`). | 1:1 |
-| 8 | `CHAR_CREATION_REQUEST_PLAYER` | Warrior default, then a full player-data start/stop block (`GameSrv.c:1691-1719`). | No arm — the creation instance is not modelled. | BEHIND |
-| 9 | `CHAR_CREATION_REQUEST_ARMORS` | PvP skills, PvP heroes, PvP items, account features (`GameSrv.c:1721-1739`). | No arm. | BEHIND |
-| 10 | `CHAR_CREATION_CHANGE_PROF` | Re-equips the profession's defaults from `GetDefaultEquipments` (`GameSrv.c:1786-1845`, table in `GmDefaultArmors.c`). | No arm; the table is 2858 lines of generated data that ASURA does not carry. | BEHIND |
-| 11 | `CHAR_CREATION_CONFIRM` | Creates the character's bags **and writes the item rows once**, then enters the map (`GameSrv.c:1855-1976`; `GameSrv_CreatePlayerBags` at `GameSrv.c:1230`). | No arm; ASURA seeds rows at login instead (`crates/asura-db/src/inventory.rs:358`). | BEHIND (mechanism) / 1:1 (rows) |
+| 8 | `CHAR_CREATION_REQUEST_PLAYER` | Warrior default, then a full player-data start/stop block (`GameSrv.c:1691-1719`). | The player-data block with the reference's own creation numbers (energy 20, health 100, property 64 zero) and the attributes (`lib.rs`, `0x8089`) | 1:1 |
+| 9 | `CHAR_CREATION_REQUEST_ARMORS` | PvP skills, PvP heroes, PvP items, account features (`GameSrv.c:1721-1739`). | The PvP half as the reference sends it for an account with none: empty skill and hero streams, its PvP item table and the account features (`0x808A`) | 1:1 |
+| 10 | `CHAR_CREATION_CHANGE_PROF` | Re-equips the profession's defaults from `GetDefaultEquipments` (`GameSrv.c:1786-1845`, table in `GmDefaultArmors.c`). | The same table, generated from `GmDefaultArmors.c` (`tools/gen-default-equipment.py`: 32 rows, 179 items) | 1:1 |
+| 11 | `CHAR_CREATION_CONFIRM` | Creates the character's bags **and writes the item rows once**, then enters the map (`GameSrv.c:1855-1976`; `GameSrv_CreatePlayerBags` at `GameSrv.c:1230`). | The same: the row with the reference's creation defaults, bags and item rows in one transaction, then `CHAR_CREATION_SUCCESS` with its settings block (`0x808B`, `asura_db::inventory::create_character`) | 1:1 |
 | 12 | `ITEM_UPDATE_EQUIPPED_COLOR` | Declared as a handler but a no-op: it ignores all three parameters (`GameSrv.c:1847-1853`) | No arm: the fallthrough frames it and ignores it, naming it under trace (`lib.rs:1200-1208`). `docs/07-status.md` lists it as a missing arm because it counts dispatch entries, not behaviour | 1:1 (effect) |
 | 13 | `SEND_CHAT_MESSAGE` | `GameSrv_HandleChatMessage` (`GmChat.c:279-306`). | `0x8064` (`lib.rs:982-1102`). | 1:1 (effect) |
 | 14 | `MOVE_TO_COORD` | Pathfinds and broadcasts the first waypoint (`GmAgent.c:371-398`). | The same finder, the same first waypoint, the same refusal (`lib.rs`, `0x803E`; docs §3). | 1:1 |
@@ -211,16 +211,16 @@ GWPS: `GameSrv.c:1691-1976`, `GetBagSlotForItemType` (`GameSrv.c:1741-1784`), `G
 
 | Behaviour | GWPS | ASURA | Verdict |
 |---|---|---|---|
-| Creation instance | `MapType_CharacterCreation` (11), its own map type in `MapType` | Not modelled: the world hosts type 0 only and skips anything else by name (`main.rs:165-175`) | BEHIND |
-| `CHAR_CREATION_REQUEST_PLAYER` | Warrior by default, then a full player-data block | No handler | BEHIND |
-| `CHAR_CREATION_REQUEST_ARMORS` | PvP skills/heroes/items, account features | No handler | BEHIND |
-| `CHAR_CREATION_CHANGE_PROF` | Re-equips from a 2858-line generated table | No handler, no table | BEHIND |
-| `CHAR_CREATION_CONFIRM` | Writes the item rows once, then enters the map | Rows are seeded at login (`inventory.rs:358`) | BEHIND (mechanism) |
+| Creation instance | `MapType_CharacterCreation` (11), its own map type in `MapType` | Hosted: the world serves type 11 (`MAP_TYPE_CHARACTER_CREATION`, `main.rs`) and a fresh account reaches the creation screen (`a_character_is_created_in_a_creation_instance`) | 1:1 |
+| `CHAR_CREATION_REQUEST_PLAYER` | Warrior by default, then a full player-data block | The player-data block, with the creation path's own three int properties (`0x8089`) | 1:1 |
+| `CHAR_CREATION_REQUEST_ARMORS` | PvP skills/heroes/items, account features | The same four blocks (`0x808A`) | 1:1 |
+| `CHAR_CREATION_CHANGE_PROF` | Re-equips from a 2858-line generated table | The same table, generated (`default_equipment.rs`, 32 rows / 179 items) | 1:1 |
+| `CHAR_CREATION_CONFIRM` | Writes the item rows once, then enters the map | The same, in one transaction, with the reference's creation defaults (`0x808B`) | 1:1 |
 
-This is the largest genuine gap, and it is one *feature* — "new characters can be created" — wearing
-five dispatch names. It needs a creation instance plus the armour table, and the table is data, not
-logic. It is also the only place where ASURA's "rows at login" shortcut is visible to a player: a
-character created through GWPS has its items written by the confirm handler.
+This used to be the largest genuine gap — one *feature*, "new characters can be created", wearing five
+dispatch names. It closed when the creation instance, the four handlers and the generated armour table
+landed; `docs/14-test-plan.md` records T6 as measured, and the creation test asserts the three int
+properties the reference's creation path sends rather than the load path's numbers.
 
 ---
 
