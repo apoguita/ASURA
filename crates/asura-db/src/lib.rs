@@ -39,6 +39,9 @@ pub const SCHEMA_V6: &str = include_str!("../migrations/0006_inventory.sql");
 /// A map's name, so /maps can answer with something better than integers (M5.1).
 pub const SCHEMA_V7: &str = include_str!("../migrations/0007_map_names.sql");
 
+/// The character traits the reference stores and this server used to send as constants.
+pub const SCHEMA_V8: &str = include_str!("../migrations/0008_character_traits.sql");
+
 /// Every migration, in application order. A developer applying the schema gets one string per
 /// migration file, so a new file is picked up without editing the tooling.
 pub const SCHEMA: &[&str] = &[

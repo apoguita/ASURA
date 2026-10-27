@@ -1518,7 +1518,10 @@ async fn a_character_is_created_in_a_creation_instance() {
     for unit in &units {
         confirm.extend_from_slice(&unit.to_le_bytes());
     }
-    confirm.extend_from_slice(&[0u8; 8]); // appearance
+    // An appearance the client actually chose: the packed `Appearance` word the confirm carries.
+    let chosen_appearance: u32 = 0x3060_0405; // sex, height, skin, hair and face bits, all set
+    confirm.extend_from_slice(&chosen_appearance.to_le_bytes());
+    confirm.extend_from_slice(&[0u8; 4]); // the rest of the eight-byte config
     confirm.extend_from_slice(&0u32.to_le_bytes()); // flags
     say(&mut stream, &mut client, 0x808B, &confirm).await;
     let created = read_until(&mut stream, &mut client, game::CHAR_CREATION_SUCCESS).await;
@@ -1538,6 +1541,18 @@ async fn a_character_is_created_in_a_creation_instance() {
         Some("Asura Test".to_string()),
         "a row in characters, named as the client named it"
     );
+    // And the traits the load block reads: the appearance the client chose, the profession the screen
+    // last set, and the one unlocked-profession bit the reference sets for it.
+    let traits = asura_db::game::traits(&harness.pool, character)
+        .await
+        .expect("read the traits")
+        .expect("a traits row");
+    assert_eq!(
+        traits.appearance, chosen_appearance,
+        "the chosen appearance"
+    );
+    assert_eq!(traits.profession, 2, "the Ranger the screen settled on");
+    assert_eq!(traits.unlocked_professions, 1 << 2, "and its one bit");
     let inventory = db_inventory::load(&harness.pool, character)
         .await
         .expect("read the inventory");

@@ -42,7 +42,7 @@ fn main() {
     println!("# the four messages sent unasked");
     dump(&load_block(&map, &name, asura_world::AGENT_ID));
     println!("# the answer to 0x8091 (items)");
-    dump(&items_block(&map, &inventory));
+    dump(&items_block(&map, &inventory, 0));
     println!("# the answer to 0x8088 (spawn)");
     dump(&spawn_block(&map, standing));
     println!("# the answer to 0x8090 (players)");
@@ -53,6 +53,7 @@ fn main() {
         std::time::Instant::now(),
         asura_world::PLAYER_ID,
         asura_world::AGENT_ID,
+        asura_db::game::Traits::default(),
     ));
 }
 

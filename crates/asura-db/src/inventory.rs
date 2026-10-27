@@ -384,18 +384,29 @@ pub async fn create_character(
     account: Uuid,
     name: &str,
     map_id: i32,
+    traits: crate::game::Traits,
     equipped: &[NewItem],
 ) -> sqlx::Result<Uuid> {
     let character = Uuid::new_v4();
     let mut tx = pool.begin().await?;
 
-    sqlx::query("INSERT INTO characters (id, account_id, name, map_id) VALUES ($1, $2, $3, $4)")
-        .bind(character)
-        .bind(account)
-        .bind(name)
-        .bind(map_id)
-        .execute(&mut *tx)
-        .await?;
+    // The traits go in with the row: they are what the load block sends, and a character created from a
+    // creation screen must load as what the screen chose.
+    sqlx::query(
+        "INSERT INTO characters (id, account_id, name, map_id, appearance, primary_profession,
+                                 unlocked_professions, gold)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    )
+    .bind(character)
+    .bind(account)
+    .bind(name)
+    .bind(map_id)
+    .bind(i64::from(traits.appearance))
+    .bind(i32::from(traits.profession))
+    .bind(i64::from(traits.unlocked_professions))
+    .bind(traits.gold as i32)
+    .execute(&mut *tx)
+    .await?;
 
     // The equipped bag is the one the reference calls `equipped_items`; everything the seed puts there is
     // replaced, and every other bag keeps the reference's own contents.

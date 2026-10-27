@@ -71,6 +71,51 @@ pub async fn character_name(pool: &PgPool, character: Uuid) -> sqlx::Result<Opti
         .await
 }
 
+/// The character fields the load block carries, as `GameSrv_HandleCharCreationConfirm` stores them.
+///
+/// Each one is sent today: `appearance` is the packed word `GAME_SMSG_PLAYER_CREATE` carries (the
+/// reference's `sex`/`height`/`skin_color`/`hair_color`/`face_style`/`hair_style`/`race`, packed by
+/// `Appearance`), `profession` and `unlocked_professions` ride the two profession messages, and `gold` is
+/// `UPDATE_GOLD_STORAGE`. Before this existed the load block sent the reference's *default* character to
+/// everyone — a real liberty, recorded in `docs/09-parity-audit.md` §9.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Traits {
+    pub appearance: u32,
+    pub profession: u8,
+    pub unlocked_professions: u32,
+    pub gold: u32,
+}
+
+impl Default for Traits {
+    /// What a character that predates the columns looks like: no appearance bits, no profession, no gold.
+    /// The load block falls back to the reference's defaults for a character with no row, which is the same
+    /// answer the reference gives a row it cannot read.
+    fn default() -> Self {
+        Traits {
+            appearance: 0,
+            profession: 0,
+            unlocked_professions: 0,
+            gold: 0,
+        }
+    }
+}
+
+/// The traits of one character, or `None` if there is no such row.
+pub async fn traits(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Traits>> {
+    let row: Option<(i64, i32, i64, i32)> = sqlx::query_as(
+        "SELECT appearance, primary_profession, unlocked_professions, gold FROM characters WHERE id = $1",
+    )
+    .bind(character)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(appearance, profession, unlocked, gold)| Traits {
+        appearance: appearance as u32,
+        profession: profession as u8,
+        unlocked_professions: unlocked as u32,
+        gold: gold as u32,
+    }))
+}
+
 /// Where a character last stood.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Position {

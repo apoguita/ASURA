@@ -677,6 +677,10 @@ pub async fn handle_connection(
         } else {
             None
         },
+        traits: db_game::traits(&world.pool, transfer.character_id)
+            .await
+            .map_err(GameError::Database)?
+            .unwrap_or_default(),
         started: Instant::now(),
     };
 
@@ -852,6 +856,8 @@ struct Play {
     /// What a character-creation connection has chosen so far: `Some` when this connection is in a
     /// creation instance (map type 11), which is the reference's `MapType_CharacterCreation`.
     creation: Option<Creation>,
+    /// The character's stored traits — what the load block sends instead of constants.
+    traits: db_game::Traits,
     /// When the connection began, for the load time the reference reports.
     started: Instant,
 }
@@ -886,7 +892,7 @@ fn hex_preview(bytes: &[u8]) -> String {
 /// A pure function of the map and the character's inventory so that `examples/dump-load.rs` can print
 /// exactly what a client would receive, byte for byte, without a socket â€” which is how this stream is
 /// compared against the reference's own log.
-pub fn items_block(map: &MapEntry, inventory: &Inventory) -> Vec<Frame> {
+pub fn items_block(map: &MapEntry, inventory: &Inventory, gold: u32) -> Vec<Frame> {
     let mut frames = vec![
         game::item_stream_create(ITEM_STREAM, 0),
         game::item_set_active_weapon_set(ITEM_STREAM, 0),
@@ -898,7 +904,7 @@ pub fn items_block(map: &MapEntry, inventory: &Inventory) -> Vec<Frame> {
     for slot in 0..4u8 {
         frames.push(game::item_weapon_set(ITEM_STREAM, slot, 0, 0));
     }
-    frames.push(game::update_gold_storage(ITEM_STREAM, 0));
+    frames.push(game::update_gold_storage(ITEM_STREAM, gold));
     for faction in [
         game::FACTION_MAX_KURZICK,
         game::FACTION_MAX_LUXON,
@@ -1075,7 +1081,7 @@ async fn answer(
                 Some(replay) if replay.pick.wants(crate::replay::BlockName::Items) => {
                     replay.items.clone()
                 }
-                _ => items_block(&play.map, &play.inventory),
+                _ => items_block(&play.map, &play.inventory, play.traits.gold),
             };
             send(stream, session, block, trace).await?;
             Ok(true)
@@ -1113,6 +1119,7 @@ async fn answer(
                     play.started,
                     play.player_id,
                     play.agents.player.agent_id,
+                    play.traits,
                 ),
             };
             let others = world.peers.others(play.player_id);
@@ -1586,11 +1593,28 @@ async fn answer(
             }
 
             let equipped = creation_equipment_rows(creation);
+            // The traits the confirm implies: the packed appearance the client sent (`msg->config`, four
+            // bytes of `Appearance`), the profession the screen last chose, and the one unlocked-profession
+            // bit the reference sets (`character.unlocked_professions = 1 << app.primary_profession`).
+            let config_at = 2 + units * 2;
+            let appearance = u32::from_le_bytes([
+                body.get(config_at).copied().unwrap_or(0),
+                body.get(config_at + 1).copied().unwrap_or(0),
+                body.get(config_at + 2).copied().unwrap_or(0),
+                body.get(config_at + 3).copied().unwrap_or(0),
+            ]);
+            let traits = db_game::Traits {
+                appearance,
+                profession: creation.profession,
+                unlocked_professions: 1 << creation.profession,
+                gold: 0,
+            };
             match db_inventory::create_character(
                 &world.pool,
                 play.account_id,
                 &name,
                 play.map.map_id,
+                traits,
                 &equipped,
             )
             .await
@@ -2398,6 +2422,7 @@ pub fn player_block(
     started: Instant,
     player_id: u32,
     agent_id: u32,
+    traits: db_game::Traits,
 ) -> Vec<Frame> {
     let mut frames = Vec::with_capacity(30);
 
@@ -2445,13 +2470,13 @@ pub fn player_block(
     frames.push(game::agent_update_attribute_points(agent_id, 50, 50));
     frames.push(game::player_update_profession(
         agent_id,
-        DEFAULT_PRIMARY_PROFESSION,
+        traits.profession,
         0,
         0,
     ));
     frames.push(game::player_update_unlocked_professions(
         agent_id,
-        DEFAULT_UNLOCKED_PROFESSIONS,
+        traits.unlocked_professions,
     ));
     frames.push(game::skillbar_update(agent_id, &[0; 8], &[0; 8], 1));
     frames.push(game::update_unlocked_skills(&[]));
@@ -2466,12 +2491,14 @@ pub fn player_block(
     // The player, the agent, and what a client needs in order to draw them. The appearance carries
     // the profession the model is built from: all-zero bits say `Profession_None`, which is not a
     // character the client can draw, so the reference's own default is used.
-    frames.push(game::player_create(
-        player_id,
-        agent_id,
-        game::Appearance::REFERENCE_DEFAULT.pack(),
-        name,
-    ));
+    // The appearance the client chose, or the reference's default for a character with no bits recorded:
+    // all-zero bits say `Profession_None`, which is not a character the client can draw.
+    let appearance = if traits.appearance == 0 {
+        game::Appearance::REFERENCE_DEFAULT.pack()
+    } else {
+        traits.appearance
+    };
+    frames.push(game::player_create(player_id, agent_id, appearance, name));
     // The profession goes out **twice** in the reference: once with the skills and attributes, and
     // again here, immediately after the player is created and before the agent exists
     // (`GameSrv_HandleInstanceLoadRequestPlayers`: `BroadcastPlayerCreate` then
@@ -2479,7 +2506,7 @@ pub fn player_block(
     // profession its model is built from â€” without it the client draws an agent it has no model for.
     frames.push(game::player_update_profession(
         agent_id,
-        DEFAULT_PRIMARY_PROFESSION,
+        traits.profession,
         0,
         0,
     ));
@@ -2634,7 +2661,7 @@ mod tests {
         let name = "Appok";
 
         let mut frames = load_block(&map, name, AGENT_ID);
-        frames.extend(items_block(&map, &inventory));
+        frames.extend(items_block(&map, &inventory, 0));
         frames.extend(spawn_block(&map, standing));
         frames.extend(player_block(
             name,
@@ -2643,6 +2670,7 @@ mod tests {
             Instant::now(),
             PLAYER_ID,
             AGENT_ID,
+            db_game::Traits::default(),
         ));
         let ours: Vec<(u16, usize)> = frames
             .iter()
@@ -2700,6 +2728,71 @@ mod tests {
     }
 
     #[test]
+    fn the_block_sends_the_characters_own_appearance_not_the_default() {
+        // The reference's load block carries whatever `HandleCharCreationConfirm` stored
+        // (`GameSrv.c:1869-1886`). Before the traits existed this server sent
+        // `Appearance::REFERENCE_DEFAULT` to everyone, so every character looked the same.
+        let map = test_map();
+        let standing = Standing::from_map(&map);
+        let inventory = db_inventory::default_inventory();
+        let traits = db_game::Traits {
+            appearance: 0x1234_5678,
+            profession: 9,
+            unlocked_professions: 0x40,
+            gold: 0,
+        };
+        let frames = player_block(
+            "Asura",
+            standing,
+            &inventory,
+            Instant::now(),
+            PLAYER_ID,
+            AGENT_ID,
+            traits,
+        );
+        let created = frames
+            .iter()
+            .find(|frame| frame.header == game::PLAYER_CREATE)
+            .expect("a player create");
+        assert_eq!(
+            u32::from_le_bytes([
+                created.body[8],
+                created.body[9],
+                created.body[10],
+                created.body[11]
+            ]),
+            traits.appearance,
+            "the appearance the character was created with"
+        );
+
+        // A character with no bits recorded still gets the reference's default, because all-zero bits say
+        // `Profession_None` and the client cannot draw that.
+        let fallback = player_block(
+            "Asura",
+            standing,
+            &inventory,
+            Instant::now(),
+            PLAYER_ID,
+            AGENT_ID,
+            db_game::Traits::default(),
+        );
+        let created = fallback
+            .iter()
+            .find(|frame| frame.header == game::PLAYER_CREATE)
+            .expect("a player create");
+        assert_eq!(
+            u32::from_le_bytes([
+                created.body[8],
+                created.body[9],
+                created.body[10],
+                created.body[11]
+            ]),
+            game::Appearance::REFERENCE_DEFAULT.pack(),
+            "an unrecorded appearance falls back to the reference's default"
+        );
+    }
+
+    #[test]
     fn the_block_ends_with_the_message_that_leaves_the_loading_screen() {
         let frames = player_block(
             "Asura",
@@ -2708,6 +2801,7 @@ mod tests {
             Instant::now(),
             PLAYER_ID,
             AGENT_ID,
+            db_game::Traits::default(),
         );
         assert_eq!(
             frames.last().expect("a block").header,
@@ -2743,6 +2837,7 @@ mod tests {
             Instant::now(),
             PLAYER_ID,
             AGENT_ID,
+            db_game::Traits::default(),
         );
         let named: Vec<u16> = frames
             .iter()
@@ -2805,7 +2900,7 @@ mod tests {
 
     #[test]
     fn the_item_block_opens_with_the_stream_and_carries_the_capture() {
-        let frames = items_block(&test_map(), &reference_inventory());
+        let frames = items_block(&test_map(), &reference_inventory(), 0);
         assert_eq!(frames[0].header, game::ITEM_STREAM_CREATE);
         assert_eq!(frames[1].header, game::ITEM_SET_ACTIVE_WEAPON_SET);
         assert_eq!(
@@ -2850,6 +2945,7 @@ mod tests {
             Instant::now(),
             PLAYER_ID,
             AGENT_ID,
+            db_game::Traits::default(),
         );
         let worn = frames
             .iter()
@@ -2877,7 +2973,7 @@ mod tests {
     fn an_agent_with_no_inventory_still_gets_a_well_formed_block() {
         // A character whose bags have not been written yet: the client must not be told about items that
         // do not exist, and the block must still end where the loading screen ends.
-        let frames = items_block(&test_map(), &Inventory::default());
+        let frames = items_block(&test_map(), &Inventory::default(), 0);
         assert_eq!(frames[0].header, game::ITEM_STREAM_CREATE);
         assert!(!frames
             .iter()

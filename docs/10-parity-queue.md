@@ -43,7 +43,7 @@ generated audits in the battery.
 |---|---|---|
 | client → server dispatch | `tools/parity-report.py` vs `GameSrv.c`/`AuthSrv.c` switches | **complete**: auth **15/15**, game **18/18**; the battery reports "nothing missing" |
 | server → client emit | `tools/parity-emit.py` | **complete for every message the reference sends**: 76 of 81 reachable, **0 real gaps**, 5 explained absences |
-| state kept per player | `docs/09` §9, hand-checked against `GmPlayer.h:21-33` | 12 fields vs 6; `account_id` missing, which is what `/tp` needs |
+| state kept per player | `docs/09` §9, hand-checked against `GmPlayer.h:21-33` and `DbCharacterColumnsDef` | the four traits a message reads are stored (migration 0008) and the block sends them instead of constants; the rest of the reference's ~44 character columns are queue item **B5**, listed with the reason |
 | schema | migrations vs `Db.c` queries | equivalent for what is used; no `friendships` table (the stream is empty anyway) |
 | the load block | `tools/parity-load.py` against the reference's own `GWPS_TRACE=1` log, as a generated fixture (`crates/asura-world/src/load_fixture.rs`) | **measured: 480 messages, 0 missing, 0 extra, 0 size disagreements** — it matches message for message |
 
@@ -113,6 +113,19 @@ table and asserted in `the_fixed_size_messages_match_the_size_the_reference_send
 What remains for B is the flow itself: hosting map type 11, the four handlers, and the confirm writing the
 rows — which is also what closes the last three emit gaps, because a builder with no call site is still a
 gap to `tools/parity-emit.py`.
+
+### B5. The rest of the character row (~40 columns)
+
+The reference's `DbCharacter` (`DbSchema.h:66-110`) stores about forty-four columns per character. This
+server stores the ones a message reads *today* — appearance, primary profession, unlocked professions, gold
+(migration `0008_character_traits.sql`) — and nothing else, deliberately: a column nothing loads is the same
+liberty in a new place.
+
+Still unported, each waiting on the message that would read it: `unlocked_skills` and the four completion
+bitmaps (the skill and cartography messages), `skill1..8` and `attribute` (the skillbar and attribute
+messages), `experience`, `skill_points`, `level`, `campaign`, `helm_status`, `is_pvp`,
+`secondary_profession`, `gold`'s storage half, and the per-slot armour `file_id_*`/`colors_*` pairs (which
+this server derives from the equipped items instead of denormalising).
 
 ### C. Teleport (`/tp`, `/teleport`) — measured, not blocked
 
