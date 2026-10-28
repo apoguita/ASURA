@@ -7,6 +7,7 @@
 //! The first argument is the map's **blob file id** (Lakeside County is `0x1B97D` = 113021, shared by
 //! maps 146 and 148). The point of the tool is the planes and traps a walk comes back with: a capture
 //! shows a walk's waypoints in order, and a difference here is a difference in what the client is told.
+//! `tools/path-oracle.exe` prints the same thing from GWPS's own `PathFinding`, for comparison.
 
 use asura_world::pathfind::Pos;
 use asura_world::{MapEntry, PathGraphs};
@@ -44,29 +45,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         capacity: 1,
     }]);
     println!("bound {bound} map(s) for blob {blob}");
-    for plane in 0..24u16 {
-        if let Some(bounds) = graphs.plane_bounds(map_id, plane) {
-            println!(
-                "  plane {plane:2}: x {:.1}..{:.1}   y {:.1}..{:.1}",
-                bounds.x0, bounds.x1, bounds.y0, bounds.y1
-            );
-        }
-    }
 
     match graphs.walk(map_id, from, to) {
         asura_world::Walk::Found(waypoints) => {
             println!("{} waypoint(s)", waypoints.len());
             for (index, waypoint) in waypoints.iter().enumerate() {
-                println!(
-                    "  {index:2} x={:9.3} y={:9.3} plane={:3} trap={}",
-                    waypoint.pos.x, waypoint.pos.y, waypoint.pos.plane, waypoint.trap_id
-                );
-            }
-            // What the client is actually told: a waypoint outside the box of the plane it would be on
-            // is a client assertion (`agint.h:929`), so it is dropped before it reaches the wire.
-            let kept = asura_world::client_walk(&graphs, map_id, from.plane, waypoints);
-            println!("{} waypoint(s) after the client-visible filter", kept.len());
-            for (index, waypoint) in kept.iter().enumerate() {
                 println!(
                     "  {index:2} x={:9.3} y={:9.3} plane={:3} trap={}",
                     waypoint.pos.x, waypoint.pos.y, waypoint.pos.plane, waypoint.trap_id

@@ -2731,14 +2731,30 @@ async fn a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path() {
             move_to.body[11],
         ]),
     );
-    assert_eq!(
-        first,
-        (expected[0].pos.x, expected[0].pos.y),
-        "the answer is the first waypoint of the server's own path"
+    // The answer is the first sample of the reference's path: on the segment from the agent to the
+    // path's first waypoint, one announcement step (145 units, the live servers' cadence) along it --
+    // or the waypoint itself when the segment is shorter.
+    let corner = (expected[0].pos.x, expected[0].pos.y);
+    let segment = ((corner.0 - spawn.0).powi(2) + (corner.1 - spawn.1).powi(2)).sqrt();
+    let travelled = ((first.0 - spawn.0).powi(2) + (first.1 - spawn.1).powi(2)).sqrt();
+    assert!(
+        travelled <= asura_world::LIVE_CADENCE_STEP + 1.0,
+        "the first destination is one announcement step away ({travelled:.1} units)"
     );
+    if segment > asura_world::LIVE_CADENCE_STEP {
+        assert!(
+            travelled > asura_world::LIVE_CADENCE_STEP - 1.0,
+            "and a step is not skipped ({travelled:.1} of {segment:.1} units to the corner)"
+        );
+    } else {
+        assert_eq!(
+            first, corner,
+            "a segment shorter than a step is announced whole"
+        );
+    }
     assert_ne!(
         first, destination,
-        "and the first waypoint of a corridor is not where the client asked to go"
+        "and the first destination is not where the client asked to go"
     );
 
     // And the other player is told, which is what makes a second client see the first one move.

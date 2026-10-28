@@ -1623,6 +1623,71 @@ fn move_trace_on() -> bool {
     })
 }
 
+/// How far apart the live servers hand out destinations: **145 units**, measured from
+/// `captures/live-move.jsonl`.
+///
+/// The capture's 104 destination announcements for the player agent are spaced a median 0.51 s apart and
+/// 145-158 units apart, i.e. a copy walking at the character's own 288 u/s and re-announcing the next
+/// point about every half second. That cadence, rather than the corner of a trapezoid, is what keeps the
+/// client and the server's copy together: announcing only at corners (1,000 units apart in the session
+/// that drifted) gives a client that rounds a wall or is slowed seconds to drift, and the next correction
+/// is the ~300-unit snap. The reference's own path is untouched; the points added between its corners lie
+/// on the same straight segment.
+pub const LIVE_CADENCE_STEP: f32 = 145.0;
+
+/// The announcement step in units: [`LIVE_CADENCE_STEP`], or `ASURA_ANNOUNCE_STEP` when set, for a
+/// session that wants to compare cadences without a rebuild.
+fn live_cadence_step() -> f32 {
+    std::env::var("ASURA_ANNOUNCE_STEP")
+        .ok()
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|step| *step >= 1.0)
+        .unwrap_or(LIVE_CADENCE_STEP)
+}
+
+/// Sample a walk so no two points are farther apart than `step`, keeping every point the path finder
+/// produced and adding the intermediate ones on the same straight segment.
+///
+/// The added points carry the plane and trap of the point they are walking toward, which is what the
+/// reference stamps a segment with (`wp->pos.plane = step.plane`, `GmPaths.c:639`), so the walk means the
+/// same thing to the client at every sample.
+fn densify(
+    waypoints: Vec<pathfind::Waypoint>,
+    from: pathfind::Pos,
+    step: f32,
+) -> Vec<pathfind::Waypoint> {
+    if waypoints.is_empty() || step <= 0.0 {
+        return waypoints;
+    }
+    let mut dense = Vec::with_capacity(waypoints.len() * 4);
+    let mut at = from;
+    for waypoint in waypoints {
+        let dx = waypoint.pos.x - at.x;
+        let dy = waypoint.pos.y - at.y;
+        let distance = ((dx * dx) + (dy * dy)).sqrt();
+        let pieces = (distance / step).ceil();
+        let pieces = if pieces.is_finite() && pieces > 1.0 {
+            pieces as usize
+        } else {
+            1
+        };
+        for piece in 1..pieces {
+            let fraction = piece as f32 / pieces as f32;
+            dense.push(pathfind::Waypoint {
+                pos: pathfind::Pos {
+                    x: at.x + dx * fraction,
+                    y: at.y + dy * fraction,
+                    plane: waypoint.pos.plane,
+                },
+                trap_id: waypoint.trap_id,
+            });
+        }
+        dense.push(waypoint);
+        at = waypoint.pos;
+    }
+    dense
+}
+
 /// A path as the trace prints it: the first few waypoints with their planes and trapezoids.
 fn waypoints_preview(waypoints: &[pathfind::Waypoint]) -> String {
     let shown: Vec<String> = waypoints
@@ -1844,6 +1909,9 @@ async fn answer(
             match walked {
                 // An empty path sends nothing: the reference checks `0 < agent->waypoints.len`.
                 Walk::Found(waypoints) => {
+                    // The path as the live servers hand it out: a destination about every 145 units,
+                    // which at the character's 288 u/s is the ~0.5 s cadence the live capture shows.
+                    let waypoints = densify(waypoints, from, live_cadence_step());
                     if let Some(first) = play.agents.player.begin_walk(waypoints) {
                         let walk = game::agent_move_to_point(
                             agent_id,
