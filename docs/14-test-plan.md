@@ -12,8 +12,8 @@ python tools/parity-testplan.py --check
 
 | state | items |
 |---|---|
-| measured | 12 |
-| hand | 3 |
+| measured | 13 |
+| hand | 2 |
 | blocked | 1 |
 
 `measured` is a check in this repository. `hand` needs a rig run or a human watching two windows, and is
@@ -30,13 +30,15 @@ stack does not -- named, explained, and not pretended away.
 - `tools/test-battery.ps1` -- a tool
 - `crates/asura-db/src/migrations.rs` -- a tool
 
-## T1: Web gate works (no client needed) (hand)
+## T1: Web gate works (no client needed) (measured)
 
 **The reference's pass criterion:** an XML `<Reply><Session>GUID</Session></Reply>` comes back with a valid UUID. This validates the login front without involving the game client at all.
 
-**Here:** the gate is the reference's **own** `webgate.py`, started by `tools/run-client-login.ps1` from the reference's tools directory -- running its script is not a reimplementation, which is why the four HTTP calls it answers are recorded in `docs/03-protocol.md` rather than rebuilt. Nothing in the suite asserts its reply, so this is the rig's job, not a test's
+**Here:** the gate is this project's own `crates/asura-webgate`, a port of the reference's `webgate.py` answered from the database rows `tools/seed-dev.ps1` writes; the four calls, their exact XML and the 400/401 refusals are asserted, and the `(UserId, Token)` pair it returns is the pair the auth service resolves (the live-database half is pinned by `asura_db::portal`)
 
-- `tools/run-client-login.ps1` -- a tool
+- `the_four_endpoints_answer_what_the_reference_answers` -- a test
+- `the_http_framing_round_trips` -- a test
+- `an_unknown_email_is_400_who_are_you` -- a test
 
 ## T2: Server starts and binds (measured)
 
