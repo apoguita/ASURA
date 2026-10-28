@@ -1102,10 +1102,11 @@ pub async fn handle_connection(
             .map_err(GameError::Database)?
             .unwrap_or_default(),
         started: Instant::now(),
+        move_stats: MoveStats::default(),
     };
     if move_trace_on() {
         eprintln!(
-            "move: agent {} starts on map {} at (x={:.1}, y={:.1}, plane={}) with speed {} \
+            "move[spawn] agent {} starts on map {} at (x={:.1}, y={:.1}, plane={}) with speed {} \
              (the client will walk from here)",
             play.agents.player.agent_id,
             play.map.map_id,
@@ -1185,6 +1186,22 @@ pub async fn handle_connection(
         "world: {:?} left map {} from ({:.1}, {:.1}) plane {left_plane}, saved",
         play.name, play.map.map_id, left.0, left.1
     );
+    if move_trace_on() {
+        let stats = play.move_stats;
+        eprintln!(
+            "move[summary] {} walk request(s) (pathfinding), {} position report(s) (manual walk): \
+             {} accepted, {} clamped, {} refused, {} plane change(s); {} tick(s) walked, \
+             largest client/server gap {:.1} units",
+            stats.walk_requests,
+            stats.reports,
+            stats.accepted,
+            stats.clamped,
+            stats.refused,
+            stats.plane_changes,
+            stats.ticks,
+            stats.max_drift
+        );
+    }
     outcome
 }
 
@@ -1252,11 +1269,40 @@ async fn run(
                 // still hears one tick per interval.
                 let delta_ms = TICK_INTERVAL.as_millis() as u32;
                 let was_moving = 0.0 < play.agents.player.motion.speed;
+                let before = play.agents.player.position;
+                let before_plane = play.agents.player.plane;
                 let crossed = play.agents.player.advance(TICK_INTERVAL.as_secs_f32());
                 if move_trace_on() {
+                    play.move_stats.ticks += 1;
+                    if was_moving {
+                        let moved = {
+                            let dx = play.agents.player.position.0 - before.0;
+                            let dy = play.agents.player.position.1 - before.1;
+                            (dx * dx + dy * dy).sqrt()
+                        };
+                        let expected = game::PLAYER_SPEED_BASE * TICK_INTERVAL.as_secs_f32();
+                        eprintln!(
+                            "move[tick] walked {moved:.1} units (expected {expected:.1} at \
+                             {:.0}/s), agent (x={:.1}, y={:.1}, plane={})",
+                            game::PLAYER_SPEED_BASE,
+                            play.agents.player.position.0,
+                            play.agents.player.position.1,
+                            play.agents.player.plane
+                        );
+                        if play.agents.player.plane != before_plane {
+                            play.move_stats.plane_changes += 1;
+                            eprintln!(
+                                "move[jump] the walk changed the agent's plane {before_plane} -> {} \
+                                 at (x={:.1}, y={:.1}) — the client will place it on that plane now",
+                                play.agents.player.plane,
+                                play.agents.player.position.0,
+                                play.agents.player.position.1
+                            );
+                        }
+                    }
                     if let Some(waypoint) = &crossed {
                         eprintln!(
-                            "move: tick crossed waypoint {}/{} (x={:.1}, y={:.1}, plane={}, trap={}); \
+                            "move[tick] crossed waypoint {}/{} (x={:.1}, y={:.1}, plane={}, trap={}); \
                              agent now (x={:.1}, y={:.1}, plane={})",
                             play.agents.player.motion.waypoint_idx,
                             play.agents.player.motion.waypoints.len(),
@@ -1270,7 +1316,7 @@ async fn run(
                         );
                     } else if was_moving && play.agents.player.motion.speed == 0.0 {
                         eprintln!(
-                            "move: tick arrival at (x={:.1}, y={:.1}, plane={}); the walk is over",
+                            "move[tick] arrival at (x={:.1}, y={:.1}, plane={}); the walk is over",
                             play.agents.player.position.0,
                             play.agents.player.position.1,
                             play.agents.player.plane
@@ -1341,6 +1387,24 @@ struct Play {
     traits: db_game::Traits,
     /// When the connection began, for the load time the reference reports.
     started: Instant,
+    /// Movement counters, for the trace's closing summary.
+    move_stats: MoveStats,
+}
+
+/// Counters the movement trace keeps for its session summary: what the client asked for, what the
+/// server decided about each report, and every point where the agent's plane changed — which is what
+/// a client shows as a terrain jump.
+#[derive(Debug, Default, Clone, Copy)]
+struct MoveStats {
+    walk_requests: u32,
+    reports: u32,
+    accepted: u32,
+    clamped: u32,
+    refused: u32,
+    plane_changes: u32,
+    ticks: u32,
+    /// The largest gap seen between a reported position and the server's own, before adoption.
+    max_drift: f32,
 }
 
 impl Play {
@@ -1711,16 +1775,23 @@ async fn answer(
                 y: destination.1,
                 plane,
             };
+            let walk_active = 0.0 < play.agents.player.motion.speed;
             if move_trace_on() {
+                play.move_stats.walk_requests += 1;
                 eprintln!(
-                    "move: agent {agent_id} asks to walk to (x={:.1}, y={:.1}, plane={plane}) \
-                     while the server thinks it stands at (x={:.1}, y={:.1}, plane={}) \
+                    "move[pathfind] agent {agent_id} asked to walk to (x={:.1}, y={:.1}, plane={plane}) \
+                     while the server thinks it stands at (x={:.1}, y={:.1}, plane={}){} \
                      [0x803E, {} bytes]",
                     destination.0,
                     destination.1,
                     from.x,
                     from.y,
                     from.plane,
+                    if walk_active {
+                        " — a server-side walk was still running (client has walked since its last report)"
+                    } else {
+                        ""
+                    },
                     frame.body.len() + 2
                 );
             }
@@ -1729,13 +1800,13 @@ async fn answer(
             if move_trace_on() {
                 match &walked {
                     Walk::Found(waypoints) => eprintln!(
-                        "move: finder produced {} waypoint(s): {}",
+                        "move[pathfind] finder produced {} waypoint(s): {}",
                         waypoints.len(),
                         waypoints_preview(waypoints)
                     ),
-                    Walk::NoPath => eprintln!("move: finder refused the walk: no path"),
+                    Walk::NoPath => eprintln!("move[pathfind] finder refused: no path"),
                     Walk::NoGraph => eprintln!(
-                        "move: finder refused the walk: this world has no path graph for map {}",
+                        "move[pathfind] finder refused: this world has no path graph for map {}",
                         play.map.map_id
                     ),
                 }
@@ -1765,7 +1836,7 @@ async fn answer(
                         );
                         if move_trace_on() {
                             eprintln!(
-                                "move: answered with waypoint 0 (x={:.1}, y={:.1}, plane={}) \
+                                "move[pathfind] answered with waypoint 0 (x={:.1}, y={:.1}, plane={}) \
                                  current_plane={} [0x0029, {} bytes]; {} waypoint(s) left to walk, \
                                  agent stays at (x={:.1}, y={:.1}, plane={})",
                                 first.pos.x,
@@ -1800,7 +1871,7 @@ async fn answer(
                         game::agent_update_position(agent_id, standing.position, standing.plane);
                     if move_trace_on() {
                         eprintln!(
-                            "move: walk refused; snapped to (x={:.1}, y={:.1}, plane={}) \
+                            "move[pathfind] walk refused; snapped to (x={:.1}, y={:.1}, plane={}) \
                              [0x002D, {} bytes]",
                             standing.position.0,
                             standing.position.1,
@@ -1837,18 +1908,27 @@ async fn answer(
             let now = Instant::now();
             let before = play.standing();
             let since = play.agents.player.since_last_report(now);
+            let walk_was_running = 0.0 < play.agents.player.motion.speed;
             let adopted = play.agents.player.adopt_report(position, plane, now);
             let standing = play.standing();
             if move_trace_on() {
+                play.move_stats.reports += 1;
+                match adopted {
+                    Adopted::Accepted => play.move_stats.accepted += 1,
+                    Adopted::Clamped => play.move_stats.clamped += 1,
+                    Adopted::Refused => play.move_stats.refused += 1,
+                }
                 let distance = {
                     let dx = position.0 - before.position.0;
                     let dy = position.1 - before.position.1;
                     (dx * dx + dy * dy).sqrt()
                 };
+                play.move_stats.max_drift = play.move_stats.max_drift.max(distance);
                 eprintln!(
-                    "move: report (x={:.1}, y={:.1}, plane={plane}) against the server's \
-                     (x={:.1}, y={:.1}, plane={}) — d={distance:.1}, {} ms since the last report: \
-                     {adopted:?}, agent now (x={:.1}, y={:.1}, plane={}) [0x803D, {} bytes]",
+                    "move[manual] report (x={:.1}, y={:.1}, plane={plane}) against the server's \
+                     (x={:.1}, y={:.1}, plane={}) — d={distance:.1}, {} ms since the last report, \
+                     server walk running={walk_was_running}: {adopted:?}, agent now \
+                     (x={:.1}, y={:.1}, plane={}) [0x803D, {} bytes]",
                     position.0,
                     position.1,
                     before.position.0,
@@ -1860,6 +1940,32 @@ async fn answer(
                     standing.plane,
                     frame.body.len() + 2
                 );
+                if adopted == Adopted::Accepted && plane != before.plane {
+                    play.move_stats.plane_changes += 1;
+                    eprintln!(
+                        "move[jump] the client's report changed the plane {before_plane} -> {plane} \
+                         at (x={:.1}, y={:.1}){note}",
+                        position.0,
+                        position.1,
+                        before_plane = before.plane,
+                        note = if distance > 50.0 {
+                            " — more than the tolerance away, so this is a real plane change, not stairs"
+                        } else {
+                            ""
+                        }
+                    );
+                }
+                if adopted != Adopted::Accepted && distance > 50.0 {
+                    eprintln!(
+                        "move[jump] report rejected or clamped {adopted:?}: client at (x={:.1}, \
+                         y={:.1}, plane={plane}), server at (x={:.1}, y={:.1}, plane={}), d={distance:.1}",
+                        position.0,
+                        position.1,
+                        before.position.0,
+                        before.position.1,
+                        before.plane
+                    );
+                }
             }
             world.peers.update(play.player_id, standing);
             if adopted != Adopted::Refused {
@@ -1888,7 +1994,8 @@ async fn answer(
             let stop = game::agent_stop_moving(play.agents.player.agent_id);
             if move_trace_on() {
                 eprintln!(
-                    "move: client stopped walking at (x={:.1}, y={:.1}, plane={}) [0x8028, {} bytes]",
+                    "move[stop] client stopped walking at (x={:.1}, y={:.1}, plane={}) \
+                     [0x8028, {} bytes]",
                     play.agents.player.position.0,
                     play.agents.player.position.1,
                     play.agents.player.plane,
