@@ -76,6 +76,10 @@ the database, and the supervisor's cross-platform setup commands).
 **The game client is Windows-only** — the client rig, its patching and its hooks are Windows work, so a
 Linux machine is a server host.
 
+**A Docker bundle lives in `docker/`** (`docker compose -f docker/compose.yml up -d --build`): two
+containers, PostgreSQL and one machine container running the supervisor, with the client reaching the
+same `127.0.0.1:6112` and `6601`. It is the optional second runner; `docs/19-running.md` describes it.
+
 **Linux has not had a live run recorded yet.** It compiles and the runbook is written, but the
 cross-platform claim is by construction, not by measurement; the Linux runbook's evidence section is
 empty on purpose.
