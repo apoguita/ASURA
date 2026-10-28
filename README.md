@@ -1,16 +1,14 @@
 # A.S.U.R.A. — Automated Server Utility for Remote Authentication
 
-A private Guild Wars 1 server: not one program, but a small set of services that each do one job, keep
-their shared state in one place, and can grow across machines without being rebuilt.
-
-**Language: Rust.** **Database: PostgreSQL.**
+A private Guild Wars 1 server. **Language: Rust. Database: PostgreSQL.**
 
 ## The shape of the server
 
-There is no single program called "ASURA". The client talks to one front door (the **auth service**),
-gets its portal identity from the **web gate**, is placed into one of many **world servers** that run
-the maps, and everything durable — accounts, sessions, characters, items, the world registry — lives in
-**PostgreSQL**. Each machine runs a **supervisor** that starts and watches its local services.
+The client talks to the **auth service** (login, session, character list, and the front door of the
+game connection), gets its portal identity from the **web gate**, and is placed into one of many
+**world servers** that run the maps. Everything durable — accounts, sessions, characters, items, the
+world registry — lives in **PostgreSQL**. Each machine runs a **supervisor** that starts and watches
+its local services.
 
 ```
 client ──portal login──▶ web gate  :6601  (who am I?)
@@ -31,11 +29,11 @@ player.
 | **auth service** (`asura-auth`) | one program | the client's front door: key exchange, login, session, character list, character select; looks a world up for a travel or refuses it cleanly; relays the game connection to the world it picked |
 | **world server** (`asura-world`) | many programs | runs maps for players: instances, agents, movement, items, chat. Creates its state at startup and is disposable — any world can be replaced by a newer build without touching the players inside it |
 | **web gate** (`asura-webgate`) | one program | the portal login the client asks before it logs in: four `/Spawned/WebGate` endpoints, answered from the database |
-| **supervisor** (`asura-supervisor`) | one program per machine | starts and watches this machine's services from `config/services.toml`: start, stop, status, restart, rolling deploy. A process manager, not an orchestrator |
+| **supervisor** (`asura-supervisor`) | one program per machine | starts and watches this machine's services from `config/services.toml`: start, stop, status, restart, rolling deploy |
 | **database** (`asura-db`) | PostgreSQL | the shared truth: accounts, sessions, characters, bags and items, the `world`/`world_pool` placement tables, the `service` registry |
-| **libraries** (`asura-protocol`, `asura-db`) | code, not processes | the client-facing message definitions, and the database access layer every service uses |
+| **libraries** (`asura-protocol`, `asura-db`) | Rust code the services share | the client-facing message definitions, and the database access layer every service uses |
 
-The services do not talk to each other over a wire protocol: they coordinate through the database.
+Every service reads and writes the database; that is how the services coordinate.
 
 ## A login, end to end
 
@@ -58,8 +56,8 @@ The services do not talk to each other over a wire protocol: they coordinate thr
 - **Placement is read from the database.** A world that stops heartbeating stops being offered, and its
   abandoned leases are freed by the reaper. A travel is answered with something that is answering, or
   refused.
-- **Machines are added, not rebuilt around.** `config/services.toml` is what *this* machine runs; a
-  second machine runs its own supervisor with its own list, and its worlds appear in the same registry.
+- **Adding a machine** means starting a supervisor on it with its own list in `config/services.toml`;
+  its worlds appear in the same registry as every other machine's.
 - **Upgrades do not kick anyone.** A rolling deploy starts the new build beside the old one; new
   arrivals and reconnects land on the newest build, and the old world leaves when its last player has
   reconnected.
