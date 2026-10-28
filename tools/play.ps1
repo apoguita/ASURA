@@ -57,7 +57,10 @@ param(
     [switch] $Quiet,
     # Let `/tp` load a catalogue map the world was not started with, instead of refusing it. Off by
     # default; this is the experiment that measures whether a destination must exist before the hop.
-    [switch] $OnDemand
+    [switch] $OnDemand,
+    # Log every movement event: each walk request, the finder's path with planes, the echoed
+    # waypoint, each tick crossing and every position report with the server's decision.
+    [switch] $MoveTrace
 )
 
 $ErrorActionPreference = "Stop"
@@ -120,6 +123,10 @@ foreach ($exe in @($authExe, $worldExe)) {
 }
 
 $env:ASURA_TRACE = if ($Trace) { "1" } else { "0" }
+# The movement trace: every walk request, the path the finder produced (position, plane and
+# trapezoid per waypoint), the echoed waypoint, every tick that crosses one, and every position
+# report with the server's decision. It is what a drift or a terrain jump is diagnosed from.
+$env:ASURA_MOVE_TRACE = if ($MoveTrace) { "1" } else { "0" }
 $authLog = Join-Path $env:TEMP "asura-auth.log"
 $worldLog = Join-Path $env:TEMP "asura-world.log"
 Remove-Item $authLog, $worldLog -ErrorAction SilentlyContinue

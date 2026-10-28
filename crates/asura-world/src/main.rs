@@ -664,4 +664,5 @@ fn print_help() {
     println!("    ASURA_GW_DAT          the client archive, for the path graphs");
     println!("    ASURA_PATH_GRAPHS     the path-graph dump to load, if one exists");
     println!("    ASURA_TRACE=1         log every message: direction, header, size");
+    println!("    ASURA_MOVE_TRACE=1    log every movement: request, path with planes, echo, ticks, reports");
 }

@@ -70,6 +70,9 @@ param(
     [switch] $Trace,
     # The old spelling; per-message tracing is off by default now.
     [switch] $Quiet,
+    # Log every movement event (walk requests, paths with planes, echoes, tick crossings, position
+    # reports). What a drift or a terrain jump is diagnosed from; forwarded to play.ps1.
+    [switch] $MoveTrace,
     [string] $PreSearing = '',
     [int]    $GatePort = 6601,
     [switch] $SkipDatabase,
@@ -193,6 +196,7 @@ try {
     if ($Maps) { $playArgs += @("-Maps", $Maps) }
     if ($Trace) { $playArgs += "-Trace" }
     if ($OnDemand) { $playArgs += "-OnDemand" }
+    if ($MoveTrace) { $playArgs += "-MoveTrace" }
     & (Get-Command powershell).Source @playArgs
     $code = $LASTEXITCODE
     if ($code -ne 0) {

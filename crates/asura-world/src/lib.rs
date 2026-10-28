@@ -1103,6 +1103,18 @@ pub async fn handle_connection(
             .unwrap_or_default(),
         started: Instant::now(),
     };
+    if move_trace_on() {
+        eprintln!(
+            "move: agent {} starts on map {} at (x={:.1}, y={:.1}, plane={}) with speed {} \
+             (the client will walk from here)",
+            play.agents.player.agent_id,
+            play.map.map_id,
+            play.agents.player.position.0,
+            play.agents.player.position.1,
+            play.agents.player.plane,
+            game::PLAYER_SPEED_BASE
+        );
+    }
 
     // ---- 5. the load block ------------------------------------------------------------------
     // The reference sends these four the moment it has the connection, without waiting to be asked.
@@ -1239,7 +1251,32 @@ async fn run(
                 // ticker here, where the reference has one loop for the whole server, so every client
                 // still hears one tick per interval.
                 let delta_ms = TICK_INTERVAL.as_millis() as u32;
+                let was_moving = 0.0 < play.agents.player.motion.speed;
                 let crossed = play.agents.player.advance(TICK_INTERVAL.as_secs_f32());
+                if move_trace_on() {
+                    if let Some(waypoint) = &crossed {
+                        eprintln!(
+                            "move: tick crossed waypoint {}/{} (x={:.1}, y={:.1}, plane={}, trap={}); \
+                             agent now (x={:.1}, y={:.1}, plane={})",
+                            play.agents.player.motion.waypoint_idx,
+                            play.agents.player.motion.waypoints.len(),
+                            waypoint.pos.x,
+                            waypoint.pos.y,
+                            waypoint.pos.plane,
+                            waypoint.trap_id,
+                            play.agents.player.position.0,
+                            play.agents.player.position.1,
+                            play.agents.player.plane
+                        );
+                    } else if was_moving && play.agents.player.motion.speed == 0.0 {
+                        eprintln!(
+                            "move: tick arrival at (x={:.1}, y={:.1}, plane={}); the walk is over",
+                            play.agents.player.position.0,
+                            play.agents.player.position.1,
+                            play.agents.player.plane
+                        );
+                    }
+                }
                 let mut frames = vec![game::world_simulation_tick(delta_ms)];
                 if let Some(waypoint) = crossed {
                     // A crossed waypoint is a new destination, and the reference broadcasts it: `every`
@@ -1488,6 +1525,44 @@ pub fn load_block(map: &MapEntry, name: &str, agent_id: u32) -> Vec<Frame> {
     ]
 }
 
+/// Whether the movement trace is on (`ASURA_MOVE_TRACE=1`; `play.ps1 -MoveTrace` sets it).
+///
+/// Movement is the one part of the wire a capture cannot diagnose after the fact: drift and terrain
+/// jumps are a sequence of requests, answers and ticks, and the question is always *what did the
+/// server think the agent's position and plane were* at each step. This prints that sequence — every
+/// move request with its parsed destination, the path the finder produced (each waypoint's position,
+/// plane and trapezoid), the echoed waypoint, every tick that crosses one, and every position report
+/// with the budget decision. It prints no packet log, so a session stays readable.
+fn move_trace_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("ASURA_MOVE_TRACE").ok().as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        )
+    })
+}
+
+/// A path as the trace prints it: the first few waypoints with their planes and trapezoids.
+fn waypoints_preview(waypoints: &[pathfind::Waypoint]) -> String {
+    let shown: Vec<String> = waypoints
+        .iter()
+        .take(10)
+        .map(|waypoint| {
+            format!(
+                "(x={:.1}, y={:.1}, plane={}, trap={})",
+                waypoint.pos.x, waypoint.pos.y, waypoint.pos.plane, waypoint.trap_id
+            )
+        })
+        .collect();
+    let more = if waypoints.len() > 10 {
+        format!(" ... {} more", waypoints.len() - 10)
+    } else {
+        String::new()
+    };
+    format!("[{}]{}", shown.join(" "), more)
+}
+
 /// Scramble and write frames.
 async fn send(
     stream: &mut TcpStream,
@@ -1636,8 +1711,35 @@ async fn answer(
                 y: destination.1,
                 plane,
             };
+            if move_trace_on() {
+                eprintln!(
+                    "move: agent {agent_id} asks to walk to (x={:.1}, y={:.1}, plane={plane}) \
+                     while the server thinks it stands at (x={:.1}, y={:.1}, plane={}) \
+                     [0x803E, {} bytes]",
+                    destination.0,
+                    destination.1,
+                    from.x,
+                    from.y,
+                    from.plane,
+                    frame.body.len() + 2
+                );
+            }
 
             let walked = world.graphs.walk(play.map.map_id, from, to);
+            if move_trace_on() {
+                match &walked {
+                    Walk::Found(waypoints) => eprintln!(
+                        "move: finder produced {} waypoint(s): {}",
+                        waypoints.len(),
+                        waypoints_preview(waypoints)
+                    ),
+                    Walk::NoPath => eprintln!("move: finder refused the walk: no path"),
+                    Walk::NoGraph => eprintln!(
+                        "move: finder refused the walk: this world has no path graph for map {}",
+                        play.map.map_id
+                    ),
+                }
+            }
             if trace {
                 let said = match &walked {
                     Walk::Found(waypoints) => format!("{} waypoint(s)", waypoints.len()),
@@ -1661,6 +1763,22 @@ async fn answer(
                             first.pos.plane,
                             play.agents.player.plane,
                         );
+                        if move_trace_on() {
+                            eprintln!(
+                                "move: answered with waypoint 0 (x={:.1}, y={:.1}, plane={}) \
+                                 current_plane={} [0x0029, {} bytes]; {} waypoint(s) left to walk, \
+                                 agent stays at (x={:.1}, y={:.1}, plane={})",
+                                first.pos.x,
+                                first.pos.y,
+                                first.pos.plane,
+                                play.agents.player.plane,
+                                walk.len(),
+                                play.agents.player.motion.waypoints.len(),
+                                play.agents.player.position.0,
+                                play.agents.player.position.1,
+                                play.agents.player.plane
+                            );
+                        }
                         // Everyone else is told where this agent is walking: the reference broadcasts the
                         // same message (`GameSrv_BroadcastAgentMoveToPoint`), and a client that is not
                         // told keeps drawing the walker where it last stood.
@@ -1680,6 +1798,16 @@ async fn answer(
                     let standing = play.standing();
                     let position =
                         game::agent_update_position(agent_id, standing.position, standing.plane);
+                    if move_trace_on() {
+                        eprintln!(
+                            "move: walk refused; snapped to (x={:.1}, y={:.1}, plane={}) \
+                             [0x002D, {} bytes]",
+                            standing.position.0,
+                            standing.position.1,
+                            standing.plane,
+                            position.len()
+                        );
+                    }
                     world.peers.update(play.player_id, standing);
                     world
                         .peers
@@ -1706,11 +1834,33 @@ async fn answer(
             let plane =
                 u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]])
                     as u16;
-            let adopted = play
-                .agents
-                .player
-                .adopt_report(position, plane, Instant::now());
+            let now = Instant::now();
+            let before = play.standing();
+            let since = play.agents.player.since_last_report(now);
+            let adopted = play.agents.player.adopt_report(position, plane, now);
             let standing = play.standing();
+            if move_trace_on() {
+                let distance = {
+                    let dx = position.0 - before.position.0;
+                    let dy = position.1 - before.position.1;
+                    (dx * dx + dy * dy).sqrt()
+                };
+                eprintln!(
+                    "move: report (x={:.1}, y={:.1}, plane={plane}) against the server's \
+                     (x={:.1}, y={:.1}, plane={}) — d={distance:.1}, {} ms since the last report: \
+                     {adopted:?}, agent now (x={:.1}, y={:.1}, plane={}) [0x803D, {} bytes]",
+                    position.0,
+                    position.1,
+                    before.position.0,
+                    before.position.1,
+                    before.plane,
+                    since.map(|elapsed| elapsed.as_millis()).unwrap_or(0),
+                    standing.position.0,
+                    standing.position.1,
+                    standing.plane,
+                    frame.body.len() + 2
+                );
+            }
             world.peers.update(play.player_id, standing);
             if adopted != Adopted::Refused {
                 world.peers.broadcast(
@@ -1736,6 +1886,15 @@ async fn answer(
         // everyone is told, which is the mover too as far as this server is concerned.
         0x8028 => {
             let stop = game::agent_stop_moving(play.agents.player.agent_id);
+            if move_trace_on() {
+                eprintln!(
+                    "move: client stopped walking at (x={:.1}, y={:.1}, plane={}) [0x8028, {} bytes]",
+                    play.agents.player.position.0,
+                    play.agents.player.position.1,
+                    play.agents.player.plane,
+                    frame.body.len() + 2
+                );
+            }
             world
                 .peers
                 .broadcast(play.player_id, std::slice::from_ref(&stop));
