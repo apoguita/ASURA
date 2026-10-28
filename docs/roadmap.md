@@ -181,7 +181,7 @@ nothing but a longer loading screen to show for it.
 
 **Test:** real client, two hosts.
 
-## M6.5 — The instance-creation experiment
+## M6.5 — The instance-creation experiment (answered 2026-10-27)
 
 The one question we cannot answer from GWPS without more work there, so it is answered here
 (`docs/adr/0005-gwps-reference-only.md`):
@@ -193,6 +193,16 @@ The one question we cannot answer from GWPS without more work there, so it is an
   in our own code instead of an inference from a confounded one.
 
 **Done when:** the answer is recorded with the client state that proves it, either way.
+
+**Answered 2026-10-27: on-demand creation works with the client; the prebuilt pool is not a client
+requirement.** The world ran with nothing preloaded (the retired `start-server.ps1 -OnDemand`) and the
+real client took a loop of teleports — 148 → 163 → 164 → 165 → 166 → 148 — with every destination
+loaded on demand in 0–2 ms. The hang that forced the reference to pre-spawn one server per map
+(`AuthSrv_PreSpawnServers`) was OpenTyria building the instance inside the hop, not a property of the
+client. The runbook and numbers are `docs/03-protocol.md` §5c; the server half is pinned by
+`a_travel_to_an_unhosted_map_is_loaded_on_demand` and
+`a_connection_to_an_unhosted_map_is_loaded_on_demand` (`crates/asura-world/tests/load.rs`). The
+prebuilt pool stays the normal path; on-demand creation is the proven fallback.
 
 ## Phase 2 - simulation (deferred, not cancelled)
 
