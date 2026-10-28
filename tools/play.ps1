@@ -60,7 +60,10 @@ param(
     [switch] $OnDemand,
     # Log every movement event: each walk request, the finder's path with planes, the echoed
     # waypoint, each tick crossing and every position report with the server's decision.
-    [switch] $MoveTrace
+    [switch] $MoveTrace,
+    # Capture every game message both directions (plaintext JSONL) into captures/, for diagnosing a
+    # drift or a load failure without a client-side sniffer.
+    [switch] $Capture
 )
 
 $ErrorActionPreference = "Stop"
@@ -148,6 +151,13 @@ Write-Host "== world server id $World on 127.0.0.1:6113, maps $(if ($Maps) { $Ma
 $worldArgs = @("--world", "$World", "--capacity", "$Capacity", "--public", "127.0.0.1:6113")
 if ($Maps) { $worldArgs += @("--maps", $Maps) }
 if ($OnDemand) { $worldArgs += "--on-demand" }
+if ($Capture) {
+    $captures = Join-Path $repo "captures"
+    New-Item -ItemType Directory -Force $captures | Out-Null
+    $captureFile = Join-Path $captures ("capture-{0}-{1}.jsonl" -f $World, (Get-Date -Format "yyyyMMdd-HHmmss"))
+    Write-Host "capturing both directions to $captureFile"
+    $worldArgs += @("--capture", $captureFile)
+}
 $worldProc = Start-Process -FilePath $worldExe -ArgumentList $worldArgs -NoNewWindow -PassThru -RedirectStandardError $worldLog
 Start-Sleep -Milliseconds 700
 

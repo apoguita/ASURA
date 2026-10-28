@@ -47,11 +47,13 @@ is_explorable, map_id`). The port target was named by the user all along.
   (`docs/03-protocol.md` §5d has the dump runbook).
 - **Diagnosing a live session has its own tools, in this repository.** `-MoveTrace`
   (`ASURA_MOVE_TRACE=1`) logs every movement event — `move[pathfind]`/`[manual]`/`[tick]`/`[stop]`,
-  a `move[jump]` wherever the agent's plane changes, and a `move[summary]` at teardown;
-  `tools/sniff-capture.py` captures the **client's own packets**, both directions and decrypted,
-  into `captures/` (gitignored) — it needs an elevated shell and the client-side Py4GW_Stealth
-  injection, and nothing from the reference checkout. A capture plus that log is how a drift or a
-  jump is pinned to a message rather than guessed at.
+  a `move[jump]` wherever the agent's plane changes, and a `move[summary]` at teardown; `-Capture`
+  (`--capture PATH` / `ASURA_CAPTURE`) writes **every game message both ways, decrypted**, as JSONL
+  into `captures/` (gitignored) — no client hook, no elevation. `tools/sniff-capture.py` is the
+  client-side counterpart for when the client's own socket must be seen; it needs an elevated shell
+  and the Py4GW_Stealth injection (the reference's front end, ported; nothing from the reference
+  checkout is read). A capture plus the movement log is how a drift or a jump is pinned to a
+  message rather than guessed at.
 - **Answered (2026-10-27): precaching the destination is NOT a requirement here.** The reference
   pre-spawns one server per map so a travel constructs nothing; this world used to preload every map
   at startup. Measured on the real client with `start-server.ps1 -OnDemand` (nothing preloaded): a

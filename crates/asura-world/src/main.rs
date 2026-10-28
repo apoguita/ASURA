@@ -128,6 +128,17 @@ async fn main() -> ExitCode {
 
     let trace = Trace::from_environment();
 
+    // The packet capture: every game message both directions, plaintext JSONL. What a drift or a
+    // load failure is diagnosed from when a client-side sniffer is unavailable or in the way.
+    let capture_path = argument(&args, "--capture").or_else(|| std::env::var("ASURA_CAPTURE").ok());
+    if let Some(path) = &capture_path {
+        if let Err(err) = asura_world::capture::install(path) {
+            eprintln!("asura-world: cannot capture to {path}: {err}");
+            return ExitCode::FAILURE;
+        }
+        eprintln!("asura-world: capturing both directions to {path}");
+    }
+
     eprintln!("asura-world {} starting", env!("CARGO_PKG_VERSION"));
     eprintln!("asura-world: database ready, connecting");
 
@@ -646,6 +657,10 @@ fn print_help() {
     println!("                      then Gw.dat, then data\\Gw.dat in this repository)");
     println!("    --path-graphs PATH  load the path graphs from a dump instead of the archive");
     println!("                      (default: ASURA_PATH_GRAPHS, then data\\path-graphs.bin)");
+    println!("    --capture PATH    record every game message both ways to PATH (plaintext JSONL,");
+    println!(
+        "                      or ASURA_CAPTURE); the client-side sniffer's server counterpart"
+    );
     println!("    --dump-path-graphs PATH");
     println!(
         "                      write the path graphs once -- the maps in map_config -- and exit;"
@@ -665,4 +680,5 @@ fn print_help() {
     println!("    ASURA_PATH_GRAPHS     the path-graph dump to load, if one exists");
     println!("    ASURA_TRACE=1         log every message: direction, header, size");
     println!("    ASURA_MOVE_TRACE=1    log every movement: request, path with planes, echo, ticks, reports");
+    println!("    ASURA_CAPTURE         the JSONL path to capture every message both ways into");
 }

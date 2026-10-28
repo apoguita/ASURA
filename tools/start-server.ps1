@@ -73,6 +73,9 @@ param(
     # Log every movement event (walk requests, paths with planes, echoes, tick crossings, position
     # reports). What a drift or a terrain jump is diagnosed from; forwarded to play.ps1.
     [switch] $MoveTrace,
+    # Capture every game message both directions into captures/ (plaintext JSONL). Forwarded to
+    # play.ps1; needs nothing but the server.
+    [switch] $Capture,
     [string] $PreSearing = '',
     [int]    $GatePort = 6601,
     [switch] $SkipDatabase,
@@ -197,6 +200,7 @@ try {
     if ($Trace) { $playArgs += "-Trace" }
     if ($OnDemand) { $playArgs += "-OnDemand" }
     if ($MoveTrace) { $playArgs += "-MoveTrace" }
+    if ($Capture) { $playArgs += "-Capture" }
     & (Get-Command powershell).Source @playArgs
     $code = $LASTEXITCODE
     if ($code -ne 0) {
