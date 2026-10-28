@@ -35,17 +35,6 @@ player.
 
 Every service reads and writes the database; that is how the services coordinate.
 
-## A login, end to end
-
-1. The client asks the web gate who it is and takes its `user_id`/`session_id` from there.
-2. It dials the auth service: key exchange, login, character list, character select.
-3. A travel request reaches the auth service; it reads the registry, picks a world that is already
-   running and answering, and hands the client its address and a one-use transfer token — or refuses,
-   before the client moves.
-4. The client reconnects to the same address; the auth service validates the token, dials the chosen
-   world at its **registered** address, and relays the whole session.
-5. The world runs the map. Everything durable is written to the database as it happens.
-
 ## How it scales
 
 - **Worlds are disposable and many.** A world keeps no persistent state of its own — characters,
