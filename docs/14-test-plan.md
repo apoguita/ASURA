@@ -6,6 +6,10 @@ definition of the observable surface: sixteen items, each with a stated pass cri
 says, for each one, which check here covers it -- and every named check is verified to exist, so a
 renamed test breaks the check rather than quietly rotting the page.
 
+**How these checks are used is governed by `docs/HANDOFF.md` §"Testing policy":** they are a
+regression net for shared machinery and milestones. A scoped change is tested by its own targeted
+check and by the live client, not by running every suite (owner's standing instruction, 2026-10-28).
+
 ```powershell
 python tools/parity-testplan.py --check
 ```

@@ -38,6 +38,10 @@ service**; when it means a map-running process it says **world server**.
   user's command is the specification; it is not re-decided here. This is binding:
   `docs/HANDOFF.md` § *Working directive*, and it exists because the teleport port was done wrong
   first (`e0f671c`).
+- **The real client is the test, and the suite is not a gate:** a scoped change is verified by its
+  own targeted check and by a real client doing the thing — never by running every suite, and never
+  by growing new scaffolding around a small change. `docs/HANDOFF.md` § *Testing policy*. This is an
+  owner's standing instruction (2026-10-28), not a preference.
 
 ## Why this exists
 

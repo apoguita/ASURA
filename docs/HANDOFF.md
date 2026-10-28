@@ -30,6 +30,36 @@ captured order → client error `005`. The feature only worked once GWPS's **own
 verbatim (`GameMsg.h:659`: 46 bytes, two-byte header, `map_token, region, player_token,
 is_explorable, map_id`). The port target was named by the user all along.
 
+## Testing policy: the real client is the test, and the suite is not a gate
+
+Verbatim, from the owner of this repository (2026-10-28):
+
+> "this is a very scoped change and the tests have been going extremely long, youre not even testing
+> live, can you cut down on the excessive testing on this project? it is not helping"
+>
+> "we cannot sustain such extreme testing each time a minor feature requires a change"
+
+This is a standing rule, not an opinion to trade against a coverage argument:
+
+- **The acceptance test is a real client doing the thing.** Unit tests and integration suites do not
+  prove a feature works; they only keep what already worked from breaking. A change is finished when
+  the live client behaves, not when the suite is green.
+- **Test what the change touched, nothing else.** A change to the wire form of one message runs that
+  message's tests plus whatever crate must compile. It does not run the workspace, the battery, or
+  every suite because a suite exists.
+- **Never build new scaffolding for a small change.** No new harness, fixture, oracle or captured-byte
+  comparison unless the absence of one would let a *regression* slip through that the live client
+  would not catch on its own.
+- **The standing suites are a regression net, run when the change reaches shared machinery** (framing,
+  the generated tables, schema or migrations, start-up) **or immediately before a commit that claims a
+  milestone.** They are not run per edit, per fix, or per message.
+- **A test that encodes superseded behaviour is updated or deleted in the same change** — never
+  extended, never worked around, and never the reason to keep an old behaviour alive.
+- **Time budget:** for a minor feature, testing must stay smaller than the implementation. If the
+  testing is about to take longer than the change, stop and let the live client decide.
+- When a run is needed anyway, it is one targeted invocation (`cargo test -p <crate> --test <name>`
+  with a name filter), and its result is reported in one line — not a narrative of every test.
+
 ## Where this stands
 
 - **`/tp` works on a live client, ported from GWPS.** A real client in a map types `/tp ascalon`, receives
