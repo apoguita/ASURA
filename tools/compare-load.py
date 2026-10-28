@@ -7,11 +7,11 @@ missing. Both servers can be made to print every message with its bytes -- GWPS 
 so the diagnosis is a diff and not an inference.
 
 Usage:
-  python tools/compare-load.py --reference tools/fixtures/gwps-capture.log --ours dump.txt
+  python tools/compare-load.py --reference recordings/gwps/world/load-stream.log --ours dump.txt
 
   --ours is the output of the example; `--dump` writes one by running the example itself. The
-  reference trace ships as a fixture (tools/fixtures/gwps-capture.log), so this runs without the
-  reference checkout.
+  reference trace ships as a recording (recordings/gwps/world/load-stream.log),
+  so this runs without the reference checkout.
 
 Alignment: our messages are walked in order, each matched to the *next* reference message with the same
 header. That tolerates the reference sending messages we cannot (real items, real unlocks) without

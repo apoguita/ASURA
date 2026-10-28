@@ -190,13 +190,14 @@ foreach ($entry in $crates) {
 # --- 8. generated files ---------------------------------------------------------------------------
 Write-Step 8 "generated files still match their sources"
 if ($python) {
-    # Two checks need only this repository: the reference's own capture is shipped as a fixture
-    # (`tools/fixtures/gwps-capture.log`). The rest re-derive a generated table from the reference
-    # checkout (the sibling `PreSearing`), and a machine without it skips them rather than failing:
-    # the committed tables are checked by the tests, these checks are how they are re-proven.
+    # Two checks need only this repository: the reference's own capture is shipped as a recording
+    # (`recordings/gwps/world/load-stream.log`). The rest re-derive a generated
+    # table from the reference checkout (the sibling `PreSearing`), and a machine without it skips
+    # them rather than failing: the committed tables are checked by the tests, these checks are how
+    # they are re-proven.
     $reference = Join-Path (Split-Path -Parent $repo) "PreSearing"
     $haveReference = Test-Path (Join-Path $reference "code\OpenTyria")
-    $capture = "tools/fixtures/gwps-capture.log"
+    $capture = "recordings/gwps/world/load-stream.log"
     $localChecks = @(
         @("tools/gen-default-inventory.py", @("--check", "--capture", $capture), "the default inventory"),
         @("tools/parity-load.py", @("--reference", $capture, "--check", "crates/asura-world/src/load_fixture.rs"), "the reference's load stream")

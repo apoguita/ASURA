@@ -115,4 +115,4 @@ def main(path):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if 1 < len(sys.argv) else "captures/live-move.jsonl")
+    main(sys.argv[1] if 1 < len(sys.argv) else "recordings/client/feature/movement/movement-sniff.log")

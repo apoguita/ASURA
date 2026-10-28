@@ -73,8 +73,9 @@ param(
     # Log every movement event (walk requests, paths with planes, echoes, tick crossings, position
     # reports). What a drift or a terrain jump is diagnosed from; forwarded to play.ps1.
     [switch] $MoveTrace,
-    # Capture every game message both directions into captures/ (plaintext JSONL). Forwarded to
-    # play.ps1; needs nothing but the server.
+    # Capture every game message both directions into recordings/asura/world/ (plaintext JSONL;
+    # the committed research archive, recordings/README.md). Forwarded to play.ps1; needs nothing
+    # but the server.
     [switch] $Capture,
     [string] $PreSearing = '',
     [int]    $GatePort = 6601,

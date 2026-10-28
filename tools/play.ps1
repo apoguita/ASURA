@@ -61,7 +61,8 @@ param(
     # Log every movement event: each walk request, the finder's path with planes, the echoed
     # waypoint, each tick crossing and every position report with the server's decision.
     [switch] $MoveTrace,
-    # Capture every game message both directions (plaintext JSONL) into captures/, for diagnosing a
+    # Capture every game message both directions (plaintext JSONL) into recordings/asura/world/, for
+    # diagnosing a
     # drift or a load failure without a client-side sniffer.
     [switch] $Capture
 )
@@ -152,10 +153,11 @@ $worldArgs = @("--world", "$World", "--capacity", "$Capacity", "--public", "127.
 if ($Maps) { $worldArgs += @("--maps", $Maps) }
 if ($OnDemand) { $worldArgs += "--on-demand" }
 if ($Capture) {
-    $captures = Join-Path $repo "captures"
-    New-Item -ItemType Directory -Force $captures | Out-Null
-    $captureFile = Join-Path $captures ("capture-{0}-{1}.jsonl" -f $World, (Get-Date -Format "yyyyMMdd-HHmmss"))
-    Write-Host "capturing both directions to $captureFile"
+    # The recording archive (recordings/README.md): source -> kind, date in the filename.
+    $recordings = Join-Path $repo "recordings\asura\world"
+    New-Item -ItemType Directory -Force $recordings | Out-Null
+    $captureFile = Join-Path $recordings ("live-client-session-{0}.jsonl" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
+    Write-Host "capturing both directions to $captureFile (recordings/asura/world; add it to recordings/index.jsonl)"
     $worldArgs += @("--capture", $captureFile)
 }
 $worldProc = Start-Process -FilePath $worldExe -ArgumentList $worldArgs -NoNewWindow -PassThru -RedirectStandardError $worldLog

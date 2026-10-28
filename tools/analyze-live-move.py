@@ -1,4 +1,4 @@
-"""Measure the live movement protocol from `captures/live-move.jsonl`.
+"""Measure the live movement protocol from `recordings/client/feature/movement/movement-sniff.log`.
 
 For every client message that moves the agent (`0x3D`, `0x3E`, `0x47`), print it next to the
 server messages that follow it before the next client message, with every field decoded, and
@@ -150,4 +150,4 @@ def main(path):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if 1 < len(sys.argv) else "captures/live-move.jsonl")
+    main(sys.argv[1] if 1 < len(sys.argv) else "recordings/client/feature/movement/movement-sniff.log")

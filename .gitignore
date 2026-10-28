@@ -45,6 +45,11 @@ desktop.ini
 __pycache__/
 *.pyc
 
+# The recordings are the project's public research evidence, not run logs: they are committed
+# on purpose (recordings/README.md explains the archive and its index).
+!/recordings/
+!/recordings/**
+
 # The oracles: host tools compiled out of the reference's own sources (tools/path-oracle.c,
 # tools/pack-oracle.c) by tools/build-oracle.ps1. What they print is committed as a fixture instead; a
 # binary is rebuilt when someone wants to check the fixture against the reference again.

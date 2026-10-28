@@ -1,5 +1,5 @@
 """Measure the live client's own walking speed from its position reports, and the live server's
-destination cadence, from `captures/live-move.jsonl`.
+destination cadence, from `recordings/client/feature/movement/movement-sniff.log`.
 
 Two numbers matter for the server's own copy of an agent:
   * the speed the client actually walks at (u/s), from consecutive 0x3D reports;
@@ -10,7 +10,7 @@ import json
 import math
 import struct
 
-PATH = "captures/live-move.jsonl"
+PATH = "recordings/client/feature/movement/movement-sniff.log"
 
 
 def f32(blob, at):

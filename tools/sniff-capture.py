@@ -58,7 +58,7 @@ not be committed.
 Usage
 -----
     # both directions, 90 seconds, into a named file
-    py tools/sniff-capture.py --seconds 90 --dir both --out captures/walk.jsonl
+    py tools/sniff-capture.py --seconds 90 --dir both --out recordings/client/feature/movement/movement-sniff-20260101-000000.jsonl
 
     # only the movement messages
     py tools/sniff-capture.py --seconds 60 --dir both --header 0x0029,0x002D,0x0030,0x803D,0x803E,0x8028
@@ -86,7 +86,8 @@ from pathlib import Path
 #: or the ``PY4GW_STEALTH`` environment variable, because the path is per machine.
 DEFAULT_PY4GW_ROOT = r"C:\Users\Apo\Py4GW_Stealth"
 
-#: This repository, so the default capture file lands in its gitignored captures/.
+#: This repository, so the default capture lands in the recording archive
+#: (recordings/client/feature/movement/, see recordings/README.md).
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The shortest run of printable UTF-16LE code units treated as text. Six characters
@@ -410,8 +411,8 @@ def run_capture(args) -> int:
     names = frozenset(NAME_RE_STOC_HEADERS) if not args.raw else frozenset()
     headers = parse_headers(args.header)
 
-    out = Path(args.out) if args.out else REPO_ROOT / "captures" / (
-        f"packets-{datetime.now().strftime('%Y%m%d-%H%M%S')}.jsonl"
+    out = Path(args.out) if args.out else REPO_ROOT / "recordings" / "client" / "feature" / "movement" / (
+        f"movement-sniff-{datetime.now().strftime('%Y%m%d-%H%M%S')}.jsonl"
     )
 
     client = py4gw.connect(target)
@@ -574,7 +575,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--header", type=str, default=None,
                         help="comma-separated header allow-list, e.g. 0x3D,0x3E")
     parser.add_argument("--out", type=str, default=None,
-                        help="JSONL path (default: captures/packets-<timestamp>.jsonl)")
+                        help="JSONL path (default: recordings/client/feature/movement/movement-sniff-<timestamp>.jsonl)")
     parser.add_argument("--pid", type=int, default=None, help="target a specific Gw*.exe pid")
     parser.add_argument("--poll", type=float, default=0.05, help="drain interval in seconds")
     parser.add_argument("--raw", action="store_true",
