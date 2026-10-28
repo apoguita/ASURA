@@ -46,11 +46,16 @@ pub const SCHEMA_V8: &str = include_str!("../migrations/0008_character_traits.sq
 /// and the is-pvp flag, all of which `CharacterSettings_FromDbCharacter` (`GmChar.c`) puts on the wire.
 pub const SCHEMA_V9: &str = include_str!("../migrations/0009_character_settings.sql");
 
+/// The general service registry (S2): every service kind announces itself like a world server does.
+/// Written by the supervisor for the services it starts; read by consumers that need to find them.
+/// See the migration for the "table consumers read, not a network hop" rule.
+pub const SCHEMA_V10: &str = include_str!("../migrations/0010_service_registry.sql");
+
 /// Every migration, in application order. A developer applying the schema gets one string per
 /// migration file, so a new file is picked up without editing the tooling.
 pub const SCHEMA: &[&str] = &[
     SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
-    SCHEMA_V9,
+    SCHEMA_V9, SCHEMA_V10,
 ];
 
 /// The tables the coordination model depends on. Used by the startup check: a service refuses to run
@@ -65,6 +70,7 @@ pub const REQUIRED_TABLES: &[&str] = &[
     "map_config",
     "bag",
     "item",
+    "service",
 ];
 
 /// The queries placement needs: the atomic reservation, the lease ledger, and the reaper. Every
@@ -74,6 +80,9 @@ pub mod placement;
 /// The queries login needs: resolving the presented identity pair to an account, and reading that
 /// account's characters.
 pub mod login;
+
+/// The general service registry (S2): every service kind announces itself like a world server does.
+pub mod catalog;
 
 /// The reads a world server needs: the map to load, where to place a character, and its name.
 pub mod game;
