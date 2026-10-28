@@ -255,9 +255,21 @@ pub fn equipped_slot(item_type: u8) -> Option<u8> {
 
 /// `GAME_SMSG_WORLD_SIMULATION_TICK` (`0x001E`): 6 bytes.
 pub const WORLD_SIMULATION_TICK: u16 = 0x001E;
-/// `GAME_SMSG_AGENT_MOVE_TO_POINT` (`0x0029`): 18 bytes. Tells the client where an agent is walking to.
+/// The mode [`agent_update_speed_live`] carries when a walk **starts**. Measured: every captured start
+/// carries 1.
+pub const AGENT_SPEED_MODE_START: u32 = 1;
+/// The mode [`agent_update_speed_live`] carries when a walk is **cancelled**. Measured: every captured
+/// cancel carries 9.
+pub const AGENT_SPEED_MODE_STOP: u32 = 9;
+
+/// `GAME_SMSG_AGENT_MOVE_TO_POINT` (`0x0029`): 24 bytes as the live client reads it. Tells the client
+/// where an agent is walking to.
 pub const AGENT_MOVE_TO_POINT: u16 = 0x0029;
-/// `GAME_SMSG_AGENT_STOP_MOVING` (`0x0028`): 6 bytes.
+/// `GAME_SMSG_AGENT_UPDATE_DIRECTION` (`0x0025`): 20 bytes. The direction an agent is walking in.
+pub const AGENT_UPDATE_DIRECTION: u16 = 0x0025;
+/// `GAME_SMSG_AGENT_UPDATE_SPEED` (`0x002B`): 16 bytes. An agent's speed and whether it is walking.
+pub const AGENT_UPDATE_SPEED: u16 = 0x002B;
+/// `GAME_SMSG_AGENT_STOP_MOVING` (`0x0028`): 6 bytes. Only the two-byte-header dialect has it.
 pub const AGENT_STOP_MOVING: u16 = 0x0028;
 /// `GAME_SMSG_AGENT_UPDATE_POSITION` (`0x002C`): 16 bytes.
 pub const AGENT_UPDATE_POSITION: u16 = 0x002C;
@@ -1223,13 +1235,11 @@ pub fn world_simulation_tick(delta_ms: u32) -> crate::client::Frame {
     Builder::new(WORLD_SIMULATION_TICK).u32(delta_ms).frame()
 }
 
-/// `GAME_SMSG_AGENT_MOVE_TO_POINT`: an agent is walking to `destination` on `plane`, from
-/// `current_plane` (`GameSrv_MoveAgentToPoint`).
+/// `GAME_SMSG_AGENT_MOVE_TO_POINT` in the two-byte-header form: an agent is walking to `destination` on
+/// `plane`, from `current_plane` (`GameSrv_MoveAgentToPoint`), 18 bytes.
 ///
-/// The reference sends the *next waypoint of its own path*, not the destination the client asked for:
-/// it runs `PathFinding` over the map's navmesh and hands out one waypoint at a time. This server has no
-/// navmesh yet, so it hands out the client's own destination — a straight line, which is honest about
-/// what it knows.
+/// The live servers do not send this form: see [`agent_move_to_point_live`] for the 24-byte message the
+/// live client and the patched client parse.
 pub fn agent_move_to_point(
     agent_id: u32,
     destination: (f32, f32),
@@ -1242,6 +1252,70 @@ pub fn agent_move_to_point(
         .f32(destination.1)
         .u16(plane)
         .u16(current_plane)
+        .frame()
+}
+
+/// `GAME_SMSG_AGENT_MOVE_TO_POINT`, the live form: 24 bytes,
+/// `29 00 00 00 | agent | x | y | trap | plane`.
+///
+/// Measured from the live capture (`captures/live-move.jsonl`). The upper two bytes of the four-byte
+/// game header are zero, as they are in every live game message. After those four bytes: the agent, the
+/// position, the **trap id** of the destination waypoint (zero when the point is not on a trap), and the
+/// plane as a dword. The reference's two-byte-header form packs the plane and current plane into those
+/// last four bytes instead; live widened both to dwords and carries the trap the reference drops
+/// (`GmPaths.h`'s `Waypoint { GmPos pos; uint32_t trap_id; }`).
+pub fn agent_move_to_point_live(
+    agent_id: u32,
+    destination: (f32, f32),
+    trap_id: u32,
+    plane: u32,
+) -> crate::client::Frame {
+    Builder::new(AGENT_MOVE_TO_POINT)
+        .u16(0) // the upper half of the four-byte game header
+        .u32(agent_id)
+        .f32(destination.0)
+        .f32(destination.1)
+        .u32(trap_id)
+        .u32(plane)
+        .frame()
+}
+
+/// `GAME_SMSG_AGENT_UPDATE_DIRECTION`, the live form: 20 bytes,
+/// `25 00 00 00 | agent | dx | dy | 1`. The direction is a unit vector; the trailing dword was 1 in
+/// every captured instance.
+pub fn agent_update_direction_live(
+    agent_id: u32,
+    direction: (f32, f32),
+) -> crate::client::Frame {
+    Builder::new(AGENT_UPDATE_DIRECTION)
+        .u16(0)
+        .u32(agent_id)
+        .f32(direction.0)
+        .f32(direction.1)
+        .u32(1)
+        .frame()
+}
+
+/// `GAME_SMSG_AGENT_UPDATE_SPEED`, the live form: 16 bytes, `2b 00 00 00 | agent | 1.0 | mode`.
+///
+/// The capture shows 1.0 in every instance, mode 1 when a walk starts and mode 9 when it is cancelled.
+pub fn agent_update_speed_live(agent_id: u32, speed: f32, mode: u32) -> crate::client::Frame {
+    Builder::new(AGENT_UPDATE_SPEED)
+        .u16(0)
+        .u32(agent_id)
+        .f32(speed)
+        .u32(mode)
+        .frame()
+}
+
+/// `GAME_SMSG_WORLD_SIMULATION_TICK`, the live form: 8 bytes, `1e 00 00 00 | elapsed ms`.
+///
+/// The live server sends one every ~100 ms with the real elapsed time since the previous tick (median
+/// 81 ms, minimum 1, maximum 519 over the measured capture).
+pub fn world_simulation_tick_live(elapsed_ms: u32) -> crate::client::Frame {
+    Builder::new(WORLD_SIMULATION_TICK)
+        .u16(0)
+        .u32(elapsed_ms)
         .frame()
 }
 
@@ -1415,6 +1489,67 @@ mod tests {
         assert_eq!(wire(&world_simulation_tick(16)), 6);
         assert_eq!(wire(&ping_request()), 2);
         assert_eq!(wire(&ping_reply(20)), 6);
+    }
+
+    #[test]
+    fn the_live_movement_messages_are_the_bytes_the_live_server_sends() {
+        // Verbatim from `captures/live-move.jsonl`, a live client walking under the live servers. The
+        // header is four bytes wide, so the upper two bytes of the message index are zero.
+        assert_eq!(
+            agent_move_to_point_live(
+                0x45,
+                (f32::from_bits(0x45FB_FD23), f32::from_bits(0x45AB_0356)),
+                0,
+                0
+            )
+            .encode(),
+            vec![
+                0x29, 0, 0, 0, 0x45, 0, 0, 0, 0x23, 0xfd, 0xfb, 0x45, 0x56, 0x03, 0xab, 0x45, 0, 0,
+                0, 0, 0, 0, 0, 0
+            ]
+        );
+        // A waypoint on a trap: the trap id is the fourth dword and the plane the fifth. Verbatim from
+        // the capture at t=22.414 (10860, 4532, trap 18, plane 0) and t=22.769 (10860, 5579, trap 0,
+        // plane 18) -- the second is where the trap in the first one leads.
+        assert_eq!(
+            agent_move_to_point_live(0x45, (10860.0, 4532.0), 18, 0).encode(),
+            vec![
+                0x29, 0, 0, 0, 0x45, 0, 0, 0, 0x00, 0xb0, 0x29, 0x46, 0x00, 0xa0, 0x8d, 0x45,
+                0x12, 0, 0, 0, 0, 0, 0, 0
+            ]
+        );
+        assert_eq!(
+            agent_move_to_point_live(0x45, (10860.0, 5579.0), 0, 18).encode(),
+            vec![
+                0x29, 0, 0, 0, 0x45, 0, 0, 0, 0x00, 0xb0, 0x29, 0x46, 0x00, 0x58, 0xae, 0x45, 0,
+                0, 0, 0, 0x12, 0, 0, 0
+            ]
+        );
+        assert_eq!(
+            agent_update_direction_live(
+                0x45,
+                (f32::from_bits(0xBE23_B096), f32::from_bits(0xBF7C_6C17))
+            )
+            .encode(),
+            vec![
+                0x25, 0, 0, 0, 0x45, 0, 0, 0, 0x96, 0xb0, 0x23, 0xbe, 0x17, 0x6c, 0x7c, 0xbf, 1,
+                0, 0, 0
+            ]
+        );
+        // Mode 9 stops a walk, mode 1 starts one; both carry 1.0 as the speed.
+        assert_eq!(
+            agent_update_speed_live(0x45, 1.0, 9).encode(),
+            vec![0x2b, 0, 0, 0, 0x45, 0, 0, 0, 0, 0, 0x80, 0x3f, 9, 0, 0, 0]
+        );
+        assert_eq!(
+            agent_update_speed_live(0x45, 1.0, 1).encode(),
+            vec![0x2b, 0, 0, 0, 0x45, 0, 0, 0, 0, 0, 0x80, 0x3f, 1, 0, 0, 0]
+        );
+        // And the tick is eight bytes with the real elapsed time (here 503 ms).
+        assert_eq!(
+            world_simulation_tick_live(0x1F7).encode(),
+            vec![0x1e, 0, 0, 0, 0xf7, 0x01, 0, 0]
+        );
     }
 
     #[test]

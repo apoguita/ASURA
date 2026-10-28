@@ -175,6 +175,28 @@ impl AgentState {
         self.motion.speed = 0.0;
     }
 
+    /// Take a position the client reported as the agent's own, exactly.
+    ///
+    /// This is what the live servers do with `MOVE_TO_COORD_WITH_DIR` (`0x003D`): the message carries
+    /// where the client is and the offset it is walking in, and the server answers from that position --
+    /// no elapsed-time budget, no clamping (`captures/live-move.jsonl`: every answer's destination is the
+    /// reported position plus the reported offset, to within the server's own float error). Adopting it
+    /// exactly is what keeps the server's copy and the client's walk from drifting apart.
+    pub fn adopt_exact(&mut self, position: (f32, f32), plane: u16) {
+        self.position = position;
+        self.plane = plane;
+    }
+
+    /// Start walking straight at `destination`, replacing any walk in progress and any waypoint list.
+    ///
+    /// The caller has already decided the point is reachable on this plane; the plane travels with the
+    /// destination so an arrival on another plane is the same move the reference makes.
+    pub fn walk_to(&mut self, destination: Pos) {
+        self.motion.waypoints.clear();
+        self.motion.waypoint_idx = 0;
+        self.set_destination(destination);
+    }
+
     /// `GameSrv_UpdateAgentMovement`: walk `delta` seconds of the current segment.
     ///
     /// Returns the waypoint that became the new destination, if the agent crossed one during the tick --

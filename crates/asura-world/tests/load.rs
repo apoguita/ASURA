@@ -2779,32 +2779,31 @@ async fn a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path() {
         "the agent walks on the world tick: it has moved {travelled:.1} units"
     );
 
-    // ---- the budget: a report a kilometre away is clamped, and the clamp is what is broadcast ----
-    let far = (spawn.0 + 2500.0, spawn.1 + 3000.0);
-    // Where the walker stood when it made the report. The first client to join takes player id 1
-    // (`Peers::join` hands out the lowest free id), and the second client is the one that observes.
-    let before = harness
-        .world
-        .peers
-        .others(0)
-        .into_iter()
-        .find(|peer| peer.player_id == 1)
-        .map(|peer| peer.standing.position)
-        .expect("the walker is in the world");
-    let distance_before = ((before.0 - far.0).powi(2) + (before.1 - far.1).powi(2)).sqrt();
-
+    // ---- a manual report is believed exactly, and answered with direction + destination ----------
+    // The live servers take the reported position as the agent's own (measured: 67 of 67 manual reports
+    // in `captures/live-move.jsonl`) and answer `0x0025` toward the first waypoint plus `0x0029` at it.
+    let manual = (spawn.0 + 40.0, spawn.1 + 40.0);
+    let offset = (100.0f32, 0.0f32);
     let mut report = Vec::new();
-    report.extend_from_slice(&far.0.to_le_bytes());
-    report.extend_from_slice(&far.1.to_le_bytes());
-    report.extend_from_slice(&0u32.to_le_bytes());
-    report.extend_from_slice(&[0u8; 12]); // the two trailing fields, which the world does not read
+    report.extend_from_slice(&manual.0.to_le_bytes());
+    report.extend_from_slice(&manual.1.to_le_bytes());
+    report.extend_from_slice(&0u32.to_le_bytes()); // the plane the client says it is on
+    report.extend_from_slice(&offset.0.to_le_bytes());
+    report.extend_from_slice(&offset.1.to_le_bytes());
+    report.extend_from_slice(&1u32.to_le_bytes());
     say(&mut stream_a, &mut client_a, 0x803D, &report).await;
 
-    let observed = read_until(&mut stream_b, &mut client_b, game::AGENT_UPDATE_POSITION).await;
+    let observed = read_until(&mut stream_b, &mut client_b, game::AGENT_MOVE_TO_POINT).await;
+    assert!(
+        observed
+            .iter()
+            .any(|frame| frame.header == game::AGENT_UPDATE_DIRECTION),
+        "the walk is answered with a direction"
+    );
     let position = observed
         .iter()
-        .find(|frame| frame.header == game::AGENT_UPDATE_POSITION)
-        .expect("the clamp is broadcast");
+        .find(|frame| frame.header == game::AGENT_MOVE_TO_POINT)
+        .expect("and with the first waypoint of the path");
     let x = f32::from_le_bytes([
         position.body[4],
         position.body[5],
@@ -2817,21 +2816,28 @@ async fn a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path() {
         position.body[10],
         position.body[11],
     ]);
-    let jumped = ((x - far.0).powi(2) + (y - far.1).powi(2)).sqrt();
-    // The reference's budget: `speed_base * elapsed + POSITION_UPDATE_TOLERANCE`, with the elapsed time
-    // capped at `POSITION_UPDATE_MAX_ELAPSED_MS` (2000 ms) -- 288 * 2 + 50 = 626 units.
+    // The path's first waypoint is either the reported offset's end or an intermediate point on the
+    // way; both are inside the box the report describes, and neither is the position it started from.
     assert!(
-        jumped < distance_before,
-        "an out-of-budget report still moves the agent toward what it said"
+        x >= manual.0.min(manual.0 + offset.0) - 200.0 && x <= manual.0.max(manual.0 + offset.0) + 200.0,
+        "the waypoint is on the reported walk ({x:.1})"
     );
     assert!(
-        distance_before - jumped <= 700.0,
-        "but only as far as the budget allows: it moved {:.1} units",
-        distance_before - jumped
+        ((x - manual.0).powi(2) + (y - manual.1).powi(2)).sqrt() > 10.0,
+        "and is not the position the report already carried"
     );
-    assert!(
-        jumped > 500.0,
-        "and the far report itself was not believed: {jumped:.1} units from it"
+    // The world's own copy is the reported position, not a clamped one.
+    let adopted = harness
+        .world
+        .peers
+        .others(0)
+        .into_iter()
+        .find(|peer| peer.player_id == 1)
+        .map(|peer| peer.standing.position)
+        .expect("the walker is in the world");
+    assert_eq!(
+        adopted, manual,
+        "the reported position became the agent's own, exactly"
     );
 
     drop(stream_a);
@@ -2906,14 +2912,18 @@ async fn a_cancelled_walk_stops_the_servers_own_copy() {
         "the walk was under way before the cancel ({moved_from_spawn:.1} units)"
     );
 
-    // The client takes the walk back.
+    // The client takes the walk back. The live answer is the stop pair (`0x002B` speed 1.0 in mode 9,
+    // then `0x0029` at the position it stopped at), not the reference's `0x0028`.
     ask(&mut stream, &mut client, 0x8028, 2).await;
-    let stopped = read_until(&mut stream, &mut client, game::AGENT_STOP_MOVING).await;
+    let stopped = read_until(&mut stream, &mut client, game::AGENT_UPDATE_SPEED).await;
     assert!(
         stopped
             .iter()
-            .any(|frame| frame.header == game::AGENT_STOP_MOVING),
-        "the cancel is answered with a stop"
+            .any(|frame| frame.header == game::AGENT_UPDATE_SPEED
+                && u32::from_le_bytes([
+                    frame.body[8], frame.body[9], frame.body[10], frame.body[11]
+                ]) == game::AGENT_SPEED_MODE_STOP),
+        "the cancel is answered with the stop mode"
     );
 
     // Two more ticks later the agent has to be exactly where it stopped. Without the cancel it would
@@ -2968,17 +2978,20 @@ async fn a_walk_the_finder_refuses_is_answered_with_the_agents_position() {
     walk.extend_from_slice(&0u32.to_le_bytes());
     say(&mut stream, &mut client, 0x803E, &walk).await;
 
-    let answered = read_until(&mut stream, &mut client, game::AGENT_UPDATE_POSITION).await;
+    let answered = read_until(&mut stream, &mut client, game::AGENT_MOVE_TO_POINT).await;
     assert!(
-        !answered
-            .iter()
-            .any(|frame| frame.header == game::AGENT_MOVE_TO_POINT),
-        "a refused walk must not promise a destination"
+        answered.iter().any(|frame| {
+            frame.header == game::AGENT_UPDATE_SPEED
+                && u32::from_le_bytes([
+                    frame.body[8], frame.body[9], frame.body[10], frame.body[11]
+                ]) == game::AGENT_SPEED_MODE_STOP
+        }),
+        "a refused walk is cancelled, in the live stop mode"
     );
     let position = answered
         .iter()
-        .find(|frame| frame.header == game::AGENT_UPDATE_POSITION)
-        .expect("the refusal is a position");
+        .find(|frame| frame.header == game::AGENT_MOVE_TO_POINT)
+        .expect("and the agent is told where it is standing");
     let x = f32::from_le_bytes([
         position.body[4],
         position.body[5],

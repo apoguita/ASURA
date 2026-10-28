@@ -46,13 +46,16 @@ use asura_protocol::client::version::{self, GAME_CMSG_VERSION_LEN};
 use asura_protocol::client::{Frame, FrameError};
 use asura_protocol::game;
 
-use crate::agent::{Adopted, Agents};
+use crate::agent::Agents;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-/// How often the world's clock is sent. The reference sends one at least every 500 ms
-/// (`GAME_SRV_MAX_TIME_BETWEEN_WORLD_TICK_MS`), and a client that stops receiving it stops moving.
-pub const TICK_INTERVAL: Duration = Duration::from_millis(500);
+/// How often the world's clock is sent.
+///
+/// Measured from the live capture (`captures/live-move.jsonl`): a `0x001E` every ~100 ms, carrying the
+/// real elapsed milliseconds since the previous one (median 81 ms, minimum 1, maximum 519). The
+/// reference's floor is 500 ms, and the live client is unhappier at that rate than at this one.
+pub const TICK_INTERVAL: Duration = Duration::from_millis(100);
 
 /// How often the server asks the client whether it is still there. The reference's constant is 5000 ms
 /// (`GAME_SRV_TIME_BETWEEN_PING_MS`).
@@ -1220,6 +1223,9 @@ async fn run(
     trace: bool,
 ) -> Result<(), GameError> {
     let mut tick = tokio::time::interval(TICK_INTERVAL);
+    // What the world's clock announces is the real elapsed time between ticks, so the clock starts here
+    // rather than at the interval's own nominal 100 ms.
+    let mut last_tick = Instant::now();
     let mut ping = tokio::time::interval(PING_INTERVAL);
     let mut buffer = [0u8; 8192];
 
@@ -1271,12 +1277,16 @@ async fn run(
                 // `GameSrv_WorldTick`: announce the elapsed time, then move every agent along its own
                 // walk. The announcement goes to this connection only -- each connection keeps its own
                 // ticker here, where the reference has one loop for the whole server, so every client
-                // still hears one tick per interval.
-                let delta_ms = TICK_INTERVAL.as_millis() as u32;
+                // still hears one tick per interval. The number announced is the **real** elapsed
+                // milliseconds since the previous tick, which is what the live servers send.
+                let elapsed = last_tick.elapsed();
+                last_tick = Instant::now();
+                let delta_ms = u32::try_from(elapsed.as_millis()).unwrap_or(u32::MAX);
+                let delta = elapsed.as_secs_f32();
                 let was_moving = 0.0 < play.agents.player.motion.speed;
                 let before = play.agents.player.position;
                 let before_plane = play.agents.player.plane;
-                let crossed = play.agents.player.advance(TICK_INTERVAL.as_secs_f32());
+                let crossed = play.agents.player.advance(delta);
                 if move_trace_on() {
                     play.move_stats.ticks += 1;
                     if was_moving {
@@ -1285,10 +1295,10 @@ async fn run(
                             let dy = play.agents.player.position.1 - before.1;
                             (dx * dx + dy * dy).sqrt()
                         };
-                        let expected = game::PLAYER_SPEED_BASE * TICK_INTERVAL.as_secs_f32();
+                        let expected = game::PLAYER_SPEED_BASE * delta;
                         eprintln!(
-                            "move[tick] walked {moved:.1} units (expected {expected:.1} at \
-                             {:.0}/s), agent (x={:.1}, y={:.1}, plane={})",
+                            "move[tick] walked {moved:.1} units in {delta_ms} ms (expected \
+                             {expected:.1} at {:.0}/s), agent (x={:.1}, y={:.1}, plane={})",
                             game::PLAYER_SPEED_BASE,
                             play.agents.player.position.0,
                             play.agents.player.position.1,
@@ -1328,16 +1338,18 @@ async fn run(
                         );
                     }
                 }
-                let mut frames = vec![game::world_simulation_tick(delta_ms)];
+                let mut frames = vec![game::world_simulation_tick_live(delta_ms)];
                 if let Some(waypoint) = crossed {
-                    // A crossed waypoint is a new destination, and the reference broadcasts it: `every`
+                    // A crossed waypoint is a new destination, and the reference broadcasts it: every
                     // client is drawing this agent from the last destination it was told
-                    // (`GameSrv_UpdateAgentDestination` -> `GameSrv_BroadcastAgentMoveToPoint`).
-                    let walk = game::agent_move_to_point(
+                    // (`GameSrv_UpdateAgentDestination` -> `GameSrv_BroadcastAgentMoveToPoint`). The live
+                    // capture shows exactly this message arriving mid-walk with no client message before
+                    // it, carrying the waypoint's trap and plane.
+                    let walk = game::agent_move_to_point_live(
                         play.agents.player.agent_id,
                         (waypoint.pos.x, waypoint.pos.y),
-                        waypoint.pos.plane,
-                        play.agents.player.plane,
+                        waypoint.trap_id,
+                        u32::from(waypoint.pos.plane),
                     );
                     world
                         .peers
@@ -1612,6 +1624,21 @@ fn move_trace_on() -> bool {
     })
 }
 
+/// The unit vector from `from` toward `to`, which is what `GAME_SMSG_AGENT_UPDATE_DIRECTION` carries.
+///
+/// A zero offset keeps the direction it had -- `(1, 0)` -- rather than dividing by zero, which is the same
+/// choice `AgentState::set_destination` makes for a destination equal to the position.
+fn unit_towards(from: (f32, f32), to: (f32, f32)) -> (f32, f32) {
+    let dx = to.0 - from.0;
+    let dy = to.1 - from.1;
+    let norm = ((dx * dx) + (dy * dy)).sqrt();
+    if norm > 0.0 {
+        (dx / norm, dy / norm)
+    } else {
+        (1.0, 0.0)
+    }
+}
+
 /// A path as the trace prints it: the first few waypoints with their planes and trapezoids.
 fn waypoints_preview(waypoints: &[pathfind::Waypoint]) -> String {
     let shown: Vec<String> = waypoints
@@ -1760,9 +1787,11 @@ async fn answer(
         //
         // The reference asks its path finder for the walk and then answers with **the first waypoint of
         // its own path**, not with the client's destination: the client predicts a straight line, and a
-        // straight line through a wall is exactly what this message corrects. When the finder refuses, the
-        // reference sends no refusal of its own -- it cancels the walk and broadcasts where the agent
-        // really is, which is what makes the client snap back.
+        // straight line through a wall is exactly what this message corrects. The live capture is the same
+        // walk, in the live wire form: a `0x2B` speed of 1.0 in mode 1 when the walk starts, then a
+        // `0x29` carrying the waypoint, its trap id and its plane (`captures/live-move.jsonl` t=21.6,
+        // t=60.6). When the finder refuses, the reference sends no refusal of its own -- it cancels the
+        // walk and sends where the agent really is, which is what makes the client snap back.
         0x803E => {
             if frame.body.len() < 12 {
                 return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
@@ -1834,21 +1863,31 @@ async fn answer(
                 // An empty path sends nothing: the reference checks `0 < agent->waypoints.len`.
                 Walk::Found(waypoints) => {
                     if let Some(first) = play.agents.player.begin_walk(waypoints) {
-                        let walk = game::agent_move_to_point(
+                        let mut frames = Vec::new();
+                        // The live server announces the start of a walk only when the agent was not
+                        // already walking (t=38.4 has it, t=42.9 -- a second click mid-walk -- does not).
+                        if !walk_active {
+                            frames.push(game::agent_update_speed_live(
+                                agent_id,
+                                1.0,
+                                game::AGENT_SPEED_MODE_START,
+                            ));
+                        }
+                        let walk = game::agent_move_to_point_live(
                             agent_id,
                             (first.pos.x, first.pos.y),
-                            first.pos.plane,
-                            play.agents.player.plane,
+                            first.trap_id,
+                            u32::from(first.pos.plane),
                         );
                         if move_trace_on() {
                             eprintln!(
-                                "move[pathfind] answered with waypoint 0 (x={:.1}, y={:.1}, plane={}) \
-                                 current_plane={} [0x0029, {} bytes]; {} waypoint(s) left to walk, \
+                                "move[pathfind] answered with waypoint 0 (x={:.1}, y={:.1}, plane={}, \
+                                 trap={}) [0x0029, {} bytes]; {} waypoint(s) left to walk, \
                                  agent stays at (x={:.1}, y={:.1}, plane={})",
                                 first.pos.x,
                                 first.pos.y,
                                 first.pos.plane,
-                                play.agents.player.plane,
+                                first.trap_id,
                                 walk.len(),
                                 play.agents.player.motion.waypoints.len(),
                                 play.agents.player.position.0,
@@ -1856,13 +1895,12 @@ async fn answer(
                                 play.agents.player.plane
                             );
                         }
+                        frames.push(walk);
                         // Everyone else is told where this agent is walking: the reference broadcasts the
                         // same message (`GameSrv_BroadcastAgentMoveToPoint`), and a client that is not
                         // told keeps drawing the walker where it last stood.
-                        world
-                            .peers
-                            .broadcast(play.player_id, std::slice::from_ref(&walk));
-                        send(stream, session, vec![walk], trace).await?;
+                        world.peers.broadcast(play.player_id, &frames);
+                        send(stream, session, frames, trace).await?;
                     }
                 }
                 Walk::NoPath | Walk::NoGraph => {
@@ -1873,36 +1911,59 @@ async fn answer(
                     }
                     play.agents.player.cancel_movement();
                     let standing = play.standing();
-                    let position =
-                        game::agent_update_position(agent_id, standing.position, standing.plane);
+                    let frames = vec![
+                        game::agent_update_speed_live(
+                            agent_id,
+                            1.0,
+                            game::AGENT_SPEED_MODE_STOP,
+                        ),
+                        game::agent_move_to_point_live(
+                            agent_id,
+                            standing.position,
+                            0,
+                            u32::from(standing.plane),
+                        ),
+                    ];
                     if move_trace_on() {
                         eprintln!(
                             "move[pathfind] walk refused; snapped to (x={:.1}, y={:.1}, plane={}) \
-                             [0x002D, {} bytes]",
+                             [0x002B mode 9 + 0x0029, {} bytes]",
                             standing.position.0,
                             standing.position.1,
                             standing.plane,
-                            position.len()
+                            frames.iter().map(|frame| frame.len()).sum::<usize>()
                         );
                     }
                     world.peers.update(play.player_id, standing);
-                    world
-                        .peers
-                        .broadcast(play.player_id, std::slice::from_ref(&position));
-                    send(stream, session, vec![position], trace).await?;
+                    world.peers.broadcast(play.player_id, &frames);
+                    send(stream, session, frames, trace).await?;
                 }
             }
             Ok(true)
         }
 
-        // The client reports where it is (`GameSrv_HandlePositionUpdate`). The position is adopted when
-        // the budget allows it, clamped when it does not, and refused across a plane change that is too
-        // far. Nothing goes back to the reporter â€” it already knows where it is â€” but everyone else is
-        // told, which is what the reference's `GameSrv_BroadcastAgentPosition` does and why a second
-        // client sees the first one move.
+        // The client walks itself, one key press at a time (`MOVE_TO_COORD_WITH_DIR`, `0x003D`): the
+        // message carries where the client is, the plane it is on, and the offset it is walking in, and
+        // the live servers answer from exactly that.
+        //
+        // Measured from `captures/live-move.jsonl` (67 manual reports, every one answered the same way):
+        //   * the reported position and plane become the agent's own, with no elapsed-time budget --
+        //     every answer's destination is the reported position plus the reported offset (`r` between
+        //     1.0006 and 1.0007 where the line is clear, less where the path turns first);
+        //   * the answer is `0x0025` with the **unit** direction toward the first waypoint of a path from
+        //     that position toward `position + offset`, then `0x0029` with the waypoint itself, its trap
+        //     id and its plane -- so a manual walk through a portal is routed through the same trap a
+        //     clicked walk is, and the client's plane changes where live's does;
+        //   * the server's own copy then walks that path at `PLAYER_SPEED_BASE`, announcing the next
+        //     waypoint each time one is crossed.
+        //
+        // Treating this message as a bare position report (which is what this server used to do, following
+        // `GameSrv_HandlePositionUpdate`) is what let the server's copy drift away from the client: the
+        // path for the next click started from a clamped, stale position, and the client was pulled back
+        // to it.
         0x803D => {
-            if frame.body.len() < 12 {
-                return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
+            if frame.body.len() < 20 {
+                return Err(GameError::Framing(FrameError::Incomplete { needed: 28 }));
             }
             let position = (
                 f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
@@ -1911,108 +1972,180 @@ async fn answer(
             let plane =
                 u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]])
                     as u16;
-            let now = Instant::now();
+            let offset = (
+                f32::from_le_bytes([
+                    frame.body[12],
+                    frame.body[13],
+                    frame.body[14],
+                    frame.body[15],
+                ]),
+                f32::from_le_bytes([
+                    frame.body[16],
+                    frame.body[17],
+                    frame.body[18],
+                    frame.body[19],
+                ]),
+            );
+            let agent_id = play.agents.player.agent_id;
             let before = play.standing();
-            let since = play.agents.player.since_last_report(now);
             let walk_was_running = 0.0 < play.agents.player.motion.speed;
-            let adopted = play.agents.player.adopt_report(position, plane, now);
-            let standing = play.standing();
+            play.agents.player.adopt_exact(position, plane);
+            let from = play.agents.player.here();
+            let target = pathfind::Pos {
+                x: position.0 + offset.0,
+                y: position.1 + offset.1,
+                plane,
+            };
+            let walked = world.graphs.walk(play.map.map_id, from, target);
             if move_trace_on() {
                 play.move_stats.reports += 1;
-                match adopted {
-                    Adopted::Accepted => play.move_stats.accepted += 1,
-                    Adopted::Clamped => play.move_stats.clamped += 1,
-                    Adopted::Refused => play.move_stats.refused += 1,
-                }
                 let distance = {
                     let dx = position.0 - before.position.0;
                     let dy = position.1 - before.position.1;
                     (dx * dx + dy * dy).sqrt()
                 };
                 play.move_stats.max_drift = play.move_stats.max_drift.max(distance);
+                if plane != before.plane {
+                    play.move_stats.plane_changes += 1;
+                }
                 eprintln!(
-                    "move[manual] report (x={:.1}, y={:.1}, plane={plane}) against the server's \
-                     (x={:.1}, y={:.1}, plane={}) — d={distance:.1}, {} ms since the last report, \
-                     server walk running={walk_was_running}: {adopted:?}, agent now \
-                     (x={:.1}, y={:.1}, plane={}) [0x803D, {} bytes]",
+                    "move[manual] report (x={:.1}, y={:.1}, plane={plane}) — d={distance:.1} from the \
+                     server's last (x={:.1}, y={:.1}, plane={}), offset (x={:.1}, y={:.1}), server walk \
+                     running={walk_was_running}; server position is now the report [0x803D, {} bytes]",
                     position.0,
                     position.1,
                     before.position.0,
                     before.position.1,
                     before.plane,
-                    since.map(|elapsed| elapsed.as_millis()).unwrap_or(0),
-                    standing.position.0,
-                    standing.position.1,
-                    standing.plane,
-                    frame.body.len() + 2
+                    offset.0,
+                    offset.1,
+                    frame.body.len() + 4
                 );
-                if adopted == Adopted::Accepted && plane != before.plane {
-                    play.move_stats.plane_changes += 1;
+                if plane != before.plane {
                     eprintln!(
-                        "move[jump] the client's report changed the plane {before_plane} -> {plane} \
-                         at (x={:.1}, y={:.1}){note}",
-                        position.0,
-                        position.1,
-                        before_plane = before.plane,
-                        note = if distance > 50.0 {
-                            " — more than the tolerance away, so this is a real plane change, not stairs"
-                        } else {
-                            ""
+                        "move[jump] the client's report moved the agent to plane {plane} at \
+                         (x={:.1}, y={:.1})",
+                        position.0, position.1
+                    );
+                }
+            }
+
+            let frames = match walked {
+                Walk::Found(waypoints) => {
+                    let mut frames = Vec::new();
+                    if let Some(first) = play.agents.player.begin_walk(waypoints) {
+                        // The live answer: the direction toward the first waypoint, then the waypoint.
+                        if !walk_was_running {
+                            frames.push(game::agent_update_speed_live(
+                                agent_id,
+                                1.0,
+                                game::AGENT_SPEED_MODE_START,
+                            ));
                         }
-                    );
+                        frames.push(game::agent_update_direction_live(
+                            agent_id,
+                            unit_towards(position, (first.pos.x, first.pos.y)),
+                        ));
+                        let walk = game::agent_move_to_point_live(
+                            agent_id,
+                            (first.pos.x, first.pos.y),
+                            first.trap_id,
+                            u32::from(first.pos.plane),
+                        );
+                        if move_trace_on() {
+                            eprintln!(
+                                "move[manual] answered with direction + waypoint 0 (x={:.1}, y={:.1}, \
+                                 plane={}, trap={}) [0x0025 + 0x0029, {} bytes]; {} waypoint(s) left \
+                                 to walk",
+                                first.pos.x,
+                                first.pos.y,
+                                first.pos.plane,
+                                first.trap_id,
+                                frames.iter().map(|frame| frame.len()).sum::<usize>(),
+                                play.agents.player.motion.waypoints.len()
+                            );
+                        }
+                        frames.push(walk);
+                    }
+                    frames
                 }
-                if adopted != Adopted::Accepted && distance > 50.0 {
-                    eprintln!(
-                        "move[jump] report rejected or clamped {adopted:?}: client at (x={:.1}, \
-                         y={:.1}, plane={plane}), server at (x={:.1}, y={:.1}, plane={}), d={distance:.1}",
-                        position.0,
-                        position.1,
-                        before.position.0,
-                        before.position.1,
-                        before.plane
-                    );
+                Walk::NoPath | Walk::NoGraph => {
+                    // No measured sample of a manual report with no path (the capture's manual walks all
+                    // found one). The stop pair is the live shape for "this walk cannot happen", which is
+                    // what a cancelled walk is answered with: the agent stands where the client says it is.
+                    play.agents.player.cancel_movement();
+                    if move_trace_on() {
+                        eprintln!(
+                            "move[manual] no path toward (x={:.1}, y={:.1}, plane={plane}); answered \
+                             with the stop pair",
+                            target.x, target.y
+                        );
+                    }
+                    vec![
+                        game::agent_update_speed_live(
+                            agent_id,
+                            1.0,
+                            game::AGENT_SPEED_MODE_STOP,
+                        ),
+                        game::agent_move_to_point_live(
+                            agent_id,
+                            position,
+                            0,
+                            u32::from(plane),
+                        ),
+                    ]
                 }
-            }
-            world.peers.update(play.player_id, standing);
-            if adopted != Adopted::Refused {
-                world.peers.broadcast(
-                    play.player_id,
-                    &[game::agent_update_position(
-                        play.agents.player.agent_id,
-                        standing.position,
-                        standing.plane,
-                    )],
-                );
-            }
+            };
             if trace {
                 eprintln!(
-                    "world: agent {} reported ({:.1}, {:.1}) plane {plane}: {adopted:?} -> ({:.1}, \
-                     {:.1})",
-                    play.agents.player.agent_id, position.0, position.1, play.agents.player.position.0, play.agents.player.position.1
+                    "world: agent {} reported ({:.1}, {:.1}) plane {plane}, walking toward ({:.1}, \
+                     {:.1}): {} message(s) back",
+                    play.agents.player.agent_id,
+                    position.0,
+                    position.1,
+                    target.x,
+                    target.y,
+                    frames.len()
                 );
             }
+            world.peers.update(play.player_id, play.standing());
+            if !frames.is_empty() {
+                world.peers.broadcast(play.player_id, &frames);
+            }
+            send(stream, session, frames, trace).await?;
             Ok(true)
         }
 
-        // The client stopped walking (`GameSrv_HandleCancelMovement`): the agent stops where it is and
-        // everyone is told, which is the mover too as far as this server is concerned.
         // The client stopped walking (`GameSrv_HandleCancelMovement`): cancel the agent's own walk --
         // `GameSrv_CancelAgentMovement` sets its destination to where it stands and its speed to zero --
         // and then tell everyone it stopped. Cancelling is the load-bearing half: without it the server
         // keeps advancing its copy along the abandoned path, and the next click is answered from a
         // position the client walked away from minutes ago (observed live: a click to x4 started from
         // the old x2 the client had already left, pulling the agent back to it).
+        //
+        // The live servers answer a cancel with the stop pair measured in `captures/live-move.jsonl`:
+        // `0x002B` speed 1.0 in mode 9, then `0x0029` at the position the agent stopped at.
         0x8028 => {
             let was_walking = 0.0 < play.agents.player.motion.speed;
             play.agents.player.cancel_movement();
-            let stop = game::agent_stop_moving(play.agents.player.agent_id);
+            let agent_id = play.agents.player.agent_id;
+            let standing = play.standing();
+            let frames = vec![
+                game::agent_update_speed_live(agent_id, 1.0, game::AGENT_SPEED_MODE_STOP),
+                game::agent_move_to_point_live(
+                    agent_id,
+                    standing.position,
+                    0,
+                    u32::from(standing.plane),
+                ),
+            ];
             if move_trace_on() {
                 eprintln!(
                     "move[stop] client cancelled walking at (x={:.1}, y={:.1}, plane={}){} \
                      [0x8028, {} bytes]",
-                    play.agents.player.position.0,
-                    play.agents.player.position.1,
-                    play.agents.player.plane,
+                    standing.position.0,
+                    standing.position.1,
+                    standing.plane,
                     if was_walking {
                         " — a server-side walk WAS running: cancelled (speed -> 0, destination cleared)"
                     } else {
@@ -2021,16 +2154,17 @@ async fn answer(
                     frame.body.len() + 2
                 );
             }
-            world
-                .peers
-                .broadcast(play.player_id, std::slice::from_ref(&stop));
-            send(stream, session, vec![stop], trace).await?;
+            world.peers.update(play.player_id, standing);
+            world.peers.broadcast(play.player_id, &frames);
+            send(stream, session, frames, trace).await?;
             Ok(true)
         }
 
-        // The client corrects its position after a cancelled walk
-        // (`GameSrv_HandleLastPosOnMoveCanceled`): short corrections on the same plane are taken, longer
-        // ones refused, and nothing is sent either way.
+        // The client reports where it stopped after a cancelled walk
+        // (`LAST_POS_BEFORE_MOVE_CANCELED`, `0x0047`). The live servers take the reported position as
+        // the agent's own and answer with the stop pair -- `0x002B` mode 9 then `0x0029` at that exact
+        // position (`captures/live-move.jsonl`, t=60.1: the report is (10931.34, 5750.51) and the
+        // destination in the answer is the same pair of floats, unchanged).
         0x8047 => {
             if frame.body.len() < 12 {
                 return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
@@ -2042,16 +2176,29 @@ async fn answer(
             let plane =
                 u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]])
                     as u16;
-            let taken = play.agents.player.adopt_correction(position, plane);
+            let agent_id = play.agents.player.agent_id;
+            play.agents.player.adopt_exact(position, plane);
+            play.agents.player.cancel_movement();
+            let standing = play.standing();
             if trace {
                 eprintln!(
-                    "world: agent {} correction to ({:.1}, {:.1}) plane {plane}: {}",
-                    play.agents.player.agent_id,
-                    position.0,
-                    position.1,
-                    if taken { "taken" } else { "refused" }
+                    "world: agent {agent_id} stopped at ({:.1}, {:.1}) plane {plane}; answered with the \
+                     stop pair",
+                    position.0, position.1
                 );
             }
+            let frames = vec![
+                game::agent_update_speed_live(agent_id, 1.0, game::AGENT_SPEED_MODE_STOP),
+                game::agent_move_to_point_live(
+                    agent_id,
+                    (position.0, position.1),
+                    0,
+                    u32::from(plane),
+                ),
+            ];
+            world.peers.update(play.player_id, standing);
+            world.peers.broadcast(play.player_id, &frames);
+            send(stream, session, frames, trace).await?;
             Ok(true)
         }
 
@@ -2125,11 +2272,10 @@ async fn answer(
                     };
                     match command(name) {
                         Some(named) if named.names.contains(&"stuck") && argument.is_empty() => {
-                            // `GameSrv_HandleChatCommand`'s `stuck`: cancel the movement and broadcast where
-                            // the agent is now. **Not** `AGENT_STOP_MOVING` -- that is what
-                            // `HandleCancelMovement` (`0x8028`) answers, and the reference sends a position
-                            // update here instead. It also broadcasts a world tick first; the 500 ms ticker
-                            // covers that, so no second clock is invented.
+                            // `GameSrv_HandleChatCommand`'s `stuck`: cancel the movement and tell the agent
+                            // where it is now. The live stop pair is used here rather than the reference's
+                            // `AGENT_UPDATE_POSITION`: live never sends `0x002C`, and a cancelled walk is
+                            // exactly what `0x002B` mode 9 plus `0x0029` says on the live servers.
                             let player = &play.agents.player;
                             if trace {
                                 eprintln!(
@@ -2143,11 +2289,19 @@ async fn answer(
                             send(
                                 stream,
                                 session,
-                                vec![game::agent_update_position(
-                                    player.agent_id,
-                                    player.position,
-                                    player.plane,
-                                )],
+                                vec![
+                                    game::agent_update_speed_live(
+                                        player.agent_id,
+                                        1.0,
+                                        game::AGENT_SPEED_MODE_STOP,
+                                    ),
+                                    game::agent_move_to_point_live(
+                                        player.agent_id,
+                                        player.position,
+                                        0,
+                                        u32::from(player.plane),
+                                    ),
+                                ],
                                 trace,
                             )
                             .await?;
@@ -3593,8 +3747,10 @@ mod tests {
     }
 
     #[test]
-    fn the_tick_and_ping_intervals_are_the_references() {
-        assert_eq!(TICK_INTERVAL, Duration::from_millis(500));
+    fn the_tick_and_ping_intervals_are_what_the_live_servers_do() {
+        // The tick is 100 ms because that is what the live capture shows (`captures/live-move.jsonl`:
+        // a `0x001E` every ~100 ms, median 81); the ping is the reference's own 5 s constant.
+        assert_eq!(TICK_INTERVAL, Duration::from_millis(100));
         assert_eq!(PING_INTERVAL, Duration::from_secs(5));
         assert_eq!(PING_VALUE, 20);
     }
@@ -4226,30 +4382,45 @@ mod tests {
     }
 
     #[test]
-    fn stopping_and_stucking_are_different_messages() {
-        // Two paths that look alike in a client and are not alike in the reference:
-        //   `GAME_CMSG_CANCEL_MOVEMENT` -> `GameSrv_BroadcastAgentStopMoving`  (0x0028)
-        //   `/stuck`                    -> `GameSrv_BroadcastAgentPosition`    (0x002C)
-        // Sending the wrong one is the sort of parity bug that looks fine until someone compares traces.
-        let stop = game::agent_stop_moving(1);
-        assert_eq!(stop.header, game::AGENT_STOP_MOVING);
-        assert_eq!(stop.len(), 6, "header, then the agent id");
+    fn stopping_and_stucking_both_send_the_live_stop_pair() {
+        // Both paths cancel the walk, and the live servers answer a cancelled walk the same way whether it
+        // was a click, a manual walk or `/stuck`: `0x002B` speed 1.0 in mode 9, then `0x0029` where the
+        // agent stopped (`captures/live-move.jsonl` t=20.5, t=37.6, t=60.1). The reference sent
+        // `0x0028` to one and `0x002C` to the other; live sends neither, so this server sends neither.
+        let speed = game::agent_update_speed_live(1, 1.0, game::AGENT_SPEED_MODE_STOP);
+        assert_eq!(speed.header, game::AGENT_UPDATE_SPEED);
+        assert_eq!(speed.len(), 16, "header, agent id, speed, mode");
+        assert_eq!(
+            u32::from_le_bytes([
+                speed.body[8],
+                speed.body[9],
+                speed.body[10],
+                speed.body[11]
+            ]),
+            game::AGENT_SPEED_MODE_STOP,
+            "the mode dword says the walk was cancelled"
+        );
 
-        let position = game::agent_update_position(1, (6602.0, 4485.0), 0);
-        assert_eq!(position.header, game::AGENT_UPDATE_POSITION);
-        assert_eq!(position.len(), 16, "header, agent id, two floats, plane");
+        let destination = game::agent_move_to_point_live(1, (6602.0, 4485.0), 0, 0);
+        assert_eq!(destination.header, game::AGENT_MOVE_TO_POINT);
+        assert_eq!(destination.len(), 24, "header, agent, x, y, trap, plane");
         assert_eq!(
             f32::from_le_bytes([
-                position.body[4],
-                position.body[5],
-                position.body[6],
-                position.body[7]
+                destination.body[4],
+                destination.body[5],
+                destination.body[6],
+                destination.body[7]
             ]),
             6602.0,
             "the x coordinate follows the agent id"
         );
         assert_eq!(
-            u16::from_le_bytes([position.body[12], position.body[13]]),
+            u32::from_le_bytes([
+                destination.body[16],
+                destination.body[17],
+                destination.body[18],
+                destination.body[19]
+            ]),
             0,
             "and the plane is the last field"
         );
