@@ -1648,9 +1648,12 @@ fn live_cadence_step() -> f32 {
 /// Sample a walk so no two points are farther apart than `step`, keeping every point the path finder
 /// produced and adding the intermediate ones on the same straight segment.
 ///
-/// The added points carry the plane and trap of the point they are walking toward, which is what the
-/// reference stamps a segment with (`wp->pos.plane = step.plane`, `GmPaths.c:639`), so the walk means the
-/// same thing to the client at every sample.
+/// The added points carry the plane the segment **starts** on, and only the path finder's own point
+/// carries its plane. That is the reference's own stamping: a step before a portal is walked on the plane
+/// being traversed and only the crossing is stamped with the plane it enters (`GmPaths.c:897-900`), so a
+/// plane change is announced once, at the corner, exactly as it is without sampling. Sampling it with the
+/// corner's plane instead told the client to change plane every 145 units, which is worse than not
+/// sampling at all.
 fn densify(
     waypoints: Vec<pathfind::Waypoint>,
     from: pathfind::Pos,
@@ -1677,7 +1680,7 @@ fn densify(
                 pos: pathfind::Pos {
                     x: at.x + dx * fraction,
                     y: at.y + dy * fraction,
-                    plane: waypoint.pos.plane,
+                    plane: at.plane,
                 },
                 trap_id: waypoint.trap_id,
             });
