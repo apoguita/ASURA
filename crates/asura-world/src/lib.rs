@@ -1915,30 +1915,11 @@ async fn answer(
                     // The path as the live servers hand it out: a destination about every 145 units,
                     // which at the character's 288 u/s is the ~0.5 s cadence the live capture shows.
                     let waypoints = densify(waypoints, from, live_cadence_step());
-                    // Only floor points, and only while the agent is on the floor.
-                    //
-                    // The plane id in this data is a *surface* id from the map's pmaps, not a height: the
-                    // floor of every map is plane 0, at every altitude, and a non-zero id is a slope or a
-                    // bridge (owner's rule, 2026-10-27). A destination stamped with one of those ids
-                    // relocates the client's agent onto that surface at that XY, which is how an agent
-                    // ends up inside the hill: measured, (9176.1, 7354.3) plane 0 announced to an agent on
-                    // plane 19, after which the client reported (9078.2, 6098.5) -- 1,230 units away. So the
-                    // walk is announced on the floor only, and the client climbs a slope itself, exactly as
-                    // it does when walked with the keys.
-                    let agent_plane = play.agents.player.plane;
-                    let on_floor: Vec<pathfind::Waypoint> = waypoints
-                        .into_iter()
-                        .filter(|waypoint| waypoint.pos.plane == 0)
-                        .collect();
-                    if agent_plane != 0 {
-                        if move_trace_on() {
-                            eprintln!(
-                                "move[pathfind] the agent is on surface {agent_plane}, not the floor: \
-                                 nothing is announced"
-                            );
-                        }
-                    } else if on_floor.len() != 0 {
-                        if let Some(first) = play.agents.player.begin_walk(on_floor) {
+                    // The reference's own point, as it is: no re-writing of its plane, no dropping of its
+                    // points. The plane id is whatever the map's pmaps call the surface the path is on
+                    // (floor is 0; slopes and bridges have their own ids), and that is the reference's
+                    // business, not this server's.
+                    if let Some(first) = play.agents.player.begin_walk(waypoints) {
                             let walk = game::agent_move_to_point(
                                 agent_id,
                                 (first.pos.x, first.pos.y),
@@ -1969,15 +1950,6 @@ async fn answer(
                                 .broadcast(play.player_id, std::slice::from_ref(&walk));
                             send(stream, session, vec![walk], trace).await?;
                         }
-                    } else if trace {
-                        // No floor point on this path: nothing can be announced without moving the
-                        // client's agent onto a slope or bridge surface, so the walk is not started and
-                        // nothing is sent.
-                        play.agents.player.cancel_movement();
-                        eprintln!(
-                            "world: the path for agent {agent_id} has no floor point; nothing announced"
-                        );
-                    }
                 }
                 Walk::NoPath | Walk::NoGraph => {
                     if trace {

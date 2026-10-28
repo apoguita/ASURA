@@ -2,13 +2,18 @@
 
 State of the project as of the last commit, so a new session can begin without re-reading everything.
 
-## NOTICE: five times, invented on top of the instruction, five working features broken
+## NOTICE: six times, invented on top of the instruction, six working features broken
 
 Verbatim, from the owner of this repository (2026-10-27):
 
 > "this is the fifth time, that you invent shit on top of what i ask, and that has provoked 5 times
 > failures from features that were working already, please make notice on the docs, i cannot stress
 > enough you need to follow my command"
+
+and, after the sixth:
+
+> "i just told you how the game worked, and you took that as a rule for pathing? 'Every destination we
+> announce is plane 0' when the fuck did i said this?"
 
 This is not a note about one bad day; it is the defining failure mode of the work done in this
 repository by the assistant, and it is written here so that it is read before any edit is made.
@@ -20,9 +25,12 @@ repository by the assistant, and it is written here so that it is read before an
 | 3 | fix movement drift | "adopt the reported position exactly" instead of GWPS's budget clamp, plus a path find and `0x0025`/`0x002B` replies on `0x003D` | drift and terrain jumps, then crashes: the server's copy stood where the reference's never would, and the paths it announced put the client outside its plane box |
 | 4 | stop the slope crash | a filter that dropped a walk's leading waypoint when it was on another plane | the filter emptied a whole walk, the world answered with the reference's `0x002C` — and the client **disconnects on `0x002C`**: a `007` kick |
 | 5 | stop the slope crash, again | pinning every waypoint to the agent's plane ("flattening") | client crash, `Assertion: pos.x >= worldDims.x0` (`agint.h(929)`) |
+| 6 | *explaining what a plane is* ("all floor is plane 0, non-zero is a slope or bridge, the id is not meaningful") | turned the explanation into a **rule**: "every announced destination is plane 0, and nothing is announced while the agent is off the floor" | announced nothing for any walk that touches a slope or bridge — a behaviour nobody asked for, over a fact that was only meant to explain the data |
 
-Every one of those five was working before the addition. **The reference is the implementation. It is
-not a starting point for improvements, and a measurement is not a licence to change behaviour.**
+Every one of those six was working before the addition, and #6 was not even a request: it was an
+explanation, and an explanation is not an instruction. **The reference is the implementation. It is not a
+starting point for improvements, and a measurement — or an explanation — is not a licence to change
+behaviour.**
 
 Rules that follow, and that are binding for any later session:
 
@@ -32,8 +40,11 @@ Rules that follow, and that are binding for any later session:
 - **No inventing around the reference.** No filters, no clamps, no message-shape changes, no extra
   messages, no thresholds, no "defensive" rewrites. The reference's code is the specification; if it
   has a defect, that defect is the specification until the owner says otherwise.
+- **An explanation is not an instruction.** When the owner explains how something in the game works,
+  that is context for understanding the reference — nothing is to be changed because of it. Changing
+  behaviour from an explanation is incident #6 in the ledger.
 - **A measurement is evidence, not permission.** Capture it, report it, wait. A capture has been used
-  five times already to justify a deviation that broke something.
+  six times already to justify a deviation that broke something.
 - **Restore first, discuss second.** When something that used to work stops working, the first commit is
   a restore of the last known-good behaviour, never a new theory.
 - **One change, one subject.** A port, a fix and an "improvement" never travel in the same commit, so a
