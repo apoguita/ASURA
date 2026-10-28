@@ -46,3 +46,20 @@ args = ["--world", "8001", "--capacity", "8", "--public", "127.0.0.1:6113"]
 port = 6113
 health = { world = 8001 }
 log = "logs/world-8001.log"
+
+# --- Rolling deploy (S3, docs/16-implementation-plan.md) -------------------------------------
+# Start the new build beside the old one, then drain the old one:
+#
+#   asura-supervisor start
+#   asura-supervisor deploy-world --old 8001 --new 8002
+#
+# World 8002 then serves new arrivals and reconnects; world 8001 keeps the players already inside
+# it and leaves when its last player has disconnected. A second world on the same machine needs its
+# own --bind (the default is 6113); the public address is what the front door dials.
+#
+# [services.world-8002]
+# exe = "target/debug/asura-world"
+# args = ["--world", "8002", "--capacity", "8", "--bind", "127.0.0.1:6114", "--public", "127.0.0.1:6114"]
+# port = 6114
+# health = { world = 8002 }
+# log = "logs/world-8002.log"

@@ -27,7 +27,7 @@
 |---|---|---|---|
 | **1.** Replace the scripts with a launcher and a babysitter | S1 *(delivered 2026-10-28)* | `play.ps1` runs a `while` loop that throws when either child exits; args hard-coded; logs in `%TEMP%` | one command starts and stops the stack; a crashed local service comes back; real client login/travel unchanged |
 | **2.** Make the database's service registry general | S2 *(delivered 2026-10-28)* | `world`/`world_pool` exist and are load-bearing; `asura-webgate` and `asura-auth` register nowhere | every service kind has a registry row; a consumer reads it; live-database proof |
-| **3.** Give the `build`/`draining` columns a pilot | S3 | both columns exist (`crates/asura-db/src/placement.rs`); `register_world` writes `build` (`asura-world/src/main.rs:286`); `find_worlds` never consults it (`placement.rs:435`); nothing reads `draining`; a world cannot be stopped without a kill | a new build takes new players, the old world drains without kicking anyone, proven with the real client |
+| **3.** Give the `build`/`draining` columns a pilot | S3 *(delivered 2026-10-28)* | both columns exist (`crates/asura-db/src/placement.rs`); `register_world` writes `build` (`asura-world/src/main.rs:286`); `find_worlds` never consults it (`placement.rs:435`); nothing reads `draining`; a world cannot be stopped without a kill | a new build takes new players, the old world drains without kicking anyone, proven with the real client |
 | **4.** Add a status that tells the truth, with rates | S4 | `docs/02-architecture.md` asks for counters and rates; nothing exports or reads them | one command shows liveness and true rates during a live session |
 | **5.** Untie the receptionist knot; fix the stale documents | S5a *(delivered 2026-10-28)* + S5b (decision) | `crates/asura-auth/src/frontdoor.rs` is the router inside auth; the docs claims in S5a are false today | the five corrections land (S5a); a recorded decision on the front door (S5b) |
 | **6.** Prove multi-machine capability on one machine, no hardware | S6 | the front door dials the **registered** address (`frontdoor.rs:82–96`), so cross-host routing already exists on paper; nothing has ever run at a second address | a travel to a world registered at a second loopback address, recorded |
@@ -156,6 +156,20 @@ killing it leaves its row for the reaper.
   to the old build** (the one rule already refuses instead of hanging);
 - how a draining world ends: **when its last player has disconnected** — no forced kick, no timeout
   that kills players.
+
+**Delivered 2026-10-28.** `crates/asura-world/build.rs` stamps each build with
+`git describe --always --dirty` (overridable with `--build`/`ASURA_BUILD`); migration 0011 adds
+`world.started_at`, set on every registration, so "newest build" means "the build of the most
+recently started fresh world hosting the map"; `find_worlds` offers only that build (a full newest
+build refuses; no fallback to an older one — proven by `the_newest_build_is_the_only_one_offered`
+against the live database); the world's heartbeat now publishes its real population and leaves the
+registry and exits once a draining world's last player has disconnected; the supervisor gained
+`deploy-world --old N --new M`, which starts the new world, proves it is registered, and only then
+marks the old one draining. Verified live on one machine: two worlds on ports 6113/6114 both
+registered with the same git build id; `deploy-world 8001 8002` reported ok; world 8001 drained and
+its row disappeared without a kick, world 8002 stayed fresh. The real-client half (a player standing
+in the old world while the deploy runs, and a reconnect landing on the new build) is the owner's
+test with the client.
 
 **Must not change.** The one rule: a client is never sent to something that is not answering. The
 wire. The reaper stays the safety net for ungraceful deaths.
@@ -305,7 +319,7 @@ chosen, does exactly what the decision says and no more.
    decisions. *(delivered 2026-10-28)*
 2. **S1** — the launcher/babysitter everything else builds on. *(delivered 2026-10-28)*
 3. **S2** — the service registry; a consumer for S4. *(delivered 2026-10-28)*
-4. **S3** — the rolling deploy (needs S1 to run two worlds; decisions settled).
+4. **S3** — the rolling deploy (needs S1 to run two worlds; decisions settled). *(delivered 2026-10-28)*
 5. **S4** — status (needs S2's catalog to read).
 6. **S6** — the multi-machine proof (needs S1/S3 to run and drain a second world).
 7. **S5b — the front-door decision** — after S4, so the status makes the coupling's cost visible.

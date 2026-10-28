@@ -55,6 +55,7 @@ async fn main() -> ExitCode {
         Some("stop") => stop(&args).await,
         Some("restart") => restart(&args).await,
         Some("status") => status(&args).await,
+        Some("deploy-world") => deploy_world_cli(&args).await,
         Some("schema") => finish(schema()),
         Some("seed") => finish(seed_command()),
         Some("--help") | Some("-h") => {
@@ -393,6 +394,33 @@ fn database_url() -> Result<String, String> {
     })
 }
 
+/// The rolling deploy (S3): `deploy-world --old <world id> --new <world id>`.
+async fn deploy_world_cli(args: &[String]) -> ExitCode {
+    let (Some(old), Some(new)) = (argument(args, "--old"), argument(args, "--new")) else {
+        eprintln!("usage: asura-supervisor deploy-world --old <world id> --new <world id>");
+        return ExitCode::from(2);
+    };
+    let path = config_path(args);
+    let config = match config::load(&path) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("asura-supervisor: {err}");
+            return ExitCode::from(2);
+        }
+    };
+    let control = config.settings.control.clone();
+    match control::request(&control, &format!("deploy-world {old} {new}")).await {
+        Ok(reply) => {
+            println!("{reply}");
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("asura-supervisor: {err}");
+            ExitCode::from(3)
+        }
+    }
+}
+
 /// The test child: a port that stays bound for a while, and an exit code the tests choose. It is
 /// how the supervisor's restart rule is exercised without the game.
 async fn selftest_child(args: &[String]) -> ExitCode {
@@ -465,6 +493,9 @@ fn print_help() {
     );
     println!("  asura-supervisor stop [--only NAME]   stop one service, or everything");
     println!("  asura-supervisor restart NAME         stop and start one service");
+    println!(
+        "  asura-supervisor deploy-world --old N --new M   rolling deploy: start the new build, drain the old one"
+    );
     println!();
     println!("  Every command takes --config FILE (default: config/services.toml).");
 }

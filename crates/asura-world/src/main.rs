@@ -283,7 +283,14 @@ async fn main() -> ExitCode {
     } else {
         maps.iter().map(|map| (map.map_id, capacity)).collect()
     };
-    let build = format!("asura-world/{}", env!("CARGO_PKG_VERSION"));
+    // The build identity (S3): what the rolling deploy compares. `--build` wins, then ASURA_BUILD,
+    // then the git description compiled in — never the crate version alone, which was the same
+    // string ("asura-world/0.1.0") for every build and told two builds apart by nothing.
+    let build = argument(&args, "--build")
+        .or_else(|| std::env::var("ASURA_BUILD").ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("asura-world/{}", env!("ASURA_BUILD_ID")));
     if let Err(err) = placement::register_world(
         &pool,
         world_id,
@@ -312,17 +319,9 @@ async fn main() -> ExitCode {
     );
 
     // The heartbeat. A world that stops sending it stops being offered, which is the point: a dead
-    // world that still accepts TCP connections is worse than one that is plainly gone.
-    let heartbeat_pool = pool.clone();
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
-        loop {
-            ticker.tick().await;
-            if let Err(err) = placement::heartbeat(&heartbeat_pool, world_id, 0).await {
-                eprintln!("asura-world: heartbeat failed: {err}");
-            }
-        }
-    });
+    // world that still accepts TCP connections is worse than one that is plainly gone. It is
+    // started below, once the world exists: it now also carries the player count and the drain
+    // (S3), which need the world itself.
 
     let listener = match tokio::net::TcpListener::bind(bind).await {
         Ok(listener) => listener,
@@ -401,6 +400,41 @@ async fn main() -> ExitCode {
         capacity,
         archive,
     });
+
+    // The heartbeat, and the drain (docs/16-implementation-plan.md, S3). The heartbeat says the world
+    // is alive and how many players it holds; the drain says whether this world should finish its
+    // players and leave. Placement excludes a draining world from every offer, and once its last
+    // player has gone the world removes its registry row and exits — the deploy never kills a world
+    // with players in it, and nobody is kicked.
+    {
+        let heartbeat_world = Arc::clone(&world);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
+            loop {
+                ticker.tick().await;
+                let population = heartbeat_world.peers.len() as i32;
+                if let Err(err) =
+                    placement::heartbeat(&heartbeat_world.pool, world_id, population).await
+                {
+                    eprintln!("asura-world: heartbeat failed: {err}");
+                }
+                match placement::is_draining(&heartbeat_world.pool, world_id).await {
+                    Ok(true) if population == 0 => {
+                        if let Err(err) =
+                            placement::remove_world(&heartbeat_world.pool, world_id).await
+                        {
+                            eprintln!("asura-world: could not leave the registry: {err}");
+                        }
+                        eprintln!("world: drained; the last player has left; leaving the registry");
+                        std::process::exit(0);
+                    }
+                    Ok(_) => {}
+                    Err(err) => eprintln!("asura-world: cannot read the draining flag: {err}"),
+                }
+            }
+        });
+    }
+
     if load_on_demand {
         eprintln!(
             "asura-world: on-demand destination loading is ON: a login or a /tp that names a \

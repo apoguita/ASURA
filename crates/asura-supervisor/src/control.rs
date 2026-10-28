@@ -65,32 +65,46 @@ async fn handle(shared: Shared, mut stream: TcpStream) -> io::Result<()> {
 }
 
 async fn act(shared: &Shared, line: &str) -> String {
-    let mut parts = line.split_whitespace();
-    match (parts.next(), parts.next()) {
-        (Some("status"), None) => crate::status::table(shared),
-        (Some("stop"), Some(name)) => {
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    match tokens.as_slice() {
+        ["status"] => crate::status::table(shared),
+        ["stop", name] => {
             match supervise::stop_service(shared, name, Duration::from_secs(10)).await {
                 Ok(()) => "ok\n".into(),
                 Err(err) => format!("err: {err}\n"),
             }
         }
-        (Some("stop"), None) => {
+        ["stop"] => {
             let _ = supervise::stop_all(shared, Duration::from_secs(15)).await;
             shared.lock().unwrap().quit.store(true, Ordering::SeqCst);
             "ok\n".into()
         }
-        (Some("restart"), Some(name)) => {
+        ["restart", name] => {
             match supervise::restart_service(shared, name, Duration::from_secs(10)).await {
                 Ok(()) => "ok\n".into(),
                 Err(err) => format!("err: {err}\n"),
             }
         }
-        (Some("quit"), None) => {
+        ["quit"] => {
             let _ = supervise::stop_all(shared, Duration::from_secs(15)).await;
             shared.lock().unwrap().quit.store(true, Ordering::SeqCst);
             "ok\n".into()
         }
-        _ => "err: expected: status | stop [service] | restart service | quit\n".into(),
+        // The rolling deploy (S3): the new world first, then the old one drains. Nobody is kicked;
+        // the old world leaves when its last player has disconnected.
+        ["deploy-world", old, new] => match (old.parse::<i32>(), new.parse::<i32>()) {
+            (Ok(old), Ok(new)) => match supervise::deploy_world(shared, old, new).await {
+                Ok(()) => format!(
+                    "ok: world {new} serves new arrivals and reconnects; world {old} is draining \
+                     and leaves when its last player has disconnected\n"
+                ),
+                Err(err) => format!("err: {err}\n"),
+            },
+            _ => "err: deploy-world <old world id> <new world id>\n".into(),
+        },
+        _ => "err: expected: status | stop [service] | restart service | deploy-world <old> <new> \
+             | quit\n"
+            .into(),
     }
 }
 
@@ -111,7 +125,9 @@ pub async fn request(control: &str, line: &str) -> Result<String, String> {
         .await
         .map_err(|err| err.to_string())?;
     let mut reply = Vec::new();
-    tokio::time::timeout(Duration::from_secs(60), stream.read_to_end(&mut reply))
+    // A deploy can take a health timeout or two: the new world is started and must register before
+    // the old one is drained, so this waits longer than the other commands.
+    tokio::time::timeout(Duration::from_secs(120), stream.read_to_end(&mut reply))
         .await
         .map_err(|_| "the supervisor did not answer in time".to_string())?
         .map_err(|err| err.to_string())?;

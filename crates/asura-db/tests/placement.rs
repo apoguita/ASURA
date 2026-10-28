@@ -371,3 +371,94 @@ async fn reconcile_rebuilds_the_counter_from_the_ledger() {
         .await
         .expect("remove_world");
 }
+
+// ---------------------------------------------------------------------------------------------
+// S3: the newest build is the only one offered.
+// ---------------------------------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_newest_build_is_the_only_one_offered() {
+    let Some((pool, _pool_b)) = pools().await else {
+        skip();
+        return;
+    };
+    // A map of its own: the other live tests share MAP, and "the newest build hosting the map" would
+    // then be whichever test registered last (they run in parallel). The world ids avoid the other
+    // tests' ranges too (9100-, 9200, 9300-, 9400).
+    const NEWEST_MAP: i32 = 16;
+    let old_world = 9500;
+    let new_world = 9501;
+
+    // Two builds hosting the same map; the new one started later (backdated old one, so the test
+    // cannot depend on how fast two registrations run).
+    db::register_world(
+        &pool,
+        old_world,
+        "old-build",
+        "127.0.0.1",
+        6206,
+        "build-old",
+        &[(NEWEST_MAP, 1)],
+    )
+    .await
+    .expect("register old");
+    db::register_world(
+        &pool,
+        new_world,
+        "new-build",
+        "127.0.0.1",
+        6207,
+        "build-new",
+        &[(NEWEST_MAP, 1)],
+    )
+    .await
+    .expect("register new");
+    sqlx::query("UPDATE world SET started_at = now() - interval '1 minute' WHERE id = $1")
+        .bind(old_world)
+        .execute(&pool)
+        .await
+        .expect("backdate the old build");
+
+    // The newest build is the only one offered: the old build serves only the players already
+    // inside it, never a new placement.
+    let offered = db::find_worlds(&pool, NEWEST_MAP, STALE_AFTER_SECS, 10)
+        .await
+        .expect("find_worlds");
+    assert_eq!(
+        offered
+            .iter()
+            .map(|candidate| candidate.world_id)
+            .collect::<Vec<_>>(),
+        vec![new_world],
+        "only the newest build is offered: {offered:?}"
+    );
+
+    // A full newest build is a refusal, not a fallback to the old one: the one rule.
+    let session = Uuid::new_v4();
+    assert!(db::reserve(&pool, new_world, NEWEST_MAP, session)
+        .await
+        .expect("reserve")
+        .is_some());
+    let offered = db::find_worlds(&pool, NEWEST_MAP, STALE_AFTER_SECS, 10)
+        .await
+        .expect("find_worlds");
+    assert!(
+        offered.is_empty(),
+        "a full newest build refuses; it does not fall back to the old build: {offered:?}"
+    );
+
+    // Draining the newest build does not bring the old one back either.
+    db::set_draining(&pool, new_world, true)
+        .await
+        .expect("drain the new build");
+    let offered = db::find_worlds(&pool, NEWEST_MAP, STALE_AFTER_SECS, 10)
+        .await
+        .expect("find_worlds");
+    assert!(
+        offered.is_empty(),
+        "no fallback to an older build once a newer one exists: {offered:?}"
+    );
+
+    db::remove_world(&pool, old_world).await.ok();
+    db::remove_world(&pool, new_world).await.ok();
+}

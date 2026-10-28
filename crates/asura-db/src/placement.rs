@@ -50,8 +50,8 @@ pub async fn register_world(
     let mut tx = pool.begin().await?;
 
     sqlx::query(
-        "INSERT INTO world (id, name, address, port, build, draining, population, heartbeat_at)
-         VALUES ($1, $2, $3, $4, $5, false, 0, now())
+        "INSERT INTO world (id, name, address, port, build, draining, population, heartbeat_at, started_at)
+         VALUES ($1, $2, $3, $4, $5, false, 0, now(), now())
          ON CONFLICT (id) DO UPDATE SET
              name        = EXCLUDED.name,
              address     = EXCLUDED.address,
@@ -59,7 +59,8 @@ pub async fn register_world(
              build       = EXCLUDED.build,
              draining    = false,
              population  = 0,
-             heartbeat_at = now()",
+             heartbeat_at = now(),
+             started_at  = now()",
     )
     .bind(world_id)
     .bind(name)
@@ -146,6 +147,17 @@ pub async fn set_draining(pool: &PgPool, world_id: i32, draining: bool) -> sqlx:
         .execute(pool)
         .await?;
     Ok(done.rows_affected() > 0)
+}
+
+/// Whether a world has been told to drain. What the world's own heartbeat reads to decide it should
+/// finish its players and leave (S3); a world that is gone reads as `false` rather than an error, so
+/// the heartbeat keeps running until the row is back.
+pub async fn is_draining(pool: &PgPool, world_id: i32) -> sqlx::Result<bool> {
+    let row: Option<(bool,)> = sqlx::query_as("SELECT draining FROM world WHERE id = $1")
+        .bind(world_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|(draining,)| draining).unwrap_or(false))
 }
 
 /// Backdate a world's heartbeat, pretending it stopped saying it was alive `seconds_ago` seconds ago.
@@ -405,13 +417,19 @@ pub async fn world_endpoint(
 
 /// Every world that could serve `map_id` right now, best first.
 ///
-/// "Could" is deliberately four conditions, and each one is a way a naive lookup goes wrong:
+/// "Could" is deliberately five conditions, and each one is a way a naive lookup goes wrong:
 ///
 /// * the world publishes the map at all (a world that does not host map 146 cannot serve a client
 ///   asking for it, and must not be offered as if it could);
 /// * it is not draining (a restart in progress takes no new players);
 /// * it said it was alive within `max_age_secs`, by the same threshold the reaper uses, so "too old
 ///   to offer" and "too old to keep leases" cannot disagree;
+/// * it runs the **newest build** hosting this map (S3): the rolling deploy's rule is that the
+///   newest build serves new arrivals and reconnects, and the old build serves only the players
+///   already inside it. "Newest" is the build of the most recently started fresh world hosting the
+///   map — draining or not, so once a newer build exists the older ones are never offered again,
+///   even if the newest is full or itself draining (a refusal, never a fallback). This also means a
+///   restart of an old build cannot masquerade as new: the registry records `started_at` per start;
 /// * its counter says there is room. The count is a *hint* — only [`reserve`] can actually win a slot —
 ///   but offering a full world would make every travel a round trip that ends in a refusal.
 ///
@@ -425,12 +443,22 @@ pub async fn find_worlds(
     limit: i64,
 ) -> sqlx::Result<Vec<WorldCandidate>> {
     let rows: Vec<(i32, String, String, i32, i32, i32, i32)> = sqlx::query_as(
-        "SELECT w.id, w.name, w.address, w.port, p.map_id, p.leased, p.capacity
+        "WITH hosting AS (
+             SELECT w.id, w.build, w.started_at
+               FROM world w
+               JOIN world_pool p ON p.world_id = w.id
+              WHERE p.map_id = $1
+                AND w.heartbeat_at > now() - make_interval(secs => $2::float8)
+         ), newest AS (
+             SELECT build FROM hosting ORDER BY started_at DESC LIMIT 1
+         )
+         SELECT w.id, w.name, w.address, w.port, p.map_id, p.leased, p.capacity
            FROM world w
            JOIN world_pool p ON p.world_id = w.id
           WHERE p.map_id = $1
             AND NOT w.draining
             AND w.heartbeat_at > now() - make_interval(secs => $2::float8)
+            AND w.build = (SELECT build FROM newest)
             AND p.leased < p.capacity
           ORDER BY p.leased ASC, w.id ASC
           LIMIT $3",

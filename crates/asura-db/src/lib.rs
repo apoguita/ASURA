@@ -51,11 +51,15 @@ pub const SCHEMA_V9: &str = include_str!("../migrations/0009_character_settings.
 /// See the migration for the "table consumers read, not a network hop" rule.
 pub const SCHEMA_V10: &str = include_str!("../migrations/0010_service_registry.sql");
 
+/// A world's start time (S3): "the newest build" is the build of the most recently started fresh
+/// world hosting the map. See the migration for why a restart must not masquerade as a newer build.
+pub const SCHEMA_V11: &str = include_str!("../migrations/0011_world_started_at.sql");
+
 /// Every migration, in application order. A developer applying the schema gets one string per
 /// migration file, so a new file is picked up without editing the tooling.
 pub const SCHEMA: &[&str] = &[
     SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
-    SCHEMA_V9, SCHEMA_V10,
+    SCHEMA_V9, SCHEMA_V10, SCHEMA_V11,
 ];
 
 /// The tables the coordination model depends on. Used by the startup check: a service refuses to run

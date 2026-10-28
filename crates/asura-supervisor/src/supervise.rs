@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use asura_db::placement;
 use asura_db::PgPool;
 use tokio::process::Child;
 use tokio::sync::mpsc;
@@ -513,4 +514,81 @@ pub async fn stop_all(shared: &Shared, timeout: Duration) {
             eprintln!("{err}");
         }
     }
+}
+
+/// The rolling deploy (S3): start the new world, wait until it is registered, then mark the old
+/// world draining.
+///
+/// The order is the point. The new world must be answering *before* the old one is told to drain —
+/// the one rule — and the old world is never killed: it keeps the players already inside it and
+/// leaves the registry itself once its last player has disconnected.
+pub async fn deploy_world(shared: &Shared, old_world: i32, new_world: i32) -> Result<(), String> {
+    let (new_service, pool) = {
+        let sup = shared.lock().unwrap();
+        let old = service_for_world(&sup.config, old_world)
+            .ok_or_else(|| format!("no listed service hosts world {old_world}"))?;
+        let new = service_for_world(&sup.config, new_world)
+            .ok_or_else(|| format!("no listed service hosts world {new_world}"))?;
+        if old == new {
+            return Err("the old and the new world are the same service entry".into());
+        }
+        let pool = sup
+            .pool
+            .clone()
+            .ok_or_else(|| "the database is not configured".to_string())?;
+        (new, pool)
+    };
+    let health_timeout = {
+        let sup = shared.lock().unwrap();
+        Duration::from_secs(sup.config.settings.health_timeout_secs.max(1))
+    };
+    // The new world first: a travel is only ever answered by a world that is already answering. A
+    // config that already lists both worlds has the new one running already; the deploy then only
+    // has to prove it is registered before the old one is drained.
+    let already_running = {
+        let sup = shared.lock().unwrap();
+        sup.services
+            .get(&new_service)
+            .map(|service| service.pid.is_some())
+            .unwrap_or(false)
+    };
+    if !already_running {
+        start_service(shared, &new_service, health_timeout).await?;
+    }
+    let deadline = Instant::now() + health_timeout + Duration::from_secs(1);
+    loop {
+        let registered = placement::world_endpoint(&pool, new_world, 60.0)
+            .await
+            .map(|endpoint| endpoint.map(|endpoint| endpoint.fresh).unwrap_or(false))
+            .unwrap_or(false);
+        if registered {
+            break;
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "world {new_world} started but has not registered yet; the old world was not drained"
+            ));
+        }
+        sleep(Duration::from_millis(200)).await;
+    }
+    // Only now is the old world told to drain; it finishes its players and leaves by itself.
+    placement::set_draining(&pool, old_world, true)
+        .await
+        .map_err(|err| format!("cannot mark world {old_world} draining: {err}"))?;
+    Ok(())
+}
+
+/// The service in the list whose arguments name this world (`--world <id>`).
+fn service_for_world(config: &crate::config::Config, world_id: i32) -> Option<String> {
+    config.services.iter().find_map(|(name, service)| {
+        let mut arguments = service.args.iter();
+        while let Some(argument) = arguments.next() {
+            if argument == "--world"
+                && arguments.next().and_then(|value| value.parse::<i32>().ok()) == Some(world_id)
+            {
+                return Some(name.clone());
+            }
+        }
+        None
+    })
 }

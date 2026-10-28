@@ -394,9 +394,12 @@ watches until Ctrl+C or `stop`. It also carries the two setup steps as cross-pla
 `tools/seed-dev.sql` and `tools/map-config.sql`, applied through `psql` the same way on Windows and
 Linux. Every service it starts is registered in the `service` table (S2): kind, address, port, build,
 state and a heartbeat; `asura-supervisor status` prints that registry with a STALE marker, and a
-stopped supervisor leaves the rows at `stopped`. On a Linux server host, the runbook is
-`docs/17-running-on-linux.md` (same commands; the game client stays Windows-only, and Linux has not
-had a live run recorded yet).
+stopped supervisor leaves the rows at `stopped`. A world's build is stamped with `git describe`
+(`--build` overrides it), and `deploy-world --old N --new M` starts the new build, proves it is
+registered, and only then marks the old world draining — the old world keeps its players and leaves
+once its last one reconnects, with nobody kicked (`docs/02-architecture.md`, Deployment and
+draining). On a Linux server host, the runbook is `docs/17-running-on-linux.md` (same commands; the
+game client stays Windows-only, and Linux has not had a live run recorded yet).
 
 ```powershell
 cargo run -p asura-supervisor -- start    # one step: build + seed + start + watch; Ctrl+C stops
@@ -404,6 +407,7 @@ cargo run -p asura-supervisor -- status   # what is running, ready, restarting, 
 cargo run -p asura-supervisor -- stop     # stop everything (and the supervisor)
 cargo run -p asura-supervisor -- stop --only NAME   # stop one service
 cargo run -p asura-supervisor -- restart NAME
+cargo run -p asura-supervisor -- deploy-world --old 8001 --new 8002   # rolling deploy: start the new build, drain the old one
 cargo run -p asura-supervisor -- build    # build only, without starting
 cargo run -p asura-supervisor -- schema   # apply the migrations (psql; any OS)
 cargo run -p asura-supervisor -- seed     # write the dev identities and the map catalogue

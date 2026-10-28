@@ -163,11 +163,18 @@ table that is *always* right only stays right if nothing restarts, and things re
 ## Deployment and draining
 
 Builds run side by side: start the new one, advertise it, send it new players, and let the old one
-drain before it exits. A draining world keeps the players it has and accepts nobody new (placement
-excludes it). A preference for the newest healthy build is **not implemented**: `find_worlds` orders
-candidates by `leased`, then `id`, and never consults `build` (`crates/asura-db/src/placement.rs`).
-Because the registry carries `build` and `draining`, no other component needs to know a deployment is
-happening (`docs/05-gw2-lessons.md`, rule 6).
+drain before it exits. The **newest build is the only one placement offers**: `find_worlds` takes
+the build of the most recently started fresh world hosting the map (`world.started_at`) and offers
+only that build — `build` and `started_at` are the deploy's comparison, which is why each build
+stamps a git description (`--build`; `ASURA_BUILD`; the compiled `build.rs` value). A full newest
+build refuses rather than falling back to an older one, and a draining world keeps the players it
+has and accepts nobody new (placement excludes it). A player keeps their world until the client
+reconnects — on their next travel — and that reconnect is placed on the newest build; nothing pushes
+a transfer and nothing kicks. A draining world leaves the registry itself once its last player has
+disconnected. Because the registry carries `build` and `draining`, no other component needs to know
+a deployment is happening (`docs/05-gw2-lessons.md`, rule 6); the supervisor's
+`deploy-world --old N --new M` starts the new world, proves it is registered, and only then drains
+the old one.
 
 ## Retry policy
 
