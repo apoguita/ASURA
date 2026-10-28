@@ -1,10 +1,9 @@
 # Implementation plan: the seven improvements from the analysis
 
-> **Status: approved; the delivered items are stamped in the mapping table.** S1, S2, S3, S5a and S6
-> are delivered; S5b and S4 are closed; S7 is the one open item and needs the owner's CI decision
-> (D7.1). This plan contains **only** what the owner-approved analysis lists under "What we can
-> improve" — seven suggestions, no eighth. Every item below quotes the suggestion it implements. If
-> something is not in that list, it is not in this plan.
+> **Status: delivered.** S1, S2, S3, S5a, S6 and S7 are delivered; S5b and S4 are closed. Every item
+> the analysis listed has its stamp below. This plan contains **only** what the owner-approved
+> analysis lists under "What we can improve" — seven suggestions, no eighth. Every item below quotes
+> the suggestion it implements. If something is not in that list, it is not in this plan.
 
 ## The rules this plan is written under (from `docs/HANDOFF.md`, binding)
 
@@ -29,7 +28,7 @@
 | **4.** Add a status that tells the truth | S4 *(closed 2026-10-28: not built — what the operating layer owns is already reported, and nothing else is in its scope)* | `docs/02-architecture.md` asks for counters and rates; nothing exports per-service counters, and the operating layer is not where they belong | a status view of the operating layer: what is running, is it healthy, heartbeat age, capacity, uptime |
 | **5.** Untie the receptionist knot; fix the stale documents | S5a *(delivered 2026-10-28)* + S5b *(closed 2026-10-28)* | `crates/asura-auth/src/frontdoor.rs` is the router inside auth; the docs claims in S5a are false today | the five corrections land (S5a); a recorded decision on the front door (S5b) |
 | **6.** Prove multi-machine capability on one machine, no hardware | S6 *(delivered 2026-10-28)* | the front door dials the **registered** address (`frontdoor.rs:82–96`), so cross-host routing already exists on paper; nothing has ever run at a second address | a travel to a world registered at a second loopback address, recorded |
-| **7.** One "how do I run this" file, and CI's place | S7 | README's run instructions are stale (see S5a); `tools/test-battery.ps1` is the local battery; the repo's testing policy says the suite is not a gate | one accurate run document; a CI decision recorded (or none, with the reason) |
+| **7.** One "how do I run this" file, and CI's place | S7 *(delivered 2026-10-28)* | README's run instructions are stale (see S5a); `tools/test-battery.ps1` is the local battery; the repo's testing policy says the suite is not a gate | one accurate run document; a CI decision recorded (or none, with the reason) |
 
 ## S1 — Launcher and babysitter (the supervisor)
 
@@ -337,6 +336,18 @@ here.
 **Proof:** the run document is followed end to end by someone who has not run the stack; CI, if
 chosen, does exactly what the decision says and no more.
 
+**Delivered 2026-10-28. D7.1 settled by the owner: format + lint only.** The one run document is
+`docs/19-running.md` — what you need once, the one command (`asura-supervisor start`), what success
+looks like, the everyday commands, the rolling deploy, the client, CI, and a troubleshooting table;
+it is verified against the tree (ports from `config/services.toml`, the command list from
+`crates/asura-supervisor/src/main.rs`). `README.md` and `docs/HANDOFF.md` now point at it instead of
+repeating instructions. CI is `.github/workflows/ci.yml`: `cargo fmt --all -- --check` and
+`cargo clippy --workspace --all-targets -- -D warnings` on every push and pull request — no
+database, no test suite, per the testing policy. The gate needed the tree to be clean, so the five
+clippy warnings it surfaced (two dangling doc comments left by the parity tooling's removal, and two
+lints in `tests/path_dump.rs`) were cleared first; the Linux runner doubles as the first Linux
+signal for the supervisor, which has not had a live Linux run yet.
+
 ## Ordering (dependency order, not preference)
 
 1. **S5a — the stale-document corrections** — factual, each backed by `file:line`; no code, no
@@ -347,7 +358,7 @@ chosen, does exactly what the decision says and no more.
 5. **S4** — the operating layer's health view (needs S2's registry to read). *(closed 2026-10-28: not built — liveness is already reported by the supervisor and the registry)*
 6. **S6** — the multi-machine proof (needs S1/S3 to run and drain a second world). *(delivered 2026-10-28: docs/18-multi-machine.md)*
 7. **S5b — the front-door decision** — closed: the relay is the auth server's job, and the claims that said otherwise are corrected.
-8. **S7** — the run document anytime; CI last, with the testing policy in view.
+8. **S7** — the run document anytime; CI last, with the testing policy in view. *(delivered 2026-10-28: docs/19-running.md + .github/workflows/ci.yml)*
 
 ## Decisions needed (answer each before its item starts)
 
@@ -364,7 +375,7 @@ chosen, does exactly what the decision says and no more.
 | D4.1 | S4 | where the numbers live | a table written by the services / an endpoint on each service / the launcher reads what exists | **closed**: not built — the launcher reads what exists (the registry), and nothing new is written |
 | D5.1 | S5b | the front door | **closed**: the relay stays in the auth server; no gateway, no second component | — |
 | D6.1 | S6 | the proof scenario | a second world at `127.0.0.2`, client travel to it / more | the second world at `127.0.0.2` |
-| D7.1 | S7 | CI's place | none / lint+format only / the suite on a runner with a database / nightly | defer to the testing policy — nothing that gates a feature change |
+| D7.1 | S7 | CI's place | none / lint+format only / the suite on a runner with a database / nightly | **settled**: format + lint only — `cargo fmt --check` and clippy; no database, no test suite |
 
 ## What this plan does not contain
 

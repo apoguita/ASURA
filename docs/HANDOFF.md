@@ -355,76 +355,54 @@ cargo test -p asura-world --test load a_ten_minute_idle_pair -- --ignored --noca
 The world runs as a task in the test process here, so the sample is everything the world allocated plus the
 harness -- the reference runs a process per map and watches that process. Same question, one process fewer.
 
-## Run it: two commands
+## Run it: one document
 
-```powershell
-.\tools\start-server.ps1        # database -> web gate :6601 -> auth :6112 -> world :6113, logs tailed
-.\tools\stop-server.ps1         # the same, backwards, and it says what is still listening
-```
+The "how do I run this" page is **`docs/19-running.md`** — what you need once, the one command, what
+success looks like, the everyday supervisor commands, the rolling deploy, the client, CI, and a
+troubleshooting table. It is the only place those instructions live now; this section keeps only the
+rules behind them:
 
-**It is quiet by default, and that is a rule now**: `-Trace` prints every packet, and the packet log is
-off unless asked for, because a world tick every 500 ms is three lines a second forever and it buries the
-lines that matter. What is *always* printed is the events — `auth: login ok for …`, `auth: travel to map
-146 placed on world 8001 …`, `world: … joined map 146 … with 6 bag(s) and 9 item(s)`, a saved position, a
-dropped item, a moved item, a worn item, a refused move, a chat that was not sent. Those were inside the
-trace block until a live session pointed out that the console was unreadable; per-packet lines are the
-only ones behind the flag now, and `-Trace` still exists for exactly the case it was built for.
-
-`start-server.ps1` exists because `play.ps1` alone is not enough for a client and the missing half is
-invisible: with `-portal 127.0.0.1` the client asks the **web gate on 6601** who it is before
-it sends a login, and with nothing there it opens the auth connection, does the key exchange, sends its
-preamble, and closes. That is what "I cannot connect to the server" looked like on this machine — with
-the server running perfectly and `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` never arriving. The gate is this
-project's own (`crates/asura-webgate`). `start-server.ps1` starts PostgreSQL (if it is stopped), builds
-and starts the gate, and then hands over to `play.ps1`; `stop-server.ps1` kills the services and the
-gate, verifies the ports are free, and notes what a hard stop leaves behind (a connected player's pool
-slot, which only the unscheduled reaper frees).
-
-Then prove M2 at any time:
-
-```powershell
-.\tools\m2-verify.ps1           # integration tests + the fake-world scenario, live database
-```
+- **It is quiet by default, and that is a rule now**: `-Trace` prints every packet, and the packet log is
+  off unless asked for, because a world tick every 500 ms is three lines a second forever and it buries the
+  lines that matter. What is *always* printed is the events — `auth: login ok for …`, `auth: travel to map
+  146 placed on world 8001 …`, `world: … joined map 146 … with 6 bag(s) and 9 item(s)`, a saved position, a
+  dropped item, a moved item, a worn item, a refused move, a chat that was not sent.
+- **The web gate is not optional for a client attempt.** With `-portal 127.0.0.1` the client asks the gate
+  on `6601` who it is before it sends a login; with nothing there it opens the auth connection, does the key
+  exchange, sends its preamble, and closes — which looks like "I cannot connect to the server" while the
+  server is running perfectly (`AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` never arrives). The gate is this
+  project's own (`crates/asura-webgate`).
+- **The pre-supervisor scripts still work** (`tools/start-server.ps1` / `stop-server.ps1`): the supervisor
+  is additive. `start-server.ps1` starts PostgreSQL (if it is stopped), builds and starts the gate, and then
+  hands over to `play.ps1`; `stop-server.ps1` kills the services and the gate, verifies the ports are free,
+  and notes what a hard stop leaves behind (a connected player's pool slot, which only the unscheduled
+  reaper frees). M2 is provable at any time with `tools/m2-verify.ps1` (integration tests + the fake-world
+  scenario, live database).
 
 ## Run it: the supervisor (cross-platform)
 
 `crates/asura-supervisor` starts this machine's services from `config/services.toml` and watches them
-(`docs/16-implementation-plan.md`, S1). It is additive: `start-server.ps1` / `play.ps1` keep working
-exactly as before. **Starting the server is one command** (`start`); it builds what is missing, seeds
-the rows a fresh database needs (the same steps the old start script ran), starts everything, and
-watches until Ctrl+C or `stop`. It also carries the two setup steps as cross-platform commands:
-`schema` (the migrations) and `seed` (the dev identities and the map catalogue) — the SQL lives in
-`tools/seed-dev.sql` and `tools/map-config.sql`, applied through `psql` the same way on Windows and
-Linux. Every service it starts is registered in the `service` table (S2): kind, address, port, build,
-state and a heartbeat; `asura-supervisor status` prints that registry with a STALE marker, and a
-stopped supervisor leaves the rows at `stopped`. A world's build is stamped with `git describe`
-(`--build` overrides it), and `deploy-world --old N --new M` starts the new build, proves it is
-registered, and only then marks the old world draining — the old world keeps its players and leaves
-once its last one reconnects, with nobody kicked (`docs/02-architecture.md`, Deployment and
+(`docs/16-implementation-plan.md`, S1; the how is `docs/19-running.md`). It is additive:
+`start-server.ps1` / `play.ps1` keep working exactly as before. **Starting the server is one command**
+(`start`); it builds what is missing, seeds the rows a fresh database needs (the same steps the old
+start script ran), starts everything, and watches until Ctrl+C or `stop`. It also carries the two setup
+steps as cross-platform commands: `schema` (the migrations) and `seed` (the dev identities and the map
+catalogue) — the SQL lives in `tools/seed-dev.sql` and `tools/map-config.sql`, applied through `psql`
+the same way on Windows and Linux. Every service it starts is registered in the `service` table (S2):
+kind, address, port, build, state and a heartbeat; `asura-supervisor status` prints that registry with
+a STALE marker, and a stopped supervisor leaves the rows at `stopped`. A world's build is stamped with
+`git describe` (`--build` overrides it), and `deploy-world --old N --new M` starts the new build,
+proves it is registered, and only then marks the old world draining — the old world keeps its players
+and leaves once its last one reconnects, with nobody kicked (`docs/02-architecture.md`, Deployment and
 draining). On a Linux server host, the runbook is `docs/17-running-on-linux.md` (same commands; the
-game client stays Windows-only, and Linux has not had a live run recorded yet).
+game client stays Windows-only, and Linux has not had a live run recorded yet). The command list lives
+in `docs/19-running.md`; it is not repeated here.
 
-```powershell
-cargo run -p asura-supervisor -- start    # one step: build + seed + start + watch; Ctrl+C stops
-cargo run -p asura-supervisor -- status   # what is running, ready, restarting, or failed
-cargo run -p asura-supervisor -- stop     # stop everything (and the supervisor)
-cargo run -p asura-supervisor -- stop --only NAME   # stop one service
-cargo run -p asura-supervisor -- restart NAME
-cargo run -p asura-supervisor -- deploy-world --old 8001 --new 8002   # rolling deploy: start the new build, drain the old one
-cargo run -p asura-supervisor -- build    # build only, without starting
-cargo run -p asura-supervisor -- schema   # apply the migrations (psql; any OS)
-cargo run -p asura-supervisor -- seed     # write the dev identities and the map catalogue
-```
-
-Every command takes `--config FILE` (default `config/services.toml`). The control channel is loopback
-(`127.0.0.1:7711`); a second supervisor on the same machine is refused. A crash is retried at most
-`restart_max` times (`config/services.toml`), then the service is reported FAILED — never restarted
-forever. A stopping or restarting service waits for its port to be free before anything else binds
-it. The database is never started by the supervisor; it is checked and waited for. The services are
-started in their own process group, so a Ctrl+C in the supervisor's console stops them *through* the
-supervisor (they never see the console's Ctrl+C themselves); closing the console window still ends
-everything attached to it, and a hard kill of the supervisor (no Ctrl+C, no `stop`) orphans the
-services it started — there is no code that can run on SIGKILL.
+Two operational rules the supervisor encodes: a crash is retried at most `restart_max` times
+(`config/services.toml`), then the service is reported FAILED — never restarted forever; and the
+services run in their own process group, so Ctrl+C stops them *through* the supervisor (closing the
+console window still ends everything attached to it, and a hard kill of the supervisor orphans the
+services — there is no code that can run on SIGKILL).
 
 (No network is needed for either once dependencies are cached. If `cargo` cannot reach crates.io,
 the sandbox token may be blocking TLS — run it from a normal shell, or with full access.)
