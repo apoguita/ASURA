@@ -94,6 +94,34 @@ The game client is Windows-only and lives in the rig, not here (`docs/06-referen
 
 `docs/17-running-on-linux.md`: the same supervisor commands; the client stays on Windows; the Linux host has not had a live run recorded yet, and the runbook says so. A world registered at a second address (the multi-machine proof) is `docs/18-multi-machine.md`.
 
+## Docker (optional)
+
+A second runner lives in `docker/` and is optional: the non-Docker path above is unchanged and
+remains the default. The bundle is two containers — PostgreSQL, and one "machine" container that runs
+`asura-supervisor` exactly as a host does, with `config/services.toml` unchanged: same start/stop,
+same registry rows, same logs. Docker only supplies the machine and the network around it.
+
+```powershell
+docker compose -f docker/compose.yml up -d --build
+docker compose -f docker/compose.yml exec machine target/debug/asura-supervisor status
+docker compose -f docker/compose.yml logs -f machine
+docker compose -f docker/compose.yml down
+```
+
+- The Windows client dials `127.0.0.1:6112` and `127.0.0.1:6601` as it always does; those are the
+  only published ports. Worlds are dialled by the auth service inside the same container.
+- The database password is `${ASURA_DB_PASSWORD}` (default `asura`); set it in the shell or a `.env`
+  next to the compose file before the first `up`.
+- The image stamps the world's build id as `docker` (`ASURA_BUILD`), since a Docker build has no
+  `.git`; a rolling deploy still works because placement uses `world.started_at`.
+- The supervisor treats `docker stop` (SIGTERM) as the same quit as Ctrl+C, so a stop marks the
+  registry rows `stopped` instead of being killed blind.
+
+**Status:** the bundle is written and was installed with Docker Desktop 4.97.0 on this machine; it
+has not been executed here yet because the Docker Linux engine needs a reboot (WSL2 was installed in
+the same session). The first `up` is the first real run, and `docker compose config` is a cheap
+check before it.
+
 ## CI: format and lint, nothing else
 
 `.github/workflows/ci.yml` runs two checks on every push:

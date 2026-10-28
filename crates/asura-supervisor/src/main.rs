@@ -159,12 +159,28 @@ async fn start(args: &[String]) -> ExitCode {
     );
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {}
+        _ = sigterm() => {}
         _ = wait_for(&quitting) => {}
     }
     eprintln!("asura-supervisor: stopping");
     supervise::stop_all(&shared, Duration::from_secs(15)).await;
     let _ = registry::publish(&shared).await; // the rows say "stopped"
     ExitCode::SUCCESS
+}
+
+/// A graceful stop from a container runtime: `docker stop` sends SIGTERM, and the supervisor must
+/// treat it as the same quit as Ctrl+C, so the services are stopped and the registry rows are
+/// marked `stopped` instead of being killed blind (`docker/`, docs/19-running.md).
+#[cfg(unix)]
+async fn sigterm() {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut term = signal(SignalKind::terminate()).expect("a SIGTERM handler can be installed");
+    term.recv().await;
+}
+
+#[cfg(not(unix))]
+async fn sigterm() {
+    std::future::pending::<()>().await;
 }
 
 async fn wait_for(flag: &AtomicBool) {
