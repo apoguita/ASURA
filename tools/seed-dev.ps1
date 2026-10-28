@@ -6,7 +6,7 @@
     Development convenience, not a deployment tool.
 
     The rows are in tools/seed-dev.sql -- one data file, applied the same way on Windows and Linux.
-    This script is the Windows wrapper for the older start path (`play.ps1`); the cross-platform way
+    This script is the Windows wrapper for the older verify scripts; the cross-platform way
     is `asura-supervisor seed`.
 
     Idempotent: re-running reopens the same sessions and leaves the characters alone, which is also

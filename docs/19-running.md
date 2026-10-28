@@ -48,7 +48,7 @@ cargo run -p asura-supervisor -- status
 
 With the game client, success is: the client asks the web gate on `6601` who it is, sends its login to auth on `6112`, reaches character select, and entering the world sends it to `world-8001` on `6113`. `tools/run-client-login.ps1` automates that attempt and prints a verdict (LOGIN ACCEPTED / REFUSED / NO LOGIN ARRIVED).
 
-The logs are one file per service: `logs/webgate.log`, `logs/auth.log`, `logs/world-8001.log`. They are quiet by default — events only; `ASURA_TRACE=1` (or `play.ps1 -Trace`) adds every packet.
+The logs are one file per service: `logs/webgate.log`, `logs/auth.log`, `logs/world-8001.log`. They are quiet by default — events only. For a diagnosis, set `ASURA_TRACE=1` in the shell before `start` (every service inherits it) and every packet is written to the logs.
 
 ## Everyday commands
 
@@ -75,15 +75,14 @@ cargo run -p asura-supervisor -- deploy-world --old 8001 --new 8002
 
 The new build starts and is proven registered **before** the old world is marked draining. From then on the newest build serves new arrivals and reconnects; the old world keeps the players already inside it, and leaves when its last player has disconnected. Nobody is kicked. The rules and the why: `docs/02-architecture.md` (Deployment and draining).
 
-## The old scripts (they still work)
+## Starting the database yourself
 
-The supervisor is additive; the Windows scripts from before it keep working unchanged:
+The supervisor checks for PostgreSQL and waits for it, but never starts it: it is "managed elsewhere" by design. Start it the way your operating system manages services:
 
-```powershell
-.\tools\start-server.ps1      # database check -> web gate :6601 -> auth :6112 -> world :6113
-.\tools\stop-server.ps1       # the same, backwards, and it says what is still listening
-.\tools\m2-verify.ps1         # placement acceptance: integration tests + the fake-world scenario
-```
+- **Windows:** `Start-Service 'postgresql-x64-<version>'` (find the exact name with `Get-Service *postgres*`). Starting a service may need an elevated shell; the supervisor is not elevated, so it cannot do this for you.
+- **Linux:** `sudo systemctl start postgresql`.
+
+If it is not running, `start` stops with a clear database error instead of pretending.
 
 `tools/test-battery.ps1` is the local "everything" command (it ends printing the real-client steps, never automating them). The testing policy is in `docs/HANDOFF.md`: the real client is the test; the suite is not a gate.
 
@@ -109,7 +108,7 @@ Nothing else runs automatically. The test suite needs a live PostgreSQL database
 | what you see | what it is | what to do |
 |---|---|---|
 | `cannot listen on 127.0.0.1:7711 ... another supervisor is probably running` | a supervisor is already up | `cargo run -p asura-supervisor -- stop`, then `start` |
-| `could not bind 127.0.0.1:6113` | something else holds a port | `stop` waits for its ports to free; a leftover process needs killing once (`stop-server.ps1` says what is still listening) |
+| `could not bind 127.0.0.1:6113` | something else holds a port | `stop` waits for its ports to free; a leftover process needs killing once (`Get-NetTCPConnection -LocalPort 6113` on Windows names it) |
 | the client shows error `007` | the server and client disagree on a message | `ASURA_TRACE=1`, then compare the trace with a good session in `recordings/` |
 | registry rows say `STALE` | a service stopped publishing without leaving | `status` shows the state; the reaper frees orphaned pool leases; `stop`, then `start` |
 | `ASURA_DATABASE_URL is not configured` | there is no `.env`, or it is missing the URL | copy `.env.example` to `.env` and fill it in |

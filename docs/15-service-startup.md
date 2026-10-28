@@ -5,6 +5,13 @@
 > found?* — can be made on evidence rather than from first principles. The owner decides; the record
 > of the decision will be an ADR (the next one: `docs/adr/0011-…`).
 >
+> **Where the decision went (2026-10-28):** the level-2 supervisor it recommends was built
+> (`crates/asura-supervisor`) and its decisions are recorded in `docs/16-implementation-plan.md` (S1
+> and D1, S2 and D2), not as ADR 0011 — the owner judged an ADR unnecessary once every decision was
+> written down there. The launcher scripts this document describes as "today's" state
+> (`tools/start-server.ps1`, `play.ps1`, `stop-server.ps1`) were retired on 2026-10-28; the one run
+> path is `docs/19-running.md`, on Windows and Linux.
+>
 > Sources: the owner's direction ("we need some way of starting microservices, so we don't have a
 > single monolithic service providing us services"), the GDC 2017 talk *Guild Wars Microservices and
 > 24/7 Uptime* (transcription at `PreSearing/build/gw2-text.txt`, distilled rules at

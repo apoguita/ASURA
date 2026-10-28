@@ -131,8 +131,8 @@ the socket to the world it named (`crates/asura-auth/src/frontdoor.rs`).
 `crates/asura-world/tests/load.rs` proves the load over a socket — a placed client is loaded into its
 map, a token nobody issued is closed without a word, a transfer naming a different character is
 refused — and `tests/end_to_end.rs` drives login → travel → the routed game connection →
-`INSTANCE_LOAD_FINISH` in one process. `tools/m4-verify.ps1` runs all of it, and `tools/play.ps1`
-starts the stack for the real client.
+`INSTANCE_LOAD_FINISH` in one process. `tools/m4-verify.ps1` runs all of it, and
+`asura-supervisor start` starts the stack for the real client (`docs/19-running.md`).
 
 **How the last bugs were found, because the method is the durable part.** `tools/patch-gwps-full-trace.py`
 makes the reference dump whole messages (its own trace cut at 24 bytes, which hid every field that

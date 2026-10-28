@@ -1599,7 +1599,7 @@ pub fn load_block(map: &MapEntry, name: &str, agent_id: u32) -> Vec<Frame> {
     ]
 }
 
-/// Whether the movement trace is on (`ASURA_MOVE_TRACE=1`; `play.ps1 -MoveTrace` sets it).
+/// Whether the movement trace is on (`ASURA_MOVE_TRACE=1`; set it in the shell before `start`).
 ///
 /// Movement is the one part of the wire a capture cannot diagnose after the fact: drift and terrain
 /// jumps are a sequence of requests, answers and ticks, and the question is always *what did the

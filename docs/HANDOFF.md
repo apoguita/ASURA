@@ -165,7 +165,7 @@ This is a standing rule, not an opinion to trade against a coverage argument:
   or `data/Gw.dat`) is only the re-dump source, and the tests skip cleanly without one; the
   reference capture the offline checks read is committed as a recording under
   `recordings/gwps/world/` (`recordings/README.md`). No
-  reference checkout is consulted at runtime, and `tools/start-server.ps1` builds and starts all of it
+  reference checkout is consulted at runtime, and `asura-supervisor start` builds and starts all of it
   (`docs/03-protocol.md` §5d has the dump runbook).
 - **Diagnosing a live session has its own tools, in this repository.** `-MoveTrace`
   (`ASURA_MOVE_TRACE=1`) logs every movement event — `move[pathfind]`/`[manual]`/`[tick]`/`[stop]`,
@@ -178,7 +178,7 @@ This is a standing rule, not an opinion to trade against a coverage argument:
   message rather than guessed at.
 - **Answered (2026-10-27): precaching the destination is NOT a requirement here.** The reference
   pre-spawns one server per map so a travel constructs nothing; this world used to preload every map
-  at startup. Measured on the real client with `start-server.ps1 -OnDemand` (nothing preloaded): a
+  at startup. Measured on the real client with nothing preloaded (the retired `start-server.ps1 -OnDemand`): a
   loop of teleports (148 -> 163 -> 164 -> 165 -> 166 -> 148 ...) loaded each destination on demand in
   0-2 ms and the client took every hop without an issue. The hang that forced the reference's
   pre-spawn was OpenTyria's construction inside the hop, not a client requirement. The switch stays
@@ -246,7 +246,7 @@ This is a standing rule, not an opinion to trade against a coverage argument:
   `/Spawned/WebGate/…` endpoints on `localhost:6601` and takes its `user_id`/`session_id` from them.
   The reference answered them with `tools/webgate.py`; **`crates/asura-webgate` is now the port** —
   same endpoints, same XML and status codes, answered from the rows `tools/seed-dev.ps1` writes
-  (`asura_db::portal`). `tools/start-server.ps1` builds and starts it; no Python, no reference
+  (`asura_db::portal`). `asura-supervisor start` builds and starts it; no Python, no reference
   checkout.
 - **Where it stops, and it is now the top of the queue:** after that web-gate login the client opened a
   second auth connection, sent the same preamble, and reset it instead of sending the portal login.
@@ -310,7 +310,7 @@ transaction, so `count(lease) <= leased <= capacity` holds at every commit and t
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
 | **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **9 migrations applied / 11 tables** (`account`, `bag`, `characters`, `item`, `lease`, `map_config`, `schema_version`, `session`, `transfer`, `world`, `world_pool`); credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
-| client rig (Reforged + stealth hooks) | present from the PreSearing work | `tools/start-server.ps1`, then the client; the trace is the verdict |
+| client rig (Reforged + stealth hooks) | present from the PreSearing work | `asura-supervisor start`, then the client; the trace is the verdict |
 
 **Database is ready.** `ASURA_DATABASE_URL` is in `.env` (gitignored, never committed). Every migration
 is applied; `crates/asura-db/tests/placement.rs` verified the pool invariants against the live database —
@@ -372,18 +372,13 @@ rules behind them:
   exchange, sends its preamble, and closes — which looks like "I cannot connect to the server" while the
   server is running perfectly (`AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` never arrives). The gate is this
   project's own (`crates/asura-webgate`).
-- **The pre-supervisor scripts still work** (`tools/start-server.ps1` / `stop-server.ps1`): the supervisor
-  is additive. `start-server.ps1` starts PostgreSQL (if it is stopped), builds and starts the gate, and then
-  hands over to `play.ps1`; `stop-server.ps1` kills the services and the gate, verifies the ports are free,
-  and notes what a hard stop leaves behind (a connected player's pool slot, which only the unscheduled
-  reaper frees). M2 is provable at any time with `tools/m2-verify.ps1` (integration tests + the fake-world
-  scenario, live database).
+- **The launcher scripts are retired** (2026-10-28, S1's separate step): `tools/start-server.ps1`, `tools/play.ps1` and `tools/stop-server.ps1` are gone — no more PowerShell in the run path, and the supervisor is the one start path on Windows and Linux (`docs/19-running.md`). What they did that the supervisor does not: `start-server.ps1` started PostgreSQL (elevation); the database is "managed elsewhere", so start it yourself — `Start-Service 'postgresql-x64-<version>'` on Windows, `sudo systemctl start postgresql` on Linux. A hard stop no longer leaves a visible "what is still leased" note: the supervisor's stop is clean, and a hard kill still leaves a connected player's pool slot for the unscheduled reaper. M2 is provable at any time with `tools/m2-verify.ps1` (integration tests + the fake-world scenario, live database).
 
 ## Run it: the supervisor (cross-platform)
 
 `crates/asura-supervisor` starts this machine's services from `config/services.toml` and watches them
-(`docs/16-implementation-plan.md`, S1; the how is `docs/19-running.md`). It is additive:
-`start-server.ps1` / `play.ps1` keep working exactly as before. **Starting the server is one command**
+(`docs/16-implementation-plan.md`, S1; the how is `docs/19-running.md`). It is the one start path on
+both operating systems; the PowerShell launchers it replaced are retired. **Starting the server is one command**
 (`start`); it builds what is missing, seeds the rows a fresh database needs (the same steps the old
 start script ran), starts everything, and watches until Ctrl+C or `stop`. It also carries the two setup
 steps as cross-platform commands: `schema` (the migrations) and `seed` (the dev identities and the map
@@ -450,7 +445,7 @@ carries an inventory and comes back where it logged out.
    are the record.
 5. **The real client is the last word on anything the wire does.** Everything above is harness-only, and
    three messages that no capture contains have now crashed a live client (`ITEM_REMOVE`, an item agent,
-   chat). `tools/start-server.ps1` plus the trace in that console is the verdict — and if a client
+   chat). `asura-supervisor start` with `ASURA_TRACE=1` set in the shell is the verdict — and if a client
    crashes, the log's last `world ->` line names the message that did it.
 
 **Decided, and not to be re-opened without a reason:**

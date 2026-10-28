@@ -19,7 +19,8 @@
          travels, and reaches INSTANCE_LOAD_FINISH on the world server it was sent to.
       6. the generated files still match the reference: the auth table and the game table.
 
-    Harness-only: no game client. The client arrives when you run tools/play.ps1.
+    Harness-only: no game client. The client arrives when you run asura-supervisor start
+    (`docs/19-running.md`).
 
 .EXAMPLE
     .\tools\m4-verify.ps1
@@ -145,5 +146,5 @@ Write-Host "that answers, presents its tokens, and receives the reference's full
 Write-Host "INSTANCE_LOAD_FINISH -- the message that ends the loading screen."
 Write-Host ""
 Write-Host "Now the real client:"
-Write-Host "  .\tools\play.ps1            # seeds, starts auth on 6112 and a world on 6113, tails both"
+Write-Host "  asura-supervisor start       # seeds, starts auth on 6112 and a world on 6113, watches"
 Write-Host "  F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1"

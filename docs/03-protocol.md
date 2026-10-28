@@ -240,16 +240,10 @@ line in the database saying *"this world can host map X"*, which is what placeme
 where a login may go. It is not an instance and loads nothing: the map's data still arrives when a
 client first names it.
 
-The runbook is the experiment itself:
-
-```powershell
-.\tools\start-server.ps1 -OnDemand
-# client: F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1
-# just log in, then /tp ascalon
-```
-
-The verdict is the client's loading screen plus the console lines above. **Measured 2026-10-27 on
-the real client**: `start-server.ps1 -OnDemand` with nothing preloaded, then a loop of teleports
+The runbook was the experiment itself: the world started with nothing preloaded (the retired
+`tools/start-server.ps1 -OnDemand`), then the client logged in and teleported. The verdict is the
+client's loading screen plus the world's log lines. **Measured 2026-10-27 on the real client**: with
+nothing preloaded, then a loop of teleports
 148 -> 163 -> 164 -> 165 -> 166 -> 148 ... — every destination was loaded on demand (`0-2 ms` per
 map, with the path-graph step failing fast because no `Gw.dat` was local) and the client took each
 hop without an issue. **Precaching is therefore not a requirement on ASURA**; the loading-screen
