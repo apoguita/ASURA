@@ -1,0 +1,48 @@
+# ASURA's services: what THIS machine runs.
+#
+# The supervisor reads this file (`asura-supervisor start`). Adding a world server, changing a
+# port, or moving a service to another machine is an edit here. Every path is relative to the
+# repository root; build the services first: `asura-supervisor build`.
+#
+# The database is checked and waited for, never started: it is a Windows service on Windows and
+# systemd on Linux, managed elsewhere. Its URL comes from `.env` (ASURA_DATABASE_URL).
+#
+# `restart` is "on-failure" (restart a crashed service), "always", or "never". A service is
+# retried at most `restart_max` times, `restart_delay_ms` apart, and then reported FAILED — it
+# never restarts forever.
+#
+# `health` is how "alive" is decided before the service counts as ready:
+#   health = { tcp = "127.0.0.1:6112" }   the address accepts a TCP connection
+#   health = { world = 8001 }             world 8001's row in the database is fresh
+#
+# `port` is the port the service binds; a stop or restart waits for it to be free before anything
+# else binds it.
+
+version = 1
+
+[settings]
+# Where the supervisor answers `status`, `stop`, `restart` and `quit`. Loopback only.
+control = "127.0.0.1:7711"
+# How long a service may take to answer its health check before it is reported failed.
+health_timeout_secs = 30
+
+[services.webgate]
+exe = "target/debug/asura-webgate"
+args = ["--bind", "127.0.0.1:6601"]
+port = 6601
+health = { tcp = "127.0.0.1:6601" }
+log = "logs/webgate.log"
+
+[services.auth]
+exe = "target/debug/asura-auth"
+args = ["--bind", "127.0.0.1:6112"]
+port = 6112
+health = { tcp = "127.0.0.1:6112" }
+log = "logs/auth.log"
+
+[services.world-8001]
+exe = "target/debug/asura-world"
+args = ["--world", "8001", "--capacity", "8", "--public", "127.0.0.1:6113"]
+port = 6113
+health = { world = 8001 }
+log = "logs/world-8001.log"

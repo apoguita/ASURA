@@ -7,6 +7,7 @@ members = [
     "crates/asura-protocol",
     "crates/asura-db",
     "crates/asura-fakeworld",
+    "crates/asura-supervisor",
 ]
 
 [workspace.package]
@@ -19,7 +20,7 @@ license = "MIT OR Apache-2.0"
 # Added with the code that needs them (docs/adr/0007-rust-translation.md): M2 needs a database, so
 # the database and runtime dependencies arrive with placement; M3 needs a socket, so `net` arrives
 # with the listener.
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util", "process", "signal"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid"] }
 uuid = { version = "1", features = ["v4"] }
 # M3 needs modular exponentiation for the fixed-constant Diffie-Hellman key exchange

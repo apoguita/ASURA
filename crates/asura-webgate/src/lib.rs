@@ -11,6 +11,9 @@
 //! | `POST /Spawned/WebGate/my_account/game_accounts.xml` | a one-row array for the game code |
 //! | `POST /Spawned/WebGate/my_account/token.xml` | `<Reply><Token>UUID</Token></Reply>` |
 //!
+//! Plus one route this project adds for its own supervision, not the reference's: `GET /health`
+//! answers `200 ok` so a supervisor can ask "is the gate up?" without a session.
+//!
 //! This is a faithful port of the reference's `tools/webgate.py`, with one deliberate change: the
 //! reference answers from a hard-coded table of three emails, and this answers from the rows
 //! `tools/seed-dev.ps1` writes (the same pairs), through `asura_db::portal::identity_for_email`. The
@@ -184,6 +187,11 @@ impl Gate {
                 Reply::xml(xml_token(&upper(user.token)))
             }
 
+            // This project's own addition: the supervisor's health check. It is not one of the
+            // reference's routes, and it answers without a session — it says "the gate is up",
+            // nothing else.
+            ("GET", "/health") => Reply::ok(),
+
             _ => Reply::not_found(),
         }
     }
@@ -204,6 +212,15 @@ impl Reply {
             status: "200 OK",
             content_type: Some("application/xml"),
             body: body.into_bytes(),
+        }
+    }
+
+    /// The supervisor's health answer: the gate is up. Not one of the reference's routes.
+    fn ok() -> Reply {
+        Reply {
+            status: "200 OK",
+            content_type: Some("text/plain"),
+            body: b"ok".to_vec(),
         }
     }
 
@@ -404,6 +421,14 @@ mod tests {
         assert_eq!(reply.status, "200 OK");
         let body = String::from_utf8(reply.body).unwrap();
         field(&body, "Session").expect("a session id").to_string()
+    }
+
+    #[tokio::test]
+    async fn health_is_answered_without_a_session() {
+        let gate = gate();
+        let reply = gate.route("GET", "/health", None, b"").await;
+        assert_eq!(reply.status, "200 OK");
+        assert_eq!(reply.body, b"ok".to_vec());
     }
 
     #[tokio::test]
