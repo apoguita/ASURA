@@ -1650,57 +1650,62 @@ fn move_trace_on() -> bool {
 /// The waypoints this client can actually be handed, in order.
 ///
 /// The client asserts that an agent's position lies inside the `worldDims` of the plane it is on
-/// (`agint.h:929`, `pos.y >= worldDims.y0`), and a destination is checked against the plane the agent was
-/// last told it is on -- the previous waypoint's plane. The reference's own path finding can emit a
-/// crossing waypoint **stamped with the plane it enters while lying outside that plane's box**: measured
-/// on map 148's Lakeside blob, the first waypoint of a walk over a slope is (9251.4, 7279.3) stamped
-/// plane 19, and handing it to this client crashes it with that assertion (`tools/path-oracle.exe`
-/// returns the same point, so it is the reference's own output, not a porting error). The retail servers
-/// never do that -- every cross-plane destination in `captures/live-move.jsonl` lies inside both boxes --
-/// so a waypoint is dropped when the plane the client will be on when it receives it does not contain it,
-/// and the walk continues with the next one.
+/// (`agint.h:929`, `pos.y >= worldDims.y0`). The reference's own path finding emits crossing waypoints
+/// **stamped with the plane they enter while lying in the middle of it**, hundreds of units from the
+/// agent: measured on map 148's Lakeside blob, the first waypoint of a walk over a slope is
+/// (9251.4, 7279.3) stamped plane 19 (`tools/path-oracle.exe` returns the same point, so it is the
+/// reference's own output and not a porting error), and handing it to this client crashes it with that
+/// assertion. The retail servers never do that -- every cross-plane destination in
+/// `captures/live-move.jsonl` is a portal corner, reached after a same-plane waypoint.
+///
+/// So the walk is expressed on the plane the agent is standing on: the positions stay exactly the
+/// reference's, the planes go, and the client walks the slope itself, which is what it does when walked
+/// manually. A waypoint whose position is outside the box of that plane is dropped, because walking to it
+/// would take the agent off the plane the client validates against.
 pub fn client_walk(
     graphs: &PathGraphs,
     map_id: i32,
     from_plane: u16,
     waypoints: Vec<pathfind::Waypoint>,
 ) -> Vec<pathfind::Waypoint> {
-    let mut plane = from_plane;
+    // The whole walk is expressed on the plane the agent is standing on. A destination on another plane
+    // is the pattern that crashes this client: it validates the agent against the box of the plane it is
+    // on (`agint.h:929`, `pos.y >= worldDims.y0`), and the reference's crossing waypoints are interior
+    // points of the plane they enter, reached 290 units away (measured: `(9251.4, 7279.3)` stamped
+    // plane 19 from an agent on plane 0). The retail servers never do this either -- their cross-plane
+    // destinations are portal corners, always after a same-plane waypoint.
+    //
+    // Slopes are the client's own business: walking manually it crosses planes without being told, and a
+    // straight segment across a slope is exactly what it already does. So each waypoint keeps its
+    // position and loses its plane, and a waypoint whose position is outside the box of the plane the
+    // agent is on is dropped (walking to it would leave the plane the client is validated against).
+    let bounds = graphs.plane_bounds(map_id, from_plane);
     let mut kept = Vec::with_capacity(waypoints.len());
-    let mut leading = true;
-    for waypoint in waypoints {
-        // A walk may not *begin* by telling the client to be somewhere on another plane: it is standing
-        // on this one, and the retail servers never lead with a plane change -- their cross-plane
-        // destinations come after a same-plane waypoint and land on the portal corner the two planes
-        // share (`captures/live-move.jsonl` t=21.6: (10848.0, 4416.0) plane 0 first, then
-        // (10860.0, 4532.0) plane 18, which is exactly plane 18's own corner). The reference's first
-        // waypoint here is a plane-19 point 290 units away in the middle of that plane, and handing it
-        // over first is what crashes this client (`agint.h:929`, `pos.y >= worldDims.y0`).
-        if leading && waypoint.pos.plane != from_plane {
+    for mut waypoint in waypoints {
+        let inside = bounds
+            .map(|bounds| bounds.contains(waypoint.pos.x, waypoint.pos.y))
+            .unwrap_or(true);
+        if !inside {
             if move_trace_on() {
                 eprintln!(
-                    "move[drop] leading waypoint (x={:.1}, y={:.1}, plane={}) left out: a walk does \
-                     not start by changing plane",
+                    "move[drop] waypoint (x={:.1}, y={:.1}, plane={}) left out: outside the box of \
+                     plane {from_plane}, which is where the client is standing",
                     waypoint.pos.x, waypoint.pos.y, waypoint.pos.plane
                 );
             }
             continue;
         }
-        leading = false;
-        let inside = graphs
-            .plane_bounds(map_id, plane)
-            .map(|bounds| bounds.contains(waypoint.pos.x, waypoint.pos.y))
-            .unwrap_or(true);
-        if inside {
-            plane = waypoint.pos.plane;
-            kept.push(waypoint);
-        } else if move_trace_on() {
-            eprintln!(
-                "move[drop] waypoint (x={:.1}, y={:.1}, plane={}) left out: outside the box of plane \
-                 {plane}, which is where the client would be when it arrives",
-                waypoint.pos.x, waypoint.pos.y, waypoint.pos.plane
-            );
+        if waypoint.pos.plane != from_plane {
+            if move_trace_on() {
+                eprintln!(
+                    "move[plane] waypoint (x={:.1}, y={:.1}) is on plane {}, handed over on plane \
+                     {from_plane}: the client walks the slope itself",
+                    waypoint.pos.x, waypoint.pos.y, waypoint.pos.plane
+                );
+            }
+            waypoint.pos.plane = from_plane;
         }
+        kept.push(waypoint);
     }
     kept
 }
