@@ -613,6 +613,24 @@ impl PathGraphs {
     }
 
     /// Ask the finder for a walk from `from` to `to` on `map_id`.
+    /// The box of one plane of a map, as the union of its trapezoids: the `worldDims` the client
+    /// validates an agent's position against (`agint.h:929`). `None` when the map has no graph or the
+    /// plane has no trapezoids.
+    pub fn plane_bounds(&self, map_id: i32, plane: u16) -> Option<map_data::Bounds> {
+        let file_id = self
+            .0
+            .bound
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .get(&map_id)
+            .copied()?;
+        let data = {
+            let data = self.0.data.lock().unwrap_or_else(|err| err.into_inner());
+            data.get(&file_id).map(std::sync::Arc::clone)?
+        };
+        data.plane_bounds(plane)
+    }
+
     pub fn walk(&self, map_id: i32, from: pathfind::Pos, to: pathfind::Pos) -> Walk {
         let file_id = self
             .0
@@ -1629,6 +1647,64 @@ fn move_trace_on() -> bool {
     })
 }
 
+/// The waypoints this client can actually be handed, in order.
+///
+/// The client asserts that an agent's position lies inside the `worldDims` of the plane it is on
+/// (`agint.h:929`, `pos.y >= worldDims.y0`), and a destination is checked against the plane the agent was
+/// last told it is on -- the previous waypoint's plane. The reference's own path finding can emit a
+/// crossing waypoint **stamped with the plane it enters while lying outside that plane's box**: measured
+/// on map 148's Lakeside blob, the first waypoint of a walk over a slope is (9251.4, 7279.3) stamped
+/// plane 19, and handing it to this client crashes it with that assertion (`tools/path-oracle.exe`
+/// returns the same point, so it is the reference's own output, not a porting error). The retail servers
+/// never do that -- every cross-plane destination in `captures/live-move.jsonl` lies inside both boxes --
+/// so a waypoint is dropped when the plane the client will be on when it receives it does not contain it,
+/// and the walk continues with the next one.
+pub fn client_walk(
+    graphs: &PathGraphs,
+    map_id: i32,
+    from_plane: u16,
+    waypoints: Vec<pathfind::Waypoint>,
+) -> Vec<pathfind::Waypoint> {
+    let mut plane = from_plane;
+    let mut kept = Vec::with_capacity(waypoints.len());
+    let mut leading = true;
+    for waypoint in waypoints {
+        // A walk may not *begin* by telling the client to be somewhere on another plane: it is standing
+        // on this one, and the retail servers never lead with a plane change -- their cross-plane
+        // destinations come after a same-plane waypoint and land on the portal corner the two planes
+        // share (`captures/live-move.jsonl` t=21.6: (10848.0, 4416.0) plane 0 first, then
+        // (10860.0, 4532.0) plane 18, which is exactly plane 18's own corner). The reference's first
+        // waypoint here is a plane-19 point 290 units away in the middle of that plane, and handing it
+        // over first is what crashes this client (`agint.h:929`, `pos.y >= worldDims.y0`).
+        if leading && waypoint.pos.plane != from_plane {
+            if move_trace_on() {
+                eprintln!(
+                    "move[drop] leading waypoint (x={:.1}, y={:.1}, plane={}) left out: a walk does \
+                     not start by changing plane",
+                    waypoint.pos.x, waypoint.pos.y, waypoint.pos.plane
+                );
+            }
+            continue;
+        }
+        leading = false;
+        let inside = graphs
+            .plane_bounds(map_id, plane)
+            .map(|bounds| bounds.contains(waypoint.pos.x, waypoint.pos.y))
+            .unwrap_or(true);
+        if inside {
+            plane = waypoint.pos.plane;
+            kept.push(waypoint);
+        } else if move_trace_on() {
+            eprintln!(
+                "move[drop] waypoint (x={:.1}, y={:.1}, plane={}) left out: outside the box of plane \
+                 {plane}, which is where the client would be when it arrives",
+                waypoint.pos.x, waypoint.pos.y, waypoint.pos.plane
+            );
+        }
+    }
+    kept
+}
+
 /// A path as the trace prints it: the first few waypoints with their planes and trapezoids.
 fn waypoints_preview(waypoints: &[pathfind::Waypoint]) -> String {
     let shown: Vec<String> = waypoints
@@ -1821,7 +1897,24 @@ async fn answer(
                 );
             }
 
-            let walked = world.graphs.walk(play.map.map_id, from, to);
+            let walked = match world.graphs.walk(play.map.map_id, from, to) {
+                // The reference's path, as far as this client can be given it: a waypoint outside the box
+                // of the plane the client is on is a client assertion, not a walk (`client_walk`).
+                Walk::Found(waypoints) => {
+                    let kept = client_walk(
+                        &world.graphs,
+                        play.map.map_id,
+                        from.plane,
+                        waypoints,
+                    );
+                    if kept.is_empty() {
+                        Walk::NoPath
+                    } else {
+                        Walk::Found(kept)
+                    }
+                }
+                other => other,
+            };
             if move_trace_on() {
                 match &walked {
                     Walk::Found(waypoints) => eprintln!(

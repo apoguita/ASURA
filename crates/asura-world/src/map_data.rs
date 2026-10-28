@@ -274,6 +274,55 @@ pub struct PathStaticData {
     pub traps_count: u32,
 }
 
+/// The box a plane's trapezoids occupy: the `worldDims` the client checks an agent against.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Bounds {
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+}
+
+impl Bounds {
+    /// Whether a point is inside the box, edges included.
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        self.x0 <= x && x <= self.x1 && self.y0 <= y && y <= self.y1
+    }
+}
+
+impl PathStaticData {
+    /// The box of one plane, as the union of its trapezoids' corners.
+    ///
+    /// The client asserts that an agent's position is inside the `worldDims` of the plane it is on
+    /// (`agint.h:929`, `pos.y >= worldDims.y0`), so a destination outside this box is a crash rather
+    /// than a walk. A plane with no trapezoids has no box at all and `None` says so.
+    pub fn plane_bounds(&self, plane: u16) -> Option<Bounds> {
+        let plane = self.planes.get(usize::from(plane))?;
+        let mut bounds: Option<Bounds> = None;
+        for trapezoid in &plane.trapezoids {
+            let left = trapezoid.xtl.min(trapezoid.xbl).min(trapezoid.xtr).min(trapezoid.xbr);
+            let right = trapezoid.xtl.max(trapezoid.xbl).max(trapezoid.xtr).max(trapezoid.xbr);
+            let low = trapezoid.yt.min(trapezoid.yb);
+            let high = trapezoid.yt.max(trapezoid.yb);
+            bounds = Some(match bounds {
+                None => Bounds {
+                    x0: left,
+                    y0: low,
+                    x1: right,
+                    y1: high,
+                },
+                Some(current) => Bounds {
+                    x0: current.x0.min(left),
+                    y0: current.y0.min(low),
+                    x1: current.x1.max(right),
+                    y1: current.y1.max(high),
+                },
+            });
+        }
+        bounds
+    }
+}
+
 /// A reading cursor over the bytes of one section. The reference passes a `slice_uint8_t` by pointer and
 /// advances it; this is that, with the bounds checks the reference leaves to the caller.
 struct Reader<'a> {

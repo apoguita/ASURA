@@ -1,0 +1,5 @@
+# The two walks under discussion, for tools/path-oracle.exe.
+#   crashed : the click that killed the client (slope, plane 19)
+#   retail  : the click in captures/live-move.jsonl t=21.6
+0x1B97D 9461.8 7481.2 0 8076.0 6151.5 0
+0x1B97D 10802.6 4213.6 0 10147.1 7973.7 0

@@ -351,6 +351,24 @@ protocol crate as builders and tests (`agent_move_to_point_live` and friends) so
 rather than remembered. Sending the retail shapes to this client is not a parity improvement; it is a
 disconnect (`007`) or a crash.
 
+**One path, two planes: the client asserts.** A walk whose first waypoint is on a different plane from the
+agent crashed the client with `Assertion: pos.y >= worldDims.y0`, `P:\Code\Engine\Agent\agint.h(929)` — the
+agent's position is validated against the box of the plane it is on. Measured case (map 148, Lakeside blob
+`0x1B97D`), click from `(9461.8, 7481.2)` plane 0 to `(8076.0, 6151.5)`:
+
+| waypoint | reference's own path (`tools/path-oracle.exe`, GWPS's `PathFinding`) | retail server |
+|---|---|---|
+| 0 | `(9251.4, 7279.3)` **plane 19**, trap 5506 | never leads with a plane change |
+| 1 | `(8426.5, 6487.8)` plane 0, trap 1915 | |
+| 2 | `(8076.0, 6151.5)` plane 0, trap 1913 | |
+
+Both this port and the reference produce waypoint 0 **stamped with the plane it enters, in the middle of
+that plane and 290 units from the agent**. The retail servers' cross-plane destinations are always portal
+corners reached after a same-plane waypoint (`(10860.0, 4532.0)`, which is exactly plane 18's own corner).
+So the world hands the client the reference's path minus any **leading** waypoint on another plane
+(`client_walk` in `asura-world`), and the client walks the straight segment across the slope itself. The
+reference's own list is unchanged and still compared to the oracle; only what reaches the wire is filtered.
+
 ## 6. Traps that cost real time in GWPS
 
 | trap | what happens | rule |
