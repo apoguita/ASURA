@@ -28,8 +28,8 @@
 | **1.** Replace the scripts with a launcher and a babysitter | S1 *(delivered 2026-10-28)* | `play.ps1` runs a `while` loop that throws when either child exits; args hard-coded; logs in `%TEMP%` | one command starts and stops the stack; a crashed local service comes back; real client login/travel unchanged |
 | **2.** Make the database's service registry general | S2 *(delivered 2026-10-28)* | `world`/`world_pool` exist and are load-bearing; `asura-webgate` and `asura-auth` register nowhere | every service kind has a registry row; a consumer reads it; live-database proof |
 | **3.** Give the `build`/`draining` columns a pilot | S3 *(delivered 2026-10-28)* | both columns exist (`crates/asura-db/src/placement.rs`); `register_world` writes `build` (`asura-world/src/main.rs:286`); `find_worlds` never consults it (`placement.rs:435`); nothing reads `draining`; a world cannot be stopped without a kill | a new build takes new players, the old world drains without kicking anyone, proven with the real client |
-| **4.** Add a status that tells the truth, with rates | S4 | `docs/02-architecture.md` asks for counters and rates; nothing exports or reads them | one command shows liveness and true rates during a live session |
-| **5.** Untie the receptionist knot; fix the stale documents | S5a *(delivered 2026-10-28)* + S5b (decision) | `crates/asura-auth/src/frontdoor.rs` is the router inside auth; the docs claims in S5a are false today | the five corrections land (S5a); a recorded decision on the front door (S5b) |
+| **4.** Add a status that tells the truth | S4 *(scoped 2026-10-28: system health only — player data stays in the services)* | `docs/02-architecture.md` asks for counters and rates; nothing exports per-service counters, and the operating layer is not where they belong | a status view of the operating layer: what is running, is it healthy, heartbeat age, capacity, uptime |
+| **5.** Untie the receptionist knot; fix the stale documents | S5a *(delivered 2026-10-28)* + S5b *(closed 2026-10-28)* | `crates/asura-auth/src/frontdoor.rs` is the router inside auth; the docs claims in S5a are false today | the five corrections land (S5a); a recorded decision on the front door (S5b) |
 | **6.** Prove multi-machine capability on one machine, no hardware | S6 | the front door dials the **registered** address (`frontdoor.rs:82–96`), so cross-host routing already exists on paper; nothing has ever run at a second address | a travel to a world registered at a second loopback address, recorded |
 | **7.** One "how do I run this" file, and CI's place | S7 | README's run instructions are stale (see S5a); `tools/test-battery.ps1` is the local battery; the repo's testing policy says the suite is not a gate | one accurate run document; a CI decision recorded (or none, with the reason) |
 
@@ -178,32 +178,48 @@ wire. The reaper stays the safety net for ungraceful deaths.
 the deploy; a new client's travel lands on the new build; a targeted database test proves the
 placement rule.
 
-## S4 — A truthful status, with rates
+## S4 — System health: keepalives and the status view
 
-**The suggestion.** "Add a 'status' that tells the truth — what's running, is it healthy, how many
-players, how many refused travels — and shows rates rather than totals that reset."
+**The suggestion.** "Add a 'status' that tells the truth about the operating layer — what is running,
+is it healthy, and is it alive — and shows the *rate* of anything cumulative rather than a total
+that resets. Player-domain data is not this item's business: the services that own it keep it in
+their own terms."
 
-**What exists.** Nothing exports anything. `docs/02-architecture.md` asks for counters and rate
-forms; no process reads a counter.
+**What exists.** `asura-supervisor status` prints the local process table (state, pid, restart
+count) and the service registry with a STALE marker; the world server's registry row carries its
+build, draining flag and population, and `world_pool` carries the per-map capacity and leases. What
+it does not show: how old each heartbeat is, the capacity/leases of a world, and how long the
+supervisor itself has been up. Nothing exports per-service counters, and nothing should from here.
 
 **What the item delivers:**
 
-- one command (or endpoint — D4) that answers: what is running, is it healthy, how many players,
-  how many travels were refused, and the *rate* form for anything cumulative;
-- only numbers the code actually has today (players connected, travels placed/refused, logins
-  ok/refused, world ticks) — nothing invented;
-- the writes never block the simulation loop.
+- one command that answers, about the system: what is running, is it healthy, how long since its
+  last heartbeat, what capacity it publishes and how much is leased, and how long the supervisor
+  has been up;
+- the world's own population and build are shown **because the world reported them** (its registry
+  row) — a read of what the service said, never the operating layer measuring players;
+- the *rate* form for anything cumulative that lives in this layer (restart counts; nothing else
+  is a counter here — the supervisor starts and stops processes, it does not count gameplay);
+- the one write it must not do: no metric table, no counters from the operating layer. The
+  operational numbers that already exist live in the registry (world row, `world_pool`); the
+  player-domain ones (logins, travels, moves, ticks) stay inside the services that own them.
 
-**Open decisions — D4:**
+**Scoped by the owner, 2026-10-28:** "everything regarding the player needs to go in the world
+service, not here — I understand keepalives and metrics for the systems, but not player data." So
+this item is the operating layer's health view only. The auth service and the world server keep
+their own numbers in their own terms (their log lines today; whatever they do with them is their
+item, not this one).
 
-- where the numbers live (a table written by the services, an endpoint on each service, or the
-  launcher reading what already exists).
+**Decisions — D4 (collapsed by the scope):** no new table, no counters in the operating layer. The
+status view reads the registry and `world_pool`; the world's population is displayed as the world's
+own report.
 
 **Must not change.** The simulation loop's timing; the wire; the existing logs.
 
-**Proof:** during a live client session, the status reports `players 1`, then `players 0`; a placed
-travel increments the placed counter; the rate of a cumulative counter is the derivative, not the
-total. A targeted check, not the suite.
+**Proof:** start the stack → status shows each service with its state and heartbeat age; stop one →
+it shows the stop; a world that leaves the registry disappears from the view; the supervisor's
+uptime is shown. A targeted check, live. No player-domain number is produced by the operating
+layer.
 
 ## S5a — Fix the stale internal documentation
 
@@ -235,7 +251,7 @@ shows documents only.
 **Delivered 2026-10-28.** The five claims are corrected in `README.md`, `docs/02-architecture.md`
 and `docs/HANDOFF.md`, each citing its evidence; the change touches documents only.
 
-## S5b — The front-door decision
+## S5b — The front-door decision (closed by the owner, 2026-10-28)
 
 **The suggestion** (the first half of improvement 5). "Untie the receptionist knot — decide whether
 routing belongs inside login, as its own tiny program, or inside the world."
@@ -246,17 +262,18 @@ options: the client dials the address it was launched with for its game connecti
 what `GAME_SERVER_INFO` names — so "the world opens its own door and the client dials it" is not
 available without changing the client.
 
-**What the item delivers:** the decision, recorded (an ADR): status quo, a small gateway, or
-(measured impossible today) the world owns the door. One subject, documents only — unless the
-decision is a gateway, which would be its own item and its own approval.
-
-**Open decisions — D5.1:** the option; and if "status quo", the one line that says why, so it is a
-decision and not an accident.
+**Closed by the owner (2026-10-28):** the relay is the **auth server's job**. "If you want to do
+microservices you can, but they are part of the auth server" — no gateway process, no second
+component: the only program at the address the client dials is the auth server, so it relays, as it
+already does. A gateway would be the auth server under another name, with one more process and a
+client-facing re-proof. What the item did leave behind is the correction of the claims that said
+otherwise: `docs/02-architecture.md` (three places) and `docs/03-protocol.md` §11 now state the
+measured fact and its consequence (the auth service is in the gameplay data path; a restart of it
+drops the connections it relays).
 
 **Must not change.** The wire; the client path.
 
-**Proof:** the decision document exists. If a gateway is chosen, its proof is a separate item, and
-the real client is the test.
+**Proof:** the decision is recorded; the false claims are corrected; no code changed.
 
 ## S6 — Multi-machine capability, proven without hardware
 
@@ -320,9 +337,9 @@ chosen, does exactly what the decision says and no more.
 2. **S1** — the launcher/babysitter everything else builds on. *(delivered 2026-10-28)*
 3. **S2** — the service registry; a consumer for S4. *(delivered 2026-10-28)*
 4. **S3** — the rolling deploy (needs S1 to run two worlds; decisions settled). *(delivered 2026-10-28)*
-5. **S4** — status (needs S2's catalog to read).
+5. **S4** — the operating layer's health view (needs S2's registry to read).
 6. **S6** — the multi-machine proof (needs S1/S3 to run and drain a second world).
-7. **S5b — the front-door decision** — after S4, so the status makes the coupling's cost visible.
+7. **S5b — the front-door decision** — closed: the relay is the auth server's job, and the claims that said otherwise are corrected.
 8. **S7** — the run document anytime; CI last, with the testing policy in view.
 
 ## Decisions needed (answer each before its item starts)
@@ -338,7 +355,7 @@ chosen, does exactly what the decision says and no more.
 | D3.2 | S3 | placement among builds | newest build first, older if newest is full / newest only / no build rule yet | newest first — the architecture already says so |
 | D3.3 | S3 | how a draining world ends | the world notices `draining` and exits when empty / the launcher stops it after a wait / the registry row goes stale | the world exits itself when empty — same mechanism on one machine and across |
 | D4.1 | S4 | where the numbers live | a table written by the services / an endpoint on each service / the launcher reads what exists | a table — no new network surface |
-| D5.1 | S5b | the front door | status quo (documented) / a small gateway service / the world owns the door (blocked today) | status quo, recorded as a decision |
+| D5.1 | S5b | the front door | **closed**: the relay stays in the auth server; no gateway, no second component | — |
 | D6.1 | S6 | the proof scenario | a second world at `127.0.0.2`, client travel to it / more | the second world at `127.0.0.2` |
 | D7.1 | S7 | CI's place | none / lint+format only / the suite on a runner with a database / nightly | defer to the testing policy — nothing that gates a feature change |
 

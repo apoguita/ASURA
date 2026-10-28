@@ -19,8 +19,14 @@ tree: `authservice` → auth service; `worldserver` (a realm) → world server; 
 `DatabaseWorkerPool` → `asura-db`; `MapInstancer`/`MapUpdater` → instance manager and update-thread
 pool. Full table in `docs/adr/0006-azerothcore-is-the-reference.md`.
 
-The auth service never runs a map and is not in the gameplay data path. World servers are
-interchangeable and disposable. The database is the only thing both kinds of program agree on.
+The auth service never runs a map. It **is** in the gameplay data path for every gameplay session,
+and that is a consequence of the client, not of this design: the client dials the address the game
+was launched with for its gameplay connection (measured), so the socket lands on the auth service,
+which relays it to the world that hosts the instance (`crates/asura-auth/src/frontdoor.rs`,
+`copy_bidirectional`). The reference did the same thing through its control channel, inside one
+process; across a process boundary a socket cannot be handed over cleanly, so the relay is a byte
+copy. World servers are interchangeable and disposable. The database is the only thing both kinds
+of program agree on.
 
 ## The five structural elements
 
@@ -210,8 +216,8 @@ something a simulation thread does.
 
 ## Inside a world server
 
-- **One IO reactor** accepts and serves gameplay connections. The client connects here directly; the
-  auth service is not in the data path.
+- **One IO reactor** accepts and serves gameplay connections — the ones the front door relays from
+  the client (the client dials the auth address, and the auth service copies bytes to this world).
 - **A bounded pool of update threads with map affinity.** A hot map is always updated by the same
   thread, so simulation state needs no locking, and the pool size is configuration rather than a
   function of map count. Idle maps cost nothing.
@@ -227,7 +233,7 @@ something a simulation thread does.
 |---|---|
 | world server crashes | heartbeat stops; the auth service stops sending players to it; leases held by its players expire and are reaped; players log in again; the database is not corrupted, because saves are transactional |
 | world server restarts | re-registers, rebuilds its pools from the database, becomes a candidate again once ready |
-| auth service restarts | players keep playing (it is not in the data path); new logins wait; in-memory sessions are lost, so a travelling player must re-authenticate |
+| auth service restarts | every gameplay connection it is relaying drops with it: players in maps are disconnected and must log in again. New logins wait, and in-memory sessions are lost, so a travelling player must re-authenticate |
 | database unavailable | fail closed: no logins, no travels. Players already in a map stay there, and the world server keeps what it can in memory until it must stop |
 | stale registry row | the reaper marks the world offline and frees its leases; the auth service skips it |
 
