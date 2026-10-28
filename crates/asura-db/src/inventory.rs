@@ -1,7 +1,7 @@
 //! The inventory: a character's bags and the items in them.
 //!
 //! Until this module existed the world server answered the client's item request with the reference's
-//! own messages, replayed byte for byte (`asura_protocol::game::default_inventory`). That made a client
+//! own messages, replayed byte for byte from a capture of the reference (retired when parity closed, docs/16). That made a client
 //! happy and made the server know nothing: there was no row, bag or slot to name, so nothing could be
 //! dropped, equipped, moved or saved. These are the rows that replaced them, and the two operations the
 //! world server needs them for:
@@ -235,11 +235,11 @@ impl From<&SeedBag> for Bag {
     }
 }
 
-/// The reference's default inventory, as rows, with the ids its capture used.
+/// The default inventory, as rows, with the ids the original capture used.
 ///
-/// This is the seed *and* the test fixture: [`seed_default`] writes these rows (with ids taken from the
-/// sequence, because two characters cannot both own item 1) and the world server's item-block test
-/// builds these rows into messages that must equal the capture byte for byte.
+/// This is the seed: [`seed_default`] writes these rows (with ids taken from the sequence, because
+/// two characters cannot both own item 1). The rows are the source of truth now; the world server
+/// builds the item block out of them.
 pub fn default_inventory() -> Inventory {
     Inventory {
         bags: seed::BAGS.iter().map(Bag::from).collect(),

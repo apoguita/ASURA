@@ -140,18 +140,6 @@ Write-Host "4/5  end-to-end: a client logs in to the real listener over a socket
 $code = Invoke-Native $cargo @("test", "--offline", "-p", "asura-auth", "--test", "login", "--", "--nocapture")
 if ($code -ne 0) { throw "the end-to-end login test failed" }
 
-Write-Host ""
-Write-Host "5/5  generated files still match the reference"
-$python = (Get-Command python -ErrorAction SilentlyContinue).Source
-if (-not $python) {
-    Write-Host "     python not found on PATH; skipping the generated-file check"
-} else {
-    $code = Invoke-Native $python @("tools/gen-auth-tables.py", "--check")
-    if ($code -ne 0) { throw "the auth message table is stale; run tools/gen-auth-tables.py" }
-    $code = Invoke-Native $python @("tools/gen-handshake-fixtures.py", "--check")
-    if ($code -ne 0) { throw "the key-exchange fixtures are stale; run tools/gen-handshake-fixtures.py" }
-}
-
 if ($Seed) {
     Write-Host ""
     Write-Host "seeding the rig identities the patched client presents"

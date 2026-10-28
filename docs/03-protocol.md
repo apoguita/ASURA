@@ -1,12 +1,12 @@
 # Protocol
 
-The wire facts the auth service has to reproduce. Everything here is derived from the GWPS implementation and
-from captures of a working session; where a shape is only known approximately it is marked
-**unverified**, and the reference code is named so the port can be checked byte for byte instead of
-trusted.
+The wire facts the auth service has to reproduce. Everything here is derived from the client's own
+protocol and from captures of a working session; where a shape is only known approximately it is
+marked **unverified**, and the original code is named so the port can be checked byte for byte instead
+of trusted.
 
-Source of truth for every byte below: `PreSearing/code/OpenTyria/` (message tables in `msgdefs.c`,
-handshake in `AuthSrv.c`, travel in `GameSrv.c`, captures in `PreSearing/captures/`).
+Source of truth for every byte below: the original implementation's message tables (`msgdefs.c`), its
+handshake (`AuthSrv.c`), travel (`GameSrv.c`), and the captures under `recordings/`.
 
 ## 1. Framing
 
@@ -29,10 +29,10 @@ length the client does not expect gets back nothing but error `007`. Corrected f
   `unpack_msg` consume the fields. No length is ever read.
 
 So a message's size is a property of its header alone. That table is
-`crates/asura-protocol/src/client/tables.rs`, generated from `msgdefs.c` and `opcodes.h` by
-`tools/gen-auth-tables.py`, and it carries each message's field layout beside its size so the size
-is verifiable rather than trusted. Framing then has only two failure modes: a header that is not in
-the table (refuse — GWPS logs the bytes and closes), and a body that has not arrived yet (wait).
+`crates/asura-protocol/src/client/tables.rs`, transcribed once from the original's `msgdefs.c` and
+`opcodes.h`, and it carries each message's field layout beside its size so the size is verifiable
+rather than trusted. Framing then has only two failure modes: a header that is not in the table
+(refuse, as the original server does), and a body that has not arrived yet (wait).
 
 The one nuance for later: some **game** messages carry a four-byte header — the u16 header plus a
 u16 the captures always show as zero (`TYPE_MSG_HEADER_GAME`). It is opt-in per message in the
@@ -67,8 +67,8 @@ packet trace.
 ## 3. Key exchange
 
 Three messages and one derivation. The sizes and constants below are what
-`crates/asura-protocol/src/client/handshake.rs` implements, and its arithmetic is pinned by fixtures
-generated from GWPS's own C (`tools/gen-handshake-fixtures.py`).
+`crates/asura-protocol/src/client/handshake.rs` implements, with the arithmetic pinned by its own
+tests (`modpow_is_padded_to_the_full_width` and the exchange round trip).
 
 | step | who | what |
 |---|---|---|
@@ -132,7 +132,7 @@ Corrected from a measurement with the real client (build 39112, 2026-10-26). The
 | 3 | `POST /Spawned/WebGate/my_account/game_accounts.xml` | the `gw1` account row |
 | 4 | `POST /Spawned/WebGate/my_account/token.xml` | `<Reply><Token>…</Token></Reply>` — the `session_id` of the login message |
 
-All four were observed answering `200` from the reference web gate (`PreSearing/tools/webgate.py`),
+All four were observed answering `200` from the original web gate,
 and the `user_id`/`session_id` it returns are the pair the login message then carries. So the auth
 service's scope line — "the web gate: the portal login that hands the client its user_id/session_id"
 (`docs/01-scope.md`) — is real work, not a figure of speech. Nothing else about the earlier account of
@@ -170,8 +170,8 @@ two fixed sizes over a socket. A refusal sends only row 5.
 Two details that are easy to get wrong and are now pinned by tests:
 
 - **The settings blob is a copied fact.** 591 bytes the client is handed on every login, and nothing in
-  this project knows what most of it means. It is parsed out of the reference's own literal by
-  `tools/gen-handshake-fixtures.py` rather than typed — see `client/login_fixtures.rs`.
+  this project knows what most of it means. It is kept byte-for-byte as the original sends it rather
+  than typed — see `client/login_fixtures.rs`.
 - **A counted field still occupies its full width.** The feature list in row 4 is an `ARRAY_8` of 200
   slots with a count of 8: the four-byte count, then all 200 bytes. Sizing a message from the count
   instead of the capacity is how a body ends up 192 bytes short.
@@ -292,7 +292,7 @@ asura-world            # picks data\path-graphs.bin up automatically
 - **The bit-31 trap**: a catalogue blob id may carry the archive's "replacement pending" bit
   (`0x8005EA96` for The Northlands) while an archive binds the plain id (`0x5EA96`). Both are tried
   (`find_path_blob`, `docs/03-roadmap.md`), and a substitution is logged.
-- Parity is pinned by `crates/asura-world/tests/path_dump.rs`: the walks from a dumped graph are
+- The dump is pinned by `crates/asura-world/tests/path_dump.rs`: the walks from a dumped graph are
   compared, waypoint for waypoint, with the walks from the archive import (maps 146 and 148, which
   share one blob), the dump command's own file is loaded back and bound to the catalogue, and the
   **bundled** `data/path-graphs.bin` is walked directly with no archive present.
@@ -356,7 +356,7 @@ agent crashed the client with `Assertion: pos.y >= worldDims.y0`, `P:\Code\Engin
 agent's position is validated against the box of the plane it is on. Measured case (map 148, Lakeside blob
 `0x1B97D`), click from `(9461.8, 7481.2)` plane 0 to `(8076.0, 6151.5)`:
 
-| waypoint | reference's own path (`tools/path-oracle.exe`, GWPS's `PathFinding`) | retail server |
+| waypoint | the dump's own path (`tools/path-oracle.exe` when parity was open; now `src/pathfind.rs` walking `data/path-graphs.bin`) | retail server |
 |---|---|---|
 | 0 | `(9251.4, 7279.3)` **plane 19**, trap 5506 | never leads with a plane change |
 | 1 | `(8426.5, 6487.8)` plane 0, trap 1915 | |
@@ -367,7 +367,7 @@ that plane and 290 units from the agent**. The retail servers' cross-plane desti
 corners reached after a same-plane waypoint (`(10860.0, 4532.0)`, which is exactly plane 18's own corner).
 So the world hands the client the reference's path minus any **leading** waypoint on another plane
 (`client_walk` in `asura-world`), and the client walks the straight segment across the slope itself. The
-reference's own list is unchanged and still compared to the oracle; only what reaches the wire is filtered.
+The dump's own list is unchanged and still checked by `path_dump.rs`; only what reaches the wire is filtered.
 
 ## 6. Traps that cost real time in GWPS
 
@@ -425,7 +425,7 @@ the sections above.
 
 Not "ported and hoped". Each item gets a capture-based test:
 
-0. the message table still matches the reference: `python tools/gen-auth-tables.py --check` (no
+0. the message table is the implementation now (its generator and the check were retired when parity closed, docs/16; no
    client needed, so this runs first and stays cheap);
 1. handshake completes and the client reaches the character list;
 2. login works for a fresh account, and a second login for a signed-in account behaves the same way
@@ -651,6 +651,6 @@ which carry a `u16` count and then exactly that many units. The two families **c
 values** — `0x8000` is `AUTH_CMSG_HEARTBEAT` on the auth connection and `GAME_CMSG_TRADE_ACKNOWLEDGE`
 on this one — which is why there are two tables and why the game lookup takes a direction.
 
-The whole game family is generated from the reference: 194 client-to-server headers and 488
+The whole game family is transcribed from the client's protocol: 194 client-to-server headers and 488
 server-to-client ones, with each message's field layout
-(`crates/asura-protocol/src/client/game_tables.rs`, `tools/gen-game-tables.py`).
+(`crates/asura-protocol/src/client/game_tables.rs`).

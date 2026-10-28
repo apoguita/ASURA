@@ -15,10 +15,7 @@
       5. asura-db: the schema invariants, placement, login, migrations
       6. asura-auth: login over a socket, travel placed or refused, the game front door
       7. asura-world: the load, the movement rules, the full chain to INSTANCE_LOAD_FINISH
-      8. the generated files still match the reference source
-      9. the map data, the path finder and the schema: both ports against the reference's own answers
-     10. the parity report (informational: what GWPS has that this does not)
-     11. the real client (by hand -- printed, never automated)
+      8. the real client (by hand -- printed, never automated)
 
     ASCII only, like every script in tools/ (docs/HANDOFF.md).
 
@@ -187,120 +184,8 @@ foreach ($entry in $crates) {
     }
 }
 
-# --- 8. generated files ---------------------------------------------------------------------------
-Write-Step 8 "generated files still match their sources"
-if ($python) {
-    # Two checks need only this repository: the reference's own capture is shipped as a recording
-    # (`recordings/gwps/world/load-stream.log`). The rest re-derive a generated
-    # table from the reference checkout (the sibling `PreSearing`), and a machine without it skips
-    # them rather than failing: the committed tables are checked by the tests, these checks are how
-    # they are re-proven.
-    $reference = Join-Path (Split-Path -Parent $repo) "PreSearing"
-    $haveReference = Test-Path (Join-Path $reference "code\OpenTyria")
-    $capture = "recordings/gwps/world/load-stream.log"
-    $localChecks = @(
-        @("tools/gen-default-inventory.py", @("--check", "--capture", $capture), "the default inventory"),
-        @("tools/parity-load.py", @("--reference", $capture, "--check", "crates/asura-world/src/load_fixture.rs"), "the reference's load stream")
-    )
-    $referenceChecks = @(
-        @("tools/gen-auth-tables.py", @("--check"), "the auth message table"),
-        @("tools/gen-game-tables.py", @("--check"), "the game message table"),
-        @("tools/gen-pvp-items.py", @("--check"), "the PvP item table"),
-        @("tools/gen-default-equipment.py", @("--check"), "the default-equipment table"),
-        @("tools/gen-map-config.py", @("--check"), "the map catalogue"),
-        @("tools/gen-fa-compress-tables.py", @("--check"), "the decompressor tables"),
-        @("tools/gen-path-tables.py", @("--check"), "the path finder's tables"),
-        @("tools/gen-path-cases.py", @("--check"), "the path finder's cases"),
-        @("tools/parity-commands.py", @("--check"), "the GM command surface"),
-        @("tools/parity-testplan.py", @("--check"), "the reference's test plan")
-    )
-    $checks = if ($haveReference) { $referenceChecks + $localChecks } else { $localChecks }
-    foreach ($check in $checks) {
-        $result = Invoke-Native $python (@($check[0]) + $check[1])
-        Write-Verdict ($result.ExitCode -eq 0) $check[2] (($result.Output | Select-Object -Last 1) -join "")
-    }
-    if (-not $haveReference) {
-        Write-Skip "the reference checkout is absent: $($referenceChecks.Count) re-derivation check(s) need it"
-    }
-} else {
-    Write-Skip "python is not installed"
-}
-
-# --- 9. the map data and the path finder ----------------------------------------------------------
-# A map blob is geometry: `Gw.dat` holds it compressed, `GmMapDataImport.c` turns it into the path graph,
-# and `GmPaths.c` is the A* a walk is refused from. The only honest verdict on a port of either is the
-# reference's own answer for the same bytes and the same cases -- so this step compares the reference's
-# own tools, the committed fixtures and this repo, and fails if any two of them disagree.
-Write-Step 9 "the map data, the path finder and the schema (against the reference's own code)"
-if ($python) {
-    $result = Invoke-Native $python @("tools/parity-pathing.py", "--check")
-    $detail = ($result.Output | Select-Object -Last 1) -join ""
-    Write-Verdict ($result.ExitCode -eq 0) "the map importer" $detail
-    if ($result.ExitCode -ne 0) {
-        ($result.Output | Select-String -Pattern 'FAIL|reference:|this repo:' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
-    }
-
-    # The finder needs an oracle built out of the reference's sources (`tools/build-oracle.ps1`); with
-    # no oracle the tool says so and exits 0, and the tests still check the committed answers.
-    $result = Invoke-Native $python @("tools/parity-path.py", "--check")
-    $detail = ($result.Output | Select-Object -Last 1) -join ""
-    Write-Verdict ($result.ExitCode -eq 0) "the path finder" $detail
-    if ($result.ExitCode -ne 0) {
-        ($result.Output | Select-String -Pattern 'FAIL|reference:|this repo:' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
-    }
-
-    # The schema axis: every column the reference's `DbSchema.h` declares is stored here, derived from
-    # another table, or carries a written reason. A new reference column fails this until it is answered.
-    $result = Invoke-Native $python @("tools/parity-schema.py", "--check")
-    $detail = ($result.Output | Select-Object -Last 1) -join ""
-    Write-Verdict ($result.ExitCode -eq 0) "the database schema" $detail
-    if ($result.ExitCode -ne 0) {
-        ($result.Output | Select-String -Pattern 'FAIL|out of date' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
-    }
-
-    # The load block's *payloads*, not only its sizes (step 8's `parity-load.py` compares `(header, size)`).
-    # Three messages differ for measured reasons -- a packer bug, buffer residue and a clock -- and every
-    # other one has to be the reference's bytes.
-    $result = Invoke-Native $python @("tools/parity-load-bytes.py", "--check")
-    $detail = ($result.Output | Select-Object -Last 1) -join ""
-    Write-Verdict ($result.ExitCode -eq 0) "the load block's bytes" $detail
-    if ($result.ExitCode -ne 0) {
-        ($result.Output | Select-String -Pattern 'FAIL' -Context 0,0) | ForEach-Object { Write-Host ("          {0}" -f $_.Line) }
-    }
-} else {
-    Write-Skip "python is not installed"
-}
-
-# --- 10. parity -----------------------------------------------------------------------------------
-Write-Step 10 "parity with the reference (informational)"
-if ($python) {
-    $result = Invoke-Native $python @("tools/parity-report.py", "--write", "docs/07-status.md")
-    $missing = ($result.Output | Select-String -Pattern 'real behaviour are missing' | ForEach-Object { $_.Line }) -join ""
-    Write-Verdict $true ("status table regenerated: {0}" -f $(if ($missing) { $missing } else { "nothing missing" }))
-    Write-Host "          docs/07-status.md is the list to work down; it is generated, never typed"
-
-    # The state page: every axis re-derived by one tool, so no document can claim something the tools
-    # disagree with. `--fast` skips its own `cargo test`, which this battery has already run.
-    $summary = Invoke-Native $python @("tools/parity-summary.py", "--write", "docs/11-parity-state.md", "--fast")
-    Write-Verdict ($summary.ExitCode -eq 0) "state page regenerated: docs/11-parity-state.md"
-
-    # The other direction: what the reference can put on the wire that this cannot. A dispatch table can
-    # be complete while whole features are absent -- that is how PLAYER_UPDATE_PARTY went missing from a
-    # load block an audit had called equivalent (docs/10-parity-queue.md, item A4).
-    $emit = Invoke-Native $python @("tools/parity-emit.py")
-    $realLine = ($emit.Output | Select-String -Pattern 'real gaps:' | ForEach-Object { $_.Line }) -join ""
-    $cannot = ($emit.Output | Select-String -Pattern 'real gap names:' | ForEach-Object { ($_.Line -replace '.*real gap names:\s*', '').Trim() }) -join ""
-    Write-Verdict $true ("emit surface: {0}" -f $(if ($realLine) { $realLine.Trim() } else { "not measured" }))
-    if ($cannot) {
-        Write-Host ("          cannot emit: {0}" -f $cannot)
-        Write-Host "          docs/10-parity-queue.md carries each one with its evidence"
-    }
-} else {
-    Write-Skip "python is not installed"
-}
-
-# --- 11. the real client --------------------------------------------------------------------------
-Write-Step 11 "the real client (by hand)"
+# --- 8. the real client ---------------------------------------------------------------------------
+Write-Step 8 "the real client (by hand)"
 Write-Host "    Nothing here can launch it or read its window; these are the steps to follow:"
 Write-Host "      .\tools\play.ps1"
 Write-Host "      F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1"

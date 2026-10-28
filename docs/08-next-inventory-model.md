@@ -12,9 +12,8 @@ capture's ordering.
 |---|---|
 | `bag` and `item`, the item-id sequence, and `characters.pos_plane` | `crates/asura-db/migrations/0006_inventory.sql` |
 | reading a character's bags and items, seeding the default set, finding the item a drop names | `crates/asura-db/src/inventory.rs` |
-| the seed itself: six bags and nine items, generated from the capture | `crates/asura-db/src/inventory/seed.rs` (+ `tools/gen-default-inventory.py`) |
-| the captured messages, kept as the fixture the rows have to reproduce | `crates/asura-protocol/src/game/default_inventory.rs` |
-| `CREATE_NAMED_ITEM`, `ITEM_MOVE_TO_LOCATION`, `ITEM_SET_PROFESSION` builders | `crates/asura-protocol/src/game/mod.rs` |
+| the seed itself: six bags and nine items, kept as rows from the capture | `crates/asura-db/src/inventory/seed.rs` |
+| `CREATE_NAMED_ITEM`, `ITEM_MOVE_TO_LOCATION`, `ITEM_SET_PROFESSION` builders (the captured bytes are kept as a recording under `recordings/`) | `crates/asura-protocol/src/game/mod.rs` |
 | the item block built out of rows, the wearing ids read from the equipped bag | `crates/asura-world/src/lib.rs` (`inventory_block`, `items_block`, `player_block`) |
 | `DROP_ITEM` (`0x802C`) | same file, the `0x802C` arm and `drop_item` |
 | the position saved on the way out and read on the way in | `asura_db::game::record_position` / `position`, `Standing::resume` |

@@ -1,5 +1,7 @@
 # 10 — The parity work queue
 
+> **History.** The tooling named below was retired when parity closed (docs/16); nothing here is runnable.
+
 The whole surface, measured, in one place. `docs/09-parity-audit.md` answers "is behaviour X
 equivalent?"; this document answers "**what still has to be built, in what order, and why**".
 

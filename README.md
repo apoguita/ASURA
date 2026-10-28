@@ -31,8 +31,8 @@ service**; when it means a map-running process it says **world server**.
   does* (`docs/adr/0006-azerothcore-is-the-reference.md`). GWPS is research material, not a target; the
   client rig is Reforged plus the stealth hooks.
 - **Sibling project:** [`PreSearing`/GWPS](https://github.com/apoguita/GWPS) is the existing
-  single-process implementation, and remains the *reference* for every protocol fact in this repo.
-  Nothing here is proven until it behaves against a real client the way GWPS does.
+  single-process implementation and the historical research material behind this one. Parity was closed
+  (docs/16) and the parity tooling was retired; nothing here is proven until a real client does the thing.
 - **A port is a port:** when the user asks for a feature to be ported from the reference, the
   reference is copied verbatim — its code, its message bytes, its field order, its sizes. The
   user's command is the specification; it is not re-decided here. This is binding:
@@ -114,12 +114,12 @@ anywhere. Every design decision in this repository is downstream of that, and
 Rust for the whole stack in this repository (`docs/adr/0001-rust.md`): the control plane and the
 world server. The world server is `crates/asura-world`, delivered with the real client in M4
 (`docs/HANDOFF.md`); the earlier plan for a C world server (`docs/adr/0003-simulation-in-scope.md`)
-did not hold — the Rust world was delivered first. GWPS remains the reference for every protocol
-and simulation fact.
+did not hold — the Rust world was delivered first. GWPS is the historical source of every protocol and
+simulation fact this port reproduces.
 
-## Working with the sibling repository
+## The sibling repository
 
-GWPS is not deprecated by this project — it is the oracle. When the auth service disagrees with the client,
-the question "what does GWPS send here, byte for byte?" is answered in
-`PreSearing/code/OpenTyria/`, and the captures and diffing tools live in
-`PreSearing/tools/` and `PreSearing/captures/`.
+GWPS was the research material and the runnable oracle, and it stays on disk as history: it is not a
+build or run dependency of anything here. Parity was closed (docs/16), the parity tooling — the oracle,
+the `parity-*` and `gen-*` scripts, the reference fixtures — was retired, and the faithful recordings
+that remain are the public archive under `recordings/`.

@@ -207,7 +207,10 @@ This is a standing rule, not an opinion to trade against a coverage argument:
 - **The parity audit exists: `docs/09-parity-audit.md`.** Every GWPS behaviour and ASURA's counterpart,
   row by row, with `file:line` on both sides and a verdict (1:1 / AHEAD / DEVIATION / BEHIND / STUB).
   51 of 78 are indistinguishable, 10 are ASURA's own, 5 differ on purpose, 11 are behind but collapse
-  into three work items, and 1 is a stub in both. Read it before deciding that something is "missing".
+  into three work items, and 1 is a stub in both. Read it before deciding that something is "missing". The
+  tooling behind it — the oracle, the `parity-*` and `gen-*` scripts — was retired when parity closed
+  (docs/16); the audit and the parity documents are history, and the tree no longer references the
+  reference project.
 - **M2 delivered: placement is safe, and it is proven against the real database.** The `asura-db`
   crate now owns registration, the atomic reservation, the lease ledger, the reaper and the
   reconciler; `asura-fakeworld` runs the whole sequence as a harness; the acceptance suite passes
@@ -455,8 +458,8 @@ carries an inventory and comes back where it logged out.
    `GAME_CMSG_CHAR_CREATION_*` handlers (`docs/07-status.md`). They are blocked on a
    *character-creation* instance (`MapType_CharacterCreation`, which this world does not host) and on
    porting the default-equipment table `GetDefaultEquipments` answers with (`GmDefaultArmors.c`, 2820
-   lines of it). The second is now generation work rather than design: `tools/gen-pvp-items.py` and
-   `tools/gen-default-inventory.py` are the two shapes to copy, and equipment is item rows.
+   lines of it). The second is generation work rather than design, and the generators were retired when parity
+   closed (docs/16): the table is item rows, generated once from the reference and kept as data.
 3. **Then the things the reference never wrote**: picking a dropped item back up
    (`GAME_CMSG_INTERACT_ITEM`, `0x803F` — the last piece that makes a drop reversible), splitting a
    stack by hand (`0x8075`), buying and selling (`GAME_CMSG_TRANSACT_ITEMS`, `0x804D`), swapping two
@@ -464,9 +467,9 @@ carries an inventory and comes back where it logged out.
    a *measurement* of what the client sends; the reference's C has now been insufficient four times, and
    a live trace sufficient every time.
 4. **Use the reference session as the spec.** `docs/06-reference-session.md` is the whole working login,
-   both directions; `tools/patch-gwps-auth-trace.py` reproduces the logging that produced it,
-   `tools/compare-replies.py` diffs two servers' replies field by field, and `tools/compare-load.py`
-   diffs the world's load stream against a capture of the reference working.
+   both directions; the parity tooling that produced and diffed it (trace patches, reply and load comparators)
+   was retired when parity closed (docs/16); the session document and the recordings under `recordings/`
+   are the record.
 5. **The real client is the last word on anything the wire does.** Everything above is harness-only, and
    three messages that no capture contains have now crashed a live client (`ITEM_REMOVE`, an item agent,
    chat). `tools/start-server.ps1` plus the trace in that console is the verdict — and if a client
@@ -522,41 +525,29 @@ archive's index, its decompressor, and `GmMapDataImport.c`'s chunk reader. All t
 |---|---|
 | the archive index: header, file table, TOC hash, one entry's bytes | `crates/asura-world/src/gwdat.rs` |
 | `FaCompress.c`'s decoder: the bit window, the node tree, the block loop | `crates/asura-world/src/fa_compress.rs` |
-| its six static tables, generated from the reference and `--check`ed | `tools/gen-fa-compress-tables.py` -> `src/fa_compress_tables.rs` |
+| its six static tables | `crates/asura-world/src/fa_compress_tables.rs` |
 | the container and the path graph: planes, trapezoids, x/y/sink nodes, portals | `crates/asura-world/src/map_data.rs` |
 | "which trapezoid is this position in": `PathFindTrapezoid` | same file (`PathStaticData::trapezoid_at`) |
 | every catalogue map imported out of a real `Gw.dat`, with its spawn point | `crates/asura-world/examples/map-census.rs` |
-| the reference's own fingerprints of the same blobs, as a fixture | `crates/asura-world/tests/fixtures/gwdat-pathing.csv` |
-| the test that compares this repo's import to them, column by column | `crates/asura-world/tests/map_data.rs` |
-| the three-way check: reference binary, fixture, this repo | `tools/parity-pathing.py --check` |
-| the numbers, and what the reference does that a tidier reader would not | `docs/10-parity-queue.md`, item D |
+| the test that a dumped graph answers exactly the walks the `Gw.dat` import answers | `crates/asura-world/tests/path_dump.rs` |
 | the A*: neighbour and portal visits, the heap, the waypoint builder | `crates/asura-world/src/pathfind.rs` |
-| its fixed-point reciprocal and square-root tables, generated from `GmPaths.c` | `tools/gen-path-tables.py` -> `src/path_tables.rs` |
-| the walks both sides run: every catalogue spawn point and eight offsets from it | `tools/gen-path-cases.py` -> `tests/fixtures/path-cases.txt` |
-| the reference's own answers for them, waypoint bits included | `tools/parity-path.py --write` -> `tests/fixtures/path-results.csv` |
-| the reference's path finder as a runnable oracle (its translation unit, unmodified) | `tools/path-oracle.c`, built by `tools/build-oracle.ps1` |
-| the case-by-case comparison, and the four in-module tests | `crates/asura-world/tests/pathfind.rs`, `src/pathfind.rs` |
+| its fixed-point reciprocal and square-root tables | `crates/asura-world/src/path_tables.rs` |
+| the in-module pathfinding tests: the visits, the heap, the waypoint builder | `crates/asura-world/src/pathfind.rs` |
 | the graphs a world serves with, imported at startup from `Gw.dat` | `crates/asura-world/src/lib.rs` (`PathGraphs`), `src/main.rs` (`--gwdat`, `ASURA_GW_DAT`) |
 | the walk itself: destination, direction, speed, waypoints, and the tick that advances them | `crates/asura-world/src/agent.rs` (`Motion`, `begin_walk`, `advance`) |
 | `MOVE_TO_COORD`'s answer: waypoint 0, or the refusal that is a position broadcast | `crates/asura-world/src/lib.rs` (`0x803E`) |
 
-The grep that matters is `python tools/parity-pathing.py --check`: it runs
-`..\PreSearing\build\RelWithDebInfo\gwdat_pathing.exe` over the catalogue's blobs, compares its output to
-the fixture, and compares both to this repo's importer. Any of the three drifting fails it. It skips (exit
-0) when `Gw.dat` or the built reference tool is absent, so it is safe on a machine without them.
+The pathing proof is data-driven now: `tests/path_dump.rs` asserts a graph written with
+`--dump-path-graphs` answers exactly the walks the `Gw.dat` import answers, and the in-module tests in
+`src/pathfind.rs` pin the visits and the waypoint builder. They skip cleanly without a local `.dat`.
 
-`python tools/parity-path.py --check` is the same shape for the search, with one difference: the reference
-has no tool of its own for `PathFinding`, so `tools/path-oracle.c` supplies one by compiling the reference's
-own translation unit and calling it. That needs MSVC and the libraries the reference's CMake build already
-produced, which is why `tools/build-oracle.ps1` exists and why the binary is gitignored — the fixture
-it produced is committed, and the tests run from the fixture without a compiler.
-
-One corner of that comparison is a reference defect rather than a port difference:
-`PathBuildAddWaypointAndReduce` reads its intersection parameters after `FindIntersectionPoint` has
-declined to write them (parallel lines), so the reference answers one of the 96 cases with a different
-waypoint list on different runs. `tools/parity-path.py` detects that by running the oracle three times,
-compares those cases on the answer alone, and lists them in the fixture's header. If a future case starts
-flapping, that is how it will show up.
+The parity/regeneration apparatus that used to sit beside them (`parity-pathing.py`, `path-oracle.c`,
+`gen-path-cases.py`, the walk fixtures) was retired when parity closed (docs/16); the measurements it
+produced are described in `docs/10-parity-queue.md`, item D, and are history. One of those
+measurements is worth keeping as a note rather than a command: `PathBuildAddWaypointAndReduce` reads
+its intersection parameters after `FindIntersectionPoint` has declined to write them (parallel lines),
+so one of the catalogue cases had a different waypoint list on different runs. That was a property of
+the reference, not of this port, and `path_dump.rs` is the guard that a waypoint list is stable now.
 
 ## The pieces the character settings added (B5)
 
@@ -571,14 +562,13 @@ the same captured one for every character. It is now built from the row.
 | the login reply building it per character instead of sending the constant | `crates/asura-auth/src/lib.rs` |
 | the creation defaults the reference writes (`level = 1`, `is_pvp` when the campaign is none, helmet shown) | `asura_db::inventory::create_character` |
 | the proof: the built block equals the reference's, the seeded character's does not, and the row round-trips | `messages.rs` tests, `crates/asura-auth/tests/login.rs`, `crates/asura-db/tests/inventory.rs` |
-| the schema diff itself: 95 reference columns, each stored, derived or explained | `tools/parity-schema.py` -> `docs/12-schema-parity.md` |
-| the load block's payloads against the capture, with the three measured allowances | `tools/parity-load-bytes.py --check` |
-| a message's bytes from the reference's own packer, and that message's field list | `tools/pack-oracle.c`, built by `tools/build-oracle.ps1 -Source .\tools\pack-oracle.c` |
+| the schema diff, as a historical record: 95 reference columns, each stored, derived or explained | `docs/12-schema-parity.md` (history) |
 
 Two schema details worth not re-learning: `smallint` and `integer` are *different Rust types* to sqlx, so a
 query that reads a mixed set of them needs `::int` casts or it fails at runtime; and the settings block is
 always 62 bytes even for a character wearing nothing, because the reference sends `sizeof(CharacterSettings)`
-— the five piece slots are blank, not absent.
+— the five piece slots are blank, not absent. The comparison tools that produced `docs/12` and the load
+allowances were retired with the rest of the parity tooling (docs/16).
 
 ## The pieces M3 added
 
@@ -586,29 +576,26 @@ always 62 bytes even for a character wearing nothing, because the reference send
 |---|---|
 | connection classification: the three version headers, their sizes, and the refusal to guess | `crates/asura-protocol/src/client/version.rs` |
 | framing: header plus table-sized body, no length field, with encode-side size validation | `crates/asura-protocol/src/client/frame.rs` |
-| the auth message table: 100 rows with names, sizes and field layouts | `crates/asura-protocol/src/client/tables.rs` (generated) |
-| the generator that reads it out of the reference, and checks its own output | `tools/gen-auth-tables.py` |
+| the auth message table: 100 rows with names, sizes and field layouts | `crates/asura-protocol/src/client/tables.rs` |
+| the game message table: 194 client-to-server and 488 server-to-client headers | `crates/asura-protocol/src/client/game_tables.rs` |
 | the portal identity column, and why it is not the account id | `crates/asura-db/migrations/0003_portal_identity.sql` |
 | the login decision: find the session, close the others, read the characters | `crates/asura-db/src/login.rs` |
 | the refusal rules under test against the live database | `crates/asura-db/tests/login.rs` |
 | the three identity pairs the rig's portal DLL presents, seeded idempotently | `tools/seed-dev.ps1` |
 | one command for the whole login path, client not needed yet | `tools/m3-verify.ps1` |
 | the database's record of its own migrations, and the refusal to run against a stale schema | `crates/asura-db/src/migrations.rs` (+ `tests/migrations.rs`) |
-| ARC4, ported from `arc4.c`, checked against published vectors and the reference's keystream | `crates/asura-protocol/src/client/arc4.rs` |
+| ARC4, ported from `arc4.c`, checked against published vectors and round trips | `crates/asura-protocol/src/client/arc4.rs` |
 | the key exchange: seeds, fixed-constant DH, and the protocol's own key derivation | `crates/asura-protocol/src/client/handshake.rs` |
-| reference outputs for the handshake, compiled out of GWPS's own C | `tools/gen-handshake-fixtures.py` -> `client/handshake_fixtures.rs` |
-| the login batch's fixed 591-byte settings blob, parsed out of the reference | same generator -> `client/login_fixtures.rs` |
+| the login batch's fixed 591-byte settings blob | `crates/asura-protocol/src/client/login_fixtures.rs` |
 | typed layouts for the messages the login path uses, with sizes checked against the table | `crates/asura-protocol/src/client/messages.rs` |
-| a reference client: the same protocol from the other end, so the service is testable without the game | `crates/asura-protocol/src/client/peer.rs` |
+| a test client: the same protocol from the other end, so the service is testable without the game | `crates/asura-protocol/src/client/peer.rs` |
 | the service itself: listener, key exchange, ARC4 both ways, login, trace | `crates/asura-auth/src/lib.rs` (+ `src/main.rs`) |
 | a client anyone can run against a live service | `crates/asura-auth/examples/login.rs` |
 | the end-to-end proof: a real socket, the real database, the character list | `crates/asura-auth/tests/login.rs` |
 
-The generated files carry `#[rustfmt::skip]` and are checked by `python tools/gen-auth-tables.py
---check` and `python tools/gen-handshake-fixtures.py --check`; if either disagrees with the reference,
-that command fails rather than letting the port drift. `--gwps` points them at a checkout other than
-`..\PreSearing`. The fixture generator needs a C compiler (it looks for `cl.exe` under Visual Studio,
-then gcc) and refuses to write fixtures it could not compile.
+The tables and the fixture blobs carry `#[rustfmt::skip]` and are the implementation now. Their
+generators and checks (the `gen-*` scripts, the `parity-*` scripts, the oracle binaries) were retired
+when parity closed (docs/16); if a table ever disagrees with the client, the client is the test.
 
 Two PowerShell traps are fixed in the scripts and worth not re-introducing:
 

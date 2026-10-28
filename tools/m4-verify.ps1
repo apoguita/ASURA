@@ -138,18 +138,6 @@ $code = Invoke-Native $cargo @("test", "--offline", "-p", "asura-world", "--", "
 if ($code -ne 0) { throw "world tests failed" }
 
 Write-Host ""
-Write-Host "6/6  generated files still match the reference"
-$python = (Get-Command python -ErrorAction SilentlyContinue).Source
-if (-not $python) {
-    Write-Host "     python not found on PATH; skipping the generated-file check"
-} else {
-    $code = Invoke-Native $python @("tools/gen-auth-tables.py", "--check")
-    if ($code -ne 0) { throw "the auth message table is stale; run tools/gen-auth-tables.py" }
-    $code = Invoke-Native $python @("tools/gen-game-tables.py", "--check")
-    if ($code -ne 0) { throw "the game message table is stale; run tools/gen-game-tables.py" }
-}
-
-Write-Host ""
 Write-Host "travel path: OK"
 Write-Host ""
 Write-Host "Verified end to end without a game: a client logs in, asks to travel, is sent to a world"

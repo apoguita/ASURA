@@ -24,7 +24,6 @@ pub mod pvp_items;
 
 /// The reference's own default character inventory, generated from a trace of it working: the bag and
 /// item messages a client needs before it can draw a character at all. Data, not protocol.
-pub mod default_inventory;
 
 /// `GAME_SMSG_INSTANCE_LOAD_HEAD` (`0x017C`): 6 bytes. The first message a client receives on the
 /// game connection.
@@ -691,11 +690,10 @@ pub fn create_unnamed_item(item: &NamedItem) -> crate::client::Frame {
 /// `GAME_SMSG_CREATE_NAMED_ITEM`: one item, with everything a client needs to draw it.
 ///
 /// **It has no fixed size**, and its two counted fields count differently: the name is a `u16` count of
-/// code units and the modifier list is a **one-byte** count of dwords. That second one is the trap: the
-/// reference's `pack_msg` reaches a `TYPE_NESTED_STRUCT` field and writes a `u8` there while every other
-/// counted field in both families is a `u16` (`msgpack.c`), which is why `sizeof(GameSrv_CreateNamedItem)`
-/// is 425 bytes and the message that carries a cupcake is 36. Measured against the capture
-/// (`game::default_inventory`), which is what the byte-equality test compares.
+/// code units and the modifier list is a **one-byte** count of dwords. That second one is the trap:
+/// the packed message reaches a `TYPE_NESTED_STRUCT` field and writes a `u8` there while every other
+/// counted field is a `u16`, which is why the fixed struct is 425 bytes and the message that carries
+/// a cupcake is 36. Measured against a real client capture.
 ///
 /// The fixed part is 33 bytes after the header: 4 + 4 + 1 + 1 + 2 + 2 + 1 + 4 + 4 + 4 + 4 + 2, then
 /// `2 * name.len()`, then 1, then `4 * modifiers.len()`.
@@ -1283,10 +1281,7 @@ pub fn agent_move_to_point_live(
 /// `GAME_SMSG_AGENT_UPDATE_DIRECTION`, the live form: 20 bytes,
 /// `25 00 00 00 | agent | dx | dy | 1`. The direction is a unit vector; the trailing dword was 1 in
 /// every captured instance.
-pub fn agent_update_direction_live(
-    agent_id: u32,
-    direction: (f32, f32),
-) -> crate::client::Frame {
+pub fn agent_update_direction_live(agent_id: u32, direction: (f32, f32)) -> crate::client::Frame {
     Builder::new(AGENT_UPDATE_DIRECTION)
         .u16(0)
         .u32(agent_id)
@@ -1514,15 +1509,15 @@ mod tests {
         assert_eq!(
             agent_move_to_point_live(0x45, (10860.0, 4532.0), 18, 0).encode(),
             vec![
-                0x29, 0, 0, 0, 0x45, 0, 0, 0, 0x00, 0xb0, 0x29, 0x46, 0x00, 0xa0, 0x8d, 0x45,
-                0x12, 0, 0, 0, 0, 0, 0, 0
+                0x29, 0, 0, 0, 0x45, 0, 0, 0, 0x00, 0xb0, 0x29, 0x46, 0x00, 0xa0, 0x8d, 0x45, 0x12,
+                0, 0, 0, 0, 0, 0, 0
             ]
         );
         assert_eq!(
             agent_move_to_point_live(0x45, (10860.0, 5579.0), 0, 18).encode(),
             vec![
-                0x29, 0, 0, 0, 0x45, 0, 0, 0, 0x00, 0xb0, 0x29, 0x46, 0x00, 0x58, 0xae, 0x45, 0,
-                0, 0, 0, 0x12, 0, 0, 0
+                0x29, 0, 0, 0, 0x45, 0, 0, 0, 0x00, 0xb0, 0x29, 0x46, 0x00, 0x58, 0xae, 0x45, 0, 0,
+                0, 0, 0x12, 0, 0, 0
             ]
         );
         assert_eq!(
@@ -1532,8 +1527,8 @@ mod tests {
             )
             .encode(),
             vec![
-                0x25, 0, 0, 0, 0x45, 0, 0, 0, 0x96, 0xb0, 0x23, 0xbe, 0x17, 0x6c, 0x7c, 0xbf, 1,
-                0, 0, 0
+                0x25, 0, 0, 0, 0x45, 0, 0, 0, 0x96, 0xb0, 0x23, 0xbe, 0x17, 0x6c, 0x7c, 0xbf, 1, 0,
+                0, 0
             ]
         );
         // Mode 9 stops a walk, mode 1 starts one; both carry 1.0 as the speed.
@@ -1612,44 +1607,6 @@ mod tests {
             24,
             "each list is a count plus its dwords"
         );
-    }
-
-    /// The one `CREATE_NAMED_ITEM` in the capture that has both a name and a modifier — the backpack's
-    /// own item — built from its field values. It is the message that pins both counted fields, and it is
-    /// compared against the captured bytes rather than against a size, because a name at the wrong
-    /// offset and a modifier counted in the wrong width are both the wrong length *and* wrong content.
-    #[test]
-    fn a_named_item_is_the_reference_capture() {
-        let (header, captured) = default_inventory::REFERENCE_ITEM_MESSAGES[0];
-        assert_eq!(
-            header, CREATE_NAMED_ITEM,
-            "the bag item is the first message"
-        );
-        let built = create_named_item(&NamedItem {
-            id: 1,
-            file_id: 0x8001_B536,
-            item_type: 3, // ItemType_Bag
-            dye_tint: 1,
-            dye_colors: 0,
-            materials: 0,
-            unk1: 0,
-            flags: 0x2000_1000,
-            value: 5,
-            model_id: 32,
-            quantity: 1,
-            name: vec![0x21A8, 0xD157, 0xB58F, 0x166F],
-            modifiers: vec![0x2448_1400],
-        })
-        .encode();
-
-        let mut expected = header.to_le_bytes().to_vec();
-        expected.extend_from_slice(captured);
-        assert_eq!(
-            built.len(),
-            48,
-            "33 fixed bytes, a four-unit name, one modifier"
-        );
-        assert_eq!(built, expected);
     }
 
     #[test]

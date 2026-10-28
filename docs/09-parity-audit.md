@@ -1,5 +1,7 @@
 # 09 — GWPS parity audit
 
+> **History.** The tooling named below was retired when parity closed (docs/16); nothing here is runnable.
+
 The question this answers: **for every behaviour GWPS has, does ASURA have it, and is it the same
 behaviour?** Nothing here is a plan to rewrite ASURA like GWPS. The reference is
 `C:\Users\Apo\Documents\GitHub\PreSearing` (read-only, never modified); the measure is what GWPS

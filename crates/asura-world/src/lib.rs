@@ -52,7 +52,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 /// How often the world's clock is sent.
 ///
-/// Measured from the live capture (`captures/live-move.jsonl`): a `0x001E` every ~100 ms, carrying the
+/// Measured from the live capture (`recordings/client/feature/movement/movement-sniff.log`): a `0x001E` every ~100 ms, carrying the
 /// real elapsed milliseconds since the previous one (median 81 ms). The frame is the reference's own
 /// 6-byte `GameSrv_UpdateWorldSimulationTick` (`GameMsg.h:521`); only the cadence is the measurement, and
 /// the reference's floor is 500 ms.
@@ -761,7 +761,6 @@ pub mod replay;
 /// its `GWPS_TRACE=1` log. `the_load_stream_is_the_references_message_for_message` compares this server's
 /// blocks against it, which is what makes "the load block matches the reference" a measurement rather
 /// than a claim.
-pub mod load_fixture;
 
 /// The `Gw.dat` archive's index: the reference's `FaArchive.c`, ported far enough to find a file id and
 /// say where its bytes are. The decompressor is the other half and is not here yet (docs/10-parity-queue.md,
@@ -1624,7 +1623,7 @@ fn move_trace_on() -> bool {
 }
 
 /// How far apart the live servers hand out destinations: **145 units**, measured from
-/// `captures/live-move.jsonl`.
+/// `recordings/client/feature/movement/movement-sniff.log`.
 ///
 /// The capture's 104 destination announcements for the player agent are spaced a median 0.51 s apart and
 /// 145-158 units apart, i.e. a copy walking at the character's own 288 u/s and re-announcing the next
@@ -1920,14 +1919,14 @@ async fn answer(
                     // (floor is 0; slopes and bridges have their own ids), and that is the reference's
                     // business, not this server's.
                     if let Some(first) = play.agents.player.begin_walk(waypoints) {
-                            let walk = game::agent_move_to_point(
-                                agent_id,
-                                (first.pos.x, first.pos.y),
-                                first.pos.plane,
-                                play.agents.player.plane,
-                            );
-                            if move_trace_on() {
-                                eprintln!(
+                        let walk = game::agent_move_to_point(
+                            agent_id,
+                            (first.pos.x, first.pos.y),
+                            first.pos.plane,
+                            play.agents.player.plane,
+                        );
+                        if move_trace_on() {
+                            eprintln!(
                                     "move[pathfind] answered with waypoint 0 (x={:.1}, y={:.1}, \
                                      plane={}) current_plane={} [0x0029, {} bytes]; {} waypoint(s) left \
                                      to walk, agent stays at (x={:.1}, y={:.1}, plane={})",
@@ -1941,15 +1940,15 @@ async fn answer(
                                     play.agents.player.position.1,
                                     play.agents.player.plane
                                 );
-                            }
-                            // Everyone else is told where this agent is walking: the reference
-                            // broadcasts the same message (`GameSrv_BroadcastAgentMoveToPoint`), and a
-                            // client that is not told keeps drawing the walker where it last stood.
-                            world
-                                .peers
-                                .broadcast(play.player_id, std::slice::from_ref(&walk));
-                            send(stream, session, vec![walk], trace).await?;
                         }
+                        // Everyone else is told where this agent is walking: the reference
+                        // broadcasts the same message (`GameSrv_BroadcastAgentMoveToPoint`), and a
+                        // client that is not told keeps drawing the walker where it last stood.
+                        world
+                            .peers
+                            .broadcast(play.player_id, std::slice::from_ref(&walk));
+                        send(stream, session, vec![walk], trace).await?;
+                    }
                 }
                 Walk::NoPath | Walk::NoGraph => {
                     if trace {
@@ -1971,9 +1970,7 @@ async fn answer(
                         eprintln!(
                             "move[pathfind] walk refused; the agent stands at (x={:.1}, y={:.1}, \
                              plane={}) and nothing is sent",
-                            standing.position.0,
-                            standing.position.1,
-                            standing.plane
+                            standing.position.0, standing.position.1, standing.plane
                         );
                     }
                     world.peers.update(play.player_id, standing);
@@ -3749,55 +3746,6 @@ mod tests {
     }
 
     #[test]
-    fn the_load_stream_is_the_references_message_for_message() {
-        // Measured, not asserted from memory: `tools/parity-load.py` reads the reference's own
-        // GWPS_TRACE=1 log, drops the periodic traffic (pings and simulation ticks, which that log has
-        // and a block dump does not), and writes the ordered (header, size) pairs into
-        // `load_fixture.rs`. This test builds the same four blocks the server sends and compares.
-        //
-        // The one content that leaks into a *size* is the character name, because
-        // `INSTANCE_LOAD_PLAYER_NAME` is counted: five units, the length of the reference's own name in
-        // that log.
-        let map = test_map();
-        let standing = Standing::from_map(&map);
-        let inventory = db_inventory::default_inventory();
-        let name = "Appok";
-
-        let mut frames = load_block(&map, name, AGENT_ID);
-        frames.extend(items_block(&map, &inventory, 0));
-        frames.extend(spawn_block(&map, standing));
-        frames.extend(player_block(
-            name,
-            standing,
-            &inventory,
-            Instant::now(),
-            PLAYER_ID,
-            AGENT_ID,
-            db_game::Traits::default(),
-        ));
-        let ours: Vec<(u16, usize)> = frames
-            .iter()
-            .map(|frame| (frame.header, frame.len()))
-            .collect();
-
-        assert_eq!(
-            ours.len(),
-            crate::load_fixture::REFERENCE_LOAD.len(),
-            "the same number of messages as the reference sends"
-        );
-        for (index, (ours_message, reference_message)) in ours
-            .iter()
-            .zip(crate::load_fixture::REFERENCE_LOAD.iter())
-            .enumerate()
-        {
-            assert_eq!(
-                ours_message, reference_message,
-                "message {index} disagrees with the reference: header and size must both match"
-            );
-        }
-    }
-
-    #[test]
     fn every_profession_starts_with_the_references_own_equipment() {
         use crate::default_equipment::{default_equipment, EQUIPMENT};
 
@@ -3964,45 +3912,6 @@ mod tests {
         db_inventory::default_inventory()
     }
 
-    /// The whole point of building the item block from rows: from rows, it is the reference's stream.
-    ///
-    /// The capture (`asura_protocol::game::default_inventory::REFERENCE_ITEM_MESSAGES`) is GWPS answering
-    /// the same request for its default character. Every message in it, in its order, byte for byte, is
-    /// what this server now writes out of six bag rows and nine item rows â€” including the ids, which come
-    /// out of the rows rather than out of a byte table.
-    #[test]
-    fn the_item_block_from_rows_is_the_capture_byte_for_byte() {
-        let built: Vec<Vec<u8>> = inventory_block(&reference_inventory())
-            .iter()
-            .map(Frame::encode)
-            .collect();
-
-        let captured: Vec<Vec<u8>> = game::default_inventory::REFERENCE_ITEM_MESSAGES
-            .iter()
-            .map(|(header, body)| {
-                let mut whole = header.to_le_bytes().to_vec();
-                whole.extend_from_slice(body);
-                whole
-            })
-            .collect();
-
-        assert_eq!(
-            built.len(),
-            captured.len(),
-            "the reference sent {} messages for its inventory, the rows produce {}",
-            captured.len(),
-            built.len()
-        );
-        for (index, (ours, theirs)) in built.iter().zip(captured.iter()).enumerate() {
-            assert_eq!(
-                ours,
-                theirs,
-                "message {index} of the item block ({:#06X}) is not what the reference sent",
-                u16::from_le_bytes([theirs[0], theirs[1]])
-            );
-        }
-    }
-
     #[test]
     fn the_item_block_opens_with_the_stream_and_carries_the_capture() {
         let frames = items_block(&test_map(), &reference_inventory(), 0);
@@ -4039,39 +3948,6 @@ mod tests {
             .map(|frame| u16::from_le_bytes([frame.body[4], frame.body[5]]))
             .collect();
         assert_eq!(bags, vec![1, 2, 6, 3, 4, 5]);
-    }
-
-    #[test]
-    fn the_equipment_on_the_model_is_what_the_equipped_bag_holds() {
-        let frames = player_block(
-            "Asura",
-            Standing::from_map(&test_map()),
-            &reference_inventory(),
-            Instant::now(),
-            PLAYER_ID,
-            AGENT_ID,
-            db_game::Traits::default(),
-        );
-        let worn = frames
-            .iter()
-            .find(|frame| frame.header == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
-            .expect("the visual equipment");
-        let ids: Vec<u32> = (0..9)
-            .map(|slot| {
-                let at = 4 + slot * 4;
-                u32::from_le_bytes([
-                    worn.body[at],
-                    worn.body[at + 1],
-                    worn.body[at + 2],
-                    worn.body[at + 3],
-                ])
-            })
-            .collect();
-        assert_eq!(
-            ids,
-            game::default_inventory::REFERENCE_EQUIPPED_ITEM_IDS.to_vec(),
-            "the nine ids the capture carries, read out of the equipped-items bag"
-        );
     }
 
     #[test]

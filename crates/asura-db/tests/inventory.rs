@@ -53,7 +53,7 @@ async fn character(pool: &PgPool, label: &str) -> (String, Uuid) {
 }
 
 #[tokio::test]
-async fn a_new_character_is_seeded_with_the_reference_default_inventory() {
+async fn a_new_character_is_seeded_with_the_default_inventory() {
     let Some(pool) = pool().await else {
         return skip();
     };

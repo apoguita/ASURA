@@ -1,4 +1,4 @@
-//! A reference client: the same protocol from the other end.
+//! A test client: the same protocol from the other end.
 //!
 //! This exists so the auth service can be tested without the game. It speaks what
 //! `docs/03-protocol.md` says a client speaks — the version message, the client seed, the ARC4
@@ -8,12 +8,11 @@
 //! **What it does not prove.** It computes the shared secret with the same
 //! [`super::handshake::modpow`] the server uses, because it knows the fixed private exponent. So it
 //! agrees with the server *by construction*: the Diffie–Hellman arithmetic itself is pinned
-//! separately, by fixtures generated from the reference's own C (`handshake_fixtures.rs`). What this
-//! does prove is everything around it — message order, sizes, UTF-16 names, UUID byte order, the
-//! cipher offsets on both directions.
+//! separately, by the modpow padding test. What this does prove is everything around it — message
+//! order, sizes, UTF-16 names, UUID byte order, the cipher offsets on both directions.
 //!
-//! It is a reference implementation, not a production client: it does not retry, does not interpret
-//! more of the login batch than its caller asks for, and holds no state beyond one connection.
+//! It is a test client, not a production client: it does not retry, does not interpret more of the
+//! login batch than its caller asks for, and holds no state beyond one connection.
 
 use super::arc4::Arc4;
 use super::frame::{Frame, FrameError};

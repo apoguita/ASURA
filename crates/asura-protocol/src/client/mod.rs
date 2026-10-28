@@ -15,8 +15,8 @@
 //!    alone fixes ([`tables`]). A size disagreement is what produces the client's opaque `007`
 //!    error, so it is an error here, not a warning.
 //!
-//! Names are GWPS's, verbatim, so a Rust message can be compared against a C one by name
-//! (`tools/gen-auth-tables.py` generates them from `opcodes.h`).
+//! Names are GWPS's, verbatim, so a Rust message can be compared against a C one by name. The
+//! tables themselves are recorded in `docs/03-protocol.md`; nothing here regenerates them.
 //!
 //! The game (world) family is **not** in this module yet. The auth family (60 client headers, 40
 //! server headers) is what M3 needs; the game table is 488 server headers and arrives with the
@@ -26,8 +26,8 @@ pub mod arc4;
 pub mod filecheck;
 pub mod frame;
 pub mod game;
-/// The game (world) message table, generated from the reference by `tools/gen-game-tables.py`: 194
-/// client-to-server headers and 488 server-to-client ones, with each message's field layout.
+/// The game (world) message table: 194 client-to-server headers and 488 server-to-client ones, with
+/// each message's field layout.
 pub mod game_tables;
 pub mod handshake;
 pub mod messages;
@@ -35,13 +35,8 @@ pub mod peer;
 pub mod tables;
 pub mod version;
 
-/// Numbers generated from the reference implementation by `tools/gen-handshake-fixtures.py`. Test
-/// data, so it is not compiled into a release build.
-#[cfg(test)]
-mod handshake_fixtures;
-
-/// The login batch's fixed data, parsed out of the reference by the same generator. Real data, so it
-/// is compiled in: `AUTH_SMSG_ACCOUNT_SETTINGS` carries this blob on every login.
+/// The login batch's fixed data. Real data, so it is compiled in:
+/// `AUTH_SMSG_ACCOUNT_SETTINGS` carries this blob on every login.
 pub mod login_fixtures;
 
 pub use arc4::Arc4;
