@@ -1726,7 +1726,36 @@ async fn answer(
                             // gate -- GWPS's chat gate is what leaves its chat half in its log too, and no
                             // chat text has ever reached a screen in either server. Sending it here crashed
                             // a live client, which is why the answer is printed and not sent.
-                            let answer = maps_answer(&world.all_maps());
+                            let mut listed = world.all_maps();
+                            if world.load_on_demand {
+                                // On-demand: every catalogue map is one this world will serve
+                                // (it loads it on first use), so /maps answers the reference's
+                                // table even before a map has been used. One query per map that
+                                // has not been loaded yet; /maps is a console command, not a hot
+                                // path.
+                                if let Ok(ids) = db_game::configured_map_ids(&world.pool).await {
+                                    for map_id in ids {
+                                        if listed.iter().any(|map| map.map_id == map_id) {
+                                            continue;
+                                        }
+                                        if let Ok(Some(configured)) =
+                                            db_game::spawn_map(&world.pool, map_id).await
+                                        {
+                                            listed.push(MapEntry {
+                                                map_id,
+                                                map_file_id: u32::try_from(configured.map_file_id)
+                                                    .unwrap_or(0),
+                                                map_type: configured.map_type,
+                                                spawn: (configured.spawn_x, configured.spawn_y),
+                                                spawn_plane: configured.spawn_plane as u16,
+                                                name: configured.name.clone(),
+                                                capacity: world.capacity,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            let answer = maps_answer(&listed);
                             for line in &answer.table {
                                 eprintln!("world: {line}");
                             }

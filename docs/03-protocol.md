@@ -221,40 +221,38 @@ screen for the whole construction. This server preloads every hosted map for the
 connects.
 
 Whether a client actually **requires** the destination to exist before the hop is untested here. That
-is what `--on-demand` (or `ASURA_WORLD_ON_DEMAND=1`) measures. It covers **both paths into a map**,
-because they are the same refusal when the switch is off and the same demand-load when it is on:
+is what `--on-demand` (or `ASURA_WORLD_ON_DEMAND=1`) measures. With no `--maps` it means **nothing is
+preloaded**: the world starts empty and every map is loaded the first time a client names it — at
+login (the client's first connection names the character's map) or at `/tp`. No map id is needed on
+the command line; that is the whole point: start the server, log in, play, travel.
 
-- a `/tp` into a catalogue map the world was *not* started with, and
-- a **login** whose character was last standing in one — the client's first connection names that
-  map, and without the switch the world answers `this world does not host map X` and the client is
-  kicked with `007`. (Observed live: a world started with `--maps 146` and a character last in map
-  148.)
-
-The demand-load walks the three steps a preload would have done at startup — the row from
-`map_config`, the seat pool row in `world_pool`, the path graph out of `Gw.dat` — and logs each
-step's cost:
+When a map is named, the demand-load walks the three steps a preload would have done at startup — the
+row from `map_config`, the seat pool row in `world_pool`, the path graph out of `Gw.dat` — and logs
+each step's cost:
 
 ```
 world: map 148 'Ascalon City (pre-Searing)' loaded on demand in N ms (row a ms, pool b ms, path graph c ms)
 world: "…" teleporting: map 146 -> map 148 …
 ```
 
-While the switch is on, the world also publishes seat-pool rows for the **whole catalogue**, so
-placement can hand it a client for any map (a pool row is not an instance; it is who-can-serve-what).
+The one thing an on-demand world publishes up front is a **seat pool row per catalogue map** — a
+line in the database saying *"this world can host map X"*, which is what placement reads to decide
+where a login may go. It is not an instance and loads nothing: the map's data still arrives when a
+client first names it.
 
 The runbook is the experiment itself:
 
 ```powershell
-.\tools\start-server.ps1 -Maps 146 -OnDemand
+.\tools\start-server.ps1 -OnDemand
 # client: F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1
-# in game:  /tp ascalon      (or: log in a character whose last map is 148)
+# just log in, then /tp ascalon
 ```
 
 The verdict is the client's loading screen plus the console lines above. If the client loads the
-map, precaching is not a hard requirement on ASURA (the destination cost is the `N ms` the log
-prints). If it hangs on the loading screen, the requirement is real, and the reference's answer
-applies: preload the destination before the hop. The server half of the experiment is pinned either
-way by `a_connection_to_an_unhosted_map_is_loaded_on_demand` and
+map, precaching is not a hard requirement on ASURA (the cost is the `N ms` the log prints). If it
+hangs on the loading screen, the requirement is real, and the reference's answer applies: preload
+the destination before the hop. The server half of the experiment is pinned either way by
+`a_connection_to_an_unhosted_map_is_loaded_on_demand` and
 `a_travel_to_an_unhosted_map_is_loaded_on_demand` (`crates/asura-world/tests/load.rs`): the
 connection or transfer names the unhosted map, its entry and pool row appear when it is demanded,
 and the client lands in the destination's own configured spawn point.

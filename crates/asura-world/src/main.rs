@@ -90,10 +90,24 @@ async fn main() -> ExitCode {
         .and_then(|value| value.parse::<i32>().ok())
         .unwrap_or(DEFAULT_CAPACITY);
 
-    // `--maps` names a subset; without it the world hosts **every** map the catalogue has, which is what
-    // the reference does (one server per map, all of them pre-spawned at startup). Pinning this to a single
-    // map made `/maps` show one alias and `/tp` answer "not hosted" for the other eleven -- a map list is a
-    // deployment detail, not something a player should have to know.
+    // `--on-demand`: load a catalogue map this world was not started with, instead of refusing it —
+    // for a `/tp` into it, and for a login whose character stands in it (both are the same refusal
+    // when this is off). Off by default, because preloading every destination is what the reference
+    // does (one pre-spawned server per map) and what this world does at startup; the switch exists
+    // to measure whether the client actually needs the destination ready before the hop.
+    //
+    // With no `--maps`, on-demand means **nothing is preloaded**: the world starts empty and every
+    // map is loaded the first time a client names it. That is the "no caching" side of the
+    // experiment, and it needs no map ids on the command line at all.
+    let load_on_demand = args.iter().any(|arg| arg == "--on-demand")
+        || matches!(
+            std::env::var("ASURA_WORLD_ON_DEMAND").ok().as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        );
+
+    // `--maps` names a subset to preload; without it the world preloads **every** map the catalogue
+    // has, which is what the reference does (one server per map, all of them pre-spawned at startup) —
+    // unless `--on-demand` asks for the opposite (nothing preloaded).
     let maps_arg: Option<Vec<i32>> = argument(&args, "--maps").map(|value| {
         value
             .split(',')
@@ -153,31 +167,43 @@ async fn main() -> ExitCode {
         }
     }
 
+    // The catalogue is always read: it is what pool rows are published for, and what an on-demand
+    // world can serve. It is not the same thing as preloading — a catalogue entry is a row in a
+    // database, an instance is the map's data in memory.
+    let catalogue: Vec<i32> = match db_game::configured_map_ids(&pool).await {
+        Ok(ids) => ids,
+        Err(err) => {
+            eprintln!("asura-world: could not read the map catalogue: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if catalogue.is_empty() {
+        eprintln!(
+            "asura-world: map_config is empty, so there is no map to host; run \
+             tools/seed-map.ps1 to write the reference's catalogue"
+        );
+        return ExitCode::from(4);
+    }
+
     // The maps, with what a client needs to load them. A map named on the command line that the
     // database does not describe is a map a client would load forever, so it is fatal here.
     let map_ids = match maps_arg {
         Some(explicit) => explicit,
-        None => match db_game::configured_map_ids(&pool).await {
-            Ok(ids) if !ids.is_empty() => {
-                eprintln!(
-                    "asura-world: no --maps given, so every map in the catalogue is hosted ({} of them, \
-                     the reference's own list)",
-                    ids.len()
-                );
-                ids
-            }
-            Ok(_) => {
-                eprintln!(
-                    "asura-world: map_config is empty, so there is no map to host; run \
-                     tools/seed-map.ps1 to write the reference's catalogue"
-                );
-                return ExitCode::from(4);
-            }
-            Err(err) => {
-                eprintln!("asura-world: could not read the map catalogue: {err}");
-                return ExitCode::FAILURE;
-            }
-        },
+        None if load_on_demand => {
+            eprintln!(
+                "asura-world: no --maps given and --on-demand is on, so NOTHING is preloaded: every \
+                 map is loaded the first time a client names it"
+            );
+            Vec::new()
+        }
+        None => {
+            eprintln!(
+                "asura-world: no --maps given, so every map in the catalogue is hosted ({} of them, \
+                 the reference's own list)",
+                catalogue.len()
+            );
+            catalogue.clone()
+        }
     };
 
     let mut maps = Vec::new();
@@ -230,7 +256,7 @@ async fn main() -> ExitCode {
             }
         }
     }
-    if maps.is_empty() {
+    if maps.is_empty() && !load_on_demand {
         eprintln!(
             "asura-world: no map can be hosted; refusing to register a world that cannot serve"
         );
@@ -238,24 +264,11 @@ async fn main() -> ExitCode {
     }
 
     // ---- step 5: register, publish, heartbeat, then accept -----------------------------------
-    // `--on-demand`: load a catalogue map this world was not started with, instead of refusing it —
-    // for a `/tp` into it, and for a login whose character stands in it (both are the same refusal
-    // when this is off). Off by default, because preloading every destination is what the reference
-    // does (one pre-spawned server per map) and what this world does at startup; the switch exists
-    // to measure whether the client actually needs the destination ready before the hop.
-    let load_on_demand = args.iter().any(|arg| arg == "--on-demand")
-        || matches!(
-            std::env::var("ASURA_WORLD_ON_DEMAND").ok().as_deref(),
-            Some("1" | "true" | "yes" | "on")
-        );
-    // The pool rows this world publishes. Normally one per map it preloads; with `--on-demand`, one
-    // per catalogue map, because placement asks "who publishes this map?" and an on-demand world can
-    // serve any of them — a login into a map it did not preload is loaded there and then, not refused.
+    // The pool rows this world publishes. One per map it preloads; with `--on-demand`, one per
+    // catalogue map — a database line saying "this world can host map X", so placement can hand it
+    // a client for any map. A pool row is not an instance: nothing is loaded by publishing it.
     let capacities: Vec<(i32, i32)> = if load_on_demand {
-        match db_game::configured_map_ids(&pool).await {
-            Ok(ids) if !ids.is_empty() => ids.iter().map(|map_id| (*map_id, capacity)).collect(),
-            _ => maps.iter().map(|map| (map.map_id, capacity)).collect(),
-        }
+        catalogue.iter().map(|map_id| (*map_id, capacity)).collect()
     } else {
         maps.iter().map(|map| (map.map_id, capacity)).collect()
     };
@@ -274,21 +287,17 @@ async fn main() -> ExitCode {
         eprintln!("asura-world: could not register the world: {err}");
         return ExitCode::FAILURE;
     }
-    eprintln!(
-        "asura-world: registered world {world_id} at {public} for map(s) {} ({} slot(s) each){}",
+    let preloaded = if maps.is_empty() {
+        "none (on-demand: each map loads the first time a client names it)".to_string()
+    } else {
         maps.iter()
             .map(|map| map.map_id.to_string())
             .collect::<Vec<_>>()
-            .join(", "),
-        capacity,
-        if load_on_demand {
-            format!(
-                "; on-demand serves any of the {} catalogue map(s)",
-                capacities.len()
-            )
-        } else {
-            String::new()
-        }
+            .join(", ")
+    };
+    eprintln!(
+        "asura-world: registered world {world_id} at {public} for map(s) {preloaded} ({} slot(s) each)",
+        capacity
     );
 
     // The heartbeat. A world that stops sending it stops being offered, which is the point: a dead
