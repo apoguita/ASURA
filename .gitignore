@@ -3,11 +3,11 @@
 /target-verify/
 **/*.rs.bk
 
-# The client's asset archive when a developer keeps a local copy in this repository (data/Gw.dat or
-# ./Gw.dat). It is the game's file, not this project's; the world reads it for path graphs, and a
-# build without one still serves maps, it just cannot answer pathfinding.
-/data/
+# The client's raw asset archive stays local: it is the game's 3.6 GB file, not this project's, and
+# it cannot be committed. The derived path-graph dump IS bundled -- data/path-graphs.bin is committed,
+# so a fresh clone can answer pathfinding without finding an archive (docs/03-protocol.md section 5d).
 /Gw.dat
+/data/Gw.dat
 
 # Local run artifacts: logs, captures, recordings, configs with secrets
 *.log

@@ -132,6 +132,36 @@ fn a_dumped_graph_answers_the_same_walks_as_the_archive() {
     }
 }
 
+/// The bundled dump works out of the box: no archive, no database — `data/path-graphs.bin` is
+/// committed with the server, so the repository alone can answer pathfinding.
+#[test]
+fn the_bundled_dump_answers_walks_without_an_archive() {
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("a crate directory")
+        .parent()
+        .expect("a repository directory")
+        .to_path_buf();
+    let dump = repo.join("data").join("path-graphs.bin");
+    if !dump.exists() {
+        eprintln!("skipped: the bundled dump is absent");
+        return;
+    }
+    let graphs =
+        PathGraphs::from_dump(dump.to_str().expect("a path")).expect("the bundled dump loads");
+    let maps = vec![map(146), map(148)];
+    assert_eq!(
+        graphs.bind(&maps),
+        2,
+        "the bundled dump binds both pre-Searing maps on the shared blob"
+    );
+    let walk = graphs.walk(146, pos(6602.0, 4485.0), pos(2781.3, 7637.7));
+    assert!(
+        !matches!(walk, Walk::NoGraph),
+        "the bundled dump must answer walks, got {walk:?}"
+    );
+}
+
 /// The real command: `asura-world --dump-path-graphs` writes a file this crate can read back, and
 /// the catalogue binds to it — so a world can serve maps from the dump with no `Gw.dat` at all.
 ///

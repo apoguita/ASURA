@@ -82,6 +82,33 @@ fn gw_dat_path() -> Option<String> {
     None
 }
 
+/// The graphs a test world starts with: the **bundled** dump (`data/path-graphs.bin`, committed)
+/// first, so a fresh clone can path with no archive; then a local `Gw.dat` as the re-dump source;
+/// then none, which the movement tests detect and skip on.
+fn harness_graphs(maps: &[MapEntry]) -> asura_world::PathGraphs {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("a crate directory")
+        .parent()
+        .expect("a repository directory");
+    let dump = repo.join("data").join("path-graphs.bin");
+    if dump.exists() {
+        match asura_world::PathGraphs::from_dump(dump.to_str().expect("a path")) {
+            Ok(graphs) => {
+                graphs.bind(maps);
+                return graphs;
+            }
+            Err(err) => panic!("the bundled dump {:?} does not load: {err}", dump),
+        }
+    }
+    match gw_dat_path() {
+        Some(path) => asura_world::PathGraphs::load(&path, maps).unwrap_or_else(|err| {
+            panic!("{path} does not open: {err}");
+        }),
+        None => asura_world::PathGraphs::empty(),
+    }
+}
+
 /// A world server on a loopback port, and everything the test needs to check behind it.
 struct Harness {
     pool: PgPool,
@@ -151,13 +178,8 @@ impl Harness {
             },
         ];
 
-        // The graphs, from the same archive the client would load the map from.
-        let graphs = match gw_dat_path() {
-            Some(path) => asura_world::PathGraphs::load(&path, &maps).unwrap_or_else(|err| {
-                panic!("{path} does not open: {err}");
-            }),
-            None => asura_world::PathGraphs::empty(),
-        };
+        // The graphs: the bundled dump first (a fresh clone can path), then a local archive.
+        let graphs = harness_graphs(&maps);
         let walks = !graphs.maps().is_empty();
 
         let world = Arc::new(World {
@@ -1685,12 +1707,7 @@ async fn a_travel_to_an_unhosted_map_is_loaded_on_demand() {
         name: "Lakeside County".to_string(),
         capacity: 2,
     }];
-    let graphs = match gw_dat_path() {
-        Some(path) => asura_world::PathGraphs::load(&path, &maps).unwrap_or_else(|err| {
-            panic!("{path} does not open: {err}");
-        }),
-        None => asura_world::PathGraphs::empty(),
-    };
+    let graphs = harness_graphs(&maps);
     let world = Arc::new(World {
         pool: pool.clone(),
         world_id,
@@ -1920,12 +1937,7 @@ async fn a_connection_to_an_unhosted_map_is_loaded_on_demand() {
         name: "Lakeside County".to_string(),
         capacity: 2,
     }];
-    let graphs = match gw_dat_path() {
-        Some(path) => asura_world::PathGraphs::load(&path, &maps).unwrap_or_else(|err| {
-            panic!("{path} does not open: {err}");
-        }),
-        None => asura_world::PathGraphs::empty(),
-    };
+    let graphs = harness_graphs(&maps);
     let world = Arc::new(World {
         pool: pool.clone(),
         world_id,

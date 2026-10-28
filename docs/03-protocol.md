@@ -287,16 +287,21 @@ asura-world            # picks data\path-graphs.bin up automatically
 - The format is ours (`crates/asura-world/src/graph_dump.rs`), and it carries exactly what the
   finder consumes. The community `.pmap` files (ACB's Pathingmap Builder, e.g. the archives the
   GW-Pathing-Map visualization projects ship) are *visualization* data: trapezoids and adjacency
-  only, no portals or node tree, so they cannot feed the reference's A★. Our dump can be produced
-  from any archive the client installs.
+  only, no portals or node tree, so they cannot feed the reference's A★. Our dump is produced from
+  a client archive once and then travels with the server.
 - **The bit-31 trap**: a catalogue blob id may carry the archive's "replacement pending" bit
   (`0x8005EA96` for The Northlands) while an archive binds the plain id (`0x5EA96`). Both are tried
   (`find_path_blob`, `docs/03-roadmap.md`), and a substitution is logged.
 - Parity is pinned by `crates/asura-world/tests/path_dump.rs`: the walks from a dumped graph are
   compared, waypoint for waypoint, with the walks from the archive import (maps 146 and 148, which
-  share one blob), and the dump command's own file is loaded back and bound to the catalogue.
+  share one blob), the dump command's own file is loaded back and bound to the catalogue, and the
+  **bundled** `data/path-graphs.bin` is walked directly with no archive present.
 
-The dump is derived game data. It is not committed (`/data/` is gitignored), same rule as `Gw.dat`.
+The dump is derived game data and it **is bundled with this repository**: `data/path-graphs.bin` is
+committed (11.1 MB), so a fresh clone answers pathfinding without finding a client archive — the
+whole server, pathing included, is one clone. The raw `Gw.dat` itself stays local (3.6 GB, the
+game's file); `/Gw.dat` and `/data/Gw.dat` are the only ignored archive paths, and the dump is
+regenerated with `--dump-path-graphs` when the catalogue or the client changes.
 
 ### 5a. The auth-side pair (measured from the reference)
 
