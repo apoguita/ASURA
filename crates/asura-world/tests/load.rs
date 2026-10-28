@@ -2779,27 +2779,32 @@ async fn a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path() {
         "the agent walks on the world tick: it has moved {travelled:.1} units"
     );
 
-    // ---- a manual report is taken exactly, and no answer is sent --------------------------------
-    // The reference takes a reported position under a budget (`GameSrv_HandlePositionUpdate`); that clamp
-    // is what let the server's copy fall behind a walking client. The report is now the agent's own, plane
-    // included, and the message is answered with silence -- the client already knows where it is.
-    let manual = (spawn.0 + 40.0, spawn.1 + 40.0);
-    let offset = (100.0f32, 0.0f32);
+    // ---- the budget: a report a kilometre away is clamped, and the clamp is what is broadcast ----
+    let far = (spawn.0 + 2500.0, spawn.1 + 3000.0);
+    // Where the walker stood when it made the report. The first client to join takes player id 1
+    // (`Peers::join` hands out the lowest free id), and the second client is the one that observes.
+    let before = harness
+        .world
+        .peers
+        .others(0)
+        .into_iter()
+        .find(|peer| peer.player_id == 1)
+        .map(|peer| peer.standing.position)
+        .expect("the walker is in the world");
+    let distance_before = ((before.0 - far.0).powi(2) + (before.1 - far.1).powi(2)).sqrt();
+
     let mut report = Vec::new();
-    report.extend_from_slice(&manual.0.to_le_bytes());
-    report.extend_from_slice(&manual.1.to_le_bytes());
-    report.extend_from_slice(&0u32.to_le_bytes()); // the plane the client says it is on
-    report.extend_from_slice(&offset.0.to_le_bytes());
-    report.extend_from_slice(&offset.1.to_le_bytes());
-    report.extend_from_slice(&1u32.to_le_bytes());
+    report.extend_from_slice(&far.0.to_le_bytes());
+    report.extend_from_slice(&far.1.to_le_bytes());
+    report.extend_from_slice(&0u32.to_le_bytes());
+    report.extend_from_slice(&[0u8; 12]); // the two trailing fields, which the world does not read
     say(&mut stream_a, &mut client_a, 0x803D, &report).await;
 
-    // The observer hears the new position; the walker hears nothing about its own report.
     let observed = read_until(&mut stream_b, &mut client_b, game::AGENT_UPDATE_POSITION).await;
     let position = observed
         .iter()
         .find(|frame| frame.header == game::AGENT_UPDATE_POSITION)
-        .expect("the other player is told where this agent is");
+        .expect("the clamp is broadcast");
     let x = f32::from_le_bytes([
         position.body[4],
         position.body[5],
@@ -2812,23 +2817,21 @@ async fn a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path() {
         position.body[10],
         position.body[11],
     ]);
-    assert_eq!(
-        (x, y),
-        manual,
-        "and told the reported position itself, not a clamped one"
+    let jumped = ((x - far.0).powi(2) + (y - far.1).powi(2)).sqrt();
+    // The reference's budget: `speed_base * elapsed + POSITION_UPDATE_TOLERANCE`, with the elapsed time
+    // capped at `POSITION_UPDATE_MAX_ELAPSED_MS` (2000 ms) -- 288 * 2 + 50 = 626 units.
+    assert!(
+        jumped < distance_before,
+        "an out-of-budget report still moves the agent toward what it said"
     );
-    // The world's own copy is the reported position, exactly.
-    let adopted = harness
-        .world
-        .peers
-        .others(0)
-        .into_iter()
-        .find(|peer| peer.player_id == 1)
-        .map(|peer| peer.standing.position)
-        .expect("the walker is in the world");
-    assert_eq!(
-        adopted, manual,
-        "the reported position became the agent's own, exactly"
+    assert!(
+        distance_before - jumped <= 700.0,
+        "but only as far as the budget allows: it moved {:.1} units",
+        distance_before - jumped
+    );
+    assert!(
+        jumped > 500.0,
+        "and the far report itself was not believed: {jumped:.1} units from it"
     );
 
     drop(stream_a);
@@ -2903,8 +2906,7 @@ async fn a_cancelled_walk_stops_the_servers_own_copy() {
         "the walk was under way before the cancel ({moved_from_spawn:.1} units)"
     );
 
-    // The client takes the walk back. The answer is the reference's stop (`0x0028`), which is the shape
-    // this client parses; the retail servers' `0x002B` stop pair crashes it (docs/03 §5e).
+    // The client takes the walk back.
     ask(&mut stream, &mut client, 0x8028, 2).await;
     let stopped = read_until(&mut stream, &mut client, game::AGENT_STOP_MOVING).await;
     assert!(
