@@ -33,5 +33,10 @@ RUN mkdir -p logs
 
 # docker stop sends SIGTERM; the supervisor treats it as the same quit as Ctrl+C, so the services
 # are stopped and the registry rows marked `stopped` before the container exits.
+#
+# One string on purpose: with the `sh -c` entrypoint the whole chain must arrive as a single
+# argument. config/services.docker.toml is the same service list as the host's, with the two
+# client-facing services bound to 0.0.0.0 because published ports forward to the container's
+# network address, not its loopback.
 ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["target/debug/asura-supervisor schema && exec target/debug/asura-supervisor start"]
+CMD ["target/debug/asura-supervisor schema && exec target/debug/asura-supervisor start --config config/services.docker.toml"]

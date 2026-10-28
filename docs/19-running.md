@@ -98,8 +98,8 @@ The game client is Windows-only and lives in the rig, not here (`docs/06-referen
 
 A second runner lives in `docker/` and is optional: the non-Docker path above is unchanged and
 remains the default. The bundle is two containers — PostgreSQL, and one "machine" container that runs
-`asura-supervisor` exactly as a host does, with `config/services.toml` unchanged: same start/stop,
-same registry rows, same logs. Docker only supplies the machine and the network around it.
+`asura-supervisor` exactly as a host does: same start/stop, same schema and seed, same registry rows,
+same logs. Docker only supplies the machine and the network around it.
 
 ```powershell
 docker compose -f docker/compose.yml up -d --build
@@ -110,17 +110,24 @@ docker compose -f docker/compose.yml down
 
 - The Windows client dials `127.0.0.1:6112` and `127.0.0.1:6601` as it always does; those are the
   only published ports. Worlds are dialled by the auth service inside the same container.
+- `config/services.docker.toml` is the same service list as `config/services.toml`, with one
+  difference: auth (`:6112`) and the web gate (`:6601`) bind `0.0.0.0` inside the container, because a
+  published port forwards to the container's network address, not its loopback. The world stays on
+  loopback — the client never dials it directly.
 - The database password is `${ASURA_DB_PASSWORD}` (default `asura`); set it in the shell or a `.env`
   next to the compose file before the first `up`.
 - The image stamps the world's build id as `docker` (`ASURA_BUILD`), since a Docker build has no
   `.git`; a rolling deploy still works because placement uses `world.started_at`.
 - The supervisor treats `docker stop` (SIGTERM) as the same quit as Ctrl+C, so a stop marks the
-  registry rows `stopped` instead of being killed blind.
+  registry rows `stopped` instead of being killed blind. Verified: `docker compose stop machine`
+  left every `service` row at `stopped`.
 
-**Status:** the bundle is written and was installed with Docker Desktop 4.97.0 on this machine; it
-has not been executed here yet because the Docker Linux engine needs a reboot (WSL2 was installed in
-the same session). The first `up` is the first real run, and `docker compose config` is a cheap
-check before it.
+**What was run (2026-10-28, Docker Desktop 4.97.0 on Windows):** the image builds, both containers
+start, the supervisor applies the migrations, seeds the identities and maps, starts webgate, auth and
+world-8001 (all `ready`), the registry rows read `ready`/`fresh`, and from the host the gate answers
+`GET /Spawned/WebGate/session/create.xml` with a session UUID and the auth port accepts connections.
+**Not yet run: the real game client against the bundle** — that is the owner's session, exactly as
+for the host path.
 
 ## CI: format and lint, nothing else
 
