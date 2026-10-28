@@ -221,30 +221,43 @@ screen for the whole construction. This server preloads every hosted map for the
 connects.
 
 Whether a client actually **requires** the destination to exist before the hop is untested here. That
-is what `--on-demand` (or `ASURA_WORLD_ON_DEMAND=1`) measures: a `/tp` to a catalogue map the world
-was *not* started with loads it at travel time — the row from `map_config`, the seat pool row in
-`world_pool`, the path graph out of `Gw.dat` — and logs each step's cost:
+is what `--on-demand` (or `ASURA_WORLD_ON_DEMAND=1`) measures. It covers **both paths into a map**,
+because they are the same refusal when the switch is off and the same demand-load when it is on:
+
+- a `/tp` into a catalogue map the world was *not* started with, and
+- a **login** whose character was last standing in one — the client's first connection names that
+  map, and without the switch the world answers `this world does not host map X` and the client is
+  kicked with `007`. (Observed live: a world started with `--maps 146` and a character last in map
+  148.)
+
+The demand-load walks the three steps a preload would have done at startup — the row from
+`map_config`, the seat pool row in `world_pool`, the path graph out of `Gw.dat` — and logs each
+step's cost:
 
 ```
 world: map 148 'Ascalon City (pre-Searing)' loaded on demand in N ms (row a ms, pool b ms, path graph c ms)
 world: "…" teleporting: map 146 -> map 148 …
 ```
 
+While the switch is on, the world also publishes seat-pool rows for the **whole catalogue**, so
+placement can hand it a client for any map (a pool row is not an instance; it is who-can-serve-what).
+
 The runbook is the experiment itself:
 
 ```powershell
 .\tools\start-server.ps1 -Maps 146 -OnDemand
 # client: F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1
-# in game:  /tp ascalon
+# in game:  /tp ascalon      (or: log in a character whose last map is 148)
 ```
 
-The verdict is the client's loading screen plus the two console lines above. If the client loads the
+The verdict is the client's loading screen plus the console lines above. If the client loads the
 map, precaching is not a hard requirement on ASURA (the destination cost is the `N ms` the log
 prints). If it hangs on the loading screen, the requirement is real, and the reference's answer
 applies: preload the destination before the hop. The server half of the experiment is pinned either
-way by `a_travel_to_an_unhosted_map_is_loaded_on_demand` (`crates/asura-world/tests/load.rs`): the
-transfer names the unhosted map, its entry and pool row appear when the travel happens, and the
-reconnect lands in the destination's own configured spawn point.
+way by `a_connection_to_an_unhosted_map_is_loaded_on_demand` and
+`a_travel_to_an_unhosted_map_is_loaded_on_demand` (`crates/asura-world/tests/load.rs`): the
+connection or transfer names the unhosted map, its entry and pool row appear when it is demanded,
+and the client lands in the destination's own configured spawn point.
 
 ### 5a. The auth-side pair (measured from the reference)
 

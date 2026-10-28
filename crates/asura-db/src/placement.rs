@@ -91,6 +91,16 @@ pub async fn register_world(
         .await?;
     }
 
+    // A world that restarts with fewer maps must not leave stale pool rows behind: placement asks
+    // who publishes a map, so a leftover row would route a client to a world that does not serve it
+    // (observed live: a world started with --maps 146 was still sent a login for map 148).
+    let ids: Vec<i32> = capacities.iter().map(|(map_id, _)| *map_id).collect();
+    sqlx::query("DELETE FROM world_pool WHERE world_id = $1 AND NOT (map_id = ANY($2))")
+        .bind(world_id)
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+
     tx.commit().await
 }
 

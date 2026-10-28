@@ -238,7 +238,27 @@ async fn main() -> ExitCode {
     }
 
     // ---- step 5: register, publish, heartbeat, then accept -----------------------------------
-    let capacities: Vec<(i32, i32)> = maps.iter().map(|map| (map.map_id, capacity)).collect();
+    // `--on-demand`: load a catalogue map this world was not started with, instead of refusing it —
+    // for a `/tp` into it, and for a login whose character stands in it (both are the same refusal
+    // when this is off). Off by default, because preloading every destination is what the reference
+    // does (one pre-spawned server per map) and what this world does at startup; the switch exists
+    // to measure whether the client actually needs the destination ready before the hop.
+    let load_on_demand = args.iter().any(|arg| arg == "--on-demand")
+        || matches!(
+            std::env::var("ASURA_WORLD_ON_DEMAND").ok().as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        );
+    // The pool rows this world publishes. Normally one per map it preloads; with `--on-demand`, one
+    // per catalogue map, because placement asks "who publishes this map?" and an on-demand world can
+    // serve any of them — a login into a map it did not preload is loaded there and then, not refused.
+    let capacities: Vec<(i32, i32)> = if load_on_demand {
+        match db_game::configured_map_ids(&pool).await {
+            Ok(ids) if !ids.is_empty() => ids.iter().map(|map_id| (*map_id, capacity)).collect(),
+            _ => maps.iter().map(|map| (map.map_id, capacity)).collect(),
+        }
+    } else {
+        maps.iter().map(|map| (map.map_id, capacity)).collect()
+    };
     let build = format!("asura-world/{}", env!("CARGO_PKG_VERSION"));
     if let Err(err) = placement::register_world(
         &pool,
@@ -255,11 +275,20 @@ async fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     eprintln!(
-        "asura-world: registered world {world_id} at {public} for map(s) {}, {capacity} slot(s) each",
+        "asura-world: registered world {world_id} at {public} for map(s) {} ({} slot(s) each){}",
         maps.iter()
             .map(|map| map.map_id.to_string())
             .collect::<Vec<_>>()
-            .join(", ")
+            .join(", "),
+        capacity,
+        if load_on_demand {
+            format!(
+                "; on-demand serves any of the {} catalogue map(s)",
+                capacities.len()
+            )
+        } else {
+            String::new()
+        }
     );
 
     // The heartbeat. A world that stops sending it stops being offered, which is the point: a dead
@@ -327,15 +356,8 @@ async fn main() -> ExitCode {
         }
     };
 
-    // `--on-demand`: let `/tp` load a catalogue map this world was not started with, instead of
-    // refusing it. Off by default, because preloading every destination is what the reference does
-    // (one pre-spawned server per map) and what this world does at startup; the switch exists to
-    // measure whether the client actually needs the destination ready before the hop.
-    let load_on_demand = args.iter().any(|arg| arg == "--on-demand")
-        || matches!(
-            std::env::var("ASURA_WORLD_ON_DEMAND").ok().as_deref(),
-            Some("1" | "true" | "yes" | "on")
-        );
+    // `--on-demand` was read above, before the pool rows were published, so that an on-demand world
+    // lists every catalogue map as servable while it preloads only the maps it was started with.
 
     let world = Arc::new(World {
         pool,
@@ -352,8 +374,9 @@ async fn main() -> ExitCode {
     });
     if load_on_demand {
         eprintln!(
-            "asura-world: on-demand destination loading is ON: a /tp to a catalogue map this world \
-             was not started with loads it at travel time and measures the cost"
+            "asura-world: on-demand destination loading is ON: a login or a /tp that names a \
+             catalogue map this world was not started with loads it there and then and measures \
+             the cost"
         );
     }
     if let Err(err) = serve(listener, world, trace.on()).await {
@@ -423,11 +446,13 @@ fn print_help() {
         "                      catalogue (default: every map in map_config -- the reference starts"
     );
     println!("                      a server per configured map, so /maps lists them all and /tp reaches them)");
-    println!("    --on-demand       let /tp load a catalogue map this world was not started with, instead");
     println!(
-        "                      of refusing it: off by default, and the switch is an experiment (a"
+        "    --on-demand       load a catalogue map this world was not started with, instead of"
     );
-    println!("                      travel to an unhosted map measures what a demand-load costs)");
+    println!(
+        "                      refusing it: for a /tp into it, or a login whose character stands"
+    );
+    println!("                      in it. Off by default; the switch is the precache experiment");
     println!("    --capacity N      slots per map (default {DEFAULT_CAPACITY})");
     println!("    --gwdat PATH      the client archive the path graphs come from (default: ASURA_GW_DAT,");
     println!("                      then Gw.dat, then data\\Gw.dat in this repository)");

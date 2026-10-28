@@ -831,8 +831,23 @@ pub async fn handle_connection(
     }
 
     let map_id = transfer.map_id;
-    let Some(map) = world.map(map_id) else {
-        return Err(GameError::UnknownMap(map_id));
+    // A client whose character stands in a map this world was **not** started with: with `--on-demand`
+    // the map is loaded here and the connection goes on, instead of the client being kicked with
+    // "this world does not host map X". That is the whole point of the switch — a login into an
+    // unhosted map and a /tp into one are the same refusal when it is off, and the same demand-load
+    // when it is on.
+    let map = match world.map(map_id) {
+        Some(map) => map,
+        None if world.load_on_demand => {
+            match load_map_on_demand(world, map_id)
+                .await
+                .map_err(GameError::Database)?
+            {
+                Some(map) => map,
+                None => return Err(GameError::UnknownMap(map_id)),
+            }
+        }
+        None => return Err(GameError::UnknownMap(map_id)),
     };
 
     let Some(name) = db_game::character_name(&world.pool, transfer.character_id)

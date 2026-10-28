@@ -1876,6 +1876,166 @@ async fn a_travel_to_an_unhosted_map_is_loaded_on_demand() {
     server.abort();
 }
 
+/// `--on-demand`, the login path: a connection whose character stands in a map this world was not
+/// started with.
+///
+/// This is the refusal observed live: a world started with `--maps 146` and a client whose character
+/// was last in map 148 answered "this world does not host map 148" and was kicked (client error 007).
+/// With `--on-demand` the world loads the map on the spot and serves it, exactly as it does for a
+/// `/tp` into an unhosted map.
+#[tokio::test]
+async fn a_connection_to_an_unhosted_map_is_loaded_on_demand() {
+    if skip() {
+        return;
+    }
+    let Some(url) = asura_db::config::database_url() else {
+        return;
+    };
+    let pool = placement::connect(&url, 4)
+        .await
+        .expect("connect the database");
+
+    let source = HARNESS_MAP;
+    let destination = HARNESS_OTHER_MAP;
+    let Some(configured) = db_game::spawn_map(&pool, destination)
+        .await
+        .expect("read the destination's map config")
+    else {
+        println!("map {destination} is not in map_config; skipping the on-demand login test");
+        return;
+    };
+
+    let world_id = unique_world();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a loopback port");
+    let address = listener.local_addr().expect("local address");
+
+    let maps = vec![MapEntry {
+        map_id: source,
+        map_file_id: 0x1B97D,
+        map_type: 0,
+        spawn: (6602.0, 4485.0),
+        spawn_plane: 0,
+        name: "Lakeside County".to_string(),
+        capacity: 2,
+    }];
+    let graphs = match gw_dat_path() {
+        Some(path) => asura_world::PathGraphs::load(&path, &maps).unwrap_or_else(|err| {
+            panic!("{path} does not open: {err}");
+        }),
+        None => asura_world::PathGraphs::empty(),
+    };
+    let world = Arc::new(World {
+        pool: pool.clone(),
+        world_id,
+        maps,
+        replay: None,
+        peers: Default::default(),
+        public: address,
+        graphs,
+        lazy_maps: Default::default(),
+        load_on_demand: true,
+        capacity: 2,
+        archive: gw_dat_path().unwrap_or_default(),
+    });
+    let server = tokio::spawn({
+        let world = world.clone();
+        async move {
+            let _ = serve(listener, world, true).await;
+        }
+    });
+
+    // The character stands in the unhosted map: that is what the login travel asks for, and what the
+    // client's version message repeats.
+    let seeded = db::seed_identity(
+        &pool,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        &format!("ondemand-login-{}", Uuid::new_v4()),
+        "Asura Test",
+        destination,
+    )
+    .await
+    .expect("seed the identity");
+    placement::register_world(
+        &pool,
+        world_id,
+        "ondemand-login-world",
+        &address.ip().to_string(),
+        i32::from(address.port()),
+        "m4-test",
+        &[(destination, 2)],
+    )
+    .await
+    .expect("register the world");
+    placement::reserve(&pool, world_id, destination, seeded.session)
+        .await
+        .expect("reserve the destination seat");
+    let player_token = (Uuid::new_v4().as_u128() & 0xFFFF_FFFF) as u32;
+    placement::begin_transfer(
+        &pool,
+        player_token,
+        world_id,
+        destination,
+        seeded.session,
+        seeded.account,
+        seeded.character,
+    )
+    .await
+    .expect("write the pending transfer");
+
+    let version = GameVersion {
+        version: 39112,
+        h0008: 1,
+        map_token: world_id as u32,
+        map_id: destination as u32,
+        player_token,
+        account: seeded.account.to_bytes_le(),
+        character: seeded.character.to_bytes_le(),
+        h0038: 0,
+        h003c: 0,
+    };
+    let Some((mut stream, mut client)) = connect_properly(address, &version).await else {
+        panic!("the world refused a token for a map it did not host, with --on-demand on");
+    };
+
+    // The connection itself made the world load the map: entry present, pool row published.
+    assert!(
+        world.map(destination).is_some(),
+        "the connection demand-loaded its map"
+    );
+    ask(&mut stream, &mut client, 0x8088, 2).await;
+    let spawn = read_until(&mut stream, &mut client, game::INSTANCE_LOAD_SPAWN_POINT).await;
+    let spawned = spawn
+        .iter()
+        .find(|frame| frame.header == game::INSTANCE_LOAD_SPAWN_POINT)
+        .expect("the spawn answer");
+    let x = f32::from_le_bytes([
+        spawned.body[4],
+        spawned.body[5],
+        spawned.body[6],
+        spawned.body[7],
+    ]);
+    let y = f32::from_le_bytes([
+        spawned.body[8],
+        spawned.body[9],
+        spawned.body[10],
+        spawned.body[11],
+    ]);
+    assert_eq!(
+        (x, y),
+        (configured.spawn_x, configured.spawn_y),
+        "the demand-loaded map's own spawn point"
+    );
+
+    drop(stream);
+    placement::remove_world(&pool, world_id)
+        .await
+        .expect("remove the world");
+    server.abort();
+}
+
 /// T6: a character can be made in a character-creation instance.
 ///
 /// The reference's four messages (`GameSrv_HandleCharCreation*`), in order: the player-data block, the PvP
