@@ -45,6 +45,13 @@ is_explorable, map_id`). The port target was named by the user all along.
   reference capture the offline checks read is committed as `tools/fixtures/gwps-capture.log`. No
   reference checkout is consulted at runtime, and `tools/start-server.ps1` builds and starts all of it
   (`docs/03-protocol.md` §5d has the dump runbook).
+- **Diagnosing a live session has its own tools, in this repository.** `-MoveTrace`
+  (`ASURA_MOVE_TRACE=1`) logs every movement event — `move[pathfind]`/`[manual]`/`[tick]`/`[stop]`,
+  a `move[jump]` wherever the agent's plane changes, and a `move[summary]` at teardown;
+  `tools/sniff-capture.py` captures the **client's own packets**, both directions and decrypted,
+  into `captures/` (gitignored) — it needs an elevated shell and the client-side Py4GW_Stealth
+  injection, and nothing from the reference checkout. A capture plus that log is how a drift or a
+  jump is pinned to a message rather than guessed at.
 - **Answered (2026-10-27): precaching the destination is NOT a requirement here.** The reference
   pre-spawns one server per map so a travel constructs nothing; this world used to preload every map
   at startup. Measured on the real client with `start-server.ps1 -OnDemand` (nothing preloaded): a
