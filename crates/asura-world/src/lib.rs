@@ -1338,7 +1338,12 @@ async fn run(
                         );
                     }
                 }
-                let mut frames = vec![game::world_simulation_tick_live(delta_ms)];
+                // The clock is the **6-byte** form (`1e 00 | elapsed u32`), which is the only tick this
+                // client has accepted: the capture of the live servers shows an 8-byte tick
+                // (`1e 00 00 00 | elapsed`), and sending that to the patched client answers the
+                // connection with error 007 right after the spawn. The interval is the measured 100 ms
+                // either way; only the two extra bytes are dropped.
+                let mut frames = vec![game::world_simulation_tick(delta_ms)];
                 if let Some(waypoint) = crossed {
                     // A crossed waypoint is a new destination, and the reference broadcasts it: every
                     // client is drawing this agent from the last destination it was told
