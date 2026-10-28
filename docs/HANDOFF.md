@@ -42,11 +42,14 @@ is_explorable, map_id`). The port target was named by the user all along.
   `Gw.dat` (`ASURA_GW_DAT`, `./Gw.dat`, or `data/Gw.dat`) and the tests skip cleanly without one; the
   reference capture the offline checks read is committed as `tools/fixtures/gwps-capture.log`. No
   reference checkout is consulted at runtime, and `tools/start-server.ps1` builds and starts all of it.
-- **Open question being measured: is precaching the destination a requirement?** The reference
-  pre-spawns one server per map so a travel constructs nothing; this world preloads every hosted map.
-  Whether the client *requires* that is untested — `--on-demand` (`start-server.ps1 -Maps 146
-  -OnDemand`, then `/tp ascalon`) loads a destination at travel time and logs the cost, and the
-  client's loading screen is the verdict. Runbook and test: `docs/03-protocol.md` §5c.
+- **Answered (2026-10-27): precaching the destination is NOT a requirement here.** The reference
+  pre-spawns one server per map so a travel constructs nothing; this world used to preload every map
+  at startup. Measured on the real client with `start-server.ps1 -OnDemand` (nothing preloaded): a
+  loop of teleports (148 -> 163 -> 164 -> 165 -> 166 -> 148 ...) loaded each destination on demand in
+  0-2 ms and the client took every hop without an issue. The hang that forced the reference's
+  pre-spawn was OpenTyria's construction inside the hop, not a client requirement. The switch stays
+  for testing; the runbook and the numbers are in `docs/03-protocol.md` §5c, and the server half is
+  pinned by the two `*_loaded_on_demand` tests.
 - **Items work on a live client.** Dropping takes the stack down (`count = 1` of a hundred is what a
   client sends, and the reference refuses exactly that), the ground agent wears the item's *model*, moving
   an item between slots is answered and persisted, and wearing one moves it into the equipped bag and

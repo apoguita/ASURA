@@ -248,10 +248,16 @@ The runbook is the experiment itself:
 # just log in, then /tp ascalon
 ```
 
-The verdict is the client's loading screen plus the console lines above. If the client loads the
-map, precaching is not a hard requirement on ASURA (the cost is the `N ms` the log prints). If it
-hangs on the loading screen, the requirement is real, and the reference's answer applies: preload
-the destination before the hop. The server half of the experiment is pinned either way by
+The verdict is the client's loading screen plus the console lines above. **Measured 2026-10-27 on
+the real client**: `start-server.ps1 -OnDemand` with nothing preloaded, then a loop of teleports
+148 -> 163 -> 164 -> 165 -> 166 -> 148 ... — every destination was loaded on demand (`0-2 ms` per
+map, with the path-graph step failing fast because no `Gw.dat` was local) and the client took each
+hop without an issue. **Precaching is therefore not a requirement on ASURA**; the loading-screen
+hang that forced the reference to pre-spawn one server per map (`AuthSrv_PreSpawnServers`) was an
+OpenTyria property, not a property of the client or of this world. Give the world a local `Gw.dat`
+(`ASURA_GW_DAT` or `data\Gw.dat`) to get the real path-graph cost in that number.
+
+The server half of the experiment is pinned by
 `a_connection_to_an_unhosted_map_is_loaded_on_demand` and
 `a_travel_to_an_unhosted_map_is_loaded_on_demand` (`crates/asura-world/tests/load.rs`): the
 connection or transfer names the unhosted map, its entry and pool row appear when it is demanded,
