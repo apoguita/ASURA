@@ -326,6 +326,31 @@ where to go. Two fixed-size messages, and one row for each in the generated tabl
   for a port nothing is listening on is worse than either: the client leaves character select and dies
   on a connect timeout.
 
+### 5e. Which wire the client on this server speaks (measured 2026-10-28)
+
+There are two wire shapes for the same message set, and **this client parses only one of them**. Measured,
+not inferred — three runs of the real client against this server:
+
+| what was sent | what the client did |
+|---|---|
+| `0x001E` **8 bytes** (`1e 00 00 00` + elapsed) as in the retail capture | connection accepted, load block played, then **error 007** about 300 ms after the spawn. Server log: `joined map 148` → `move[spawn]` → `socket: early eof`, 3 ticks sent |
+| `0x001E` **6 bytes** (`1e 00` + elapsed) | loads and plays |
+| click answered with `0x002B` (16 B) + `0x0029` **24 B** (trap and plane as dwords), retail layout | **the client crashed** on the first click |
+
+So the retail capture (`captures/live-move.jsonl`, a `Gw.exe` on live servers) describes the **four-byte
+header** generation of the protocol: `1e 00 00 00` ticks, `29 00 00 00 | agent | x | y | trap | plane`,
+`25 00 00 00` directions, `2b 00 00 00` speed. The client used against this server — the build GWPS is
+patched onto and the one that has always worked here — parses **two-byte headers** with the reference's own
+sizes: a 6-byte tick, an 18-byte `0x0029` (`agent, x, y, plane u16, current_plane u16`), `0x0028` for a
+stop, `0x002C` for a position, and it has no `0x0025` or `0x002B` at all.
+
+The consequence is the rule this project follows for the wire: **the shapes are the reference's, because
+that is what this client parses.** The retail capture stays the authority on *behaviour* (what a click, a
+manual walk and a cancel mean, and what the server does with the agent's copy), and it is kept in the
+protocol crate as builders and tests (`agent_move_to_point_live` and friends) so the difference is recorded
+rather than remembered. Sending the retail shapes to this client is not a parity improvement; it is a
+disconnect (`007`) or a crash.
+
 ## 6. Traps that cost real time in GWPS
 
 | trap | what happens | rule |

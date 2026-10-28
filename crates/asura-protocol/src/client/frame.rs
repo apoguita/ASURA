@@ -227,48 +227,6 @@ impl Frame {
             return Err(FrameError::Incomplete { needed: HEADER_LEN });
         }
         let header = u16::from_le_bytes([bytes[0], bytes[1]]);
-        // The live game wire carries a **four-byte** header in both directions: the capture of the live
-        // game (`captures/live-move.jsonl`) shows `29 00 00 00` + agent, x, y, trap, plane for
-        // AGENT_MOVE_TO_POINT, `1e 00 00 00` + elapsed for the world tick, and the client's
-        // `3e 00 00 00` + x, y, plane for MOVE_TO_COORD. The two extra bytes are zero, and for some
-        // messages the body is wider than the table's row (the live move-to-point carries a trap id and
-        // widens its plane), so those sizes are listed rather than derived.
-        if let Some(size) = live_game_size(header, from_client) {
-            if bytes[2] == 0 && bytes[3] == 0 {
-                if bytes.len() < size {
-                    return Err(FrameError::Incomplete { needed: size });
-                }
-                let body = bytes[HEADER_LEN + 2..size].to_vec();
-                return Ok((Frame { header, body }, size));
-            }
-        }
-        // The client's game messages carry a **four-byte** header: the capture of the live game
-        // (`captures/live-move.jsonl`) shows `3e 00 00 00` + x, y, plane for MOVE_TO_COORD, and
-        // `3d 00 00 00` + x, y, plane, direction, u32 for MOVE_TO_COORD_WITH_DIR. That is the same
-        // message the table names `header | 0x8000` with a two-byte header: the body after the
-        // four-byte header is identical, so it is parsed by translating to the legacy frame and
-        // reading twice as wide a header. A frame whose first two bytes are below 0x8000 and whose
-        // third and fourth bytes are zero is that form.
-        if from_client
-            && header & 0x8000 == 0
-            && bytes.len() >= 4
-            && bytes[2] == 0
-            && bytes[3] == 0
-            && game_tables::fields(header | 0x8000, from_client).is_some()
-        {
-            let mut legacy = Vec::with_capacity(bytes.len().saturating_sub(2));
-            legacy.extend_from_slice(&(header | 0x8000).to_le_bytes());
-            legacy.extend_from_slice(&bytes[4..]);
-            return match Self::decode_game_message(&legacy, from_client) {
-                Ok((frame, used)) => Ok((frame, used + 2)),
-                Err(FrameError::Incomplete { .. }) => Err(FrameError::Incomplete {
-                    needed: game_tables::expected_size(header | 0x8000, from_client)
-                        .map(|size| size + 2)
-                        .unwrap_or(4),
-                }),
-                Err(err) => Err(err),
-            };
-        }
         let fields =
             game_tables::fields(header, from_client).ok_or(FrameError::UnknownHeader { header })?;
         let shapes: Vec<Shape> = fields.iter().map(shape_of_game).collect();
@@ -358,31 +316,6 @@ fn shape_of_game(field: &game_tables::Field) -> Shape {
         },
     }
 }
-
-/// The wire size of the game messages whose live four-byte-header form is **not** the table row's size.
-///
-/// `(plain header, from_client, size including the four-byte header)`, measured message by message from
-/// `captures/live-move.jsonl`. Every other game message is framed by its table row; these four are here
-/// because the live rows widened a field (the move-to-point's plane became a dword and gained the
-/// waypoint's trap id) or already carried a four-byte header in the table (`MsgHeaderGame`).
-fn live_game_size(header: u16, from_client: bool) -> Option<usize> {
-    LIVE_GAME_SIZES
-        .iter()
-        .find(|(candidate, side, _)| *candidate == header && *side == from_client)
-        .map(|(_, _, size)| *size)
-}
-
-/// See [`live_game_size`].
-const LIVE_GAME_SIZES: &[(u16, bool, usize)] = &[
-    // `GAME_SMSG_WORLD_SIMULATION_TICK`: header, elapsed milliseconds.
-    (0x001E, false, 8),
-    // `GAME_SMSG_AGENT_UPDATE_DIRECTION`: header, agent, unit x, unit y, 1.
-    (0x0025, false, 20),
-    // `GAME_SMSG_AGENT_MOVE_TO_POINT`: header, agent, x, y, trap id, plane.
-    (0x0029, false, 24),
-    // `GAME_SMSG_AGENT_UPDATE_SPEED`: header, agent, speed 1.0, mode (1 start, 9 stop).
-    (0x002B, false, 16),
-];
 
 /// Walk a message's field layout and return where its body ends.
 ///
@@ -560,59 +493,6 @@ mod tests {
                 header: super::super::MAP_UPDATE_CURRENT
             })
         );
-    }
-
-    #[test]
-    fn a_four_byte_client_header_is_read_as_the_tables_row() {
-        // The live client's game messages carry a four-byte header: the captured MOVE_TO_COORD
-        // (`3e000000` + x, y, plane) and MOVE_TO_COORD_WITH_DIR (`3d000000` + x, y, plane, dir, u32).
-        // The two extra bytes are zero, and the rest is the table's body, so the frame decodes as
-        // the `0x8000 | n` row with the two bytes consumed as part of the header.
-        let click = [
-            0x3e, 0, 0, 0, 0x5b, 0x8c, 0x1e, 0x46, 0xbc, 0x2d, 0xf9, 0x45, 0, 0, 0, 0,
-        ];
-        let (frame, used) = Frame::decode_game_message(&click, true).expect("click frame");
-        assert_eq!(used, click.len());
-        assert_eq!(frame.header, 0x803E);
-        assert_eq!(&frame.body[0..12], &click[4..]);
-
-        let manual = [
-            0x3d, 0, 0, 0, 0xeb, 0xd3, 0xff, 0x45, 0x6b, 0xb1, 0xc2, 0x45, 0, 0, 0, 0, 0xe0, 0x88,
-            0xf5, 0xc2, 0x11, 0x51, 0x3d, 0xc4, 0x01, 0, 0, 0,
-        ];
-        let (frame, used) = Frame::decode_game_message(&manual, true).expect("manual frame");
-        assert_eq!(used, manual.len());
-        assert_eq!(frame.header, 0x803D);
-        assert_eq!(&frame.body[0..24], &manual[4..]);
-
-        // A server-to-client frame keeps its two-byte header: only the client is recorded wide, and on
-        // the server side `0x003E` is AGENT_ALLY_DESTROY (6 bytes), not a move.
-        let (frame, used) = Frame::decode_game_message(&click, false).expect("server row");
-        assert_eq!(used, 6);
-        assert_eq!(frame.header, 0x003E);
-
-        // The server direction has its own wide rows, where the live body is wider than the table's:
-        // the captured move-to-point is 24 bytes with trap and plane as dwords, and the captured tick is
-        // 8 bytes. Both decode whole, and the frame re-encodes to the same bytes.
-        let move_to_point = [
-            0x29, 0, 0, 0, 0x45, 0, 0, 0, 0x00, 0xb0, 0x29, 0x46, 0x00, 0xa0, 0x8d, 0x45, 0x12,
-            0, 0, 0, 0, 0, 0, 0,
-        ];
-        let (frame, used) = Frame::decode_game_message(&move_to_point, false).expect("move frame");
-        assert_eq!(used, move_to_point.len());
-        assert_eq!(frame.header, 0x0029);
-        assert_eq!(frame.body.len(), 20);
-        // A frame is a two-byte header and a body; the wide wire form puts the two zero bytes between
-        // them, so re-encoding gives the same bytes with those two taken back out.
-        let mut legacy = vec![0x29, 0];
-        legacy.extend_from_slice(&frame.body);
-        assert_eq!(legacy, move_to_point[..2].iter().chain(&move_to_point[4..]).copied().collect::<Vec<u8>>());
-
-        let tick = [0x1e, 0, 0, 0, 0xf7, 0x01, 0, 0];
-        let (frame, used) = Frame::decode_game_message(&tick, false).expect("tick frame");
-        assert_eq!(used, tick.len());
-        assert_eq!(frame.header, 0x001E);
-        assert_eq!(frame.body, vec![0xf7, 0x01, 0, 0]);
     }
 
     #[test]
