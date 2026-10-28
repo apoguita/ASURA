@@ -1915,36 +1915,68 @@ async fn answer(
                     // The path as the live servers hand it out: a destination about every 145 units,
                     // which at the character's 288 u/s is the ~0.5 s cadence the live capture shows.
                     let waypoints = densify(waypoints, from, live_cadence_step());
-                    if let Some(first) = play.agents.player.begin_walk(waypoints) {
-                        let walk = game::agent_move_to_point(
-                            agent_id,
-                            (first.pos.x, first.pos.y),
-                            first.pos.plane,
-                            play.agents.player.plane,
-                        );
+                    // Only floor points, and only while the agent is on the floor.
+                    //
+                    // The plane id in this data is a *surface* id from the map's pmaps, not a height: the
+                    // floor of every map is plane 0, at every altitude, and a non-zero id is a slope or a
+                    // bridge (owner's rule, 2026-10-27). A destination stamped with one of those ids
+                    // relocates the client's agent onto that surface at that XY, which is how an agent
+                    // ends up inside the hill: measured, (9176.1, 7354.3) plane 0 announced to an agent on
+                    // plane 19, after which the client reported (9078.2, 6098.5) -- 1,230 units away. So the
+                    // walk is announced on the floor only, and the client climbs a slope itself, exactly as
+                    // it does when walked with the keys.
+                    let agent_plane = play.agents.player.plane;
+                    let on_floor: Vec<pathfind::Waypoint> = waypoints
+                        .into_iter()
+                        .filter(|waypoint| waypoint.pos.plane == 0)
+                        .collect();
+                    if agent_plane != 0 {
                         if move_trace_on() {
                             eprintln!(
-                                "move[pathfind] answered with waypoint 0 (x={:.1}, y={:.1}, plane={}) \
-                                 current_plane={} [0x0029, {} bytes]; {} waypoint(s) left to walk, \
-                                 agent stays at (x={:.1}, y={:.1}, plane={})",
-                                first.pos.x,
-                                first.pos.y,
-                                first.pos.plane,
-                                play.agents.player.plane,
-                                walk.len(),
-                                play.agents.player.motion.waypoints.len(),
-                                play.agents.player.position.0,
-                                play.agents.player.position.1,
-                                play.agents.player.plane
+                                "move[pathfind] the agent is on surface {agent_plane}, not the floor: \
+                                 nothing is announced"
                             );
                         }
-                        // Everyone else is told where this agent is walking: the reference broadcasts the
-                        // same message (`GameSrv_BroadcastAgentMoveToPoint`), and a client that is not
-                        // told keeps drawing the walker where it last stood.
-                        world
-                            .peers
-                            .broadcast(play.player_id, std::slice::from_ref(&walk));
-                        send(stream, session, vec![walk], trace).await?;
+                    } else if on_floor.len() != 0 {
+                        if let Some(first) = play.agents.player.begin_walk(on_floor) {
+                            let walk = game::agent_move_to_point(
+                                agent_id,
+                                (first.pos.x, first.pos.y),
+                                first.pos.plane,
+                                play.agents.player.plane,
+                            );
+                            if move_trace_on() {
+                                eprintln!(
+                                    "move[pathfind] answered with waypoint 0 (x={:.1}, y={:.1}, \
+                                     plane={}) current_plane={} [0x0029, {} bytes]; {} waypoint(s) left \
+                                     to walk, agent stays at (x={:.1}, y={:.1}, plane={})",
+                                    first.pos.x,
+                                    first.pos.y,
+                                    first.pos.plane,
+                                    play.agents.player.plane,
+                                    walk.len(),
+                                    play.agents.player.motion.waypoints.len(),
+                                    play.agents.player.position.0,
+                                    play.agents.player.position.1,
+                                    play.agents.player.plane
+                                );
+                            }
+                            // Everyone else is told where this agent is walking: the reference
+                            // broadcasts the same message (`GameSrv_BroadcastAgentMoveToPoint`), and a
+                            // client that is not told keeps drawing the walker where it last stood.
+                            world
+                                .peers
+                                .broadcast(play.player_id, std::slice::from_ref(&walk));
+                            send(stream, session, vec![walk], trace).await?;
+                        }
+                    } else if trace {
+                        // No floor point on this path: nothing can be announced without moving the
+                        // client's agent onto a slope or bridge surface, so the walk is not started and
+                        // nothing is sent.
+                        play.agents.player.cancel_movement();
+                        eprintln!(
+                            "world: the path for agent {agent_id} has no floor point; nothing announced"
+                        );
                     }
                 }
                 Walk::NoPath | Walk::NoGraph => {
@@ -1955,23 +1987,24 @@ async fn answer(
                     }
                     play.agents.player.cancel_movement();
                     let standing = play.standing();
-                    let position =
-                        game::agent_update_position(agent_id, standing.position, standing.plane);
+                    // **Nothing goes on the wire.** The reference answers a refused walk with
+                    // `AGENT_UPDATE_POSITION` (`0x002C`, `GmAgent.c:391-394`), and that message carries
+                    // the server's copy position: measured, it disconnected the client with 007 once
+                    // (capture-8001-20261027-221113 seq 519) and teleported it into a wall once
+                    // (capture of 22:16: `snapped to (9438.1, 7118.5)` after the clamp had dragged the
+                    // copy off the navmesh). Silence is what the reference sends in its other correction
+                    // path (`GameSrv_HandleLastPosOnMoveCanceled`), and the client's own reports settle
+                    // the truth.
                     if move_trace_on() {
                         eprintln!(
-                            "move[pathfind] walk refused; snapped to (x={:.1}, y={:.1}, plane={}) \
-                             [0x002D, {} bytes]",
+                            "move[pathfind] walk refused; the agent stands at (x={:.1}, y={:.1}, \
+                             plane={}) and nothing is sent",
                             standing.position.0,
                             standing.position.1,
-                            standing.plane,
-                            position.len()
+                            standing.plane
                         );
                     }
                     world.peers.update(play.player_id, standing);
-                    world
-                        .peers
-                        .broadcast(play.player_id, std::slice::from_ref(&position));
-                    send(stream, session, vec![position], trace).await?;
                 }
             }
             Ok(true)
