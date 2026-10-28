@@ -163,14 +163,15 @@ This is a standing rule, not an opinion to trade against a coverage argument:
   `data/path-graphs.bin` (12 maps, 11.1 MB, measured 2026-10-27) and loaded automatically, so a
   fresh clone paths without finding a client archive; a local `Gw.dat` (`ASURA_GW_DAT`, `./Gw.dat`,
   or `data/Gw.dat`) is only the re-dump source, and the tests skip cleanly without one; the
-  reference capture the offline checks read is committed as `tools/fixtures/gwps-capture.log`. No
+  reference capture the offline checks read is committed as a recording under
+  `recordings/gwps/world/` (`recordings/README.md`). No
   reference checkout is consulted at runtime, and `tools/start-server.ps1` builds and starts all of it
   (`docs/03-protocol.md` §5d has the dump runbook).
 - **Diagnosing a live session has its own tools, in this repository.** `-MoveTrace`
   (`ASURA_MOVE_TRACE=1`) logs every movement event — `move[pathfind]`/`[manual]`/`[tick]`/`[stop]`,
   a `move[jump]` wherever the agent's plane changes, and a `move[summary]` at teardown; `-Capture`
   (`--capture PATH` / `ASURA_CAPTURE`) writes **every game message both ways, decrypted**, as JSONL
-  into `captures/` (gitignored) — no client hook, no elevation. `tools/sniff-capture.py` is the
+  into `recordings/asura/world/` (the committed research archive) — no client hook, no elevation. `tools/sniff-capture.py` is the
   client-side counterpart for capturing the **live client on live servers**; it needs an elevated
   shell, the Py4GW_Stealth injection, and a **32-bit** Python (the tool re-executes itself under it,
   because the rig reads the instruction pointer through the x86 CONTEXT). A capture plus the movement log is how a drift or a jump is pinned to a
@@ -304,7 +305,7 @@ transaction, so `count(lease) <= leased <= capacity` holds at every commit and t
 |---|---|---|
 | **Rust** | installed, 1.99.1 | `cargo test --workspace` → **175 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean; `cargo fmt --all -- --check` → clean |
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
-| **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **6 migrations applied / 11 tables** (`account`, `bag`, `characters`, `item`, `lease`, `map_config`, `schema_version`, `session`, `transfer`, `world`, `world_pool`); credentials in `.env` (gitignored) |
+| **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **9 migrations applied / 11 tables** (`account`, `bag`, `characters`, `item`, `lease`, `map_config`, `schema_version`, `session`, `transfer`, `world`, `world_pool`); credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
 | client rig (Reforged + stealth hooks) | present from the PreSearing work | `tools/start-server.ps1`, then the client; the trace is the verdict |
 
@@ -381,6 +382,42 @@ Then prove M2 at any time:
 ```powershell
 .\tools\m2-verify.ps1           # integration tests + the fake-world scenario, live database
 ```
+
+## Run it: the supervisor (cross-platform)
+
+`crates/asura-supervisor` starts this machine's services from `config/services.toml` and watches them
+(`docs/16-implementation-plan.md`, S1). It is additive: `start-server.ps1` / `play.ps1` keep working
+exactly as before. **Starting the server is one command** (`start`); it builds what is missing, seeds
+the rows a fresh database needs (the same steps the old start script ran), starts everything, and
+watches until Ctrl+C or `stop`. It also carries the two setup steps as cross-platform commands:
+`schema` (the migrations) and `seed` (the dev identities and the map catalogue) — the SQL lives in
+`tools/seed-dev.sql` and `tools/map-config.sql`, applied through `psql` the same way on Windows and
+Linux. Every service it starts is registered in the `service` table (S2): kind, address, port, build,
+state and a heartbeat; `asura-supervisor status` prints that registry with a STALE marker, and a
+stopped supervisor leaves the rows at `stopped`. On a Linux server host, the runbook is
+`docs/17-running-on-linux.md` (same commands; the game client stays Windows-only, and Linux has not
+had a live run recorded yet).
+
+```powershell
+cargo run -p asura-supervisor -- start    # one step: build + seed + start + watch; Ctrl+C stops
+cargo run -p asura-supervisor -- status   # what is running, ready, restarting, or failed
+cargo run -p asura-supervisor -- stop     # stop everything (and the supervisor)
+cargo run -p asura-supervisor -- stop --only NAME   # stop one service
+cargo run -p asura-supervisor -- restart NAME
+cargo run -p asura-supervisor -- build    # build only, without starting
+cargo run -p asura-supervisor -- schema   # apply the migrations (psql; any OS)
+cargo run -p asura-supervisor -- seed     # write the dev identities and the map catalogue
+```
+
+Every command takes `--config FILE` (default `config/services.toml`). The control channel is loopback
+(`127.0.0.1:7711`); a second supervisor on the same machine is refused. A crash is retried at most
+`restart_max` times (`config/services.toml`), then the service is reported FAILED — never restarted
+forever. A stopping or restarting service waits for its port to be free before anything else binds
+it. The database is never started by the supervisor; it is checked and waited for. The services are
+started in their own process group, so a Ctrl+C in the supervisor's console stops them *through* the
+supervisor (they never see the console's Ctrl+C themselves); closing the console window still ends
+everything attached to it, and a hard kill of the supervisor (no Ctrl+C, no `stop`) orphans the
+services it started — there is no code that can run on SIGKILL.
 
 (No network is needed for either once dependencies are cached. If `cargo` cannot reach crates.io,
 the sandbox token may be blocking TLS — run it from a normal shell, or with full access.)

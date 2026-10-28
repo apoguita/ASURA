@@ -337,7 +337,7 @@ not inferred — three runs of the real client against this server:
 | `0x001E` **6 bytes** (`1e 00` + elapsed) | loads and plays |
 | click answered with `0x002B` (16 B) + `0x0029` **24 B** (trap and plane as dwords), retail layout | **the client crashed** on the first click |
 
-So the retail capture (`captures/live-move.jsonl`, a `Gw.exe` on live servers) describes the **four-byte
+So the retail capture (`recordings/client/feature/movement/movement-sniff.log`, a `Gw.exe` on live servers) describes the **four-byte
 header** generation of the protocol: `1e 00 00 00` ticks, `29 00 00 00 | agent | x | y | trap | plane`,
 `25 00 00 00` directions, `2b 00 00 00` speed. The client used against this server — the build GWPS is
 patched onto and the one that has always worked here — parses **two-byte headers** with the reference's own

@@ -64,7 +64,7 @@ shape that grows to hundreds of instances or multiple machines, because:
 - the process that answers the client is also the process that runs the worlds, so a crash takes
   everything with it and the whole deployment lives on one machine.
 
-The auth service takes the control half out and does it properly. The worlds stay in C and keep simulating.
+The auth service takes the control half out and does it properly. The world server is this repository's own Rust server, `crates/asura-world` — a real client has logged in, travelled, and stood in a map against it since M4 (`docs/HANDOFF.md`).
 
 ## What the auth service owns
 
@@ -111,10 +111,11 @@ anywhere. Every design decision in this repository is downstream of that, and
 
 ## Language
 
-Rust for the control plane (`docs/adr/0001-rust.md`). The world servers remain the existing C
-implementation for now; whether the simulation is eventually ported to Rust or adopted as a C
-component of this project is a decision deliberately left to the simulation phase
-(`docs/adr/0003-simulation-in-scope.md`).
+Rust for the whole stack in this repository (`docs/adr/0001-rust.md`): the control plane and the
+world server. The world server is `crates/asura-world`, delivered with the real client in M4
+(`docs/HANDOFF.md`); the earlier plan for a C world server (`docs/adr/0003-simulation-in-scope.md`)
+did not hold — the Rust world was delivered first. GWPS remains the reference for every protocol
+and simulation fact.
 
 ## Working with the sibling repository
 

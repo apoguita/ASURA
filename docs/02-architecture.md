@@ -60,10 +60,17 @@ CREATE TABLE world_pool (                       -- capacity, per world, per map
 );
 ```
 
-A world server inserts or updates its `world` row at startup (flags = online), keeps `population` and
-`heartbeat_at` current, and marks itself draining or offline on exit. The auth service reads `world`
-to answer "where is this player's map?" — the registry is data, so it survives restarts, and no
-handshake is needed to keep it honest.
+A world server inserts or updates its `world` row at startup (`draining = false`) and keeps
+`heartbeat_at` current; it does not mark itself draining or offline on exit — a world that stops is
+discovered by its heartbeat going stale, and the reaper frees its leases. The auth service reads
+`world` to answer "where is this player's map?" — the registry is data, so it survives restarts, and
+no handshake is needed to keep it honest.
+
+The general service registry sits beside `world`: a `service` table (migration 0010, S2) holding a
+row per service kind — kind, name, address, port, build, state, `heartbeat_at`. The supervisor
+writes a row for every service it starts and refreshes it every 5 s, so consumers read the catalog
+instead of hard-coding addresses; worlds keep their own `world` rows as the load-bearing registry,
+and the catalog writes theirs beside it (`crates/asura-db/src/catalog.rs`).
 
 `world_pool` is what makes allocation safe across processes: it is the prebuilt capacity, and only
 one process can win a given row.
@@ -156,9 +163,11 @@ table that is *always* right only stays right if nothing restarts, and things re
 ## Deployment and draining
 
 Builds run side by side: start the new one, advertise it, send it new players, and let the old one
-drain before it exits. Placement prefers the newest healthy build; a draining world keeps the players
-it has and accepts nobody new. Because the registry carries `build` and `draining`, no other component
-needs to know a deployment is happening (`docs/05-gw2-lessons.md`, rule 6).
+drain before it exits. A draining world keeps the players it has and accepts nobody new (placement
+excludes it). A preference for the newest healthy build is **not implemented**: `find_worlds` orders
+candidates by `leased`, then `id`, and never consults `build` (`crates/asura-db/src/placement.rs`).
+Because the registry carries `build` and `draining`, no other component needs to know a deployment is
+happening (`docs/05-gw2-lessons.md`, rule 6).
 
 ## Retry policy
 
@@ -170,11 +179,12 @@ needs to know a deployment is happening (`docs/05-gw2-lessons.md`, rule 6).
 
 ## Observability
 
-Each world server and the auth service exposes a small fixed set of counters — instances, leases,
-players, refused travels, database queue depth, tick latency — and a **rate** form for anything
-cumulative, because a counter that resets on restart hides the rate it is supposed to show
-(`docs/05-gw2-lessons.md`, rule 5). Counters are cheap and always on; aggregation is a separate task,
-not something a simulation thread does.
+The intended shape, not yet implemented: each world server and the auth service should expose a small
+fixed set of counters — instances, leases, players, refused travels, database queue depth, tick
+latency — and a **rate** form for anything cumulative, because a counter that resets on restart hides
+the rate it is supposed to show (`docs/05-gw2-lessons.md`, rule 5). Nothing exports a counter today
+and nothing reads one. Counters are cheap and always on; aggregation is a separate task, not
+something a simulation thread does.
 
 ## Instances
 
