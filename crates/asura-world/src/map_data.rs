@@ -300,8 +300,16 @@ impl PathStaticData {
         let plane = self.planes.get(usize::from(plane))?;
         let mut bounds: Option<Bounds> = None;
         for trapezoid in &plane.trapezoids {
-            let left = trapezoid.xtl.min(trapezoid.xbl).min(trapezoid.xtr).min(trapezoid.xbr);
-            let right = trapezoid.xtl.max(trapezoid.xbl).max(trapezoid.xtr).max(trapezoid.xbr);
+            let left = trapezoid
+                .xtl
+                .min(trapezoid.xbl)
+                .min(trapezoid.xtr)
+                .min(trapezoid.xbr);
+            let right = trapezoid
+                .xtl
+                .max(trapezoid.xbl)
+                .max(trapezoid.xtr)
+                .max(trapezoid.xbr);
             let low = trapezoid.yt.min(trapezoid.yb);
             let high = trapezoid.yt.max(trapezoid.yb);
             bounds = Some(match bounds {

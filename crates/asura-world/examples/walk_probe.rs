@@ -29,7 +29,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let to = Pos {
         x: args[4].parse()?,
         y: args[5].parse()?,
-        plane: args.get(6).map(|plane| plane.parse()).transpose()?.unwrap_or(0),
+        plane: args
+            .get(6)
+            .map(|plane| plane.parse())
+            .transpose()?
+            .unwrap_or(0),
     };
 
     let graphs = PathGraphs::from_dump("data/path-graphs.bin")?;

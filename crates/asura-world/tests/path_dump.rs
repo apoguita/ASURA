@@ -24,12 +24,9 @@ fn gw_dat_path() -> Option<PathBuf> {
         .parent()?
         .parent()?
         .to_path_buf();
-    for candidate in [PathBuf::from("Gw.dat"), repo.join("data").join("Gw.dat")] {
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
+    [PathBuf::from("Gw.dat"), repo.join("data").join("Gw.dat")]
+        .into_iter()
+        .find(|candidate| candidate.exists())
 }
 
 fn map(map_id: i32) -> MapEntry {
@@ -229,12 +226,11 @@ async fn the_dump_command_writes_a_loadable_file() {
         .iter()
         .find(|entry| entry.map_id == map_id)
         .expect("the bound map is in the catalogue");
-    match graphs.walk(
+    if let Walk::NoGraph = graphs.walk(
         map_id,
         pos(entry.spawn.0, entry.spawn.1),
         pos(entry.spawn.0 + 50.0, entry.spawn.1 + 50.0),
     ) {
-        Walk::NoGraph => panic!("map {map_id} is bound but its dump answered NoGraph"),
-        _ => {}
+        panic!("map {map_id} is bound but its dump answered NoGraph");
     }
 }
