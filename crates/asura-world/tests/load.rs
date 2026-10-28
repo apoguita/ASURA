@@ -23,6 +23,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use asura_db::game as db_game;
 use asura_db::inventory as db_inventory;
 use asura_db::login as db;
 use asura_db::{placement, PgPool, Uuid};
@@ -59,8 +60,9 @@ fn unique_world() -> i32 {
     20_000 + (Uuid::new_v4().as_u128() % 10_000) as i32
 }
 
-/// The client archive beside the reference checkout, or `ASURA_GW_DAT`: where a map's path graph comes
-/// from. Absent, the harness serves a world without graphs and the movement tests skip.
+/// A local copy of the client archive (`ASURA_GW_DAT`, then `Gw.dat`, then `data/Gw.dat`): where a
+/// map's path graph comes from. Absent, the harness serves a world without graphs and the movement
+/// tests skip. Never the reference checkout: this repository stands alone.
 fn gw_dat_path() -> Option<String> {
     if let Ok(path) = std::env::var("ASURA_GW_DAT") {
         return Some(path);
@@ -69,12 +71,15 @@ fn gw_dat_path() -> Option<String> {
         .parent()?
         .parent()?
         .to_path_buf();
-    let path = repo.parent()?.join("PreSearing").join("Gw.dat");
-    if path.exists() {
-        Some(path.to_string_lossy().into_owned())
-    } else {
-        None
+    for candidate in [
+        std::path::PathBuf::from("Gw.dat"),
+        repo.join("data").join("Gw.dat"),
+    ] {
+        if candidate.exists() {
+            return Some(candidate.to_string_lossy().into_owned());
+        }
     }
+    None
 }
 
 /// A world server on a loopback port, and everything the test needs to check behind it.
@@ -163,6 +168,10 @@ impl Harness {
             peers: Default::default(),
             public: address,
             graphs,
+            lazy_maps: Default::default(),
+            load_on_demand: false,
+            capacity: 2,
+            archive: gw_dat_path().unwrap_or_default(),
         });
         let server = tokio::spawn({
             let world = world.clone();
@@ -1626,6 +1635,245 @@ async fn a_teleport_redirects_to_the_target_map_and_keeps_its_seat() {
         .await
         .expect("remove the world");
     harness.stop();
+}
+
+/// `--on-demand`: a travel to a map this world was **not** started with.
+///
+/// The reference pre-spawns one server per configured map so a travel never constructs anything, and
+/// this world preloads every hosted map for the same reason. Whether the real client *requires* the
+/// destination to exist before the hop is the open question the `--on-demand` switch exists to
+/// answer (`docs/03-protocol.md`). This test pins the server half: the transfer names a map the world
+/// was not started with, its map entry and pool row appear at travel time, and the reconnect lands in
+/// the destination's own spawn point (the `map_config` row, not the source's).
+#[tokio::test]
+async fn a_travel_to_an_unhosted_map_is_loaded_on_demand() {
+    if skip() {
+        return;
+    }
+    let Some(url) = asura_db::config::database_url() else {
+        return;
+    };
+    let pool = placement::connect(&url, 4)
+        .await
+        .expect("connect the database");
+
+    let source = HARNESS_MAP;
+    let destination = HARNESS_OTHER_MAP;
+    // The demand load reads the destination's config from the catalogue; a database without it can
+    // only skip (the battery seeds it, a bare `cargo test` may not).
+    let Some(configured) = db_game::spawn_map(&pool, destination)
+        .await
+        .expect("read the destination's map config")
+    else {
+        println!("map {destination} is not in map_config; skipping the on-demand travel test");
+        return;
+    };
+
+    let world_id = unique_world();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a loopback port");
+    let address = listener.local_addr().expect("local address");
+
+    // Only the source map is hosted: the destination has to come from `--on-demand`.
+    let maps = vec![MapEntry {
+        map_id: source,
+        map_file_id: 0x1B97D,
+        map_type: 0,
+        spawn: (6602.0, 4485.0),
+        spawn_plane: 0,
+        name: "Lakeside County".to_string(),
+        capacity: 2,
+    }];
+    let graphs = match gw_dat_path() {
+        Some(path) => asura_world::PathGraphs::load(&path, &maps).unwrap_or_else(|err| {
+            panic!("{path} does not open: {err}");
+        }),
+        None => asura_world::PathGraphs::empty(),
+    };
+    let world = Arc::new(World {
+        pool: pool.clone(),
+        world_id,
+        maps,
+        replay: None,
+        peers: Default::default(),
+        public: address,
+        graphs,
+        lazy_maps: Default::default(),
+        load_on_demand: true,
+        capacity: 2,
+        archive: gw_dat_path().unwrap_or_default(),
+    });
+    let server = tokio::spawn({
+        let world = world.clone();
+        async move {
+            let _ = serve(listener, world, true).await;
+        }
+    });
+
+    let seeded = db::seed_identity(
+        &pool,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        &format!("ondemand-{}", Uuid::new_v4()),
+        "Asura Test",
+        source,
+    )
+    .await
+    .expect("seed the identity");
+    placement::register_world(
+        &pool,
+        world_id,
+        "ondemand-world",
+        &address.ip().to_string(),
+        i32::from(address.port()),
+        "m4-test",
+        &[(source, 2)],
+    )
+    .await
+    .expect("register the world");
+    placement::reserve(&pool, world_id, source, seeded.session)
+        .await
+        .expect("reserve the source seat");
+    let player_token = (Uuid::new_v4().as_u128() & 0xFFFF_FFFF) as u32;
+    placement::begin_transfer(
+        &pool,
+        player_token,
+        world_id,
+        source,
+        seeded.session,
+        seeded.account,
+        seeded.character,
+    )
+    .await
+    .expect("write the pending transfer");
+
+    let version = GameVersion {
+        version: 39112,
+        h0008: 1,
+        map_token: world_id as u32,
+        map_id: source as u32,
+        player_token,
+        account: seeded.account.to_bytes_le(),
+        character: seeded.character.to_bytes_le(),
+        h0038: 0,
+        h003c: 0,
+    };
+    let Some((mut stream, mut client)) = connect_properly(address, &version).await else {
+        panic!("refused a token that had just been issued");
+    };
+    ask(&mut stream, &mut client, 0x8088, 2).await;
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_SPAWN_POINT).await;
+    ask(&mut stream, &mut client, 0x8090, 19).await;
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_FINISH).await;
+
+    // Before the travel, the destination is not known to the world: this is what `--on-demand` acts on.
+    assert!(
+        world.map(destination).is_none(),
+        "the destination starts unhosted"
+    );
+
+    say(
+        &mut stream,
+        &mut client,
+        0x8064,
+        &chat_body("/tp ascalon city"),
+    )
+    .await;
+    let (transfer, update) = read_redirect(&mut stream, &mut client).await;
+    assert_eq!(&transfer[0..2], &[0xA6, 0x01], "0x01A6 first");
+    let dword = |at: usize, bytes: &[u8]| {
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+    };
+    assert_eq!(
+        dword(42, &transfer),
+        destination as u32,
+        "the redirect names the demand-loaded map"
+    );
+    assert_eq!(
+        dword(38, &transfer),
+        0,
+        "is_explorable: the destination's own type"
+    );
+    // GWPS's field order: the token to reconnect with is the third dword, before is_explorable.
+    let moved_token = dword(34, &transfer);
+    assert_ne!(moved_token, 0, "the redirect minted a reconnect token");
+    assert_eq!(dword(4, &update), destination as u32);
+
+    // The demand load happened: the entry and the seat pool row now exist.
+    assert!(
+        world.map(destination).is_some(),
+        "the destination was loaded on demand"
+    );
+    let counts = placement::pool_counts(&pool, world_id, destination)
+        .await
+        .expect("read the counter")
+        .expect("a pool row for the demand-loaded destination");
+    assert_eq!(counts.1, 1, "the destination seat is taken");
+
+    // The client reconnects with the token the redirect minted, and stands on the destination's own
+    // configured spawn.
+    let moved_version = GameVersion {
+        version: 39112,
+        h0008: 1,
+        map_token: world_id as u32,
+        map_id: destination as u32,
+        player_token: moved_token,
+        account: seeded.account.to_bytes_le(),
+        character: seeded.character.to_bytes_le(),
+        h0038: 0,
+        h003c: 0,
+    };
+    let Some((mut moved_stream, mut moved_client)) =
+        connect_properly(address, &moved_version).await
+    else {
+        panic!("the world refused the token it had just issued");
+    };
+    ask(&mut moved_stream, &mut moved_client, 0x8088, 2).await;
+    let spawn = read_until(
+        &mut moved_stream,
+        &mut moved_client,
+        game::INSTANCE_LOAD_SPAWN_POINT,
+    )
+    .await;
+    let spawned = spawn
+        .iter()
+        .find(|frame| frame.header == game::INSTANCE_LOAD_SPAWN_POINT)
+        .expect("the spawn answer");
+    let x = f32::from_le_bytes([
+        spawned.body[4],
+        spawned.body[5],
+        spawned.body[6],
+        spawned.body[7],
+    ]);
+    let y = f32::from_le_bytes([
+        spawned.body[8],
+        spawned.body[9],
+        spawned.body[10],
+        spawned.body[11],
+    ]);
+    assert_eq!(
+        (x, y),
+        (configured.spawn_x, configured.spawn_y),
+        "the demand-loaded destination's own spawn point"
+    );
+    assert_eq!(
+        u32::from_le_bytes([
+            spawned.body[0],
+            spawned.body[1],
+            spawned.body[2],
+            spawned.body[3]
+        ]),
+        u32::try_from(configured.map_file_id).unwrap_or(0),
+        "and its own map blob"
+    );
+
+    drop(moved_stream);
+    drop(stream);
+    placement::remove_world(&pool, world_id)
+        .await
+        .expect("remove the world");
+    server.abort();
 }
 
 /// T6: a character can be made in a character-creation instance.

@@ -94,6 +94,30 @@ pub async fn register_world(
     tx.commit().await
 }
 
+/// Publish pool capacity for **one** map a world serves — the on-demand half of [`register_world`].
+///
+/// `register_world` resets `leased` because it is a restart: the world owns nothing yet. This does
+/// not touch `leased`, because a travel to the same map may already hold the seat and a capacity
+/// publish must never reset the counter under it.
+pub async fn publish_pool(
+    pool: &PgPool,
+    world_id: i32,
+    map_id: i32,
+    capacity: i32,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO world_pool (world_id, map_id, capacity, leased)
+         VALUES ($1, $2, $3, 0)
+         ON CONFLICT (world_id, map_id) DO UPDATE SET capacity = EXCLUDED.capacity",
+    )
+    .bind(world_id)
+    .bind(map_id)
+    .bind(capacity)
+    .execute(pool)
+    .await
+    .map(|_| ())
+}
+
 /// A world says it is alive, and how many players it currently holds.
 pub async fn heartbeat(pool: &PgPool, world_id: i32, population: i32) -> sqlx::Result<bool> {
     let done = sqlx::query("UPDATE world SET heartbeat_at = now(), population = $2 WHERE id = $1")

@@ -72,7 +72,10 @@ param(
     [switch] $Quiet,
     [string] $PreSearing = '',
     [int]    $GatePort = 6601,
-    [switch] $SkipDatabase
+    [switch] $SkipDatabase,
+    # Let `/tp` load a catalogue map the world was not started with (off by default; the experiment
+    # that measures whether a destination must exist before the hop). Forwarded to play.ps1.
+    [switch] $OnDemand
 )
 
 $ErrorActionPreference = "Stop"
@@ -189,6 +192,7 @@ try {
     # Only forward `-Maps` when the caller named one: the default is the whole catalogue.
     if ($Maps) { $playArgs += @("-Maps", $Maps) }
     if ($Trace) { $playArgs += "-Trace" }
+    if ($OnDemand) { $playArgs += "-OnDemand" }
     & (Get-Command powershell).Source @playArgs
     $code = $LASTEXITCODE
     if ($code -ne 0) {

@@ -54,7 +54,10 @@ param(
     # for the times a packet log is exactly what is wanted.
     [switch] $Trace,
     # The old spelling, kept so an existing command line does not break. It is the default now.
-    [switch] $Quiet
+    [switch] $Quiet,
+    # Let `/tp` load a catalogue map the world was not started with, instead of refusing it. Off by
+    # default; this is the experiment that measures whether a destination must exist before the hop.
+    [switch] $OnDemand
 )
 
 $ErrorActionPreference = "Stop"
@@ -137,6 +140,7 @@ Write-Host "== world server id $World on 127.0.0.1:6113, maps $(if ($Maps) { $Ma
 # what `/maps` lists and what `/tp` can reach. Pinning 146 here is what made both answer for one map.
 $worldArgs = @("--world", "$World", "--capacity", "$Capacity", "--public", "127.0.0.1:6113")
 if ($Maps) { $worldArgs += @("--maps", $Maps) }
+if ($OnDemand) { $worldArgs += "--on-demand" }
 $worldProc = Start-Process -FilePath $worldExe -ArgumentList $worldArgs -NoNewWindow -PassThru -RedirectStandardError $worldLog
 Start-Sleep -Milliseconds 700
 

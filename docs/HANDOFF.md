@@ -42,6 +42,11 @@ is_explorable, map_id`). The port target was named by the user all along.
   `Gw.dat` (`ASURA_GW_DAT`, `./Gw.dat`, or `data/Gw.dat`) and the tests skip cleanly without one; the
   reference capture the offline checks read is committed as `tools/fixtures/gwps-capture.log`. No
   reference checkout is consulted at runtime, and `tools/start-server.ps1` builds and starts all of it.
+- **Open question being measured: is precaching the destination a requirement?** The reference
+  pre-spawns one server per map so a travel constructs nothing; this world preloads every hosted map.
+  Whether the client *requires* that is untested — `--on-demand` (`start-server.ps1 -Maps 146
+  -OnDemand`, then `/tp ascalon`) loads a destination at travel time and logs the cost, and the
+  client's loading screen is the verdict. Runbook and test: `docs/03-protocol.md` §5c.
 - **Items work on a live client.** Dropping takes the stack down (`count = 1` of a hundred is what a
   client sends, and the reference refuses exactly that), the ground agent wears the item's *model*, moving
   an item between slots is answered and persisted, and wearing one moves it into the equipped bag and

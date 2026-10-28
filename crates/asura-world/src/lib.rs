@@ -196,6 +196,19 @@ pub struct World {
     /// The maps' path graphs, imported from `Gw.dat` at startup, and one finder per map. This is the
     /// reference's `srv->map_context`: what a `MOVE_TO_COORD` is answered from.
     pub graphs: PathGraphs,
+    /// Maps loaded **after** startup (`--on-demand`): the destination of a travel this world was not
+    /// started with. Kept apart from `maps` so the preloaded set — what the world registered for and
+    /// what `/maps` lists — stays exactly what the operator chose, while the demand-loaded map is
+    /// still found by the reconnect.
+    pub lazy_maps: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<i32, MapEntry>>>,
+    /// Whether `/tp` may load a catalogue map this world was not started with. Off by default: the
+    /// reference and this server both pre-spawn/preload their destinations, and this switch exists to
+    /// measure whether that is a requirement for ASURA or only a property of OpenTyria's design.
+    pub load_on_demand: bool,
+    /// Slots per map a demand-loaded map publishes when its pool row is created.
+    pub capacity: i32,
+    /// The client archive path, kept so a demand-loaded map can import its path graph.
+    pub archive: String,
 }
 
 /// One player in the world, plus the channel that reaches its connection.
@@ -392,9 +405,42 @@ impl Standing {
 }
 
 impl World {
-    /// The map entry for `map_id`, if this world publishes it.
-    pub fn map(&self, map_id: i32) -> Option<&MapEntry> {
-        self.maps.iter().find(|map| map.map_id == map_id)
+    /// The map entry for `map_id`, if this world serves it — preloaded at startup, or loaded on
+    /// demand since (`--on-demand`; see [`World::load_on_demand`]).
+    pub fn map(&self, map_id: i32) -> Option<MapEntry> {
+        if let Some(map) = self.maps.iter().find(|map| map.map_id == map_id) {
+            return Some(map.clone());
+        }
+        self.lazy_maps
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .get(&map_id)
+            .cloned()
+    }
+
+    /// Every map this world serves right now: the preloaded list, then any loaded on demand. The
+    /// order is the preloaded one first, so `/maps` keeps the reference's table order for the maps
+    /// that were there at startup.
+    pub fn all_maps(&self) -> Vec<MapEntry> {
+        let mut all = self.maps.clone();
+        let mut lazy: Vec<MapEntry> = self
+            .lazy_maps
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .values()
+            .cloned()
+            .collect();
+        lazy.sort_by_key(|map| map.map_id);
+        all.extend(lazy);
+        all
+    }
+
+    /// Record a map that was loaded after startup (`--on-demand`).
+    pub fn insert_lazy_map(&self, map: MapEntry) {
+        self.lazy_maps
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .insert(map.map_id, map);
     }
 }
 
@@ -421,7 +467,10 @@ pub struct PathGraphs(std::sync::Arc<PathGraphsInner>);
 
 #[derive(Default)]
 struct PathGraphsInner {
-    data: std::collections::HashMap<i32, std::sync::Arc<map_data::PathStaticData>>,
+    /// One graph per map, behind a lock because a demand-loaded map (`--on-demand`) adds its graph
+    /// after startup. Reads clone the `Arc` out and drop the lock, so a search never holds it.
+    data:
+        std::sync::Mutex<std::collections::HashMap<i32, std::sync::Arc<map_data::PathStaticData>>>,
     /// One finder per map, behind one lock. The finder keeps scratch arrays between searches, so sharing
     /// it is the point; the searches themselves are short and a world serves a handful of players.
     finders: std::sync::Mutex<std::collections::HashMap<i32, pathfind::PathContext>>,
@@ -440,31 +489,30 @@ impl PathGraphs {
         let mut data = std::collections::HashMap::new();
 
         for map in maps {
-            match archive.file(map.map_file_id) {
-                Ok(Some(content)) => match map_data::PathStaticData::import(&content) {
-                    Ok(imported) => {
-                        data.insert(map.map_id, std::sync::Arc::new(imported));
-                    }
-                    Err(err) => eprintln!(
-                        "world: map {} ({}) has no path graph: blob {:#X} did not import: {err}",
-                        map.map_id, map.name, map.map_file_id
-                    ),
-                },
-                Ok(None) => eprintln!(
-                    "world: map {} ({}) has no path graph: blob {:#X} is not in {archive_path}",
-                    map.map_id, map.name, map.map_file_id
-                ),
-                Err(err) => eprintln!(
-                    "world: map {} ({}) has no path graph: blob {:#X} could not be read: {err}",
-                    map.map_id, map.name, map.map_file_id
-                ),
+            if let Some(graph) = import_graph(&mut archive, archive_path, map) {
+                data.insert(map.map_id, graph);
             }
         }
 
         Ok(PathGraphs(std::sync::Arc::new(PathGraphsInner {
-            data,
+            data: std::sync::Mutex::new(data),
             finders: std::sync::Mutex::new(std::collections::HashMap::new()),
         })))
+    }
+
+    /// Import one map's graph from a `Gw.dat` and add it to the world — the `--on-demand` half of
+    /// [`PathGraphs::load`]. An archive that will not open is the only error; a blob that is missing
+    /// or does not import is logged and leaves the map without pathfinding, exactly as at startup.
+    pub fn import(&self, map: &MapEntry, archive_path: &str) -> io::Result<()> {
+        let mut archive = gwdat::GwDat::open(archive_path)?;
+        if let Some(graph) = import_graph(&mut archive, archive_path, map) {
+            self.0
+                .data
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .insert(map.map_id, graph);
+        }
+        Ok(())
     }
 
     /// A world with no graphs: every walk is refused with [`Walk::NoGraph`].
@@ -474,27 +522,75 @@ impl PathGraphs {
 
     /// The maps this world can path in, for a startup line and for tests.
     pub fn maps(&self) -> Vec<i32> {
-        let mut maps: Vec<i32> = self.0.data.keys().copied().collect();
+        let mut maps: Vec<i32> = self
+            .0
+            .data
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .keys()
+            .copied()
+            .collect();
         maps.sort_unstable();
         maps
     }
 
     /// Ask the finder for a walk from `from` to `to` on `map_id`.
     pub fn walk(&self, map_id: i32, from: pathfind::Pos, to: pathfind::Pos) -> Walk {
-        let Some(data) = self.0.data.get(&map_id) else {
+        let data = self
+            .0
+            .data
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .get(&map_id)
+            .map(std::sync::Arc::clone);
+        let Some(data) = data else {
             return Walk::NoGraph;
         };
 
         let mut finders = self.0.finders.lock().unwrap_or_else(|err| err.into_inner());
         let finder = finders
             .entry(map_id)
-            .or_insert_with(|| pathfind::PathContext::new(std::sync::Arc::clone(data)));
+            .or_insert_with(|| pathfind::PathContext::new(data));
 
         let mut waypoints = Vec::new();
         if finder.path_finding(from, to, &mut waypoints) {
             Walk::Found(waypoints)
         } else {
             Walk::NoPath
+        }
+    }
+}
+
+/// Read one map's blob out of an open archive and import it, or log why it is absent.
+fn import_graph(
+    archive: &mut gwdat::GwDat,
+    archive_path: &str,
+    map: &MapEntry,
+) -> Option<std::sync::Arc<map_data::PathStaticData>> {
+    match archive.file(map.map_file_id) {
+        Ok(Some(content)) => match map_data::PathStaticData::import(&content) {
+            Ok(imported) => Some(std::sync::Arc::new(imported)),
+            Err(err) => {
+                eprintln!(
+                    "world: map {} ({}) has no path graph: blob {:#X} did not import: {err}",
+                    map.map_id, map.name, map.map_file_id
+                );
+                None
+            }
+        },
+        Ok(None) => {
+            eprintln!(
+                "world: map {} ({}) has no path graph: blob {:#X} is not in {archive_path}",
+                map.map_id, map.name, map.map_file_id
+            );
+            None
+        }
+        Err(err) => {
+            eprintln!(
+                "world: map {} ({}) has no path graph: blob {:#X} could not be read: {err}",
+                map.map_id, map.name, map.map_file_id
+            );
+            None
         }
     }
 }
@@ -735,7 +831,7 @@ pub async fn handle_connection(
     }
 
     let map_id = transfer.map_id;
-    let Some(map) = world.map(map_id).cloned() else {
+    let Some(map) = world.map(map_id) else {
         return Err(GameError::UnknownMap(map_id));
     };
 
@@ -1615,7 +1711,7 @@ async fn answer(
                             // gate -- GWPS's chat gate is what leaves its chat half in its log too, and no
                             // chat text has ever reached a screen in either server. Sending it here crashed
                             // a live client, which is why the answer is printed and not sent.
-                            let answer = maps_answer(&world.maps);
+                            let answer = maps_answer(&world.all_maps());
                             for line in &answer.table {
                                 eprintln!("world: {line}");
                             }
@@ -2440,6 +2536,76 @@ fn random_u32() -> Result<u32, GameError> {
     Ok(u32::from_le_bytes(bytes))
 }
 
+/// Load a catalogue map this world was **not** started with — the `--on-demand` experiment.
+///
+/// Off unless `--on-demand` (`World::load_on_demand`): the reference pre-spawns one server per
+/// configured map so that a travel never constructs anything, and this server preloads every hosted
+/// map for the same reason. This switch answers the open question of whether that readiness is a hard
+/// requirement for ASURA or only a property of OpenTyria's design (`docs/03-protocol.md`).
+///
+/// The three steps are done here, in this order, because they are what a preload would have done at
+/// startup: read the `map_config` row, publish the seat pool (what `reserve` counts and what the auth
+/// front door's world lookup sees), and import the path graph out of `Gw.dat`. Each step's cost is
+/// logged; a client load that hangs while one of these runs is the measurement the switch exists for.
+///
+/// `None` means "no usable config": no `map_file_id`, or a map type this world does not serve. That is
+/// the same refusal a preloaded map with bad config would get, so the client sees one refusal shape.
+async fn load_map_on_demand(
+    world: &World,
+    map_id: i32,
+) -> Result<Option<MapEntry>, asura_db::DatabaseError> {
+    let started = Instant::now();
+    let Some(configured) = db_game::spawn_map(&world.pool, map_id).await? else {
+        return Ok(None);
+    };
+    let map_file_id = u32::try_from(configured.map_file_id).unwrap_or(0);
+    if map_file_id == 0 {
+        return Ok(None);
+    }
+    if !matches!(
+        configured.map_type,
+        MAP_TYPE_MAIN_TOWN | MAP_TYPE_MAIN_EXPLORABLE | MAP_TYPE_CHARACTER_CREATION
+    ) {
+        return Ok(None);
+    }
+    let entry = MapEntry {
+        map_id,
+        map_file_id,
+        map_type: configured.map_type,
+        spawn: (configured.spawn_x, configured.spawn_y),
+        spawn_plane: configured.spawn_plane as u16,
+        name: configured.name.clone(),
+        capacity: world.capacity,
+    };
+    let row_done = started.elapsed();
+
+    let pool = Instant::now();
+    placement::publish_pool(&world.pool, world.world_id, map_id, world.capacity).await?;
+    let pool_done = pool.elapsed();
+
+    let graph = Instant::now();
+    if let Err(err) = world.graphs.import(&entry, &world.archive) {
+        eprintln!(
+            "world: map {map_id} '{}' loaded on demand without a path graph: {err}",
+            entry.name
+        );
+    }
+    let graph_done = graph.elapsed();
+    world.insert_lazy_map(entry.clone());
+
+    eprintln!(
+        "world: map {} '{}' loaded on demand in {} ms (row {} ms, pool {} ms, path graph {} ms); \
+         the travel goes on with this destination",
+        map_id,
+        entry.name,
+        started.elapsed().as_millis(),
+        row_done.as_millis(),
+        pool_done.as_millis(),
+        graph_done.as_millis()
+    );
+    Ok(Some(entry))
+}
+
 /// `/tp <alias>` and `/teleport <alias>`: `GameSrv_HandleTeleportCommand` (`GmCommands.c:155-216`).
 ///
 /// A teleport is not a position change — it is a **server transfer**, the same cycle a portal starts.
@@ -2485,21 +2651,38 @@ async fn teleport(
         );
         return Ok(true);
     }
-    let Some(map) = world
-        .maps
-        .iter()
-        .find(|map| map.map_id == target.map_id)
-        .cloned()
-    else {
-        // The table knows the map; this world was not started with `--maps` for it. The reference
-        // pre-spawns one server per map, so its answer would be a transfer; this one can only say so.
-        eprintln!(
-            "world: {} ({}) is not hosted by this world; start it with --maps {}",
-            target.label, target.map_id, target.map_id
-        );
-        return Ok(true);
+    let target = match world.map(target.map_id) {
+        Some(map) => map,
+        None if world.load_on_demand => {
+            // `--on-demand`: the destination was not preloaded. Load it here, and measure the cost —
+            // this is the experiment the switch exists for (docs/03-protocol.md, "precache").
+            match load_map_on_demand(world, target.map_id)
+                .await
+                .map_err(GameError::Database)?
+            {
+                Some(loaded) => loaded,
+                None => {
+                    eprintln!(
+                        "world: {} ({}) has no usable config (no map file id, or a map type this \
+                         world does not serve); the teleport is refused",
+                        target.label, target.map_id
+                    );
+                    return Ok(true);
+                }
+            }
+        }
+        None => {
+            // The table knows the map; this world was not started with `--maps` for it. The
+            // reference pre-spawns one server per map, so its answer would be a transfer; this one
+            // can only say so — unless `--on-demand` loaded it (handled above).
+            eprintln!(
+                "world: {} ({}) is not hosted by this world; start it with --maps {} (or --on-demand \
+                 to load destinations at travel time)",
+                target.label, target.map_id, target.map_id
+            );
+            return Ok(true);
+        }
     };
-    let target = map;
     if target.map_id == play.map.map_id {
         // `GmCommands.c:198-202`.
         eprintln!("world: You are already here.");

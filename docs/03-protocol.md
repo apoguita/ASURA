@@ -211,6 +211,41 @@ This is the part the whole design exists to protect.
    given, presenting the token. That reconnect is accepted only if it matches the recorded identity;
    a mismatch is client error 007.
 
+### 5c. Is precaching the destination a requirement? (the `--on-demand` experiment)
+
+The reference pre-spawns **one game server per configured map** at startup
+(`AuthSrv_PreSpawnMapServers`, `AuthSrv.c:410-449`) so that a travel never constructs anything; its
+own comments record why: a map server built *inside* a teleport made the client wait on the loading
+screen for the whole construction. This server preloads every hosted map for the same reason — the
+`map_config` row, the seat pool row and the path graph are all in place before the first client
+connects.
+
+Whether a client actually **requires** the destination to exist before the hop is untested here. That
+is what `--on-demand` (or `ASURA_WORLD_ON_DEMAND=1`) measures: a `/tp` to a catalogue map the world
+was *not* started with loads it at travel time — the row from `map_config`, the seat pool row in
+`world_pool`, the path graph out of `Gw.dat` — and logs each step's cost:
+
+```
+world: map 148 'Ascalon City (pre-Searing)' loaded on demand in N ms (row a ms, pool b ms, path graph c ms)
+world: "…" teleporting: map 146 -> map 148 …
+```
+
+The runbook is the experiment itself:
+
+```powershell
+.\tools\start-server.ps1 -Maps 146 -OnDemand
+# client: F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1
+# in game:  /tp ascalon
+```
+
+The verdict is the client's loading screen plus the two console lines above. If the client loads the
+map, precaching is not a hard requirement on ASURA (the destination cost is the `N ms` the log
+prints). If it hangs on the loading screen, the requirement is real, and the reference's answer
+applies: preload the destination before the hop. The server half of the experiment is pinned either
+way by `a_travel_to_an_unhosted_map_is_loaded_on_demand` (`crates/asura-world/tests/load.rs`): the
+transfer names the unhosted map, its entry and pool row appear when the travel happens, and the
+reconnect lands in the destination's own configured spawn point.
+
 ### 5a. The auth-side pair (measured from the reference)
 
 Before any of that, on the **auth** connection, the client asks for a map and the auth service says

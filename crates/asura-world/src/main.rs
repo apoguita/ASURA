@@ -327,6 +327,16 @@ async fn main() -> ExitCode {
         }
     };
 
+    // `--on-demand`: let `/tp` load a catalogue map this world was not started with, instead of
+    // refusing it. Off by default, because preloading every destination is what the reference does
+    // (one pre-spawned server per map) and what this world does at startup; the switch exists to
+    // measure whether the client actually needs the destination ready before the hop.
+    let load_on_demand = args.iter().any(|arg| arg == "--on-demand")
+        || matches!(
+            std::env::var("ASURA_WORLD_ON_DEMAND").ok().as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        );
+
     let world = Arc::new(World {
         pool,
         world_id,
@@ -335,7 +345,17 @@ async fn main() -> ExitCode {
         peers: Default::default(),
         public,
         graphs,
+        lazy_maps: Default::default(),
+        load_on_demand,
+        capacity,
+        archive,
     });
+    if load_on_demand {
+        eprintln!(
+            "asura-world: on-demand destination loading is ON: a /tp to a catalogue map this world \
+             was not started with loads it at travel time and measures the cost"
+        );
+    }
     if let Err(err) = serve(listener, world, trace.on()).await {
         eprintln!("asura-world: the listener stopped: {err}");
         return ExitCode::FAILURE;
@@ -403,6 +423,11 @@ fn print_help() {
         "                      catalogue (default: every map in map_config -- the reference starts"
     );
     println!("                      a server per configured map, so /maps lists them all and /tp reaches them)");
+    println!("    --on-demand       let /tp load a catalogue map this world was not started with, instead");
+    println!(
+        "                      of refusing it: off by default, and the switch is an experiment (a"
+    );
+    println!("                      travel to an unhosted map measures what a demand-load costs)");
     println!("    --capacity N      slots per map (default {DEFAULT_CAPACITY})");
     println!("    --gwdat PATH      the client archive the path graphs come from (default: ASURA_GW_DAT,");
     println!("                      then Gw.dat, then data\\Gw.dat in this repository)");

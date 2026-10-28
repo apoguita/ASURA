@@ -130,6 +130,10 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
         public: world_address,
         // This test is the login chain, not movement: no graph, so every walk would be refused.
         graphs: asura_world::PathGraphs::empty(),
+        lazy_maps: Default::default(),
+        load_on_demand: false,
+        capacity: 2,
+        archive: String::new(),
     });
     let world_task = tokio::spawn(async move {
         let _ = serve_world(world_listener, world, true).await;
