@@ -30,7 +30,7 @@
 | **3.** Give the `build`/`draining` columns a pilot | S3 *(delivered 2026-10-28)* | both columns exist (`crates/asura-db/src/placement.rs`); `register_world` writes `build` (`asura-world/src/main.rs:286`); `find_worlds` never consults it (`placement.rs:435`); nothing reads `draining`; a world cannot be stopped without a kill | a new build takes new players, the old world drains without kicking anyone, proven with the real client |
 | **4.** Add a status that tells the truth | S4 *(scoped 2026-10-28: system health only — player data stays in the services)* | `docs/02-architecture.md` asks for counters and rates; nothing exports per-service counters, and the operating layer is not where they belong | a status view of the operating layer: what is running, is it healthy, heartbeat age, capacity, uptime |
 | **5.** Untie the receptionist knot; fix the stale documents | S5a *(delivered 2026-10-28)* + S5b *(closed 2026-10-28)* | `crates/asura-auth/src/frontdoor.rs` is the router inside auth; the docs claims in S5a are false today | the five corrections land (S5a); a recorded decision on the front door (S5b) |
-| **6.** Prove multi-machine capability on one machine, no hardware | S6 | the front door dials the **registered** address (`frontdoor.rs:82–96`), so cross-host routing already exists on paper; nothing has ever run at a second address | a travel to a world registered at a second loopback address, recorded |
+| **6.** Prove multi-machine capability on one machine, no hardware | S6 *(delivered 2026-10-28)* | the front door dials the **registered** address (`frontdoor.rs:82–96`), so cross-host routing already exists on paper; nothing has ever run at a second address | a travel to a world registered at a second loopback address, recorded |
 | **7.** One "how do I run this" file, and CI's place | S7 | README's run instructions are stale (see S5a); `tools/test-battery.ps1` is the local battery; the repo's testing policy says the suite is not a gate | one accurate run document; a CI decision recorded (or none, with the reason) |
 
 ## S1 — Launcher and babysitter (the supervisor)
@@ -338,7 +338,7 @@ chosen, does exactly what the decision says and no more.
 3. **S2** — the service registry; a consumer for S4. *(delivered 2026-10-28)*
 4. **S3** — the rolling deploy (needs S1 to run two worlds; decisions settled). *(delivered 2026-10-28)*
 5. **S4** — the operating layer's health view (needs S2's registry to read).
-6. **S6** — the multi-machine proof (needs S1/S3 to run and drain a second world).
+6. **S6** — the multi-machine proof (needs S1/S3 to run and drain a second world). *(delivered 2026-10-28: docs/18-multi-machine.md)*
 7. **S5b — the front-door decision** — closed: the relay is the auth server's job, and the claims that said otherwise are corrected.
 8. **S7** — the run document anytime; CI last, with the testing policy in view.
 
