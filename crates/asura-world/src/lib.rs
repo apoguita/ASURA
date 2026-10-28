@@ -462,15 +462,24 @@ pub enum Walk {
 /// The reference keeps both inside its server (`srv->map_context`, `GameSrv_LoadMap`), because it runs one
 /// server per map; this hosts several maps in one process, so it keeps a graph per map and one finder per
 /// map, built on first use. Cheap to clone (it is shared), because `World` is cloned per connection.
+///
+/// A graph is keyed by the **`Gw.dat` blob id**, not by map id, because the reference's catalogue gives
+/// several maps the same blob (146/148, 160/163, 161/165 and 162/166): one import serves both. A map is
+/// *bound* to its blob only when the world knows both — by [`PathGraphs::bind`] at startup, or by
+/// [`PathGraphs::import`] when `--on-demand` loads a map. The graphs themselves can come from a `Gw.dat`
+/// ([`PathGraphs::load`]) or from a dump made once ([`PathGraphs::from_dump`]), which is what lets a
+/// server run without the 3.6 GB archive.
 #[derive(Clone, Default)]
 pub struct PathGraphs(std::sync::Arc<PathGraphsInner>);
 
 #[derive(Default)]
 struct PathGraphsInner {
-    /// One graph per map, behind a lock because a demand-loaded map (`--on-demand`) adds its graph
-    /// after startup. Reads clone the `Arc` out and drop the lock, so a search never holds it.
+    /// One graph per `map_file_id`, behind a lock because a demand-loaded map (`--on-demand`) adds its
+    /// graph after startup. Reads clone the `Arc` out and drop the lock, so a search never holds it.
     data:
-        std::sync::Mutex<std::collections::HashMap<i32, std::sync::Arc<map_data::PathStaticData>>>,
+        std::sync::Mutex<std::collections::HashMap<u32, std::sync::Arc<map_data::PathStaticData>>>,
+    /// map id -> the blob id its graph is stored under, for the maps this world can path in.
+    bound: std::sync::Mutex<std::collections::HashMap<i32, u32>>,
     /// One finder per map, behind one lock. The finder keeps scratch arrays between searches, so sharing
     /// it is the point; the searches themselves are short and a world serves a handful of players.
     finders: std::sync::Mutex<std::collections::HashMap<i32, pathfind::PathContext>>,
@@ -490,28 +499,84 @@ impl PathGraphs {
 
         for map in maps {
             if let Some(graph) = import_graph(&mut archive, archive_path, map) {
-                data.insert(map.map_id, graph);
+                data.entry(map.map_file_id).or_insert(graph);
             }
         }
 
+        let graphs = PathGraphs(std::sync::Arc::new(PathGraphsInner {
+            data: std::sync::Mutex::new(data),
+            bound: std::sync::Mutex::new(std::collections::HashMap::new()),
+            finders: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }));
+        graphs.bind(maps);
+        Ok(graphs)
+    }
+
+    /// Load the graphs from a dump written by `asura-world --dump-path-graphs`, so no `Gw.dat` is
+    /// needed at runtime. Nothing is bound yet: call [`PathGraphs::bind`] with the maps this world
+    /// serves, and an on-demand load binds its own map through [`PathGraphs::import`].
+    pub fn from_dump(path: &str) -> io::Result<PathGraphs> {
+        let bytes = std::fs::read(path)?;
+        let dumped = graph_dump::decode(&bytes)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+        let mut data = std::collections::HashMap::new();
+        for graph in dumped {
+            data.insert(graph.map_file_id, std::sync::Arc::new(graph.data));
+        }
         Ok(PathGraphs(std::sync::Arc::new(PathGraphsInner {
             data: std::sync::Mutex::new(data),
+            bound: std::sync::Mutex::new(std::collections::HashMap::new()),
             finders: std::sync::Mutex::new(std::collections::HashMap::new()),
         })))
     }
 
-    /// Import one map's graph from a `Gw.dat` and add it to the world — the `--on-demand` half of
-    /// [`PathGraphs::load`]. An archive that will not open is the only error; a blob that is missing
-    /// or does not import is logged and leaves the map without pathfinding, exactly as at startup.
+    /// Bind every map whose blob is among the loaded graphs. Returns how many were bound.
+    pub fn bind(&self, maps: &[MapEntry]) -> usize {
+        let data = self.0.data.lock().unwrap_or_else(|err| err.into_inner());
+        let mut bound = self.0.bound.lock().unwrap_or_else(|err| err.into_inner());
+        let mut count = 0;
+        for map in maps {
+            if data.contains_key(&map.map_file_id) {
+                bound.insert(map.map_id, map.map_file_id);
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Make one map pathable: bind it to a graph already loaded (a dump), or import its blob from the
+    /// archive. The `--on-demand` half of [`PathGraphs::load`]: an archive that will not open is the
+    /// only error; a blob that is missing or does not import is logged and leaves the map without
+    /// pathfinding, exactly as at startup.
     pub fn import(&self, map: &MapEntry, archive_path: &str) -> io::Result<()> {
+        let already_loaded = self
+            .0
+            .data
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .contains_key(&map.map_file_id);
+        if already_loaded {
+            self.0
+                .bound
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .insert(map.map_id, map.map_file_id);
+            return Ok(());
+        }
         let mut archive = gwdat::GwDat::open(archive_path)?;
         if let Some(graph) = import_graph(&mut archive, archive_path, map) {
             self.0
                 .data
                 .lock()
                 .unwrap_or_else(|err| err.into_inner())
-                .insert(map.map_id, graph);
+                .entry(map.map_file_id)
+                .or_insert(graph);
         }
+        self.0
+            .bound
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .insert(map.map_id, map.map_file_id);
         Ok(())
     }
 
@@ -520,11 +585,21 @@ impl PathGraphs {
         PathGraphs::default()
     }
 
+    /// How many graphs are loaded — from an archive or a dump — whether or not a map is bound to
+    /// them yet. A startup line and tests use it; `/maps` uses [`PathGraphs::maps`] instead.
+    pub fn imported(&self) -> usize {
+        self.0
+            .data
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .len()
+    }
+
     /// The maps this world can path in, for a startup line and for tests.
     pub fn maps(&self) -> Vec<i32> {
         let mut maps: Vec<i32> = self
             .0
-            .data
+            .bound
             .lock()
             .unwrap_or_else(|err| err.into_inner())
             .keys()
@@ -536,13 +611,21 @@ impl PathGraphs {
 
     /// Ask the finder for a walk from `from` to `to` on `map_id`.
     pub fn walk(&self, map_id: i32, from: pathfind::Pos, to: pathfind::Pos) -> Walk {
-        let data = self
+        let file_id = self
             .0
-            .data
+            .bound
             .lock()
             .unwrap_or_else(|err| err.into_inner())
             .get(&map_id)
-            .map(std::sync::Arc::clone);
+            .copied();
+        let data = file_id.and_then(|file_id| {
+            self.0
+                .data
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .get(&file_id)
+                .map(std::sync::Arc::clone)
+        });
         let Some(data) = data else {
             return Walk::NoGraph;
         };
@@ -567,17 +650,27 @@ fn import_graph(
     archive_path: &str,
     map: &MapEntry,
 ) -> Option<std::sync::Arc<map_data::PathStaticData>> {
-    match archive.file(map.map_file_id) {
-        Ok(Some(content)) => match map_data::PathStaticData::import(&content) {
-            Ok(imported) => Some(std::sync::Arc::new(imported)),
-            Err(err) => {
+    match find_path_blob(archive, map.map_file_id, map.map_id) {
+        Ok(Some((blob_id, content))) => {
+            if blob_id != map.map_file_id {
                 eprintln!(
-                    "world: map {} ({}) has no path graph: blob {:#X} did not import: {err}",
+                    "world: map {} ({}) path graph comes from blob {blob_id:#X} rather than \
+                     {:#X}: the archive binds the plain logical id (the bit-31 replacement flag, \
+                     docs/03-roadmap.md)",
                     map.map_id, map.name, map.map_file_id
                 );
-                None
             }
-        },
+            match map_data::PathStaticData::import(&content) {
+                Ok(imported) => Some(std::sync::Arc::new(imported)),
+                Err(err) => {
+                    eprintln!(
+                        "world: map {} ({}) has no path graph: blob {blob_id:#X} did not import: {err}",
+                        map.map_id, map.name
+                    );
+                    None
+                }
+            }
+        }
         Ok(None) => {
             eprintln!(
                 "world: map {} ({}) has no path graph: blob {:#X} is not in {archive_path}",
@@ -595,9 +688,64 @@ fn import_graph(
     }
 }
 
+/// The blob a map's path graph actually lives at, tolerating the archive's bit-31 replacement rule.
+///
+/// The reference's catalogue names some blobs with bit 31 set (`0x8005EA96` for The Northlands)
+/// while a client archive may bind the plain logical id (`0x5EA96`) — the bit is the archive's
+/// "replacement pending" flag, not part of the map's identity (`docs/03-roadmap.md`,
+/// `docs/10-rurik-comparison.md`). So: the configured id, then the plain one, then the flagged one,
+/// and the caller logs when a substitution happened.
+///
+/// Returns the id that answered and its bytes. `Ok(None)` means none of the three is in the
+/// archive; the caller decides whether that is a skip or an error.
+pub fn find_path_blob(
+    archive: &mut gwdat::GwDat,
+    wanted: u32,
+    map_id: i32,
+) -> io::Result<Option<(u32, Vec<u8>)>> {
+    let mut candidates = vec![wanted];
+    let plain = wanted & 0x7FFF_FFFF;
+    if plain != wanted {
+        candidates.push(plain);
+    }
+    let flagged = wanted | 0x8000_0000;
+    if flagged != wanted {
+        candidates.push(flagged);
+    }
+    let mut first_error = None;
+    for candidate in candidates {
+        match archive.file(candidate) {
+            Ok(Some(content)) => {
+                if candidate != wanted {
+                    eprintln!(
+                        "world: map {map_id} path graph found at blob {candidate:#X} \
+                         (the catalogue names {wanted:#X})"
+                    );
+                }
+                return Ok(Some((candidate, content)));
+            }
+            Ok(None) => {}
+            Err(err) => {
+                if first_error.is_none() {
+                    first_error = Some(err);
+                }
+            }
+        }
+    }
+    match first_error {
+        Some(err) => Err(err),
+        None => Ok(None),
+    }
+}
+
 /// Replaying the reference's captured stream, for bisection (ASURA_WORLD_REPLAY).
 /// One agent's position, and the reference's rules for believing a client about it.
 pub mod agent;
+
+/// The path-graph dump: `PathStaticData` written once and loaded without a `Gw.dat`, so a server
+/// machine needs a few megabytes instead of the client's 3.6 GB archive (`asura-world
+/// --dump-path-graphs` / `--path-graphs`).
+pub mod graph_dump;
 
 pub mod replay;
 

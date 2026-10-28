@@ -38,10 +38,13 @@ is_explorable, map_id`). The port target was named by the user all along.
   records the port target and the two failed attempts that proved it (`007` from a wrong field order,
   `005` from a wrong frame size). `/maps` prints the reference's own table, one row per alias.
 - **Everything a run needs is in this repository.** The web gate is `crates/asura-webgate` (the
-  reference's `tools/webgate.py`, ported, database-backed); the path graphs come from a local
-  `Gw.dat` (`ASURA_GW_DAT`, `./Gw.dat`, or `data/Gw.dat`) and the tests skip cleanly without one; the
+  reference's `tools/webgate.py`, ported, database-backed); the path graphs come from **a dump**
+  written once (`asura-world --dump-path-graphs data\path-graphs.bin`; 12 maps, 11.1 MB, measured
+  2026-10-27) and loaded automatically, or from a local `Gw.dat` (`ASURA_GW_DAT`, `./Gw.dat`, or
+  `data/Gw.dat`) as the fallback — the tests skip cleanly without either; the
   reference capture the offline checks read is committed as `tools/fixtures/gwps-capture.log`. No
-  reference checkout is consulted at runtime, and `tools/start-server.ps1` builds and starts all of it.
+  reference checkout is consulted at runtime, and `tools/start-server.ps1` builds and starts all of it
+  (`docs/03-protocol.md` §5d has the dump runbook).
 - **Answered (2026-10-27): precaching the destination is NOT a requirement here.** The reference
   pre-spawns one server per map so a travel constructs nothing; this world used to preload every map
   at startup. Measured on the real client with `start-server.ps1 -OnDemand` (nothing preloaded): a

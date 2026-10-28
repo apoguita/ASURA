@@ -263,6 +263,41 @@ The server half of the experiment is pinned by
 connection or transfer names the unhosted map, its entry and pool row appear when it is demanded,
 and the client lands in the destination's own configured spawn point.
 
+### 5d. Path graphs without `Gw.dat` (the dump)
+
+The server paths agents from its own copy of each map's walkable geometry: planes, trapezoids,
+portals and the split tree the reference's A★ (`GmPaths.c`) walks. That geometry lives in the
+client's asset archive, `Gw.dat`, as one blob per map — there is no separate map file. Reading the
+archive at runtime works but needs 3.6 GB on every server machine, so the graph can be **dumped
+once** and loaded instead:
+
+```powershell
+# once, with a client archive (ASURA_GW_DAT or --gwdat):
+asura-world --dump-path-graphs data\path-graphs.bin
+# every start after that, no archive needed:
+asura-world            # picks data\path-graphs.bin up automatically
+```
+
+- `--dump-path-graphs FILE` writes the maps in `map_config` (the twelve of the reference);
+  `--dump-all` writes every pathing map in the archive instead. `--path-graphs` /
+  `ASURA_PATH_GRAPHS` name a dump explicitly; `--gwdat` stays the fallback when no dump exists.
+- **Measured 2026-10-27**: 12 of 12 catalogue maps, 486 planes, 62,326 trapezoids, **11.1 MB** —
+  the world then starts with `path graphs from the dump data\path-graphs.bin: 12 of 12 map(s)
+  bound` and never opens the archive.
+- The format is ours (`crates/asura-world/src/graph_dump.rs`), and it carries exactly what the
+  finder consumes. The community `.pmap` files (ACB's Pathingmap Builder, e.g. the archives the
+  GW-Pathing-Map visualization projects ship) are *visualization* data: trapezoids and adjacency
+  only, no portals or node tree, so they cannot feed the reference's A★. Our dump can be produced
+  from any archive the client installs.
+- **The bit-31 trap**: a catalogue blob id may carry the archive's "replacement pending" bit
+  (`0x8005EA96` for The Northlands) while an archive binds the plain id (`0x5EA96`). Both are tried
+  (`find_path_blob`, `docs/03-roadmap.md`), and a substitution is logged.
+- Parity is pinned by `crates/asura-world/tests/path_dump.rs`: the walks from a dumped graph are
+  compared, waypoint for waypoint, with the walks from the archive import (maps 146 and 148, which
+  share one blob), and the dump command's own file is loaded back and bound to the catalogue.
+
+The dump is derived game data. It is not committed (`/data/` is gitignored), same rule as `Gw.dat`.
+
 ### 5a. The auth-side pair (measured from the reference)
 
 Before any of that, on the **auth** connection, the client asks for a map and the auth service says

@@ -340,29 +340,38 @@ async fn main() -> ExitCode {
 
     // The path graphs, which is what a `MOVE_TO_COORD` is answered from (`GameSrv_LoadMap` reads the same
     // blob). A map whose blob cannot be imported is served without one, and every walk in it is refused.
+    // ---- the path-graph dump: write the graphs once and exit -----------------------------------
+    // `asura-world --dump-path-graphs FILE` writes the path graphs for the maps this world handles
+    // (the catalogue) so a server can run without a Gw.dat. `--dump-all` writes every pathing map in
+    // the archive instead. The dump is derived game data: keep it out of the repository, like Gw.dat.
+    if let Some(out) = argument(&args, "--dump-path-graphs") {
+        let all = args.iter().any(|arg| arg == "--dump-all");
+        return dump_path_graphs(&pool, &catalogue, &archive_path(&args), &out, all).await;
+    }
+
     let archive = archive_path(&args);
-    let graphs = match asura_world::PathGraphs::load(&archive, &maps) {
-        Ok(graphs) => {
-            let with_graphs = graphs.maps();
-            eprintln!(
-                "asura-world: path graphs from {archive}: {} of {} map(s) ({})",
-                with_graphs.len(),
-                maps.len(),
-                with_graphs
-                    .iter()
-                    .map(|map_id| map_id.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-            graphs
-        }
-        Err(err) => {
-            eprintln!(
-                "asura-world: no path graphs, so every walk will be refused: could not open {archive}: \
-                 {err}. Set ASURA_GW_DAT or pass --gwdat."
-            );
-            asura_world::PathGraphs::empty()
-        }
+    // The graphs, in priority order: a dump (a few megabytes, no archive needed) when one was named
+    // or a local `data/path-graphs.bin` exists, then the `Gw.dat` import. A dump is written by
+    // `--dump-path-graphs`; `ASURA_PATH_GRAPHS` names it, and `--path-graphs` overrides both.
+    let dump_path = path_graphs_dump_path(&args);
+    let graphs = match &dump_path {
+        Some(path) => match asura_world::PathGraphs::from_dump(path) {
+            Ok(graphs) => {
+                let bound = graphs.bind(&maps);
+                eprintln!(
+                    "asura-world: path graphs from the dump {path}: {bound} of {} map(s) bound",
+                    maps.len()
+                );
+                graphs
+            }
+            Err(err) => {
+                eprintln!(
+                    "asura-world: could not read the path-graph dump {path}: {err}; falling back to {archive}"
+                );
+                load_graphs_from_archive(&archive, &maps)
+            }
+        },
+        None => load_graphs_from_archive(&archive, &maps),
     };
 
     // `--on-demand` was read above, before the pool rows were published, so that an on-demand world
@@ -424,6 +433,176 @@ fn archive_path(args: &[String]) -> String {
     "Gw.dat".to_string()
 }
 
+/// Where a path-graph dump lives: `--path-graphs`, then `ASURA_PATH_GRAPHS`, then a local
+/// `data/path-graphs.bin` (written by `--dump-path-graphs`). `None` means import from the archive.
+fn path_graphs_dump_path(args: &[String]) -> Option<String> {
+    if let Some(given) = argument(args, "--path-graphs") {
+        return Some(given);
+    }
+    if let Ok(from_env) = std::env::var("ASURA_PATH_GRAPHS") {
+        return Some(from_env);
+    }
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..");
+    for candidate in [
+        std::path::PathBuf::from("data").join("path-graphs.bin"),
+        repository.join("data").join("path-graphs.bin"),
+    ] {
+        if candidate.exists() {
+            return Some(candidate.to_string_lossy().into_owned());
+        }
+    }
+    None
+}
+
+/// Import the graphs out of a `Gw.dat`, logging what was found or why nothing was.
+fn load_graphs_from_archive(archive: &str, maps: &[MapEntry]) -> asura_world::PathGraphs {
+    match asura_world::PathGraphs::load(archive, maps) {
+        Ok(graphs) => {
+            let with_graphs = graphs.maps();
+            eprintln!(
+                "asura-world: path graphs from {archive}: {} of {} map(s) ({})",
+                with_graphs.len(),
+                maps.len(),
+                with_graphs
+                    .iter()
+                    .map(|map_id| map_id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            graphs
+        }
+        Err(err) => {
+            eprintln!(
+                "asura-world: no path graphs, so every walk will be refused: could not open {archive}: \
+                 {err}. Set ASURA_GW_DAT or pass --gwdat, or dump the graphs once with \
+                 --dump-path-graphs and load them with --path-graphs."
+            );
+            asura_world::PathGraphs::empty()
+        }
+    }
+}
+
+/// Write the path graphs once, so the world can load them without a `Gw.dat`
+/// (`asura-world --dump-path-graphs FILE [--dump-all]`).
+///
+/// Without `--dump-all` it dumps the maps this world handles (the catalogue): the twelve of the
+/// reference, each by its `map_file_id`. With `--dump-all` it walks the whole archive and imports
+/// every blob that is a pathing map (a container whose first four bytes are `"ffna"`), naming each
+/// by its blob id — the right choice when the catalogue is not what is wanted, or when a map is not
+/// in `map_config` yet.
+async fn dump_path_graphs(
+    pool: &asura_db::PgPool,
+    catalogue: &[i32],
+    archive_path: &str,
+    out: &str,
+    all: bool,
+) -> ExitCode {
+    use asura_world::graph_dump::DumpedGraph;
+
+    let mut archive = match asura_world::gwdat::GwDat::open(archive_path) {
+        Ok(archive) => archive,
+        Err(err) => {
+            eprintln!("asura-world: cannot open {archive_path} for the dump: {err}");
+            return ExitCode::from(6);
+        }
+    };
+
+    let mut graphs: Vec<DumpedGraph> = Vec::new();
+    let mut failed = 0usize;
+    if all {
+        let ids = archive.file_ids();
+        eprintln!(
+            "asura-world: dumping every pathing map in {archive_path} ({} blob(s) to try)",
+            ids.len()
+        );
+        for file_id in ids {
+            match archive.file(file_id) {
+                Ok(Some(content)) => {
+                    if asura_world::map_data::riff_type(&content).is_none() {
+                        continue;
+                    }
+                    match asura_world::map_data::PathStaticData::import(&content) {
+                        Ok(data) => graphs.push(DumpedGraph {
+                            map_id: -1,
+                            map_file_id: file_id,
+                            data,
+                        }),
+                        Err(_) => failed += 1,
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    eprintln!("asura-world: blob {file_id:#X} could not be read: {err}");
+                    failed += 1;
+                }
+            }
+        }
+    } else {
+        for map_id in catalogue {
+            let Some(configured) = db_game::spawn_map(pool, *map_id)
+                .await
+                .expect("the map catalogue is in the database")
+            else {
+                eprintln!("asura-world: map {map_id} is not in map_config; skipped");
+                continue;
+            };
+            let file_id = u32::try_from(configured.map_file_id).unwrap_or(0);
+            if file_id == 0 {
+                eprintln!("asura-world: map {map_id} has no map_file_id; skipped");
+                continue;
+            }
+            match asura_world::find_path_blob(&mut archive, file_id, *map_id) {
+                Ok(Some((blob_id, content))) => {
+                    match asura_world::map_data::PathStaticData::import(&content) {
+                        Ok(data) => graphs.push(DumpedGraph {
+                            map_id: *map_id,
+                            map_file_id: blob_id,
+                            data,
+                        }),
+                        Err(err) => {
+                            eprintln!(
+                                "asura-world: map {map_id}: blob {blob_id:#X} did not import: {err}"
+                            );
+                            failed += 1;
+                        }
+                    }
+                }
+                Ok(None) => eprintln!(
+                    "asura-world: map {map_id}: blob {file_id:#X} is not in {archive_path}"
+                ),
+                Err(err) => eprintln!(
+                    "asura-world: map {map_id}: blob {file_id:#X} could not be read: {err}"
+                ),
+            }
+        }
+    }
+
+    let bytes = asura_world::graph_dump::encode(&graphs);
+    if let Err(err) = std::fs::write(out, &bytes) {
+        eprintln!("asura-world: cannot write {out}: {err}");
+        return ExitCode::FAILURE;
+    }
+    let planes: usize = graphs.iter().map(|graph| graph.data.planes.len()).sum();
+    let traps: u64 = graphs
+        .iter()
+        .map(|graph| u64::from(graph.data.traps_count))
+        .sum();
+    eprintln!(
+        "asura-world: wrote {} path graph(s), {planes} plane(s), {traps} trapezoid(s) to {out} \
+         ({} bytes){}",
+        graphs.len(),
+        bytes.len(),
+        if failed > 0 {
+            format!("; {failed} blob(s) did not import")
+        } else {
+            String::new()
+        }
+    );
+    ExitCode::SUCCESS
+}
+
 /// The value after `name`, if the flag was given.
 fn argument(args: &[String], name: &str) -> Option<String> {
     let index = args.iter().position(|arg| arg == name)?;
@@ -465,11 +644,24 @@ fn print_help() {
     println!("    --capacity N      slots per map (default {DEFAULT_CAPACITY})");
     println!("    --gwdat PATH      the client archive the path graphs come from (default: ASURA_GW_DAT,");
     println!("                      then Gw.dat, then data\\Gw.dat in this repository)");
+    println!("    --path-graphs PATH  load the path graphs from a dump instead of the archive");
+    println!("                      (default: ASURA_PATH_GRAPHS, then data\\path-graphs.bin)");
+    println!("    --dump-path-graphs PATH");
+    println!(
+        "                      write the path graphs once -- the maps in map_config -- and exit;"
+    );
+    println!(
+        "                      a server then runs without the archive (a few MB instead of 3.6 GB)"
+    );
+    println!(
+        "    --dump-all        with --dump-path-graphs, write every pathing map in the archive"
+    );
     println!("    -V, --version     print the version and exit");
     println!("    -h, --help        print this and exit");
     println!();
     println!("ENVIRONMENT:");
     println!("    ASURA_DATABASE_URL    the PostgreSQL URL (falls back to the repository .env)");
     println!("    ASURA_GW_DAT          the client archive, for the path graphs");
+    println!("    ASURA_PATH_GRAPHS     the path-graph dump to load, if one exists");
     println!("    ASURA_TRACE=1         log every message: direction, header, size");
 }
