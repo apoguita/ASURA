@@ -65,12 +65,28 @@ on one machine, and the auth service was proven to dial a server registered at a
 than its bind address. The open verification is the same two things done with the client in hand: a
 player standing in an instance during an upgrade, and a client travel to the second address.
 
+## Operating systems
+
+**The server runs on Windows and Linux.** The supervisor, the auth service, the instance servers and
+the web gate are the same Rust programs on both; the database is PostgreSQL on either; `config/services.toml`
+is the only thing that differs between machines. The same supervisor commands start the stack on both
+operating systems — `docs/17-running-on-linux.md` is the Linux runbook (what runs where, the ports,
+the database, and the supervisor's cross-platform setup commands).
+
+**The game client is Windows-only** — the client rig, its patching and its hooks are Windows work, so a
+Linux machine is a server host.
+
+**Linux has not had a live run recorded yet.** It compiles and the runbook is written, but the
+cross-platform claim is by construction, not by measurement; the Linux runbook's evidence section is
+empty on purpose.
+
 ## Read in this order
 
 | document | what it settles |
 |---|---|
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | environment status and the next tasks |
 | [`docs/19-running.md`](docs/19-running.md) | **how to run it** — what you need once, the one command, what success looks like, troubleshooting |
+| [`docs/17-running-on-linux.md`](docs/17-running-on-linux.md) | **the Linux runbook** — the same supervisor commands on a Linux server host |
 | [`docs/02-architecture.md`](docs/02-architecture.md) | the components and travel, in more detail |
 | [`docs/03-protocol.md`](docs/03-protocol.md) | the protocol facts: framing, key exchange, login, travel, the game connection |
 | [`docs/01-scope.md`](docs/01-scope.md) | the boundary: what each service owns and what it explicitly does not |
