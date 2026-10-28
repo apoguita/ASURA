@@ -1,12 +1,10 @@
 # Implementation plan: the seven improvements from the analysis
 
-> **Status: proposed, awaiting approval.** This plan contains **only** what the owner-approved
-> analysis lists under "What we can improve" — seven suggestions, no eighth. Every item below quotes
-> the suggestion it implements. If something is not in that list, it is not in this plan.
->
-> Nothing is implemented by this document. Each item starts only after the owner approves the item
-> and answers its decisions (the table at the end). The doc-fix listed under S5a is the one exception
-> the analysis itself names, and it still waits for the owner's word.
+> **Status: approved; the delivered items are stamped in the mapping table.** S1, S2, S3, S5a and S6
+> are delivered; S5b and S4 are closed; S7 is the one open item and needs the owner's CI decision
+> (D7.1). This plan contains **only** what the owner-approved analysis lists under "What we can
+> improve" — seven suggestions, no eighth. Every item below quotes the suggestion it implements. If
+> something is not in that list, it is not in this plan.
 
 ## The rules this plan is written under (from `docs/HANDOFF.md`, binding)
 
@@ -28,7 +26,7 @@
 | **1.** Replace the scripts with a launcher and a babysitter | S1 *(delivered 2026-10-28)* | `play.ps1` runs a `while` loop that throws when either child exits; args hard-coded; logs in `%TEMP%` | one command starts and stops the stack; a crashed local service comes back; real client login/travel unchanged |
 | **2.** Make the database's service registry general | S2 *(delivered 2026-10-28)* | `world`/`world_pool` exist and are load-bearing; `asura-webgate` and `asura-auth` register nowhere | every service kind has a registry row; a consumer reads it; live-database proof |
 | **3.** Give the `build`/`draining` columns a pilot | S3 *(delivered 2026-10-28)* | both columns exist (`crates/asura-db/src/placement.rs`); `register_world` writes `build` (`asura-world/src/main.rs:286`); `find_worlds` never consults it (`placement.rs:435`); nothing reads `draining`; a world cannot be stopped without a kill | a new build takes new players, the old world drains without kicking anyone, proven with the real client |
-| **4.** Add a status that tells the truth | S4 *(scoped 2026-10-28: system health only — player data stays in the services)* | `docs/02-architecture.md` asks for counters and rates; nothing exports per-service counters, and the operating layer is not where they belong | a status view of the operating layer: what is running, is it healthy, heartbeat age, capacity, uptime |
+| **4.** Add a status that tells the truth | S4 *(closed 2026-10-28: not built — what the operating layer owns is already reported, and nothing else is in its scope)* | `docs/02-architecture.md` asks for counters and rates; nothing exports per-service counters, and the operating layer is not where they belong | a status view of the operating layer: what is running, is it healthy, heartbeat age, capacity, uptime |
 | **5.** Untie the receptionist knot; fix the stale documents | S5a *(delivered 2026-10-28)* + S5b *(closed 2026-10-28)* | `crates/asura-auth/src/frontdoor.rs` is the router inside auth; the docs claims in S5a are false today | the five corrections land (S5a); a recorded decision on the front door (S5b) |
 | **6.** Prove multi-machine capability on one machine, no hardware | S6 *(delivered 2026-10-28)* | the front door dials the **registered** address (`frontdoor.rs:82–96`), so cross-host routing already exists on paper; nothing has ever run at a second address | a travel to a world registered at a second loopback address, recorded |
 | **7.** One "how do I run this" file, and CI's place | S7 | README's run instructions are stale (see S5a); `tools/test-battery.ps1` is the local battery; the repo's testing policy says the suite is not a gate | one accurate run document; a CI decision recorded (or none, with the reason) |
@@ -178,7 +176,16 @@ wire. The reaper stays the safety net for ungraceful deaths.
 the deploy; a new client's travel lands on the new build; a targeted database test proves the
 placement rule.
 
-## S4 — System health: keepalives and the status view
+## S4 — System health: keepalives and the status view (closed, not built)
+
+> **Closed by the owner, 2026-10-28: not to be built.** The operating layer's liveness is already
+> reported where it belongs — `asura-supervisor status` prints each local service's state, pid and
+> restart count, and the registry table marks every row fresh or STALE with its age. What S4 would
+> add beyond that (heartbeat age as a number on fresh rows, `world_pool` capacity/leases, the
+> supervisor's uptime) is display polish, not a capability the operating layer lacks. Per the owner's
+> scope ruling, the operating layer does system keepalives only — no player data, no metric table —
+> and the services that own player numbers keep them in their own terms. The section below stays as
+> the record of the scoping; nothing in it is being implemented.
 
 **The suggestion.** "Add a 'status' that tells the truth about the operating layer — what is running,
 is it healthy, and is it alive — and shows the *rate* of anything cumulative rather than a total
@@ -337,7 +344,7 @@ chosen, does exactly what the decision says and no more.
 2. **S1** — the launcher/babysitter everything else builds on. *(delivered 2026-10-28)*
 3. **S2** — the service registry; a consumer for S4. *(delivered 2026-10-28)*
 4. **S3** — the rolling deploy (needs S1 to run two worlds; decisions settled). *(delivered 2026-10-28)*
-5. **S4** — the operating layer's health view (needs S2's registry to read).
+5. **S4** — the operating layer's health view (needs S2's registry to read). *(closed 2026-10-28: not built — liveness is already reported by the supervisor and the registry)*
 6. **S6** — the multi-machine proof (needs S1/S3 to run and drain a second world). *(delivered 2026-10-28: docs/18-multi-machine.md)*
 7. **S5b — the front-door decision** — closed: the relay is the auth server's job, and the claims that said otherwise are corrected.
 8. **S7** — the run document anytime; CI last, with the testing policy in view.
@@ -354,7 +361,7 @@ chosen, does exactly what the decision says and no more.
 | D3.1 | S3 | where the new build runs | a second world process beside the old / restart in place | a second world process — additive, no kick |
 | D3.2 | S3 | placement among builds | newest build first, older if newest is full / newest only / no build rule yet | newest first — the architecture already says so |
 | D3.3 | S3 | how a draining world ends | the world notices `draining` and exits when empty / the launcher stops it after a wait / the registry row goes stale | the world exits itself when empty — same mechanism on one machine and across |
-| D4.1 | S4 | where the numbers live | a table written by the services / an endpoint on each service / the launcher reads what exists | a table — no new network surface |
+| D4.1 | S4 | where the numbers live | a table written by the services / an endpoint on each service / the launcher reads what exists | **closed**: not built — the launcher reads what exists (the registry), and nothing new is written |
 | D5.1 | S5b | the front door | **closed**: the relay stays in the auth server; no gateway, no second component | — |
 | D6.1 | S6 | the proof scenario | a second world at `127.0.0.2`, client travel to it / more | the second world at `127.0.0.2` |
 | D7.1 | S7 | CI's place | none / lint+format only / the suite on a runner with a database / nightly | defer to the testing policy — nothing that gates a feature change |
