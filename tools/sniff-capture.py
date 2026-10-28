@@ -20,8 +20,21 @@ raise its own token, so:
 
     Start an elevated PowerShell (approve the UAC prompt), then run this script.
 
-Running it unelevated prints the reason and exits 2. `--self-test` needs neither a
-client nor elevation, and exercises the sanitizer and the writer only.
+Running it unelevated prints the reason and exits 2.
+
+32-bit only
+-----------
+The client rig patches the 32-bit client's threads and reads the instruction pointer
+through the x86 ``CONTEXT``. A 64-bit interpreter sees a zero instruction pointer
+from that client and the patcher refuses to write. So this tool is 32-bit only:
+
+- started with a 64-bit interpreter, it re-executes itself under the 32-bit one
+  (found via ``ASURA_PY32``, the standard per-user 32-bit 3.12/3.13 install, or
+  ``py -3.13-32``);
+- with no 32-bit interpreter available, it says so and exits 2;
+- a 64-bit client is refused for the same reason.
+
+`--self-test` needs neither a client nor elevation.
 
 The log is a ring, so this drains it
 ------------------------------------
@@ -262,6 +275,89 @@ def find_clients(win32, pid: int | None) -> list[dict]:
     return clients
 
 
+def exe_machine(exe_path: str | None) -> int | None:
+    """The PE COFF machine field: ``0x14C`` is 32-bit x86, ``0x8664`` is 64-bit AMD64."""
+    if not exe_path:
+        return None
+    try:
+        with open(exe_path, "rb") as handle:
+            data = handle.read(64 * 1024)
+        if data[:2] != b"MZ":
+            return None
+        e_lfanew = int.from_bytes(data[0x3C:0x40], "little")
+        if data[e_lfanew:e_lfanew + 4] != b"PE\x00\x00":
+            return None
+        return int.from_bytes(data[e_lfanew + 4:e_lfanew + 6], "little")
+    except Exception:  # noqa: BLE001 - an unreadable exe is just "unknown"
+        return None
+
+
+def _find_32_bit_interpreter() -> str | None:
+    """The 32-bit interpreter this tool must run under, if one can be found.
+
+    ``ASURA_PY32`` overrides. Otherwise the standard per-user 32-bit install is tried,
+    then ``py -3.13-32``. The rig's thread patching reads the instruction pointer
+    through the x86 ``CONTEXT``, so this tool is 32-bit only: a 64-bit interpreter
+    gets a zero instruction pointer from a 32-bit target and the patcher refuses.
+    """
+    override = os.environ.get("ASURA_PY32")
+    if override and Path(override).is_file():
+        return override
+    candidates = [
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python" / "Python313-32" / "python.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python" / "Python312-32" / "python.exe",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            ["py", "-3.13-32", "-c", "import sys; print(sys.executable)"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        line = (result.stdout or "").strip().splitlines()
+        if result.returncode == 0 and line:
+            return line[-1]
+    except Exception:  # noqa: BLE001 - no launcher, or no 32-bit install
+        pass
+    return None
+
+
+def require_32_bit(argv: list[str]) -> int | None:
+    """Re-exec under the 32-bit interpreter, or explain and refuse.
+
+    Returns an exit code when the tool cannot continue under this interpreter.
+    """
+    if sys.maxsize <= 2**32:
+        return None
+    interpreter = _find_32_bit_interpreter()
+    if interpreter is None:
+        print(
+            "this tool is 32-bit only: the rig patches the 32-bit client's threads and reads",
+            file=sys.stderr,
+        )
+        print(
+            "the instruction pointer through the x86 CONTEXT, so a 64-bit interpreter sees a",
+            file=sys.stderr,
+        )
+        print(
+            "zero instruction pointer and refuses. Install the 32-bit Python 3.13, or set",
+            file=sys.stderr,
+        )
+        print("ASURA_PY32 to a 32-bit python.exe, and run it again.", file=sys.stderr)
+        return 2
+    print(f"re-executing under the 32-bit interpreter: {interpreter}")
+    os.execv(
+        interpreter,
+        [interpreter, str(Path(__file__).resolve()), *argv],
+    )
+    return 2  # unreachable: os.execv replaces the process
+
+
 def run_capture(args) -> int:
     root = Path(args.py4gw_root)
     if not (root / "py4gw").is_dir():
@@ -287,6 +383,29 @@ def run_capture(args) -> int:
               "named something else)", file=sys.stderr)
         return 3
     target = clients[0]
+    if target.get("path") is None and target.get("pid"):
+        try:
+            target["path"], _ = win32._get_image_path(int(target["pid"]))
+        except Exception:  # noqa: BLE001 - the path is a nicety
+            pass
+
+    interpreter_64 = sys.maxsize > 2**32
+    machine = exe_machine(target.get("path"))
+    if machine is not None and machine != 0x014C:
+        print(
+            f"the client is a {('64' if machine == 0x8664 else 'non-x86')}-bit binary; this rig",
+            file=sys.stderr,
+        )
+        print(
+            "patches a 32-bit client's threads and reads the instruction pointer through the",
+            file=sys.stderr,
+        )
+        print("x86 CONTEXT, so only a 32-bit client is supported.", file=sys.stderr)
+        return 2
+    if interpreter_64:
+        # require_32_bit() re-execs before this point; reaching it is a bug.
+        print("this interpreter is 64-bit and the re-exec did not happen", file=sys.stderr)
+        return 2
 
     names = frozenset(NAME_RE_STOC_HEADERS) if not args.raw else frozenset()
     headers = parse_headers(args.header)
@@ -470,6 +589,9 @@ def main(argv: list[str]) -> int:
 
     if args.self_test:
         return run_self_test()
+    blocked = require_32_bit(argv)
+    if blocked is not None:
+        return blocked
     return run_capture(args)
 
 

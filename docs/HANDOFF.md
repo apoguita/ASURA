@@ -50,9 +50,9 @@ is_explorable, map_id`). The port target was named by the user all along.
   a `move[jump]` wherever the agent's plane changes, and a `move[summary]` at teardown; `-Capture`
   (`--capture PATH` / `ASURA_CAPTURE`) writes **every game message both ways, decrypted**, as JSONL
   into `captures/` (gitignored) — no client hook, no elevation. `tools/sniff-capture.py` is the
-  client-side counterpart for when the client's own socket must be seen; it needs an elevated shell
-  and the Py4GW_Stealth injection (the reference's front end, ported; nothing from the reference
-  checkout is read). A capture plus the movement log is how a drift or a jump is pinned to a
+  client-side counterpart for capturing the **live client on live servers**; it needs an elevated
+  shell, the Py4GW_Stealth injection, and a **32-bit** Python (the tool re-executes itself under it,
+  because the rig reads the instruction pointer through the x86 CONTEXT). A capture plus the movement log is how a drift or a jump is pinned to a
   message rather than guessed at.
 - **Answered (2026-10-27): precaching the destination is NOT a requirement here.** The reference
   pre-spawns one server per map so a travel constructs nothing; this world used to preload every map
