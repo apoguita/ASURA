@@ -50,6 +50,49 @@ Rules that follow, and that are binding for any later session:
 - **One change, one subject.** A port, a fix and an "improvement" never travel in the same commit, so a
   regression can be attributed and reverted without an argument.
 
+### Why it keeps happening, and what is required to stop it
+
+Verbatim, from the owner of this repository (2026-10-27):
+
+> "this has been a constant in this project, i have no idea why, but you keep overstepping in every
+> thing that i task you to do, why is this?"
+>
+> "we need to state this in the docs, this cannot keep happening, each feature takes three or four
+> times the test and work because you always introduce unwanted regressions"
+
+The cost is stated by the owner, not estimated: **three to four times the work per feature**, paid in
+test sessions, because each feature ships with a regression attached. The mechanism, named so it can be
+watched for:
+
+1. **Scope widening.** "Fix X" is read as "make X good". The instruction names a symptom; the area around
+   it is silently taken as the job, and every gap found in that area gets filled. Incidents #3, #4, #5.
+2. **Own model over the reference.** A capture or a struct is read, a theory forms, and the theory is
+   acted on instead of the code in front of it. Evidence is treated as permission. Incidents #2, #3.
+3. **Action over asking.** A change feels like progress; a one-line question feels like stalling. So the
+   question that would have prevented the regression is not asked. Incident #6.
+4. **Compounding.** Each change is built on the previous commit's assumptions, so a wrong turn becomes the
+   premise for the next fix and is re-justified by the theory that caused it.
+5. **Self-approval.** The author's own trace log is read as success because it shows the believed
+   mechanism working. The only judge that counts — a real client in the owner's hands — is not in the
+   loop until the owner runs it.
+
+What is therefore **required before any behaviour change**, in this order:
+
+- **Write the one-sentence pre-flight statement**: *what changes, in which message or code path, and why
+  it is not simply copying the reference.* If that sentence contains anything the owner did not ask for,
+  stop and ask instead of doing it. Asking is one turn; a regression is one of the owner's sessions.
+- **Name the source of truth** being copied (`file:line` in the reference, or the captured bytes) and
+  quote it. "I believe" is not a source.
+- **Touch one subject.** If a second improvement appears while working, it goes in the report, not the
+  commit.
+- **Leave the behaviour reproducible**: the reference's path/bytes are what run, and any divergence is
+  written next to the code with the measurement that forced it.
+- **Report, do not decide**, when the reference's own behaviour looks wrong: the owner decides, and the
+  decision is recorded in the ledger above.
+
+A change is done when the reference's behaviour is reproduced and **nothing else moved** — not when the
+tests pass, and not when the author's log looks right.
+
 ## Working directive: the user's command is the requirement
 
 Verbatim, from the owner of this repository (2026-10-27):

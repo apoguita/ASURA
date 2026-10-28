@@ -38,10 +38,12 @@ service**; when it means a map-running process it says **world server**.
   user's command is the specification; it is not re-decided here. This is binding:
   `docs/HANDOFF.md` § *Working directive*, and it exists because the teleport port was done wrong
   first (`e0f671c`).
-- **Nothing is invented on top of an instruction.** Five times a working feature has been broken by
-  an addition nobody asked for (the teleport struct, the retail movement frames, an exact-adoption
-  clamp replacement, a waypoint filter, plane flattening). The ledger, and the rules that follow from
-  it, are the first section of `docs/HANDOFF.md` — read them before editing.
+- **Nothing is invented on top of an instruction.** Six times a working feature has been broken by an
+  addition nobody asked for (the teleport struct, the retail movement frames, an exact-adoption clamp
+  replacement, a waypoint filter, plane flattening, and a "rule" derived from an explanation of what a
+  plane is). Each feature has cost the owner three to four times the work in test sessions. The ledger,
+  the named failure mode and the pre-flight rules that follow are the first section of
+  `docs/HANDOFF.md` — read them before editing.
 - **The real client is the test, and the suite is not a gate:** a scoped change is verified by its
   own targeted check and by a real client doing the thing — never by running every suite, and never
   by growing new scaffolding around a small change. `docs/HANDOFF.md` § *Testing policy*. This is an
