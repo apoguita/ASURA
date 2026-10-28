@@ -1990,15 +1990,28 @@ async fn answer(
 
         // The client stopped walking (`GameSrv_HandleCancelMovement`): the agent stops where it is and
         // everyone is told, which is the mover too as far as this server is concerned.
+        // The client stopped walking (`GameSrv_HandleCancelMovement`): cancel the agent's own walk --
+        // `GameSrv_CancelAgentMovement` sets its destination to where it stands and its speed to zero --
+        // and then tell everyone it stopped. Cancelling is the load-bearing half: without it the server
+        // keeps advancing its copy along the abandoned path, and the next click is answered from a
+        // position the client walked away from minutes ago (observed live: a click to x4 started from
+        // the old x2 the client had already left, pulling the agent back to it).
         0x8028 => {
+            let was_walking = 0.0 < play.agents.player.motion.speed;
+            play.agents.player.cancel_movement();
             let stop = game::agent_stop_moving(play.agents.player.agent_id);
             if move_trace_on() {
                 eprintln!(
-                    "move[stop] client stopped walking at (x={:.1}, y={:.1}, plane={}) \
+                    "move[stop] client cancelled walking at (x={:.1}, y={:.1}, plane={}){} \
                      [0x8028, {} bytes]",
                     play.agents.player.position.0,
                     play.agents.player.position.1,
                     play.agents.player.plane,
+                    if was_walking {
+                        " — a server-side walk WAS running: cancelled (speed -> 0, destination cleared)"
+                    } else {
+                        " (no server-side walk was running)"
+                    },
                     frame.body.len() + 2
                 );
             }

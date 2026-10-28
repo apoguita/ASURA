@@ -2842,6 +2842,97 @@ async fn a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path() {
     harness.stop();
 }
 
+/// A cancelled walk stops the server's own copy where it stands.
+///
+/// `GAME_CMSG_CANCEL_MOVEMENT` (`0x8028`, header only) is what the client sends when it takes the walk
+/// back — the user clicking or walking away. The reference answers with
+/// `GameSrv_CancelAgentMovement` (destination = position, speed = 0) and a stop broadcast
+/// (`GmAgent.c:533-544`). The cancel is the load-bearing half: without it this server kept advancing
+/// the agent along the abandoned path on every tick, and the next click was answered from a position
+/// the client had walked away from (observed live: a click to x4 started from the old x2, pulling the
+/// agent back to it).
+///
+/// Observed through the world's own peer list, which is where the agent's position lives: before the
+/// cancel it advances ~144 units a tick; after it, it does not move at all.
+#[tokio::test]
+async fn a_cancelled_walk_stops_the_servers_own_copy() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+    if !harness.walks {
+        eprintln!("skipped: no Gw.dat, so this world has no path graph");
+        harness.stop();
+        return;
+    }
+
+    let version = harness.version(harness.player_token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused the client");
+    };
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_INFO).await;
+    ask(&mut stream, &mut client, 0x8090, 19).await;
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_FINISH).await;
+
+    // A walk the finder answers with a corridor (more than one waypoint), so the tick keeps walking
+    // for several seconds of wall time.
+    let spawn = (6602.0f32, 4485.0f32);
+    let destination = (5602.0f32, 5485.0f32);
+    let mut walk = Vec::new();
+    walk.extend_from_slice(&destination.0.to_le_bytes());
+    walk.extend_from_slice(&destination.1.to_le_bytes());
+    walk.extend_from_slice(&0u32.to_le_bytes());
+    say(&mut stream, &mut client, 0x803E, &walk).await;
+    read_until(&mut stream, &mut client, game::AGENT_MOVE_TO_POINT).await;
+
+    // Let the world tick advance the agent: the walk is under way.
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    let position_of = |harness: &Harness| {
+        harness
+            .world
+            .peers
+            .others(0)
+            .into_iter()
+            .next()
+            .map(|peer| peer.standing.position)
+            .expect("the walker is in the world")
+    };
+    let walking = position_of(&harness);
+    let moved_from_spawn = ((walking.0 - spawn.0).powi(2) + (walking.1 - spawn.1).powi(2)).sqrt();
+    assert!(
+        moved_from_spawn > 100.0,
+        "the walk was under way before the cancel ({moved_from_spawn:.1} units)"
+    );
+
+    // The client takes the walk back.
+    ask(&mut stream, &mut client, 0x8028, 2).await;
+    let stopped = read_until(&mut stream, &mut client, game::AGENT_STOP_MOVING).await;
+    assert!(
+        stopped
+            .iter()
+            .any(|frame| frame.header == game::AGENT_STOP_MOVING),
+        "the cancel is answered with a stop"
+    );
+
+    // Two more ticks later the agent has to be exactly where it stopped. Without the cancel it would
+    // have walked another ~576 units along the abandoned path.
+    let at_cancel = position_of(&harness);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let after = position_of(&harness);
+    let crept = ((after.0 - at_cancel.0).powi(2) + (after.1 - at_cancel.1).powi(2)).sqrt();
+    assert!(
+        crept < 1.0,
+        "the cancelled walk stopped the server's copy: it crept {crept:.1} units over two ticks"
+    );
+
+    drop(stream);
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
 /// T10's refusal half: a destination the finder cannot reach is answered with **where the agent is**, not
 /// with a walk and not with an error of its own.
 ///
