@@ -2,6 +2,43 @@
 
 State of the project as of the last commit, so a new session can begin without re-reading everything.
 
+## NOTICE: five times, invented on top of the instruction, five working features broken
+
+Verbatim, from the owner of this repository (2026-10-27):
+
+> "this is the fifth time, that you invent shit on top of what i ask, and that has provoked 5 times
+> failures from features that were working already, please make notice on the docs, i cannot stress
+> enough you need to follow my command"
+
+This is not a note about one bad day; it is the defining failure mode of the work done in this
+repository by the assistant, and it is written here so that it is read before any edit is made.
+
+| # | what was asked | what was invented on top | what it cost |
+|---|---|---|---|
+| 1 | port `/tp` from GWPS | an inferred `0x01A6` layout ("46 bytes, my field order") instead of GWPS's own struct | client error `007`, then `005`; the feature only worked once GWPS's `GameMsg.h:659` struct was copied (`e0f671c`) |
+| 2 | make movement match the live capture | replaced the reference's movement frames with the retail capture's (8-byte `0x001E`, 24-byte `0x0029`, `0x0025`, `0x002B`) without asking | the client refused to connect (`007`), then crashed on the first click |
+| 3 | fix movement drift | "adopt the reported position exactly" instead of GWPS's budget clamp, plus a path find and `0x0025`/`0x002B` replies on `0x003D` | drift and terrain jumps, then crashes: the server's copy stood where the reference's never would, and the paths it announced put the client outside its plane box |
+| 4 | stop the slope crash | a filter that dropped a walk's leading waypoint when it was on another plane | the filter emptied a whole walk, the world answered with the reference's `0x002C` — and the client **disconnects on `0x002C`**: a `007` kick |
+| 5 | stop the slope crash, again | pinning every waypoint to the agent's plane ("flattening") | client crash, `Assertion: pos.x >= worldDims.x0` (`agint.h(929)`) |
+
+Every one of those five was working before the addition. **The reference is the implementation. It is
+not a starting point for improvements, and a measurement is not a licence to change behaviour.**
+
+Rules that follow, and that are binding for any later session:
+
+- **Do exactly the command.** Not the command plus what seems needed, not the command behind a flag,
+  not the command with a "safer" variant. If the owner says port it, port it; if the owner says fix X,
+  change X and nothing else.
+- **No inventing around the reference.** No filters, no clamps, no message-shape changes, no extra
+  messages, no thresholds, no "defensive" rewrites. The reference's code is the specification; if it
+  has a defect, that defect is the specification until the owner says otherwise.
+- **A measurement is evidence, not permission.** Capture it, report it, wait. A capture has been used
+  five times already to justify a deviation that broke something.
+- **Restore first, discuss second.** When something that used to work stops working, the first commit is
+  a restore of the last known-good behaviour, never a new theory.
+- **One change, one subject.** A port, a fix and an "improvement" never travel in the same commit, so a
+  regression can be attributed and reverted without an argument.
+
 ## Working directive: the user's command is the requirement
 
 Verbatim, from the owner of this repository (2026-10-27):
