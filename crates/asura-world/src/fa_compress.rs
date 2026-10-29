@@ -3,13 +3,13 @@
 //! The reference stores most entries compressed (`compressed = 8`) and decodes them with a hand-rolled
 //! LZ + Huffman decoder in `FaCompress.c:1-508`. This is that decoder, ported function for function:
 //!
-//! * [`Bits`] — the 32-bit MSB-first window (`ConsumeBits`/`GetBits`), with the same two-word
+//! * [`Bits`] - the 32-bit MSB-first window (`ConsumeBits`/`GetBits`), with the same two-word
 //!   `Buf1`/`Buf2` refill the reference uses;
-//! * [`setup_nodes_and_tree`] — `SetupNodesandTree`, which reads a code-length description out of the
+//! * [`setup_nodes_and_tree`] - `SetupNodesandTree`, which reads a code-length description out of the
 //!   stream through `Table1`/`Table2` and builds a flat 256-entry lookup plus a "large encoding" table for
 //!   codes longer than eight bits;
-//! * [`next_code`] — `GetNextCode`;
-//! * [`decompress`] — `FaDecompress`, the block loop with literal bytes and back-references.
+//! * [`next_code`] - `GetNextCode`;
+//! * [`decompress`] - `FaDecompress`, the block loop with literal bytes and back-references.
 //!
 //! The six static tables live in `fa_compress_tables.rs`, generated from the reference by
 //! `tools/gen-fa-compress-tables.py`. They are data, not something derivable from the format, and the first

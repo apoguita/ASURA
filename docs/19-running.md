@@ -5,7 +5,7 @@ One page, in order: what you need once, how to start the stack, what success loo
 ## What you need, once
 
 - **A checkout of this repository**, on Windows (where the game client runs) or Linux (a server host, `docs/17-running-on-linux.md`).
-- **Rust with cargo** — the whole stack is built from it.
+- **Rust with cargo** - the whole stack is built from it.
 - **PostgreSQL, running.** The supervisor checks for it and waits, but never starts it: on Windows it is a service, on Linux systemd. "Managed elsewhere" is the boundary (`config/services.toml`).
 - **A `.env` file**: copy `.env.example` to `.env` and fill in the password. `ASURA_DATABASE_URL` is the one mandatory value; the auth bind and the trace switch are optional.
 - Optional: a real `Gw.dat`, only for regenerating the path-graph dump (`asura-world --dump-path-graphs`). The worlds serve the bundled `data/path-graphs.bin`, so nothing needs it to run.
@@ -32,9 +32,9 @@ What that one command does, in order:
 4. seeds the dev identities and the map catalogue (the rows a fresh database needs);
 5. starts, in order: web gate `127.0.0.1:6601`, auth `127.0.0.1:6112`, world `8001` on `6113`;
 6. registers every service it started in the database's `service` table, and keeps the rows fresh;
-7. watches them until Ctrl+C or `stop` — a crashed service is retried at most 5 times, 2 s apart, then reported FAILED (it never restarts forever).
+7. watches them until Ctrl+C or `stop` - a crashed service is retried at most 5 times, 2 s apart, then reported FAILED (it never restarts forever).
 
-Ctrl+C stops the services *through* the supervisor (they run in their own process group, so they never see the console's Ctrl+C themselves). Closing the console still ends everything attached to it; a hard kill of the supervisor (no Ctrl+C, no `stop`) orphans the services — there is no code that can run on SIGKILL.
+Ctrl+C stops the services *through* the supervisor (they run in their own process group, so they never see the console's Ctrl+C themselves). Closing the console still ends everything attached to it; a hard kill of the supervisor (no Ctrl+C, no `stop`) orphans the services - there is no code that can run on SIGKILL.
 
 ## What success looks like
 
@@ -48,7 +48,7 @@ cargo run -p asura-supervisor -- status
 
 With the game client, success is: the client asks the web gate on `6601` who it is, sends its login to auth on `6112`, reaches character select, and entering the world sends it to `world-8001` on `6113`. `tools/run-client-login.ps1` automates that attempt and prints a verdict (LOGIN ACCEPTED / REFUSED / NO LOGIN ARRIVED).
 
-The logs are one file per service: `logs/webgate.log`, `logs/auth.log`, `logs/world-8001.log`. They are quiet by default — events only. For a diagnosis, set `ASURA_TRACE=1` in the shell before `start` (every service inherits it) and every packet is written to the logs.
+The logs are one file per service: `logs/webgate.log`, `logs/auth.log`, `logs/world-8001.log`. They are quiet by default - events only. For a diagnosis, set `ASURA_TRACE=1` in the shell before `start` (every service inherits it) and every packet is written to the logs.
 
 ## Everyday commands
 
@@ -90,7 +90,7 @@ If it is not running, `start` stops with a clear database error instead of prete
 
 The game client is Windows-only. The stock `Gw.exe` cannot talk to this server: it is patched first
 with `client-patcher/patch-gw.py` and the keys in `client-patcher/keys.txt`, which are the same DH
-parameters `crates/asura-protocol/src/client/handshake.rs` uses — the patched `Gw.custom.exe` and the
+parameters `crates/asura-protocol/src/client/handshake.rs` uses - the patched `Gw.custom.exe` and the
 server agree on the handshake only as a pair. The patcher's README (`client-patcher/README.md`) has
 the exact commands, the `portal.dll` step and what each patch changes.
 
@@ -101,7 +101,7 @@ not check the password). What a good session looks like on the wire is in `recor
 
 The patcher repoints every baked-in ArenaNet hostname by default, with one exception: the optional
 address, `File1.ArenaNetworks.com` (the content/file server), stays live. Redirecting it too is a pair
-— patch with `--file-server` and run `client-patcher/hosts-redirect.py enable --file-server` — and
+- patch with `--file-server` and run `client-patcher/hosts-redirect.py enable --file-server` - and
 then that address resolves to this machine and our service answers it. The hosts block is
 machine-wide and removed with `hosts-redirect.py disable`; `status` says what is on now, name by
 name. Both settings default off, and off is a working configuration.
@@ -113,7 +113,7 @@ name. Both settings default off, and off is a working configuration.
 ## Docker (optional)
 
 A second runner lives in `docker/` and is optional: the non-Docker path above is unchanged and
-remains the default. The bundle is two containers — PostgreSQL, and one "machine" container that runs
+remains the default. The bundle is two containers - PostgreSQL, and one "machine" container that runs
 `asura-supervisor` exactly as a host does: same start/stop, same schema and seed, same registry rows,
 same logs. Docker only supplies the machine and the network around it.
 
@@ -129,7 +129,7 @@ docker compose -f docker/compose.yml down
 - `config/services.docker.toml` is the same service list as `config/services.toml`, with one
   difference: auth (`:6112`) and the web gate (`:6601`) bind `0.0.0.0` inside the container, because a
   published port forwards to the container's network address, not its loopback. The world stays on
-  loopback — the client never dials it directly.
+  loopback - the client never dials it directly.
 - The database password is `${ASURA_DB_PASSWORD}` (default `asura`); set it in the shell or a `.env`
   next to the compose file before the first `up`.
 - The image stamps the world's build id as `docker` (`ASURA_BUILD`), since a Docker build has no
@@ -142,17 +142,17 @@ docker compose -f docker/compose.yml down
 start, the supervisor applies the migrations, seeds the identities and maps, starts webgate, auth and
 world-8001 (all `ready`), the registry rows read `ready`/`fresh`, and from the host the gate answers
 `GET /Spawned/WebGate/session/create.xml` with a session UUID and the auth port accepts connections.
-**Not yet run: the real game client against the bundle** — that is the owner's session, exactly as
+**Not yet run: the real game client against the bundle** - that is the owner's session, exactly as
 for the host path.
 
 ## CI: format and lint, nothing else
 
 `.github/workflows/ci.yml` runs two checks on every push:
 
-- `cargo fmt --all -- --check` — the code is formatted;
-- `cargo clippy --workspace --all-targets -- -D warnings` — the linter is clean.
+- `cargo fmt --all -- --check` - the code is formatted;
+- `cargo clippy --workspace --all-targets -- -D warnings` - the linter is clean.
 
-Nothing else runs automatically. The test suite needs a live PostgreSQL database to mean anything, and the repository's testing policy says the game client is the real test and the suite is not a gate (`docs/HANDOFF.md`) — so CI is the cheap, database-free half, and the acceptance runs stay in the battery and with the real client. The decision is recorded in `docs/16-implementation-plan.md`, S7.
+Nothing else runs automatically. The test suite needs a live PostgreSQL database to mean anything, and the repository's testing policy says the game client is the real test and the suite is not a gate (`docs/HANDOFF.md`) - so CI is the cheap, database-free half, and the acceptance runs stay in the battery and with the real client. The decision is recorded in `docs/16-implementation-plan.md`, S7.
 
 ## When it goes wrong
 

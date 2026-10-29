@@ -1,4 +1,4 @@
-//! A world server ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â AzerothCore calls this a *realm*.
+//! A world server -'- AzerothCore calls this a *realm*.
 //!
 //! Owns: the gameplay connection to the client, the instances it hosts, and (from M5) character
 //! persistence. The auth service owns placement; this service publishes what it can host and answers
@@ -90,7 +90,7 @@ async fn main() -> ExitCode {
         .and_then(|value| value.parse::<i32>().ok())
         .unwrap_or(DEFAULT_CAPACITY);
 
-    // `--on-demand`: load a catalogue map this world was not started with, instead of refusing it —
+    // `--on-demand`: load a catalogue map this world was not started with, instead of refusing it -
     // for a `/tp` into it, and for a login whose character stands in it (both are the same refusal
     // when this is off). Off by default, because preloading every destination is what the reference
     // does (one pre-spawned server per map) and what this world does at startup; the switch exists
@@ -106,7 +106,7 @@ async fn main() -> ExitCode {
         );
 
     // `--maps` names a subset to preload; without it the world preloads **every** map the catalogue
-    // has, which is what the reference does (one server per map, all of them pre-spawned at startup) —
+    // has, which is what the reference does (one server per map, all of them pre-spawned at startup) -
     // unless `--on-demand` asks for the opposite (nothing preloaded).
     let maps_arg: Option<Vec<i32>> = argument(&args, "--maps").map(|value| {
         value
@@ -179,7 +179,7 @@ async fn main() -> ExitCode {
     }
 
     // The catalogue is always read: it is what pool rows are published for, and what an on-demand
-    // world can serve. It is not the same thing as preloading — a catalogue entry is a row in a
+    // world can serve. It is not the same thing as preloading - a catalogue entry is a row in a
     // database, an instance is the map's data in memory.
     let catalogue: Vec<i32> = match db_game::configured_map_ids(&pool).await {
         Ok(ids) => ids,
@@ -234,7 +234,7 @@ async fn main() -> ExitCode {
                 ) {
                     // A world hosts what the reference hosts: main towns (0), explorable areas (1) and the
                     // character-creation instance (11). Explorable hosting used to be refused here on the
-                    // theory that this server "cannot spawn anything into one" — but a world server does not
+                    // theory that this server "cannot spawn anything into one" - but a world server does not
                     // spawn content, it hands the client the blob and the spawn point, which is exactly what
                     // the reference does with Lakeside County (146), its verified explorable. Refusing it made
                     // this server unable to host the reference's flagship map.
@@ -276,7 +276,7 @@ async fn main() -> ExitCode {
 
     // ---- step 5: register, publish, heartbeat, then accept -----------------------------------
     // The pool rows this world publishes. One per map it preloads; with `--on-demand`, one per
-    // catalogue map — a database line saying "this world can host map X", so placement can hand it
+    // catalogue map - a database line saying "this world can host map X", so placement can hand it
     // a client for any map. A pool row is not an instance: nothing is loaded by publishing it.
     let capacities: Vec<(i32, i32)> = if load_on_demand {
         catalogue.iter().map(|map_id| (*map_id, capacity)).collect()
@@ -284,7 +284,7 @@ async fn main() -> ExitCode {
         maps.iter().map(|map| (map.map_id, capacity)).collect()
     };
     // The build identity (S3): what the rolling deploy compares. `--build` wins, then ASURA_BUILD,
-    // then the git description compiled in — never the crate version alone, which was the same
+    // then the git description compiled in - never the crate version alone, which was the same
     // string ("asura-world/0.1.0") for every build and told two builds apart by nothing.
     let build = argument(&args, "--build")
         .or_else(|| std::env::var("ASURA_BUILD").ok())
@@ -404,7 +404,7 @@ async fn main() -> ExitCode {
     // The heartbeat, and the drain (docs/16-implementation-plan.md, S3). The heartbeat says the world
     // is alive and how many players it holds; the drain says whether this world should finish its
     // players and leave. Placement excludes a draining world from every offer, and once its last
-    // player has gone the world removes its registry row and exits — the deploy never kills a world
+    // player has gone the world removes its registry row and exits - the deploy never kills a world
     // with players in it, and nobody is kicked.
     {
         let heartbeat_world = Arc::clone(&world);
@@ -535,7 +535,7 @@ fn load_graphs_from_archive(archive: &str, maps: &[MapEntry]) -> asura_world::Pa
 /// Without `--dump-all` it dumps the maps this world handles (the catalogue): the twelve of the
 /// reference, each by its `map_file_id`. With `--dump-all` it walks the whole archive and imports
 /// every blob that is a pathing map (a container whose first four bytes are `"ffna"`), naming each
-/// by its blob id — the right choice when the catalogue is not what is wanted, or when a map is not
+/// by its blob id - the right choice when the catalogue is not what is wanted, or when a map is not
 /// in `map_config` yet.
 async fn dump_path_graphs(
     pool: &asura_db::PgPool,

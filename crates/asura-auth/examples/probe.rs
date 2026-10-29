@@ -2,7 +2,7 @@
 //!
 //! Built to answer one question with evidence: *what does the reference server actually send* for a
 //! login? GWPS does not log its auth traffic (its trace covers game messages), so the cheapest honest
-//! way to see it is to be the client — this one speaks the same wire format, including the
+//! way to see it is to be the client - this one speaks the same wire format, including the
 //! variable-length client messages a real client sends.
 //!
 //! ```text

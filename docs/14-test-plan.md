@@ -8,7 +8,7 @@ definition of the observable surface: sixteen items, each with a stated pass cri
 says, for each one, which check here covers it -- and every named check is verified to exist, so a
 renamed test breaks the check rather than quietly rotting the page.
 
-**How these checks are used is governed by `docs/HANDOFF.md` §"Testing policy":** they are a
+**How these checks are used is governed by `docs/HANDOFF.md` #"Testing policy":** they are a
 regression net for shared machinery and milestones. A scoped change is tested by its own targeted
 check and by the live client, not by running every suite (owner's standing instruction, 2026-10-28).
 
@@ -91,7 +91,7 @@ stack does not -- named, explained, and not pretended away.
 - `a_character_is_created_in_a_creation_instance` -- a test
 - `the_character_settings_come_back_from_the_row_the_creation_wrote` -- a test
 
-## T7: Character select → map transfer → spawn (measured)
+## T7: Character select -> map transfer -> spawn (measured)
 
 **The reference's pass criterion:** auth server creates a game server (`AuthSrvCtrl_CreateServer`), the game server loads Kamadan (`GameSrv_LoadMap`), the client receives the spawn message and renders the world with the player standing at the configured coordinate `(-9067, 13218)`.
 
@@ -157,7 +157,7 @@ stack does not -- named, explained, and not pretended away.
 
 ## T14: Disconnect and reconnect (measured)
 
-**The reference's pass criterion:** the game server notices the disconnect, removes the agent, and a fresh login succeeds. **Known risk:** the auth server keeps `GlobalAccountRegistry` in RAM (`AuthSrv.h:156`) and there is no graceful shutdown, so a *server* restart (rather than a client reconnect) is expected to misbehave — record it, don't fix it in Phase 0.
+**The reference's pass criterion:** the game server notices the disconnect, removes the agent, and a fresh login succeeds. **Known risk:** the auth server keeps `GlobalAccountRegistry` in RAM (`AuthSrv.h:156`) and there is no graceful shutdown, so a *server* restart (rather than a client reconnect) is expected to misbehave - record it, don't fix it in Phase 0.
 
 **Here:** disconnect, the agent removal, and a fresh login
 

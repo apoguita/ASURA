@@ -5,119 +5,119 @@ explaining it, it is defined here.
 
 ### The programs
 
-**ASURA** — the project. *Automated Server Utility for Remote Authentication.* Not a program: the
+**ASURA** - the project. *Automated Server Utility for Remote Authentication.* Not a program: the
 whole server stack, made of the components below.
 
-**auth service** (`asura-auth`) — the program that answers the client's login: key exchange,
+**auth service** (`asura-auth`) - the program that answers the client's login: key exchange,
 session, character list, character select. It owns identity, and it never runs a map.
 
-**World server** (`asura-world`) — a program that runs maps for players. In phase 1 these are the
+**World server** (`asura-world`) - a program that runs maps for players. In phase 1 these are the
 existing C game servers; in phase 2 the simulation becomes part of this project. Either way they
 are disposable: restarting one loses a session, not the database.
 
-**Control plane** — shorthand for everything that is not simulation: auth, identity, registry,
+**Control plane** - shorthand for everything that is not simulation: auth, identity, registry,
 placement. It spans the auth service and the registry tables, not one process.
 
-**Registry** — the `world` table: one row per world server with its address, port, flags, population
+**Registry** - the `world` table: one row per world server with its address, port, flags, population
 and last heartbeat. Worlds write their own row; the auth service reads it. Modelled on AzerothCore's
 `realmlist`.
 
-**Pool capacity** — `world_pool`: for each world and map, how many instances are prebuilt (`capacity`)
+**Pool capacity** - `world_pool`: for each world and map, how many instances are prebuilt (`capacity`)
 and how many are currently handed out (`leased`).
 
-**Reservation / lease** — taking a pool slot for one party. It is a single atomic `UPDATE ... WHERE
+**Reservation / lease** - taking a pool slot for one party. It is a single atomic `UPDATE ... WHERE
 leased < capacity`, released when the party leaves, when the player disconnects, or when a reaper
 decides the owning world is gone.
 
-**Connection pool** — a small set of open database connections reused by a program, instead of one
+**Connection pool** - a small set of open database connections reused by a program, instead of one
 connection per map instance. This is what replaces GWPS's per-instance SQLite handle.
 
-**Map updater** — the bounded pool of threads that advances map simulation, with each hot map always
+**Map updater** - the bounded pool of threads that advances map simulation, with each hot map always
 handled by the same thread. Not one thread per map.
 
-**GWPS** — the existing single-process project (`PreSearing`). It does the job of the auth service *and* the
+**GWPS** - the existing single-process project (`PreSearing`). It does the job of the auth service *and* the
 world servers in one program. It stays as the working reference.
 
 ### Maps and players
 
-**Map** — a place in the game: Ascalon City, Lakeside County.
+**Map** - a place in the game: Ascalon City, Lakeside County.
 
-**Outpost / town** — a map everyone shares. All players in Ascalon City see each other.
+**Outpost / town** - a map everyone shares. All players in Ascalon City see each other.
 
-**Explorable** — a map a single party shares privately. Two parties in Lakeside County are in two
+**Explorable** - a map a single party shares privately. Two parties in Lakeside County are in two
 separate copies and do not meet.
 
-**Instance** — one running copy of a map. Three solo players in Lakeside = three instances. A
+**Instance** - one running copy of a map. Three solo players in Lakeside = three instances. A
 shared outpost with fifty players = one instance.
 
-**District** — a numbered copy of the *same* map, used when a shared map is full. Ascalon City 1, 2,
-3… are separate instances of the same outpost.
+**District** - a numbered copy of the *same* map, used when a shared map is full. Ascalon City 1, 2,
+3... are separate instances of the same outpost.
 
-**Party** — the group of players that shares an explorable. One player counts as a party of one.
+**Party** - the group of players that shares an explorable. One player counts as a party of one.
 
-**Map instance count** — how many copies of a map exist at once. This is what costs memory.
+**Map instance count** - how many copies of a map exist at once. This is what costs memory.
 
 ### Movement
 
-**Travel / hop** — moving a player from one map to another, as the game does when you walk through
+**Travel / hop** - moving a player from one map to another, as the game does when you walk through
 a portal. The client disconnects, is told where to go, and reconnects.
 
-**Redirect** — the message that tells the client where to go: an address, a port, a map, and a key.
+**Redirect** - the message that tells the client where to go: an address, a port, a map, and a key.
 Until the client receives one, it does not move.
 
-**Token** — a value the auth service hands out for one travel, so that when the client reconnects, the new
+**Token** - a value the auth service hands out for one travel, so that when the client reconnects, the new
 connection can be recognised as the one that was expected. A wrong token is refused.
 
-**Allocation** — deciding which world server a travel request goes to, and saying no if none fits.
+**Allocation** - deciding which world server a travel request goes to, and saying no if none fits.
 
-**Refusal** — the honest answer when there is no room: the client is told nothing about a
+**Refusal** - the honest answer when there is no room: the client is told nothing about a
 destination it cannot go to. It never enters a loading screen.
 
 ### Prebuilding
 
-**Prebuild / pre-cache** — build map servers *before* anybody needs them, at startup.
+**Prebuild / pre-cache** - build map servers *before* anybody needs them, at startup.
 
-**Pool** — a set of prebuilt instances waiting to be handed out. A party takes one, and returns it
+**Pool** - a set of prebuilt instances waiting to be handed out. A party takes one, and returns it
 cleared when it leaves.
 
-**The one rule** — a travel request is only ever answered with something already running. Nothing
+**The one rule** - a travel request is only ever answered with something already running. Nothing
 is constructed while a client is loading. Violating this is what made hops hang in GWPS.
 
 ### The network
 
-**Handshake** — the opening exchange where the client and server agree a shared secret so the rest
+**Handshake** - the opening exchange where the client and server agree a shared secret so the rest
 of the conversation is encrypted.
 
-**DH (Diffie–Hellman)** — the specific handshake scheme the client uses, with fixed constants baked
+**DH (Diffie-Hellman)** - the specific handshake scheme the client uses, with fixed constants baked
 into both the server and the patched client.
 
-**ARC4** — the stream cipher the client uses on everything after the handshake.
+**ARC4** - the stream cipher the client uses on everything after the handshake.
 
-**Framing** — how messages are delimited on the wire: a header, a size, then a body.
+**Framing** - how messages are delimited on the wire: a header, a size, then a body.
 
-**No world link** — there is deliberately no control protocol between the auth service and the world
+**No world link** - there is deliberately no control protocol between the auth service and the world
 servers. They coordinate through the registry and pool tables. The only protocols left are the
 client-facing ones.
 
-**Heartbeat** — a periodic "still here, this full, this busy" message from a world server, so the auth service
+**Heartbeat** - a periodic "still here, this full, this busy" message from a world server, so the auth service
 can tell a live world from a dead one.
 
-**Directory** — the auth service's in-memory list of which world servers exist, what they host, and how full
+**Directory** - the auth service's in-memory list of which world servers exist, what they host, and how full
 they are.
 
 ### Machinery
 
-**Thread** — one line of work inside a program. The CPU can only do one thing per core at a time;
+**Thread** - one line of work inside a program. The CPU can only do one thing per core at a time;
 threads are the things it switches between.
 
-**Reactor** — one thread that watches many connections at once and handles whichever is ready. Lets
+**Reactor** - one thread that watches many connections at once and handles whichever is ready. Lets
 many instances share a few threads instead of one thread each.
 
-**mmap** — reading a file's index straight from disk without loading a private copy into memory,
+**mmap** - reading a file's index straight from disk without loading a private copy into memory,
 so many copies of the same data can share it.
 
-**`Gw.dat`** — the game's asset archive, several gigabytes. Our servers read an index of it; the
+**`Gw.dat`** - the game's asset archive, several gigabytes. Our servers read an index of it; the
 client streams the rest from ArenaNet's file servers.
 
-**Manifest** — the list of files the client is told to fetch. Serving it ourselves is what would
+**Manifest** - the list of files the client is told to fetch. Serving it ourselves is what would
 make the server fully independent of ArenaNet; it is a separate service, not part of the auth service.

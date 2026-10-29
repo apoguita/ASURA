@@ -2,9 +2,9 @@
 //!
 //! Owns: the login endpoint (key exchange, login, character list), sessions, and telling the client
 //! which world to join. Does NOT own placement, character state, instances, or the gameplay
-//! connection — those belong to the world servers (`docs/01-scope.md`).
+//! connection - those belong to the world servers (`docs/01-scope.md`).
 //!
-//! AzerothCore parallel: their `authserver` — realmlist, session key, and nothing else.
+//! AzerothCore parallel: their `authserver` - realmlist, session key, and nothing else.
 //!
 //! The connection follows the order `docs/03-protocol.md` records, and each step is a module in
 //! `asura-protocol`:
@@ -51,7 +51,7 @@ pub mod frontdoor;
 
 /// How long a connection may sit without sending anything before it is dropped.
 ///
-/// Not from the reference — GWPS relies on the operating system's timeouts — but a login connection
+/// Not from the reference - GWPS relies on the operating system's timeouts - but a login connection
 /// that stalls holds a task and a pool connection, and losing it is free: the client reconnects.
 pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -169,7 +169,7 @@ pub use asura_protocol::Trace;
 pub async fn serve(listener: TcpListener, pool: PgPool, trace: Trace) -> io::Result<()> {
     let address = listener.local_addr()?;
     // What a client is told to dial for its game connection. It is this service's own address,
-    // because that is where a real client dials — measured, not assumed: a client answered
+    // because that is where a real client dials - measured, not assumed: a client answered
     // `GAME_SERVER_INFO` naming port 6113 by connecting to this port anyway, exactly as it does
     // against the reference, whose info message names its own auth address.
     let advertised = advertised_address(address);
@@ -303,7 +303,7 @@ pub async fn handle_connection(
     // ---- 4/5. frames, then login ------------------------------------------------------------
     //
     // Note what happens when this connection ends: nothing is written to the database. A session is
-    // *not* consumed by logging in — GWPS only ever reads its session table (`Db_GetSession`), and
+    // *not* consumed by logging in - GWPS only ever reads its session table (`Db_GetSession`), and
     // the rig's portal hands out the same fixed pair on every login, so a service that closed the
     // session on disconnect would refuse the client's very next attempt. "The newest session wins"
     // is a rule about live *connections* and about leases (`docs/05-gw2-lessons.md`, rule 1); it is
@@ -348,13 +348,13 @@ async fn dispatch(
 
     match frame.header {
         // GWPS `AuthSrv_SendComputerInfo`'s counterpart: the reference stores the reported name and
-        // computer name on the connection and sends nothing. (`0x8001` never reaches here — it is
+        // computer name on the connection and sends nothing. (`0x8001` never reaches here - it is
         // consumed structurally before framing; see `messages::decode_computer_info`.)
         tables::AUTH_CMSG_SEND_COMPUTER_INFO => Ok(true),
 
         // **This is the message the client waits on.** In the reference's dispatch,
         // `AUTH_CMSG_SEND_COMPUTER_HASH` decodes the hash and immediately calls
-        // `AuthSrv_SendSessionInfo` — a random server salt in `AUTH_SMSG_SESSION_INFO`. A service that
+        // `AuthSrv_SendSessionInfo` - a random server salt in `AUTH_SMSG_SESSION_INFO`. A service that
         // ignores this message leaves the client at "Connecting" with nothing to report, which is
         // exactly what happened here before the reply existed.
         tables::AUTH_CMSG_SEND_COMPUTER_HASH => {
@@ -481,7 +481,7 @@ async fn dispatch(
         }
 
         // `AuthSrv_HandleAddAccessKey`: the reference decodes the key to a string, **logs it and stores
-        // nothing**, then answers the request with status 0. Parity means exactly that — an access key
+        // nothing**, then answers the request with status 0. Parity means exactly that - an access key
         // that vanished after being logged. Giving it storage would invent behaviour GWPS does not have.
         tables::AUTH_CMSG_ADD_ACCESS_KEY => {
             let request = request_id(&frame);
@@ -785,7 +785,7 @@ async fn next_frame(
     loop {
         // Client messages are framed by *walking their field layout*, not by the table's maximum size:
         // a counted field carries a u16 count and occupies only that much
-        // (`Frame::decode_client_message`). Framing them by the table is what made a real client hang —
+        // (`Frame::decode_client_message`). Framing them by the table is what made a real client hang -
         // its login message is 54 bytes, and the table says 150.
         match Frame::decode_client_message(&session.plaintext) {
             Ok((frame, used)) => {
@@ -892,7 +892,7 @@ async fn read_until(
     Ok(())
 }
 
-/// One trace line: direction, header, name, size and the first bytes (`docs/03-protocol.md` §6).
+/// One trace line: direction, header, name, size and the first bytes (`docs/03-protocol.md` #6).
 fn trace_frame(direction: &str, frame: &Frame) {
     let name = tables::entry(frame.header)
         .and_then(|entry| entry.name)

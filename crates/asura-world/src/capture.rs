@@ -1,7 +1,7 @@
 //! A server-side packet capture: every game message, both directions, as plaintext JSONL.
 //!
 //! The client-side sniffer (`tools/sniff-capture.py`) records what the client's socket carried,
-//! through an injected hook. This records the *same* messages from this side of the wire — they are
+//! through an injected hook. This records the *same* messages from this side of the wire - they are
 //! identical bytes: this server encodes the plaintext frame and then ARC4-scrambles it on the way
 //! out, and it undoes the scramble on the way in. So a drift, a terrain jump or a load failure can
 //! be captured with no injected client, no elevated shell and nothing from another project.

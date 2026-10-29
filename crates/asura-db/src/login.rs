@@ -1,6 +1,6 @@
 //! Login: turning the pair the client presents into an account, and reading what it may see.
 //!
-//! The client sends two UUIDs — a portal user id and a session id — and gets either a character list
+//! The client sends two UUIDs - a portal user id and a session id - and gets either a character list
 //! or an error. That is the whole transaction, and this module is the only place it is decided.
 //!
 //! AzerothCore parallel: their `LoginDatabase` statement for the auth account, and the character-list
@@ -42,7 +42,7 @@ pub struct Character {
 ///
 /// Returns `Ok(None)` for a pair that does not resolve **and for one that resolved in the past but is
 /// closed**. The caller must treat `None` as "refuse, with the client's auth error" and must not try
-/// to repair it — inventing a session here would be a login bypass (`crates/asura-db/migrations/
+/// to repair it - inventing a session here would be a login bypass (`crates/asura-db/migrations/
 /// 0003_portal_identity.sql`).
 pub async fn find_session(
     pool: &PgPool,
@@ -134,7 +134,7 @@ pub async fn close_session(pool: &PgPool, session: Uuid) -> sqlx::Result<bool> {
 /// Close every live session of an account except the one just validated.
 ///
 /// This is `docs/05-gw2-lessons.md` rule 1 expressed as SQL: when a player logs in again, the older
-/// sessions are closed rather than left resolvable. Keeping it here — one statement, one place —
+/// sessions are closed rather than left resolvable. Keeping it here - one statement, one place -
 /// means "newest wins" cannot be half-implemented in the service.
 pub async fn close_other_sessions(pool: &PgPool, account: Uuid, keep: Uuid) -> sqlx::Result<u64> {
     let done = sqlx::query(
@@ -165,7 +165,7 @@ pub struct SeededIdentity {
 /// **Development and test support, not a service path.** Two reasons it lives here rather than in a
 /// script full of SQL: this crate is the only place that writes SQL, and the tests need exactly this
 /// to build the state they prove. It is idempotent, so re-running it reopens the same session instead
-/// of stacking rows — which is also how a developer resets a session that a test closed.
+/// of stacking rows - which is also how a developer resets a session that a test closed.
 ///
 /// The account gets its own generated id rather than reusing the portal user id: they are different
 /// things (GWPS keeps them in different columns), and a seed that conflates them would hide exactly
@@ -239,7 +239,7 @@ pub async fn seed_identity(
     })
 }
 
-/// Remove what [`seed_identity`] created — an account and, by cascade, its sessions and characters.
+/// Remove what [`seed_identity`] created - an account and, by cascade, its sessions and characters.
 ///
 /// Test hygiene: a run leaves nothing behind that the next run would mistake for a live account.
 pub async fn remove_account(pool: &PgPool, account_name: &str) -> sqlx::Result<bool> {

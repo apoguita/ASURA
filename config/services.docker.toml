@@ -5,7 +5,7 @@
 # to the container's network address, not its loopback. The world stays on loopback: the client
 # never dials a world directly, the auth service relays to it inside the same container.
 #
-# Everything else — the service list, the arguments, the health checks, the log paths — is the
+# Everything else - the service list, the arguments, the health checks, the log paths - is the
 # host file verbatim. When config/services.toml changes, this file changes with it.
 
 version = 1

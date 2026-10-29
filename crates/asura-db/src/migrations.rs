@@ -2,7 +2,7 @@
 //! **which changes has it had?**
 //!
 //! Without this, "is the database up to date?" can only be guessed at, and a service can start
-//! happily against a schema that is older than the code calling it — the failure then lands on the
+//! happily against a schema that is older than the code calling it - the failure then lands on the
 //! first query, somewhere far from the cause.
 //!
 //! The record lives in `schema_version`, written *by each migration file itself* as its last

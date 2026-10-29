@@ -1,7 +1,7 @@
 # Running the server on Linux
 
 > **Status: a runbook, and honest about what it is not.** The server (web gate, auth, world servers,
-> database) runs on Linux. The **game client remains Windows-only** — the client rig, its patching
+> database) runs on Linux. The **game client remains Windows-only** - the client rig, its patching
 > and its hooks are Windows work; a Linux machine is a server host. The services and the supervisor
 > use no platform-specific APIs and the supervisor finds `asura-*` with or without the `.exe` suffix,
 > so the same repository runs on both. What Linux has **not** had yet is a live run by this project:
@@ -18,7 +18,7 @@
 | the game client | a Windows machine | connects to the gate and the auth address |
 
 The client is never told to connect to a world directly: it dials the address it was launched with
-(the auth service), and the front door routes the gameplay connection (`docs/03-protocol.md` §4).
+(the auth service), and the front door routes the gameplay connection (`docs/03-protocol.md` #4).
 So a remote client only needs the **web gate** and the **auth service** reachable; the world can stay
 on `127.0.0.1` when everything is on one machine.
 
@@ -48,21 +48,21 @@ Run from the repository root.
    cargo run -p asura-supervisor -- schema
    ```
 
-   It drives `psql` — found from PATH (`psql` on Linux), the usual Windows install, or `ASURA_PSQL`.
+   It drives `psql` - found from PATH (`psql` on Linux), the usual Windows install, or `ASURA_PSQL`.
    The equivalent by hand is a `psql -v ON_ERROR_STOP=1 -f` loop over
    `crates/asura-db/migrations/*.sql`.
 
 3. **`.env`**: copy `.env.example` to `.env` and set `ASURA_DATABASE_URL` (and the `ASURA_DB_*`
    values if you keep them in sync).
 
-4. **Build** — the first build needs the network for the crates; after that the supervisor's
+4. **Build** - the first build needs the network for the crates; after that the supervisor's
    `--offline` build works from the cache:
 
    ```bash
    cargo build
    ```
 
-5. **Seed** — one command writes both sets of rows: the dev identities the client presents, and the
+5. **Seed** - one command writes both sets of rows: the dev identities the client presents, and the
    map catalogue. The SQL is in the repository (`tools/seed-dev.sql`, `tools/map-config.sql`) and
    is applied the same way on Windows and Linux:
 
@@ -78,7 +78,7 @@ Run from the repository root.
    | `user2@example.com` | `5fb222bc-9d19-4308-ac3e-3c62685bc6ae` | `224aee30-d8a5-4f18-ad8e-b5fcbf121c4e` |
    | `user3@example.com` | `9957c79c-b93c-4b60-9d84-9f38a1f62be3` | `ccdb4b8d-1c88-48c0-bda0-0a5e8d87f4da` |
 
-6. **Start** — one command, as on Windows:
+6. **Start** - one command, as on Windows:
 
    ```bash
    cargo run -p asura-supervisor -- start
@@ -105,7 +105,7 @@ Gw.custom.exe -authsrv <server-host> -portal <server-host>
 ```
 
 - The **web gate** (`-portal`) and the **auth service** (`-authsrv`) must be reachable from the
-  client. In `config/services.toml`, their `args` bind `127.0.0.1` — change to the reachable address
+  client. In `config/services.toml`, their `args` bind `127.0.0.1` - change to the reachable address
   (e.g. `"0.0.0.0:6601"` and `"0.0.0.0:6112"`) and allow the ports through the host firewall.
 - The **world** can stay on `127.0.0.1` when the gate and auth run on the same machine: the front
   door dials the world's registered address from there. If a world runs on another machine, its
@@ -125,7 +125,7 @@ cargo run -p asura-supervisor -- stop             # or stop --only <service>, or
 - The supervisor stops, on exit, exactly what it started; the database is checked and waited for,
   never started (on Linux it is a systemd unit, managed elsewhere).
 - A crashed service is restarted at most `restart_max` times (see `config/services.toml`), then
-  reported `failed` — never forever. A stop waits for the service's port to be free.
+  reported `failed` - never forever. A stop waits for the service's port to be free.
 
 ## A release build
 
@@ -141,10 +141,10 @@ the supervisor finds either). Nothing else changes.
 
 ## What this document does not cover yet
 
-- **No CI-built binaries** — Linux artifacts (CI) are a later item; today, build from source.
-- **No live Linux run recorded** — the code is cross-platform by construction, not by measurement.
+- **No CI-built binaries** - Linux artifacts (CI) are a later item; today, build from source.
+- **No live Linux run recorded** - the code is cross-platform by construction, not by measurement.
   The row below stays empty until someone runs it and writes down what they saw.
-- **The client rig is Windows-only** — that is the client's own work, not the server's.
+- **The client rig is Windows-only** - that is the client's own work, not the server's.
 - The supervisor's own tests are live-database tests: they run with `ASURA_DATABASE_URL` set (and
   skip cleanly without one).
 
@@ -153,8 +153,8 @@ the supervisor finds either). Nothing else changes.
 | what | expected | observed |
 |---|---|---|
 | first start | `webgate`, `auth`, `world-<id>` all `ready` | |
-| gate health | `GET /health` → `200 ok` | |
+| gate health | `GET /health` -> `200 ok` | |
 | client login from Windows | character list, then select | |
 | travel | `/tp` lands on the world | |
 | stop | Ctrl+C (or `stop`); every port free | |
-| notes | — | |
+| notes | - | |

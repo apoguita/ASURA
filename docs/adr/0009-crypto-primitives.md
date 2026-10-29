@@ -1,4 +1,4 @@
-# ADR 0009 — Crypto primitives: a hand-written ARC4, and a big-integer crate for the exponentiation
+# ADR 0009 - Crypto primitives: a hand-written ARC4, and a big-integer crate for the exponentiation
 
 - **Status:** Accepted
 - **Date:** 2026-10-25
@@ -23,7 +23,7 @@ The requirement is not "a secure stream cipher". It is "the same 256-byte permut
 that the client will run", against a fixed key, forever. RC4 is cryptographically broken and no
 maintained crate should be trusted to still be shipping it; the crates that do are either
 unmaintained or a thin wrapper around the same twenty lines. Importing one would add a supply-chain
-surface and an MSRV constraint to buy nothing — while the property that actually matters, byte-exactness,
+surface and an MSRV constraint to buy nothing - while the property that actually matters, byte-exactness,
 would still need the same tests.
 
 So the code is here, and the tests are the guarantee:
@@ -40,12 +40,12 @@ written.
 The exchange is `shared = client_public ^ server_private mod prime`, with a **fixed** 512-bit prime and
 a **fixed** 511-bit exponent (`main.c`). What is needed is square-and-multiply over 512-bit numbers:
 a 1024-bit product, then a reduction modulo a 512-bit modulus. Hand-writing that means limb arithmetic
-and a Montgomery (or Barrett) reduction — roughly a hundred lines where a carry bug produces a wrong
+and a Montgomery (or Barrett) reduction - roughly a hundred lines where a carry bug produces a wrong
 secret, a keystream the client cannot reproduce, and an error message that says only `007`.
 
 The judgement: this is the one place where a mistake is expensive *and* hard to localise, and where a
-well-worn implementation exists. `num-bigint-dig` is the RustCrypto fork of `num-bigint` — the crate the
-`rsa` crate uses for the same operation — and it is isolated behind `modpow`, so replacing it is a
+well-worn implementation exists. `num-bigint-dig` is the RustCrypto fork of `num-bigint` - the crate the
+`rsa` crate uses for the same operation - and it is isolated behind `modpow`, so replacing it is a
 change to one function.
 
 Two consequences accepted deliberately:
@@ -61,7 +61,7 @@ Two consequences accepted deliberately:
 `arc4_hash` is not a standard construction, so no crate implements it: it borrows SHA-1's initial values
 and two of its round constants, runs five rounds over 20 bytes, and *adds* the working state back onto
 the input words. It must be reproduced exactly, and "exactly" is not something careful reading
-establishes — which is why the fixtures exist. Writing it also revealed the shape of the risk: the first
+establishes - which is why the fixtures exist. Writing it also revealed the shape of the risk: the first
 version had one wrong hex digit in a round constant (`0x6ED9_9BA1` for `0x6ED9EBA1`), which changed
 three bytes of the digest and was caught by the fixture comparison, not by review.
 
@@ -79,15 +79,15 @@ session with a key it did not agree, and nothing downstream would notice.
 
 ## What the fixtures are, and what they are not
 
-`tools/gen-handshake-fixtures.py` compiles a C program out of the reference's own text — `arc4.c`
-verbatim, and `arc4_hash` extracted verbatim from `AuthSrv.c` — and writes its output into
+`tools/gen-handshake-fixtures.py` compiles a C program out of the reference's own text - `arc4.c`
+verbatim, and `arc4_hash` extracted verbatim from `AuthSrv.c` - and writes its output into
 `handshake_fixtures.rs`. The exponentiation rows come from CPython's `pow()`, a different implementation
 in a different language.
 
 They pin the arithmetic and the message formats. They do **not** prove the client will accept the
 handshake: only the real client can settle that, and M3's acceptance criterion is still the packet
 trace diff against GWPS (`docs/roadmap.md`). The fixtures exist so that when the client is pointed at
-this, the difference — if there is one — is not arithmetic.
+this, the difference - if there is one - is not arithmetic.
 
 ## What would change this decision
 

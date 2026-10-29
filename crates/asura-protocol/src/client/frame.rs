@@ -87,7 +87,7 @@ impl Frame {
         Frame { header, body }
     }
 
-    /// A correctly sized, all-zero message for a header — GWPS's `AuthConnection_BuildMsg`.
+    /// A correctly sized, all-zero message for a header - GWPS's `AuthConnection_BuildMsg`.
     ///
     /// Every field is written explicitly by the caller afterwards; starting from the table's size
     /// is what keeps a partially filled message from being the wrong length.
@@ -130,7 +130,7 @@ impl Frame {
 
     /// Serialise to the wire: header, then the body, and nothing else.
     ///
-    /// Deliberately infallible — it writes what it was given. Whether that is the *correct* size is
+    /// Deliberately infallible - it writes what it was given. Whether that is the *correct* size is
     /// [`Frame::encode_validated`]'s question, asked separately so the two failures never blur.
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.len());
@@ -189,7 +189,7 @@ impl Frame {
     ///
     /// **A client message is not a fixed size.** The reference's `unpack_msg` walks the message's field
     /// list, and for every counted field (`TYPE_STRING_16` and the `ARRAY_*` kinds) it reads a **u16**
-    /// count from the wire and consumes exactly that many units — so a message is as long as its own
+    /// count from the wire and consumes exactly that many units - so a message is as long as its own
     /// contents, and the table's `max_size` is an upper bound, not a size. Measured against a real
     /// client: its `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` is **54 bytes**, not the table's 150, because the
     /// character name is empty and the type string is six units. Waiting for 150 is exactly how this
@@ -203,7 +203,7 @@ impl Frame {
         }
         let header = u16::from_le_bytes([bytes[0], bytes[1]]);
         let entry = tables::entry(header).ok_or(FrameError::UnknownHeader { header })?;
-        let shapes: Vec<Shape> = entry.fields.iter().map(shape_of_auth).collect();
+        let shapes: Vec<Shape> = entry.fields.iter().map(shape_of).collect();
         let position = walk(bytes, header, &shapes)?;
         let body = bytes[HEADER_LEN..position].to_vec();
         Ok((Frame { header, body }, position))
@@ -211,11 +211,11 @@ impl Frame {
 
     /// Take one game message off the front of `bytes`, and say how many bytes it used.
     ///
-    /// The game family follows the same rules as the auth family and needs the same walker, but it has
-    /// its own table because the two families collide on header values: `0x8000 | n` is a different
-    /// message in each (`GAME_CMSG_TRADE_ACKNOWLEDGE` and `AUTH_CMSG_HEARTBEAT` both arrive as
-    /// `0x8000`). Hence `from_client`: the caller knows which side of the conversation it is on, and
-    /// the table cannot.
+    /// The game family follows the same rules as the auth family and needs the same walker, but the
+    /// one table is keyed by family because the two collide on header values: `0x8000 | n` is a
+    /// different message in each (`GAME_CMSG_TRADE_ACKNOWLEDGE` and `AUTH_CMSG_HEARTBEAT` both arrive
+    /// as `0x8000`). Hence `from_client`: the caller knows which side of the conversation it is on,
+    /// and the table cannot.
     ///
     /// Like [`Frame::decode_client_message`], this is the **structural** rule rather than the table's
     /// maximum: a counted field is a `u16` count and that many units, with no padding.
@@ -229,7 +229,7 @@ impl Frame {
         let header = u16::from_le_bytes([bytes[0], bytes[1]]);
         let fields =
             game_tables::fields(header, from_client).ok_or(FrameError::UnknownHeader { header })?;
-        let shapes: Vec<Shape> = fields.iter().map(shape_of_game).collect();
+        let shapes: Vec<Shape> = fields.iter().map(shape_of).collect();
         let position = walk(bytes, header, &shapes)?;
         let body = bytes[HEADER_LEN..position].to_vec();
         Ok((Frame { header, body }, position))
@@ -238,9 +238,8 @@ impl Frame {
 
 /// How one field occupies the wire, for [`walk`].
 ///
-/// Both tables describe their fields with their own `FieldKind` (the game table documents the counted
-/// kinds as they actually are on the wire), so each is mapped onto this small shared vocabulary rather
-/// than the walker being written twice.
+/// Both families describe their fields with one type ([`crate::packets::Field`]), so there is one
+/// mapping from a field to its shape rather than one per table.
 #[derive(Clone, Copy)]
 enum Shape {
     /// The message header: already consumed before the walk starts.
@@ -255,43 +254,13 @@ enum Shape {
     Nested { capacity: u8 },
 }
 
-fn shape_of_auth(field: &tables::Field) -> Shape {
+fn shape_of(field: &crate::packets::Field) -> Shape {
+    use crate::packets::FieldKind;
     match field.kind {
-        tables::FieldKind::MsgHeader => Shape::Header,
+        FieldKind::MsgHeader => Shape::Header,
         // A four-byte game header: the walker has already consumed the first two bytes as the header
         // (HEADER_LEN), so the field covers the two that remain. Counting four here over-reads by two
         // and desynchronises the stream -- a latent trap until the first row actually used this kind.
-        tables::FieldKind::MsgHeaderGame => Shape::Fixed(HEADER_LEN),
-        tables::FieldKind::AgentId | tables::FieldKind::Float | tables::FieldKind::Dword => {
-            Shape::Fixed(4)
-        }
-        tables::FieldKind::Vect2 => Shape::Fixed(8),
-        tables::FieldKind::Vect3 => Shape::Fixed(12),
-        tables::FieldKind::Byte => Shape::Fixed(1),
-        tables::FieldKind::Word => Shape::Fixed(2),
-        tables::FieldKind::Blob => Shape::Fixed(field.length as usize),
-        tables::FieldKind::String16 | tables::FieldKind::Array16 => Shape::Counted {
-            unit: 2,
-            capacity: field.length,
-        },
-        tables::FieldKind::Array8 => Shape::Counted {
-            unit: 1,
-            capacity: field.length,
-        },
-        tables::FieldKind::Array32 => Shape::Counted {
-            unit: 4,
-            capacity: field.length,
-        },
-        tables::FieldKind::NestedStruct => Shape::Nested {
-            capacity: field.length.min(u8::MAX as u16) as u8,
-        },
-    }
-}
-
-fn shape_of_game(field: &game_tables::Field) -> Shape {
-    use game_tables::FieldKind;
-    match field.kind {
-        FieldKind::MsgHeader => Shape::Header,
         FieldKind::MsgHeaderGame => Shape::Fixed(HEADER_LEN),
         FieldKind::AgentId | FieldKind::Float | FieldKind::Dword => Shape::Fixed(4),
         FieldKind::Vect2 => Shape::Fixed(8),
@@ -321,7 +290,7 @@ fn shape_of_game(field: &game_tables::Field) -> Shape {
 ///
 /// The rule this implements, for both families: a counted field carries a `u16` count and consumes
 /// exactly that many units, so the table's `max_size` is an upper bound and never a length. A nested
-/// struct is the same idea one level down — a `u8` count and that many repeats of the fields after it.
+/// struct is the same idea one level down - a `u8` count and that many repeats of the fields after it.
 fn walk(bytes: &[u8], header: u16, shapes: &[Shape]) -> Result<usize, FrameError> {
     walk_from(bytes, header, HEADER_LEN, shapes)
 }
@@ -522,7 +491,7 @@ mod tests {
 
     #[test]
     fn every_row_of_the_table_frames_at_exactly_its_recorded_size() {
-        for entry in tables::AUTH_TABLE {
+        for entry in tables::rows() {
             let frame = Frame::zeros(entry.header).unwrap_or_else(|err| {
                 panic!("{:#06X} is missing from the lookup: {err}", entry.header)
             });
@@ -554,7 +523,7 @@ mod tests {
         // The generated table carries each message's field layout beside its recorded size, so the
         // size is *provable* here instead of trusted: the widths come from pack_helper in
         // msgpack.c. A number that drifted, or a generator that misread a column, fails.
-        for entry in tables::AUTH_TABLE {
+        for entry in tables::rows() {
             let variable = tables::VARIABLE_LENGTH_HEADERS.contains(&entry.header);
             let mut known = 0usize;
             let mut has_variable = false;

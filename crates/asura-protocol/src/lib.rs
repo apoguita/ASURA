@@ -2,9 +2,9 @@
 //!
 //! Two protocol families live here:
 //!
-//! * the **client protocol** — what the game client speaks. Every constant in this file was observed
+//! * the **client protocol** - what the game client speaks. Every constant in this file was observed
 //!   in GWPS and is recorded in `docs/03-protocol.md`. It is not ours to design, only to reproduce.
-//! * the **internal protocol** — ours, versioned, and small by policy: state and placement go through
+//! * the **internal protocol** - ours, versioned, and small by policy: state and placement go through
 //!   the database, not through messages (`docs/02-architecture.md`).
 //!
 //! AzerothCore parallel: their `Packet`/`WorldPacket` layer with `ByteBuffer` readers. Same shape:
@@ -119,6 +119,11 @@ pub mod client;
 /// table of client messages it must read. Separate from [`client`] because the two families collide on
 /// header values: `0x8000 | n` names a different message in each.
 pub mod game;
+
+/// **Every packet, one table.** Both protocol families, one row per header, with the fact columns
+/// (header, index, size, name, layout) and the two columns a session maintains (status, evidence).
+/// The single source for what a message is: nothing else in the tree lists a header.
+pub mod packets;
 
 /// The per-message trace switch both services read (`ASURA_TRACE`).
 pub mod trace;

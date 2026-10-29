@@ -1,7 +1,7 @@
 //! Travel: answering `AUTH_CMSG_REQUEST_GAME_INSTANCE` with a world the client can actually reach.
 //!
-//! The client asks for a map; the auth service answers with `AUTH_SMSG_GAME_SERVER_INFO` — an address,
-//! a map token, and a player token — and then the ordinary `AUTH_SMSG_REQUEST_RESPONSE` with status 0.
+//! The client asks for a map; the auth service answers with `AUTH_SMSG_GAME_SERVER_INFO` - an address,
+//! a map token, and a player token - and then the ordinary `AUTH_SMSG_REQUEST_RESPONSE` with status 0.
 //! That pair is the whole contract: the reference sends the info message and the response, and nothing
 //! else (`AuthSrv_HandleRequestGameInstance`).
 //!
@@ -22,7 +22,7 @@
 //!    client waits for the response and the info message alone is not an answer.
 //!
 //! A refusal is `AUTH_SMSG_REQUEST_RESPONSE` with `GM_ERROR_NETWORK_ERROR` (2) and no info message.
-//! That is honest — the client shows an error it can describe — and it is what the previous milestone
+//! That is honest - the client shows an error it can describe - and it is what the previous milestone
 //! did for *every* travel request. What is new is that a refusal is now the exception.
 
 use std::net::SocketAddr;
@@ -218,7 +218,7 @@ pub async fn answer(
                 map_id as u32,
                 // What the client dials, which is this service: the game connection arrives at the
                 // auth port and is routed to `address` (`frontdoor`). Advertising the world's own
-                // address would be a lie the client cannot act on — measured: it dials the auth
+                // address would be a lie the client cannot act on - measured: it dials the auth
                 // address regardless of what this field says.
                 messages::host_for(advertised),
                 player_token,

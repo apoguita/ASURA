@@ -2,7 +2,7 @@
 
 use crate::supervise::{Shared, State};
 
-/// A small table: service, state, pid, restarts — and the last error for a failed one.
+/// A small table: service, state, pid, restarts - and the last error for a failed one.
 pub fn table(shared: &Shared) -> String {
     let sup = shared.lock().unwrap();
     let mut out = String::new();

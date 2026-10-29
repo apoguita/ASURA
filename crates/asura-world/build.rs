@@ -1,6 +1,6 @@
 //! The build identity: `git describe --always --dirty` when git is available (and the repository is
 //! a git checkout), the crate version otherwise. Compiled into the binary so every world publishes
-//! which code it runs — the rolling deploy compares builds by this id, and "asura-world/0.1.0" was
+//! which code it runs - the rolling deploy compares builds by this id, and "asura-world/0.1.0" was
 //! the same string for every build (docs/16-implementation-plan.md, S3).
 
 use std::process::Command;

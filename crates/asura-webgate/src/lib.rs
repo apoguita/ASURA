@@ -2,7 +2,7 @@
 //!
 //! The client launched with `-portal 127.0.0.1` does not ask an account database who it is. It calls
 //! four HTTP endpoints on the gate and takes its identity from the answers
-//! (`docs/03-protocol.md` §4, `docs/06-reference-session.md`):
+//! (`docs/03-protocol.md` #4, `docs/06-reference-session.md`):
 //!
 //! | request | answer |
 //! |---|---|
@@ -24,7 +24,7 @@
 //! ## The session, and why it is in memory
 //!
 //! `session/create.xml` mints a UUID and `users/login.xml` attaches the identity to it; that pair of
-//! steps is the reference's `sessions` dict, and it is kept here the same way — one process, a map of
+//! steps is the reference's `sessions` dict, and it is kept here the same way - one process, a map of
 //! live sessions. The *identity* is not invented here: it is the exact `(portal_user, session id)`
 //! pair the auth service will resolve out of the database (`asura_db::portal`), so a gate that has
 //! forgotten a session costs a retry, never a login as the wrong account.
@@ -188,7 +188,7 @@ impl Gate {
             }
 
             // This project's own addition: the supervisor's health check. It is not one of the
-            // reference's routes, and it answers without a session — it says "the gate is up",
+            // reference's routes, and it answers without a session - it says "the gate is up",
             // nothing else.
             ("GET", "/health") => Reply::ok(),
 

@@ -5,7 +5,7 @@
 //!
 //! What this proves, and why it is worth a test rather than a comment: a record that is merely
 //! written is not a record that can be *relied* on. The last test here takes a version away and
-//! checks that the startup check notices, names what is missing, and that re-applying puts it back —
+//! checks that the startup check notices, names what is missing, and that re-applying puts it back -
 //! which is the whole point of keeping the record.
 
 use asura_db::migrations::{self, EnsureError, LATEST_VERSION};
@@ -24,7 +24,7 @@ async fn pool() -> Option<PgPool> {
 }
 
 /// The tests below share one `schema_version` table, and one of them deliberately removes a row from
-/// it. Run in parallel, that removal is visible to the other test halfway through its own assertions —
+/// it. Run in parallel, that removal is visible to the other test halfway through its own assertions -
 /// which is a flake, not a bug in the code under test. They take turns instead.
 fn schema_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();

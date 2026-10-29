@@ -8,7 +8,7 @@
 //! that needs them, for the reason `docs/adr/0007-rust-translation.md` gives: an unused message
 //! layout is a fact nobody has verified.
 //!
-//! **UUIDs travel in the RFC 4122 little-endian variant** — the first three fields are little
+//! **UUIDs travel in the RFC 4122 little-endian variant** - the first three fields are little
 //! endian, the clock sequence and node are not (`uuid_enc_le` in GWPS `GmUuid.h`). That is what
 //! `uuid::Uuid::to_bytes_le`/`from_bytes_le` do, and it is *not* the same as the canonical byte
 //! order: reading it the obvious way swaps the halves of every id, so every login would report a
@@ -88,7 +88,7 @@ impl<'a> Reader<'a> {
         Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 
-    /// A `u16` count followed by that many UTF-16 units — the shape the client sends for every counted
+    /// A `u16` count followed by that many UTF-16 units - the shape the client sends for every counted
     /// string (see [`Frame::decode_client_message`]). `Ok(None)` when the bytes have not all arrived;
     /// a count larger than the field's capacity is an error, as the reference treats it.
     fn u16_utf16(
@@ -232,11 +232,11 @@ fn expect(frame: &Frame, expected: u16) -> Result<(), MessageError> {
 /// The client's opening preamble: who the computer is, then a hash of it.
 ///
 /// **`0x8001` is not the size the table says.** The client sends it as `header, u16 count, UTF-16
-/// units, u16 count, UTF-16 units` — variable length, no padding into the 32-slot fields the
+/// units, u16 count, UTF-16 units` - variable length, no padding into the 32-slot fields the
 /// reference's `AuthSrv_ComputerInfo` struct implies, and the count is two bytes rather than four.
 /// Measured, not guessed: a real client (build 39112) sent this on a real connection to this service,
 /// and it decodes cleanly as 42 bytes of computer info followed immediately by a 22-byte
-/// `AUTH_CMSG_SEND_COMPUTER_HASH` — 64 bytes in total, which is exactly what arrived:
+/// `AUTH_CMSG_SEND_COMPUTER_HASH` - 64 bytes in total, which is exactly what arrived:
 ///
 /// ```text
 /// 01 80 03 00 41 00 70 00 6f 00 0f 00 44 00 45 00 53 00 4b 00 54 00 4f 00 50 00
@@ -560,7 +560,7 @@ pub fn decode_change_character(body: &[u8]) -> Result<String, MessageError> {
 /// `AUTH_SMSG_ACCOUNT_SETTINGS` (`0x0016`): the client's stored settings.
 ///
 /// Layout (`AuthSrv_AccountSettings`): `req_id`, a **u16** `n_data`, then exactly that many bytes of
-/// data. Measured from the reference's own output: `16 00 | 01 00 00 00 | 4f 02 <591 bytes>` —
+/// data. Measured from the reference's own output: `16 00 | 01 00 00 00 | 4f 02 <591 bytes>` -
 /// **599 bytes**, where the table says 2058. The blob is copied from the reference's own literal
 /// ([`super::login_fixtures::ACCOUNT_SETTINGS_DATA`]); nothing here knows what most of it means, and it
 /// is sent because it is what the reference sends.
@@ -605,8 +605,8 @@ pub fn account_info(request: u32, account: [u8; 16], character: Option<[u8; 16]>
     writer.bytes.push(24); // eula_accepted
                            // `unk5` **is** on the wire, and getting this wrong is what desynchronised a real client:
                            // the `03 00` after the eula byte is the first half of this dword, not the next
-                           // message's header. Measured: the reference reply is 812 bytes in total —
-                           // 10 + 102 + 599 + 10 + 81 + 10 — and this is the 81.
+                           // message's header. Measured: the reference reply is 812 bytes in total -
+                           // 10 + 102 + 599 + 10 + 81 + 10 - and this is the 81.
     writer.u32(3); // unk5
     Frame::new(tables::AUTH_SMSG_ACCOUNT_INFO, writer.into_body())
 }
@@ -633,7 +633,7 @@ pub const ADDRESS_FAMILY_INET6: u16 = 23;
 /// The map a client asked to travel to: `AUTH_CMSG_REQUEST_GAME_INSTANCE` (`0x8029`).
 ///
 /// Layout (`AuthSrv_RequestGameInstance`): `req_id`, `map_type`, `map_id`, `region`, `district`,
-/// `language` — six dwords after the header, 26 bytes on the wire. The table says 26 and this message
+/// `language` - six dwords after the header, 26 bytes on the wire. The table says 26 and this message
 /// is fixed-size in both directions, so it is one of the few where the table is the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GameInstanceRequest {
@@ -664,7 +664,7 @@ impl GameInstanceRequest {
 /// `AUTH_SMSG_GAME_SERVER_INFO` (`0x0009`): where the client should play, and the tokens it presents
 /// there.
 ///
-/// Layout (`AuthSrv_GameServerInfo`): `req_id`, `map_token`, `map_id`, `host[24]`, `player_token` —
+/// Layout (`AuthSrv_GameServerInfo`): `req_id`, `map_token`, `map_id`, `host[24]`, `player_token` -
 /// 42 bytes. The reference fills `map_token` with the world's id and `player_token` with a random
 /// number per travel, and the game server is what decides whether the pair is real.
 ///
@@ -797,7 +797,7 @@ mod tests {
     #[test]
     fn the_account_settings_carry_the_reference_blob_and_no_more() {
         // The count is a u16 and the data is exactly that long: measured, `16 00 | req_id | 4f 02
-        // <591 bytes>` — 599 bytes total, where the table's padded maximum is 2058.
+        // <591 bytes>` - 599 bytes total, where the table's padded maximum is 2058.
         let frame = account_settings(0x1234);
         let body = &frame.body;
         assert_eq!(
@@ -981,7 +981,7 @@ mod tests {
     }
 
     /// Exactly the login message a real client (build 39112) sent to this service, captured from its
-    /// trace on 2026-10-26 — the message the service was waiting 96 extra bytes for, and hanging on.
+    /// trace on 2026-10-26 - the message the service was waiting 96 extra bytes for, and hanging on.
     const CAPTURED_LOGIN: &[u8] = &[
         0x38, 0x80, 0x01, 0x00, 0x00, 0x00, 0xe2, 0x0e, 0x52, 0xfa, 0x19, 0x44, 0xb4, 0x4e, 0xae,
         0x49, 0x6e, 0x9a, 0xbe, 0x6e, 0xf2, 0x4f, 0x5d, 0xbf, 0xb9, 0xd8, 0xb1, 0x90, 0xbd, 0x4c,
@@ -1266,7 +1266,7 @@ mod tests {
         assert_eq!(frame.header, tables::AUTH_SMSG_GAME_SERVER_INFO);
         assert_eq!(frame.body.len(), 40);
 
-        // req_id, map_token, map_id, host, player_token — read as plain little-endian dwords either
+        // req_id, map_token, map_id, host, player_token - read as plain little-endian dwords either
         // side of the host blob.
         assert_eq!(u32::from_le_bytes(bytes[2..6].try_into().unwrap()), 7);
         assert_eq!(u32::from_le_bytes(bytes[6..10].try_into().unwrap()), 8001);

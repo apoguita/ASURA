@@ -31,11 +31,11 @@ pub const CTRL_CMSG_VERSION_LEN: usize = 4;
 /// What kind of connection the client opened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionKind {
-    /// Client → auth service: key exchange, login, character list.
+    /// Client -> auth service: key exchange, login, character list.
     Auth,
-    /// Client → world server: a gameplay connection. Recognised, not handled here.
+    /// Client -> world server: a gameplay connection. Recognised, not handled here.
     Game,
-    /// Server → auth service: the control link. Recognised, not handled here.
+    /// Server -> auth service: the control link. Recognised, not handled here.
     Ctrl,
 }
 

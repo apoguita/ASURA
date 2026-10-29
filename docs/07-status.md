@@ -29,7 +29,7 @@ that nobody reads the table above as more than it says:
 
 - **movement** pathfinds now: `MOVE_TO_COORD` is answered with the first waypoint of this server's
   own path out of the map's graph, and a walk the finder refuses is answered with the agent's
-  position — the same two outcomes (`crates/asura-world/src/lib.rs`, `pathfind.rs`);
+  position - the same two outcomes (`crates/asura-world/src/lib.rs`, `pathfind.rs`);
 - **world state** is players only: several clients in one map are introduced to each other, see
   each other walk, and are told when one leaves (`crates/asura-world/src/lib.rs`, `Peers`). There
   are no NPCs, no combat and no quests;

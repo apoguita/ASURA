@@ -24,156 +24,172 @@ pub mod pvp_items;
 
 /// `GAME_SMSG_INSTANCE_LOAD_HEAD` (`0x017C`): 6 bytes. The first message a client receives on the
 /// game connection.
-pub const INSTANCE_LOAD_HEAD: u16 = 0x017C;
+pub const INSTANCE_LOAD_HEAD: u16 = crate::packets::game::GAME_SMSG_INSTANCE_LOAD_HEAD;
 /// `GAME_SMSG_INSTANCE_PLAYER_DATA_START` (`0x0186`): 2 bytes.
-pub const INSTANCE_PLAYER_DATA_START: u16 = 0x0186;
+pub const INSTANCE_PLAYER_DATA_START: u16 =
+    crate::packets::game::GAME_SMSG_INSTANCE_PLAYER_DATA_START;
 /// `GAME_SMSG_INSTANCE_PLAYER_DATA_DONE` (`0x018A`): 2 bytes.
-pub const INSTANCE_PLAYER_DATA_DONE: u16 = 0x018A;
+pub const INSTANCE_PLAYER_DATA_DONE: u16 =
+    crate::packets::game::GAME_SMSG_INSTANCE_PLAYER_DATA_DONE;
 /// `GAME_SMSG_CHAR_CREATION_SUCCESS` (`0x0188`): 16-byte uuid, counted name, `0x2211`, counted settings.
-pub const CHAR_CREATION_SUCCESS: u16 = 0x0188;
+pub const CHAR_CREATION_SUCCESS: u16 = crate::packets::game::GAME_SMSG_CHAR_CREATION_SUCCESS;
 /// `GAME_SMSG_CHAR_CREATION_START` (`0x0189`): 2 bytes.
-pub const CHAR_CREATION_START: u16 = 0x0189;
+pub const CHAR_CREATION_START: u16 = crate::packets::game::GAME_SMSG_CHAR_CREATION_START;
 /// `GAME_SMSG_CHAR_CREATION_ERROR` (`0x018B`): 6 bytes, header and an error code.
-pub const CHAR_CREATION_ERROR: u16 = 0x018B;
+pub const CHAR_CREATION_ERROR: u16 = crate::packets::game::GAME_SMSG_CHAR_CREATION_ERROR;
 /// `GAME_SMSG_INSTANCE_LOAD_PLAYER_NAME` (`0x017D`): `2 + 2 + 2n`.
-pub const INSTANCE_LOAD_PLAYER_NAME: u16 = 0x017D;
+pub const INSTANCE_LOAD_PLAYER_NAME: u16 =
+    crate::packets::game::GAME_SMSG_INSTANCE_LOAD_PLAYER_NAME;
 /// `GAME_SMSG_INSTANCE_LOAD_INFO` (`0x019A`): 16 bytes.
-pub const INSTANCE_LOAD_INFO: u16 = 0x019A;
+pub const INSTANCE_LOAD_INFO: u16 = crate::packets::game::GAME_SMSG_INSTANCE_LOAD_INFO;
 /// `GAME_SMSG_INSTANCE_LOAD_SPAWN_POINT` (`0x0196`): 26 bytes.
-pub const INSTANCE_LOAD_SPAWN_POINT: u16 = 0x0196;
+pub const INSTANCE_LOAD_SPAWN_POINT: u16 =
+    crate::packets::game::GAME_SMSG_INSTANCE_LOAD_SPAWN_POINT;
 /// `GAME_SMSG_INSTANCE_LOADED` (`0x00F2`): 6 bytes.
-pub const INSTANCE_LOADED: u16 = 0x00F2;
+pub const INSTANCE_LOADED: u16 = crate::packets::game::GAME_SMSG_INSTANCE_LOADED;
 /// `GAME_SMSG_INSTANCE_LOAD_FINISH` (`0x018E`): 2 bytes. The client leaves the loading screen on it.
-pub const INSTANCE_LOAD_FINISH: u16 = 0x018E;
+pub const INSTANCE_LOAD_FINISH: u16 = crate::packets::game::GAME_SMSG_INSTANCE_LOAD_FINISH;
 /// `GAME_SMSG_INSTANCE_MANIFEST_PHASE` (`0x0199`): 3 bytes.
-pub const INSTANCE_MANIFEST_PHASE: u16 = 0x0199;
+pub const INSTANCE_MANIFEST_PHASE: u16 = crate::packets::game::GAME_SMSG_INSTANCE_MANIFEST_PHASE;
 /// `GAME_SMSG_INSTANCE_MANIFEST_DONE` (`0x0198`): 9 bytes.
-pub const INSTANCE_MANIFEST_DONE: u16 = 0x0198;
+pub const INSTANCE_MANIFEST_DONE: u16 = crate::packets::game::GAME_SMSG_INSTANCE_MANIFEST_DONE;
 
 /// `GAME_SMSG_MAP_UPDATE_CURRENT` (`0x0099`), the **login** shape: 5 bytes, `map_id` is a `u16`.
 ///
 /// The redirect shape of the same opcode is 12 bytes with a `u32` map id. Both exist in the reference
 /// (`GameMsg.h`, `MapUpdateCurrent` comment) and getting them the wrong way round is the trap that
 /// costs a client error 007.
-pub const MAP_UPDATE_CURRENT: u16 = 0x0099;
+pub const MAP_UPDATE_CURRENT: u16 = crate::packets::game::GAME_SMSG_MAP_UPDATE_CURRENT;
 /// `GAME_SMSG_TRANSFER_GAME_SERVER_INFO` (`0x01A6`): the redirect a travel ends with. Re-exported from
-/// [`crate::client`], where the auth service's copy of the same message already lives — one constant, so
+/// [`crate::client`], where the auth service's copy of the same message already lives - one constant, so
 /// the two connections cannot drift about which header a redirect uses.
 pub const TRANSFER_GAME_SERVER_INFO: u16 = crate::client::TRANSFER_GAME_SERVER_INFO;
 /// `GAME_SMSG_READY_FOR_MAP_SPAWN` (`0x01AC`): 6 bytes.
-pub const READY_FOR_MAP_SPAWN: u16 = 0x01AC;
+pub const READY_FOR_MAP_SPAWN: u16 = crate::packets::game::GAME_SMSG_READY_FOR_MAP_SPAWN;
 /// `GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST` (`0x0094`): five counted lists of dwords.
-pub const MAP_UPDATE_UNLOCKED_LIST: u16 = 0x0094;
+pub const MAP_UPDATE_UNLOCKED_LIST: u16 = crate::packets::game::GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST;
 
 /// `GAME_SMSG_ITEM_STREAM_CREATE` (`0x0144`): 5 bytes.
-pub const ITEM_STREAM_CREATE: u16 = 0x0144;
+pub const ITEM_STREAM_CREATE: u16 = crate::packets::game::GAME_SMSG_ITEM_STREAM_CREATE;
 /// `GAME_SMSG_INVENTORY_CREATE_BAG` (`0x013F`): 13 bytes.
-pub const INVENTORY_CREATE_BAG: u16 = 0x013F;
-/// `GAME_SMSG_CREATE_NAMED_ITEM` (`0x0161`): `34 + 2n + 4m`, and no fixed size — see the builder.
-pub const CREATE_NAMED_ITEM: u16 = 0x0161;
+pub const INVENTORY_CREATE_BAG: u16 = crate::packets::game::GAME_SMSG_INVENTORY_CREATE_BAG;
+/// `GAME_SMSG_CREATE_NAMED_ITEM` (`0x0161`): `34 + 2n + 4m`, and no fixed size - see the builder.
+pub const CREATE_NAMED_ITEM: u16 = crate::packets::game::GAME_SMSG_CREATE_NAMED_ITEM;
 /// `GAME_SMSG_CREATE_UNNAMED_ITEM` (`0x015F`): 25 bytes, the same item without its name. The reference
 /// sends this one for bag slots and equipped items (`GmItem.c:111-160`) and the named one for the
 /// inventory stream (`GameSrv_SendItemById`).
-pub const CREATE_UNNAMED_ITEM: u16 = 0x015F;
+pub const CREATE_UNNAMED_ITEM: u16 = crate::packets::game::GAME_SMSG_CREATE_UNNAMED_ITEM;
 /// `GAME_SMSG_ITEM_MOVE_TO_LOCATION` (`0x013E`): 11 bytes.
-pub const ITEM_MOVE_TO_LOCATION: u16 = 0x013E;
+pub const ITEM_MOVE_TO_LOCATION: u16 = crate::packets::game::GAME_SMSG_ITEM_MOVED_TO_LOCATION;
 /// `GAME_SMSG_ITEM_REMOVE` (`0x014D`): 8 bytes. Takes an item out of the client's inventory model.
 ///
 /// The reference has this message and uses it when it frees a bag (`GameSrv_FreeBagItems`); it is not
 /// used anywhere near a drop, because its drop handler never removes the item. A port that does remove
 /// one has to tell the client, and this is the message that does it.
-pub const ITEM_REMOVE: u16 = 0x014D;
+pub const ITEM_REMOVE: u16 = crate::packets::game::GAME_SMSG_ITEM_REMOVE;
 /// `GAME_SMSG_ITEM_SET_PROFESSION` (`0x015A`): 7 bytes.
-pub const ITEM_SET_PROFESSION: u16 = 0x015A;
+pub const ITEM_SET_PROFESSION: u16 = crate::packets::game::GAME_SMSG_ITEM_SET_PROFESSION;
 /// `GAME_SMSG_ITEM_SET_ACTIVE_WEAPON_SET` (`0x0148`): 5 bytes.
-pub const ITEM_SET_ACTIVE_WEAPON_SET: u16 = 0x0148;
+pub const ITEM_SET_ACTIVE_WEAPON_SET: u16 =
+    crate::packets::game::GAME_SMSG_ITEM_SET_ACTIVE_WEAPON_SET;
 /// `GAME_SMSG_ITEM_WEAPON_SET` (`0x0147`): 13 bytes, sent once per weapon slot.
-pub const ITEM_WEAPON_SET: u16 = 0x0147;
+pub const ITEM_WEAPON_SET: u16 = crate::packets::game::GAME_SMSG_ITEM_WEAPON_SET;
 /// `GAME_SMSG_UPDATE_GOLD_STORAGE` (`0x0141`): 8 bytes.
-pub const UPDATE_GOLD_STORAGE: u16 = 0x0141;
+pub const UPDATE_GOLD_STORAGE: u16 = crate::packets::game::GAME_SMSG_UPDATE_GOLD_STORAGE;
 /// `GAME_SMSG_CHARACTER_FACTION_MAX_KURZICK` (`0x00EA`): 6 bytes.
-pub const FACTION_MAX_KURZICK: u16 = 0x00EA;
+pub const FACTION_MAX_KURZICK: u16 = crate::packets::game::GAME_SMSG_CHARACTER_FACTION_MAX_KURZICK;
 /// `GAME_SMSG_CHARACTER_FACTION_MAX_LUXON` (`0x00EB`): 6 bytes.
-pub const FACTION_MAX_LUXON: u16 = 0x00EB;
+pub const FACTION_MAX_LUXON: u16 = crate::packets::game::GAME_SMSG_CHARACTER_FACTION_MAX_LUXON;
 /// `GAME_SMSG_CHARACTER_FACTION_MAX_BALTHAZAR` (`0x00EC`): 6 bytes.
-pub const FACTION_MAX_BALTHAZAR: u16 = 0x00EC;
+pub const FACTION_MAX_BALTHAZAR: u16 =
+    crate::packets::game::GAME_SMSG_CHARACTER_FACTION_MAX_BALTHAZAR;
 /// `GAME_SMSG_CHARACTER_FACTION_MAX_IMPERIAL` (`0x00ED`): 6 bytes.
-pub const FACTION_MAX_IMPERIAL: u16 = 0x00ED;
+pub const FACTION_MAX_IMPERIAL: u16 =
+    crate::packets::game::GAME_SMSG_CHARACTER_FACTION_MAX_IMPERIAL;
 /// `GAME_SMSG_CHARACTER_UPDATE_INFO` (`0x0030`): `28 + 2n`.
-pub const CHARACTER_UPDATE_INFO: u16 = 0x0030;
+pub const CHARACTER_UPDATE_INFO: u16 = crate::packets::game::GAME_SMSG_CHARACTER_UPDATE_INFO;
 /// `GAME_SMSG_HARD_MODE_UNLOCKED` (`0x0070`): 3 bytes.
-pub const HARD_MODE_UNLOCKED: u16 = 0x0070;
+pub const HARD_MODE_UNLOCKED: u16 = crate::packets::game::GAME_SMSG_HARD_MODE_UNLOCKED;
 /// `GAME_SMSG_CHARACTER_UPDATE_FACTIONS` (`0x00E9`): 62 bytes.
-pub const CHARACTER_UPDATE_FACTIONS: u16 = 0x00E9;
+pub const CHARACTER_UPDATE_FACTIONS: u16 =
+    crate::packets::game::GAME_SMSG_CHARACTER_UPDATE_FACTIONS;
 
 /// `GAME_SMSG_PVP_UPDATE_UNLOCKED_SKILLS` (`0x001D`): `4 + 4n`.
-pub const PVP_UPDATE_UNLOCKED_SKILLS: u16 = 0x001D;
+pub const PVP_UPDATE_UNLOCKED_SKILLS: u16 =
+    crate::packets::game::GAME_SMSG_PVP_UPDATE_UNLOCKED_SKILLS;
 /// `GAME_SMSG_PVP_UPDATE_UNLOCKED_HEROES` (`0x0018`): `4 + 4n`.
-pub const PVP_UPDATE_UNLOCKED_HEROES: u16 = 0x0018;
+pub const PVP_UPDATE_UNLOCKED_HEROES: u16 =
+    crate::packets::game::GAME_SMSG_PVP_UPDATE_UNLOCKED_HEROES;
 /// `GAME_SMSG_PVP_ITEM_STREAM_ADD` (`0x001A`): `5 + 4n`.
-pub const PVP_ITEM_STREAM_ADD: u16 = 0x001A;
+pub const PVP_ITEM_STREAM_ADD: u16 = crate::packets::game::GAME_SMSG_PVP_ITEM_STREAM_ADD;
 /// `GAME_SMSG_PVP_ITEM_STREAM_END` (`0x001B`): 2 bytes.
-pub const PVP_ITEM_STREAM_END: u16 = 0x001B;
+pub const PVP_ITEM_STREAM_END: u16 = crate::packets::game::GAME_SMSG_PVP_ITEM_STREAM_END;
 /// `GAME_SMSG_ACCOUNT_FEATURE` (`0x000F`): 8 bytes.
-pub const ACCOUNT_FEATURE: u16 = 0x000F;
+pub const ACCOUNT_FEATURE: u16 = crate::packets::game::GAME_SMSG_ACCOUNT_FEATURE;
 
 /// `GAME_SMSG_AGENT_UPDATE_ATTRIBUTE_POINTS` (`0x0037`): 8 bytes.
-pub const AGENT_UPDATE_ATTRIBUTE_POINTS: u16 = 0x0037;
+pub const AGENT_UPDATE_ATTRIBUTE_POINTS: u16 =
+    crate::packets::game::GAME_SMSG_AGENT_UPDATE_ATTRIBUTE_POINTS;
 /// `GAME_SMSG_PLAYER_UPDATE_PROFESSION` (`0x00B7`): 9 bytes.
-pub const PLAYER_UPDATE_PROFESSION: u16 = 0x00B7;
+pub const PLAYER_UPDATE_PROFESSION: u16 = crate::packets::game::GAME_SMSG_PLAYER_UPDATE_PROFESSION;
 /// `GAME_SMSG_PLAYER_UPDATE_UNLOCKED_PROFESSIONS` (`0x00B6`): 10 bytes.
-pub const PLAYER_UPDATE_UNLOCKED_PROFESSIONS: u16 = 0x00B6;
+pub const PLAYER_UPDATE_UNLOCKED_PROFESSIONS: u16 =
+    crate::packets::game::GAME_SMSG_PLAYER_UPDATE_UNLOCKED_PROFESSIONS;
 /// `GAME_SMSG_SKILLBAR_UPDATE` (`0x00DA`): `11 + 4n_skills + 4n_masks + 1`.
-pub const SKILLBAR_UPDATE: u16 = 0x00DA;
+pub const SKILLBAR_UPDATE: u16 = crate::packets::game::GAME_SMSG_SKILLBAR_UPDATE;
 /// `GAME_SMSG_UPDATE_UNLOCKED_SKILLS` (`0x00DB`): `4 + 4n`.
-pub const UPDATE_UNLOCKED_SKILLS: u16 = 0x00DB;
+pub const UPDATE_UNLOCKED_SKILLS: u16 = crate::packets::game::GAME_SMSG_UPDATE_UNLOCKED_SKILLS;
 /// `GAME_SMSG_AGENT_UPDATE_ATTRIBUTES` (`0x003A`): `8 + 4n`.
-pub const AGENT_UPDATE_ATTRIBUTES: u16 = 0x003A;
+pub const AGENT_UPDATE_ATTRIBUTES: u16 = crate::packets::game::GAME_SMSG_AGENT_UPDATE_ATTRIBUTES;
 /// `GAME_SMSG_WORLD_UPDATE_LOAD_TIME` (`0x001F`): 6 bytes.
-pub const WORLD_UPDATE_LOAD_TIME: u16 = 0x001F;
+pub const WORLD_UPDATE_LOAD_TIME: u16 = crate::packets::game::GAME_SMSG_WORLD_UPDATE_LOAD_TIME;
 
 /// `GAME_SMSG_PLAYER_CREATE` (`0x0059`): `25 + 2n`.
-pub const PLAYER_CREATE: u16 = 0x0059;
+pub const PLAYER_CREATE: u16 = crate::packets::game::GAME_SMSG_PLAYER_CREATE;
 /// `GAME_SMSG_WORLD_CREATE_AGENT` (`0x0020`): 99 bytes, fixed.
-pub const WORLD_CREATE_AGENT: u16 = 0x0020;
+pub const WORLD_CREATE_AGENT: u16 = crate::packets::game::GAME_SMSG_WORLD_CREATE_AGENT;
 /// `GAME_SMSG_WORLD_REMOVE_AGENT` (`0x0021`): 6 bytes. An agent left the map (`GmAgent.c:60`).
-pub const WORLD_REMOVE_AGENT: u16 = 0x0021;
+pub const WORLD_REMOVE_AGENT: u16 = crate::packets::game::GAME_SMSG_WORLD_REMOVE_AGENT;
 /// `GAME_SMSG_PLAYER_DESTROY` (`0x005A`): 6 bytes. A player left the map (`GmPlayer.c:314`).
-pub const PLAYER_DESTROY: u16 = 0x005A;
+pub const PLAYER_DESTROY: u16 = crate::packets::game::GAME_SMSG_PLAYER_DESTROY;
 /// `GAME_SMSG_AGENT_PROPERTY_UPDATE_INT` (`0x009F`): 14 bytes.
-pub const AGENT_PROPERTY_UPDATE_INT: u16 = 0x009F;
+pub const AGENT_PROPERTY_UPDATE_INT: u16 =
+    crate::packets::game::GAME_SMSG_AGENT_PROPERTY_UPDATE_INT;
 /// `GAME_SMSG_AGENT_PROPERTY_UPDATE_FLOAT` (`0x00A2`): 14 bytes.
-pub const AGENT_PROPERTY_UPDATE_FLOAT: u16 = 0x00A2;
+pub const AGENT_PROPERTY_UPDATE_FLOAT: u16 =
+    crate::packets::game::GAME_SMSG_AGENT_PROPERTY_UPDATE_FLOAT;
 /// `GAME_SMSG_AGENT_INITIAL_EFFECTS` (`0x00F0`): 10 bytes.
-pub const AGENT_INITIAL_EFFECTS: u16 = 0x00F0;
+pub const AGENT_INITIAL_EFFECTS: u16 = crate::packets::game::GAME_SMSG_AGENT_INITIAL_EFFECTS;
 /// `GAME_SMSG_UPDATE_AGENT_VISUAL_EQUIPMENT` (`0x006E`): 42 bytes.
-pub const UPDATE_AGENT_VISUAL_EQUIPMENT: u16 = 0x006E;
+pub const UPDATE_AGENT_VISUAL_EQUIPMENT: u16 =
+    crate::packets::game::GAME_SMSG_UPDATE_AGENT_VISUAL_EQUIPMENT;
 /// `GAME_SMSG_AGENT_DISPLAY_CAPE` (`0x0048`): 7 bytes.
-pub const AGENT_DISPLAY_CAPE: u16 = 0x0048;
+pub const AGENT_DISPLAY_CAPE: u16 = crate::packets::game::GAME_SMSG_AGENT_DISPLAY_CAPE;
 /// `GAME_SMSG_WORLD_UPDATE_CONTROLLED_AGENT` (`0x0022`): 10 bytes.
-pub const WORLD_UPDATE_CONTROLLED_AGENT: u16 = 0x0022;
+pub const WORLD_UPDATE_CONTROLLED_AGENT: u16 =
+    crate::packets::game::GAME_SMSG_WORLD_UPDATE_CONTROLLED_AGENT;
 
 /// `GAME_SMSG_PARTY_CREATE` (`0x01D3`): 4 bytes.
-pub const PARTY_CREATE: u16 = 0x01D3;
+pub const PARTY_CREATE: u16 = crate::packets::game::GAME_SMSG_PARTY_CREATE;
 /// `GAME_SMSG_PARTY_PLAYER_ADD` (`0x01CC`): 7 bytes.
-pub const PARTY_PLAYER_ADD: u16 = 0x01CC;
+pub const PARTY_PLAYER_ADD: u16 = crate::packets::game::GAME_SMSG_PARTY_PLAYER_ADD;
 /// `GAME_SMSG_PARTY_MEMBER_STREAM_END` (`0x01D4`): 4 bytes.
-pub const PARTY_MEMBER_STREAM_END: u16 = 0x01D4;
+pub const PARTY_MEMBER_STREAM_END: u16 = crate::packets::game::GAME_SMSG_PARTY_MEMBER_STREAM_END;
 /// `GAME_SMSG_CHARACTER_UDPATE_PARTY` (`0x01B3`, the reference's own spelling): 5 bytes.
-pub const CHARACTER_UPDATE_PARTY: u16 = 0x01B3;
-/// `GAME_SMSG_PLAYER_UPDATE_PARTY_SIZE` (`0x00B0`): 12 bytes on the wire (the table says 5 — the
+pub const CHARACTER_UPDATE_PARTY: u16 = crate::packets::game::GAME_SMSG_CHARACTER_UDPATE_PARTY;
+/// `GAME_SMSG_PLAYER_UPDATE_PARTY_SIZE` (`0x00B0`): 12 bytes on the wire (the table says 5 - the
 /// capture wins; see the builder).
-pub const PLAYER_UPDATE_PARTY_SIZE: u16 = 0x00B0;
-/// `GAME_SMSG_PLAYER_UPDATE_PARTY` (`0x00B1`): 12 bytes on the wire (the table says 6 — same rule).
-pub const PLAYER_UPDATE_PARTY: u16 = 0x00B1;
+pub const PLAYER_UPDATE_PARTY_SIZE: u16 = crate::packets::game::GAME_SMSG_PLAYER_UPDATE_PARTY_SIZE;
+/// `GAME_SMSG_PLAYER_UPDATE_PARTY` (`0x00B1`): 12 bytes on the wire (the table says 6 - same rule).
+pub const PLAYER_UPDATE_PARTY: u16 = crate::packets::game::GAME_SMSG_PLAYER_UPDATE_PARTY;
 
 /// `GAME_SMSG_CHAT_MESSAGE_CORE` (`0x005D`): the text of a chat message, `2 + 2 + 2n`.
-pub const CHAT_MESSAGE_CORE: u16 = 0x005D;
-/// `GAME_SMSG_CHAT_MESSAGE_SERVER` (`0x005E`): 10 bytes. The server speaking on a channel — what the
+pub const CHAT_MESSAGE_CORE: u16 = crate::packets::game::GAME_SMSG_CHAT_MESSAGE_CORE;
+/// `GAME_SMSG_CHAT_MESSAGE_SERVER` (`0x005E`): 10 bytes. The server speaking on a channel - what the
 /// reference answers a command with, because a core message on its own renders nothing.
-pub const CHAT_MESSAGE_SERVER: u16 = 0x005E;
+pub const CHAT_MESSAGE_SERVER: u16 = crate::packets::game::GAME_SMSG_CHAT_MESSAGE_SERVER;
 /// `GAME_SMSG_CHAT_MESSAGE_LOCAL` (`0x0061`): which player spoke, on which channel. 10 bytes.
-pub const CHAT_MESSAGE_LOCAL: u16 = 0x0061;
+pub const CHAT_MESSAGE_LOCAL: u16 = crate::packets::game::GAME_SMSG_CHAT_MESSAGE_LOCAL;
 /// `Channel_All` in the client's own enum (`GmChat.h`): the channel `!` speaks on.
 pub const CHANNEL_ALL: u32 = 3;
 /// `Channel_Group`: the channel `#` speaks on.
@@ -210,7 +226,7 @@ pub fn chat_message_server(channel: u32) -> crate::client::Frame {
 /// `EquippedItemSlot` (`GmInventory.h`): the equipped-items bag slot an item of this `ItemType`
 /// (`GmItem.h`) is worn in.
 ///
-/// Six of these are measured — the reference's default character carries a hammer (`15` → weapon), a
+/// Six of these are measured - the reference's default character carries a hammer (`15` -> weapon), a
 /// body, legs, head, boots and gloves, and the capture places each of them in the slot below. The rest
 /// follow the client's own enum names rather than a measurement, which is worth saying: a weapon is a
 /// weapon, but whether a `Present` or a `Minipet` is equippable at all is a guess answered by *no* here
@@ -250,7 +266,7 @@ pub fn equipped_slot(item_type: u8) -> Option<u8> {
 }
 
 /// `GAME_SMSG_WORLD_SIMULATION_TICK` (`0x001E`): 6 bytes.
-pub const WORLD_SIMULATION_TICK: u16 = 0x001E;
+pub const WORLD_SIMULATION_TICK: u16 = crate::packets::game::GAME_SMSG_WORLD_SIMULATION_TICK;
 /// The mode [`agent_update_speed_live`] carries when a walk **starts**. Measured: every captured start
 /// carries 1.
 pub const AGENT_SPEED_MODE_START: u32 = 1;
@@ -260,19 +276,19 @@ pub const AGENT_SPEED_MODE_STOP: u32 = 9;
 
 /// `GAME_SMSG_AGENT_MOVE_TO_POINT` (`0x0029`): 24 bytes as the live client reads it. Tells the client
 /// where an agent is walking to.
-pub const AGENT_MOVE_TO_POINT: u16 = 0x0029;
+pub const AGENT_MOVE_TO_POINT: u16 = crate::packets::game::GAME_SMSG_AGENT_MOVE_TO_POINT;
 /// `GAME_SMSG_AGENT_UPDATE_DIRECTION` (`0x0025`): 20 bytes. The direction an agent is walking in.
-pub const AGENT_UPDATE_DIRECTION: u16 = 0x0025;
+pub const AGENT_UPDATE_DIRECTION: u16 = crate::packets::game::GAME_SMSG_AGENT_UPDATE_DIRECTION;
 /// `GAME_SMSG_AGENT_UPDATE_SPEED` (`0x002B`): 16 bytes. An agent's speed and whether it is walking.
-pub const AGENT_UPDATE_SPEED: u16 = 0x002B;
+pub const AGENT_UPDATE_SPEED: u16 = crate::packets::game::GAME_SMSG_AGENT_UPDATE_SPEED;
 /// `GAME_SMSG_AGENT_STOP_MOVING` (`0x0028`): 6 bytes. Only the two-byte-header dialect has it.
-pub const AGENT_STOP_MOVING: u16 = 0x0028;
+pub const AGENT_STOP_MOVING: u16 = crate::packets::game::GAME_SMSG_AGENT_STOP_MOVING;
 /// `GAME_SMSG_AGENT_UPDATE_POSITION` (`0x002C`): 16 bytes.
-pub const AGENT_UPDATE_POSITION: u16 = 0x002C;
+pub const AGENT_UPDATE_POSITION: u16 = crate::packets::game::GAME_SMSG_AGENT_UPDATE_POSITION;
 /// `GAME_SMSG_PING_REQUEST` (`0x000C`): 2 bytes.
-pub const PING_REQUEST: u16 = 0x000C;
+pub const PING_REQUEST: u16 = crate::packets::game::GAME_SMSG_PING_REQUEST;
 /// `GAME_SMSG_PING_REPLY` (`0x000D`): 6 bytes.
-pub const PING_REPLY: u16 = 0x000D;
+pub const PING_REPLY: u16 = crate::packets::game::GAME_SMSG_PING_REPLY;
 
 /// The agent/character property ids this module needs (`GmAgentProperties.h`).
 pub const AGENT_PROPERTY_PUBLIC_LEVEL: u32 = 36;
@@ -482,7 +498,7 @@ pub fn instance_player_data_start() -> crate::client::Frame {
     Builder::new(INSTANCE_PLAYER_DATA_START).frame()
 }
 
-/// `GAME_SMSG_INSTANCE_PLAYER_DATA_DONE` (`0x018A`): the player-data block is over. Two bytes — the
+/// `GAME_SMSG_INSTANCE_PLAYER_DATA_DONE` (`0x018A`): the player-data block is over. Two bytes - the
 /// reference sends `sizeof(buffer->header)` (`GameSrv.c:311`), and its only caller is the
 /// character-creation flow, which is why the map-load block never carries it (`docs/10-parity-queue.md` B).
 pub fn instance_player_data_done() -> crate::client::Frame {
@@ -666,7 +682,7 @@ pub struct NamedItem {
 /// `GAME_SMSG_CREATE_UNNAMED_ITEM` (`0x015F`): an item **without** its name, 25 bytes.
 ///
 /// The reference has two item creators and uses both: `GameSrv_SendItemById` sends the *named* one (the
-/// inventory stream, `0x0161`), while `GameSrv_SendItemsInBag` (`GmItem.c:111-127` — which the creation
+/// inventory stream, `0x0161`), while `GameSrv_SendItemsInBag` (`GmItem.c:111-127` - which the creation
 /// screen's profession change calls) and `GameSrv_BroadcastPlayerEquippedItems` (`GmItem.c:129-160`) send
 /// this one. The difference is the name: an item sitting in a bag slot is drawn from its model, so the
 /// client is not told a name it can already resolve.
@@ -739,7 +755,7 @@ pub fn item_set_profession(item_id: u32, profession: u8) -> crate::client::Frame
 /// `GAME_SMSG_ITEM_REMOVE`: the client drops an item out of its inventory model.
 ///
 /// There is no "this item's quantity changed" message in either family, so changing a stack is this
-/// message followed by the item re-created at its new quantity and moved back into its slot — which is
+/// message followed by the item re-created at its new quantity and moved back into its slot - which is
 /// exactly what the reference does when it (re)sends a bag's items.
 pub fn item_remove(stream: u16, item_id: u32) -> crate::client::Frame {
     Builder::new(ITEM_REMOVE).u16(stream).u32(item_id).frame()
@@ -799,7 +815,7 @@ pub fn ready_for_map_spawn() -> crate::client::Frame {
 ///
 /// Captured in the same millisecond as every `TRANSFER_GAME_SERVER_INFO`, both times a live zone
 /// transition was recorded (`captures/zone-ref-005829.jsonl` seq 43 and 425):
-/// `99 00 00 00 | a1 00 00 00 | 00 00 00 00` — a four-byte header, the destination map, then zero. The
+/// `99 00 00 00 | a1 00 00 00 | 00 00 00 00` - a four-byte header, the destination map, then zero. The
 /// reference documents the pair as deliberate (`GameSrv.c:1429-1432`: "in 10 of 10 captured transitions
 /// a 52-byte 0x01A6 is followed immediately ... by a 12-byte 0x0099").
 pub fn map_update_current_redirect(map_id: u32) -> crate::client::Frame {
@@ -855,7 +871,7 @@ pub fn transfer_game_server_info(
         .frame()
 }
 
-/// `GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST`: five counted lists — completed missions and bonuses on
+/// `GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST`: five counted lists - completed missions and bonuses on
 /// normal and hard mode, and the unlocked maps.
 pub fn map_update_unlocked_list(lists: [&[u32]; 5]) -> crate::client::Frame {
     let mut builder = Builder::new(MAP_UPDATE_UNLOCKED_LIST);
@@ -1179,7 +1195,7 @@ pub fn character_update_party(party_id: u16, unknown: u8) -> crate::client::Fram
 ///
 /// **Twelve bytes, and the generated table disagrees twice.** The client's table says five
 /// (`MsgHeader`, `Word`, `Byte`, from its `stoc.h` struct) with a two-byte header; a live capture
-/// carries twelve every time a map loads — `b0 00 00 00 | 01 00 00 00 | 01 00 00 00`, 48 of 48
+/// carries twelve every time a map loads - `b0 00 00 00 | 01 00 00 00 | 01 00 00 00`, 48 of 48
 /// occurrences. The fourth byte is the upper half of a **four-byte game header**, which the reference
 /// calls `TYPE_MSG_HEADER_GAME` (`msgdefs.h:19-23`) and applies per message on evidence. Its own
 /// precedence rule is "a capture beats every table" (`PreSearing/docs/07-packet-scope.md`), and the
@@ -1199,8 +1215,8 @@ pub fn player_update_party_size(player_id: u32, party_size: u32) -> crate::clien
 ///
 /// Twelve bytes for the same reason as the size above, and captured in the same breath
 /// (`b1 00 00 00 | 07 00 00 00 | 07 00 00 00`: player 7 leading player 7's own party). The reference's
-/// builder (`GmPlayer.c:344-354`) has no caller — GWPS sends only the size message, and only when
-/// another player is visible — so these values come from the capture, not from GWPS.
+/// builder (`GmPlayer.c:344-354`) has no caller - GWPS sends only the size message, and only when
+/// another player is visible - so these values come from the capture, not from GWPS.
 pub fn player_update_party(player_id: u32, party_leader_player_id: u32) -> crate::client::Frame {
     Builder::new(PLAYER_UPDATE_PARTY)
         .u16(0)
@@ -1210,7 +1226,7 @@ pub fn player_update_party(player_id: u32, party_leader_player_id: u32) -> crate
 }
 
 /// `GAME_SMSG_PLAYER_DESTROY`: a player has left the map (`GameSrv_BroadcastPlayerDestroy`,
-/// `GmPlayer.c:314`). Eight bytes: a four-byte header, then the player id — the client's own sniffer
+/// `GmPlayer.c:314`). Eight bytes: a four-byte header, then the player id - the client's own sniffer
 /// calls `0x5A` `AGENT_DESTROY_PLAYER`, and the capture carries `5a 00 00 00 | 0b 00 00 00`.
 pub fn player_destroy(player_id: u32) -> crate::client::Frame {
     Builder::new(PLAYER_DESTROY).u16(0).u32(player_id).frame()
@@ -1316,7 +1332,7 @@ pub fn agent_stop_moving(agent_id: u32) -> crate::client::Frame {
     Builder::new(AGENT_STOP_MOVING).u32(agent_id).frame()
 }
 
-/// `GAME_SMSG_AGENT_UPDATE_POSITION`: where an agent is now. Sent to everyone *else* — the client that
+/// `GAME_SMSG_AGENT_UPDATE_POSITION`: where an agent is now. Sent to everyone *else* - the client that
 /// reported the position already knows it (`GameSrv_BroadcastAgentPosition`).
 pub fn agent_update_position(
     agent_id: u32,

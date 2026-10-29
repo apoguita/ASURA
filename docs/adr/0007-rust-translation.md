@@ -1,4 +1,4 @@
-# ADR 0007 — Rust, translated from AzerothCore's C++
+# ADR 0007 - Rust, translated from AzerothCore's C++
 
 - **Status:** Accepted. Decided on merits under `docs/adr/0006-azerothcore-is-the-reference.md`
   (the rule governs structure; the language is a non-structural choice). Overriding it is a matter of
@@ -20,12 +20,12 @@ C++-only contributor. Neither is the plan.
 
 ## Context
 
-AzerothCore is C++ — `CMAKE_CXX_STANDARD 20`, CMake, Boost.Asio for networking, `fmt`, MySQL through
+AzerothCore is C++ - `CMAKE_CXX_STANDARD 20`, CMake, Boost.Asio for networking, `fmt`, MySQL through
 its own `DatabaseWorkerPool`. The owner's stated preference is Rust, and the governing rule is that
 *design* decisions follow AzerothCore (`docs/adr/0006-azerothcore-is-the-reference.md`).
 
 Those two are compatible, and it is worth saying why plainly: their C++ is specific to a different
-engine and a different client, and it is not ours to copy. What we take is the **structure** — which
+engine and a different client, and it is not ours to copy. What we take is the **structure** - which
 processes exist, where state lives, how placement is arbitrated, how instances are managed. That
 structure is language-neutral. Translating it to Rust keeps every structural decision theirs and only
 changes the spelling.

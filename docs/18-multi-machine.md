@@ -1,6 +1,6 @@
 # Multi-machine capability, proven on one machine (S6)
 
-> The design says a world server is interchangeable and can live on another host — the client is
+> The design says a world server is interchangeable and can live on another host - the client is
 > told a real address, and the front door dials the **registered** address, so moving a world should
 > be configuration, not code. This document proves that, without hardware, and states what a real
 > second machine would still add.
@@ -12,7 +12,7 @@
 | the world registers where a *client* reaches it (`--public`), separate from where it binds (`--bind`) | `crates/asura-db/src/placement.rs`, `register_world` |
 | placement offers worlds by their registered address | `find_worlds` |
 | the auth front door dials the **registered** address of the world the client named | `crates/asura-auth/src/frontdoor.rs` |
-| a world at another address can be drained and leaves by itself | `SET draining` → the world's heartbeat loop (S3) |
+| a world at another address can be drained and leaves by itself | `SET draining` -> the world's heartbeat loop (S3) |
 
 ## The experiment on one machine
 
@@ -32,9 +32,9 @@ args = ["--world", "8002", "--capacity", "8", "--bind", "127.0.0.2:6114", "--pub
 
 With `ASURA_TRACE=1` on the auth service:
 
-1. **Both worlds register.** `SELECT id, address, port FROM world` →
+1. **Both worlds register.** `SELECT id, address, port FROM world` ->
    `8001 | 127.0.0.1 | 6113` and `8002 | 127.0.0.2 | 6114`, both fresh.
-2. **A game connection naming world 8002 arrives at the auth address** (127.0.0.1:6112 — the client
+2. **A game connection naming world 8002 arrives at the auth address** (127.0.0.1:6112 - the client
    always dials the launch address; see `docs/02-architecture.md`). The auth trace says:
 
    ```
@@ -47,7 +47,7 @@ With `ASURA_TRACE=1` on the auth service:
    world <- game version build=39112 world=8002 map=146 player token 0x12345678
    ```
 
-   The front door could only dial `127.0.0.2` because that is the **registered** address — it never
+   The front door could only dial `127.0.0.2` because that is the **registered** address - it never
    sees a world's bind address. (The probe had no pending transfer, so the world then refused it,
    which is the correct answer for a connection nobody issued a token for.)
 3. **The second-address world drains across the "machine" boundary.** Marking it draining:
@@ -69,7 +69,7 @@ With `ASURA_TRACE=1` on the auth service:
 
 The last step is the owner's: point the real client at the auth address with a second-address world
 registered, stand in a map on `127.0.0.1` (world 8001), travel to a map served by `127.0.0.2`
-(world 8002), and confirm it lands — then the same with a real second host when one exists.
+(world 8002), and confirm it lands - then the same with a real second host when one exists.
 
 | step | expected | observed |
 |---|---|---|

@@ -1,10 +1,10 @@
-# ADR 0003 — Simulation is in ASURA's scope, deferred behind the control plane
+# ADR 0003 - Simulation is in ASURA's scope, deferred behind the control plane
 
 - **Status:** Accepted (owner's direction, 2026-10-25)
 - **Date:** 2026-10-25
 - **Context:** ASURA is meant to become the server stack for a private Guild Wars server, not only
-  the authentication and allocation half of it. Simulation — agents, movement, pathfinding, combat,
-  drops — is therefore in its future. It is also the largest body of work in the stack, and it
+  the authentication and allocation half of it. Simulation - agents, movement, pathfinding, combat,
+  drops - is therefore in its future. It is also the largest body of work in the stack, and it
   already exists in C inside GWPS, working well enough to be the reference for the client protocol.
 
 Meanwhile the lessons from GWPS are all about the control plane: identity, allocation, process
@@ -46,7 +46,7 @@ Two constraints make the deferral safe rather than merely postponed:
 
 - `docs/01-scope.md` describes a *phase 1* boundary; read it with this ADR in hand.
 - `docs/02-architecture.md` keeps the world server as an external process, described by protocol.
-- `docs/roadmap.md` carries phase 2 milestones (S1–S4) that must not be silently dropped.
+- `docs/roadmap.md` carries phase 2 milestones (S1-S4) that must not be silently dropped.
 - ADR 0001 (Rust) answers the control plane's language only. The simulation's language is explicitly
   open, and S1 is the milestone that closes it.
 - GWPS's `GameSrv.c` is not waste: it is the seed of phase 2 and the behavioural reference for it.

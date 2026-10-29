@@ -7,7 +7,7 @@
 > (`docs/adr/0005-gwps-reference-only.md`).
 
 > **But when the user says "port it from GWPS", GWPS is copied verbatim.** That is a standing
-> directive, not a design discussion: `docs/HANDOFF.md` § "Working directive". The user has the
+> directive, not a design discussion: `docs/HANDOFF.md` # "Working directive". The user has the
 > final say on what a feature must do; a port follows the source's code and bytes exactly, even
 > where this document's own reasoning would choose otherwise. The `/tp` incident
 > (`docs/HANDOFF.md`, same section) is the worked example: GWPS's exact struct is what worked.
@@ -21,7 +21,7 @@ maps what to reuse as knowledge, what to port, and what to leave behind.
 - The client can be pointed at a private server: DH keys patched, mutex check disabled, launched
   with an auth server on loopback.
 - Login, character list, character selection, and entering a map all work.
-- Travel between maps works: request → redirect (`0x01A6`) → map update (`0x0099`) → reconnect with
+- Travel between maps works: request -> redirect (`0x01A6`) -> map update (`0x0099`) -> reconnect with
   a token that the server validates.
 - Maps load from `Gw.dat`: the archive index, the map blob format, spawn points.
 - The cost of a map server is measurable and small: ~12 MB, one thread, one database connection.
@@ -36,11 +36,11 @@ maps what to reuse as knowledge, what to port, and what to leave behind.
 | `AuthSrvCtrl.c`, `CtrlConn.c/.h` | **database**: retired. Placement and state coordination move into tables (`world`, `world_pool`, `session`), so the live control messages have nothing left to carry. |
 | `main.c` | split: `asura` main and `world` main. Today one binary binds 6112/6113/1337 and runs everything. |
 | `GameSrv.c` | **world server** in phase 1 (stays C): simulation, players, instance lifecycle. It is the seed of the auth service's own simulation phase. |
-| `GmMapDataImport.c`, `FaArchive.c`, `GmPaths.c`, `GmItem.c`, … | **world server** (stays C), untouched. |
+| `GmMapDataImport.c`, `FaArchive.c`, `GmPaths.c`, `GmItem.c`, ... | **world server** (stays C), untouched. |
 | `Db.c`, `DbSchema.h` | **database**: ported from SQLite to PostgreSQL and split into `auth` / `game` / `content`, owned by `asura-db`. Character writes move from a connection per instance to a pooled async queue in each world server. |
 | `GmCommands.c` | **world server**, plus the map list it carries is the input for outpost prebuild. |
 | `tools/patch-gw.py`, `keys.txt` | **`client-patcher/`** in this repository, verbatim: the client patcher and the DH parameters the server copied. Nothing client-facing runs without them. |
-| `tools/hosts-gwps.ps1` | **`client-patcher/hosts-redirect.py`**: the hosts-file companion of the patcher, ported to Python so it is one command on Windows and Linux — every baked-in hostname resolves to this machine except the optional `File1` (the content/file server), exactly mirroring the patcher's `--file-server` setting. |
+| `tools/hosts-gwps.ps1` | **`client-patcher/hosts-redirect.py`**: the hosts-file companion of the patcher, ported to Python so it is one command on Windows and Linux - every baked-in hostname resolves to this machine except the optional `File1` (the content/file server), exactly mirroring the patcher's `--file-server` setting. |
 | `tools/`, `captures/` | test material for the port: packet traces to diff against. |
 
 ## What must not be inherited
@@ -60,7 +60,7 @@ These are the structures that cap GWPS, and carrying them over would recreate th
 Each step is independently testable against the real client, and each one leaves the system
 working. Do not start a step before the previous one is proven.
 
-### Step 1 — A world server that owns its connections
+### Step 1 - A world server that owns its connections
 
 Give the game server its own listener and its own gameplay handshake, instead of having the auth
 program accept the socket and pass it over. The client is told `127.0.0.1:<world port>` in the
@@ -70,7 +70,7 @@ redirect instead of the auth port. Nothing else changes.
 - Test: log in, hop, on one machine, same client, same moves as GWPS.
 - Why first: this is the one genuinely risky change, and everything else depends on it being true.
 
-### Step 2 — Split the programs
+### Step 2 - Split the programs
 
 `asura-auth` and `asura-world` become separate binaries. The world server registers itself in the
 `world` table and publishes pool capacity; placement moves into the world server, arbitrated by the
@@ -80,7 +80,7 @@ database, instead of being decided inside the login process.
   fails cleanly rather than hanging.
 - Acceptance: the auth service contains no `GameSrv` code and never reads `Gw.dat`.
 
-### Step 3 — Capacity and refusal
+### Step 3 - Capacity and refusal
 
 The auth service knows how full each world is and can answer "no". The travel request path gains the refusal
 branch, delivered before the client is redirected.
@@ -88,14 +88,14 @@ branch, delivered before the client is redirected.
 - Test: configure a world with one explorable slot, travel into it from two characters, confirm the
   second is refused *while still standing in the outpost*.
 
-### Step 4 — Cheap instances inside a world server
+### Step 4 - Cheap instances inside a world server
 
 Shared index, one database connection per world, reactor instead of a thread per instance.
 
 - Test: 500 instances in one world server; measure memory and thread count against the numbers in
   `docs/02-architecture.md` (the targets are ~5 MB and a constant thread count).
 
-### Step 5 — More machines
+### Step 5 - More machines
 
 Because step 1 made the client-facing address real, this is configuration: run a world on another
 host, point it at the auth service, verify a hop across hosts.
@@ -110,7 +110,7 @@ host, point it at the auth service, verify a hop across hosts.
 | 2 | low | mechanical once the pieces are separate |
 | 3 | low | our own code path, no client involvement |
 | 4 | low | internal, measurable |
-| 5 | medium | addresses, firewalls, latency — no protocol change |
+| 5 | medium | addresses, firewalls, latency - no protocol change |
 | 1 | **high** | the gameplay handshake moves; failure looks like an opaque client error |
 
 Step 1 is high risk *and* first, which is not a contradiction: it is the only one that cannot be

@@ -14,9 +14,9 @@ our client and is under experiment (`docs/adr/0005-gwps-reference-only.md`).
 | **content service** | 1+ | game assets (`Gw.dat` streaming) | outside ASURA |
 
 Correspondence with AzerothCore, so that any structural question can be answered by reading their
-tree: `authservice` → auth service; `worldserver` (a realm) → world server; `realmlist` + realm flags →
-`world` registry; Login/Character/World databases → `auth`/`game`/`content`;
-`DatabaseWorkerPool` → `asura-db`; `MapInstancer`/`MapUpdater` → instance manager and update-thread
+tree: `authservice` -> auth service; `worldserver` (a realm) -> world server; `realmlist` + realm flags ->
+`world` registry; Login/Character/World databases -> `auth`/`game`/`content`;
+`DatabaseWorkerPool` -> `asura-db`; `MapInstancer`/`MapUpdater` -> instance manager and update-thread
 pool. Full table in `docs/adr/0006-azerothcore-is-the-reference.md`.
 
 The auth service never runs a map. It **is** in the gameplay data path for every gameplay session,
@@ -34,9 +34,9 @@ Ported from AzerothCore, deliberately not cherry-picked:
 
 1. **Two program types**, with no live state channel between them for placement or character state.
 2. **Three databases**, each with its own connection pool:
-   - `auth` — accounts, sessions, login tokens
-   - `game` — characters, items, bags, instance records
-   - `content` — map configuration and spawns, effectively read-only
+   - `auth` - accounts, sessions, login tokens
+   - `game` - characters, items, bags, instance records
+   - `content` - map configuration and spawns, effectively read-only
 3. **A registry table** that world servers write themselves into, exactly as `realmlist` works.
 4. **Character state owned and written by world servers**, through a pool with an asynchronous
    write queue.
@@ -67,13 +67,13 @@ CREATE TABLE world_pool (                       -- capacity, per world, per map
 ```
 
 A world server inserts or updates its `world` row at startup (`draining = false`) and keeps
-`heartbeat_at` current; it does not mark itself draining or offline on exit — a world that stops is
+`heartbeat_at` current; it does not mark itself draining or offline on exit - a world that stops is
 discovered by its heartbeat going stale, and the reaper frees its leases. The auth service reads
-`world` to answer "where is this player's map?" — the registry is data, so it survives restarts, and
+`world` to answer "where is this player's map?" - the registry is data, so it survives restarts, and
 no handshake is needed to keep it honest.
 
 The general service registry sits beside `world`: a `service` table (migration 0010, S2) holding a
-row per service kind — kind, name, address, port, build, state, `heartbeat_at`. The supervisor
+row per service kind - kind, name, address, port, build, state, `heartbeat_at`. The supervisor
 writes a row for every service it starts and refreshes it every 5 s, so consumers read the catalog
 instead of hard-coding addresses; worlds keep their own `world` rows as the load-bearing registry,
 and the catalog writes theirs beside it (`crates/asura-db/src/catalog.rs`).
@@ -89,7 +89,7 @@ one process can win a given row.
 - it is what the reaper deletes for a world that stops heartbeating, so the counter drops by exactly
   the slots that world held;
 - it is what the reconciler counts when it rebuilds `leased` from the worlds after a restart
-  (`docs/05-gw2-lessons.md`, rule 2 — the table is a ledger, not the truth);
+  (`docs/05-gw2-lessons.md`, rule 2 - the table is a ledger, not the truth);
 - it is unique per session, so a session's newest reservation supersedes its previous one and the
   older session's release is a no-op (`docs/05-gw2-lessons.md`, rule 1).
 
@@ -112,7 +112,7 @@ constraint still guarantees nobody oversells.
 
    Choosing the world is a `SELECT` (same world preferred, then least loaded); the `UPDATE` is what
    makes the choice binding. Two simultaneous hops cannot both take the last slot.
-3. **No row returned means no room** — the travel is refused *now*, while the client is still in its
+3. **No row returned means no room** - the travel is refused *now*, while the client is still in its
    current map. Nothing is constructed, and the client is never told to move.
 4. On success the client is redirected: the destination world's `address` and `port` from the
    registry, a map token, and a player token the destination will validate
@@ -128,13 +128,13 @@ constraint still guarantees nobody oversells.
 **The newest connection wins, unconditionally.** The client drops its connection and reconnects on
 every travel, and its previous connection may not have been reaped yet, so this is the normal case
 rather than an edge case (`docs/05-gw2-lessons.md`, rule 1). When a player authenticates a new
-connection, any older session for the same account and character is killed — never the reverse. The
+connection, any older session for the same account and character is killed - never the reverse. The
 older session's lease release becomes a no-op, so it cannot free a lease the newer session now holds.
 
 Note what "killed" means, and does not: it is a live *connection* that is closed, not a database row
 that is spent. GWPS only ever reads its session table, and a login must leave the row resolvable, or a
 client that disconnects and reconnects would be refused (`docs/03-protocol.md`, section 4). The
-registry of live connections is in memory, in the auth service, and is lost on restart — which is
+registry of live connections is in memory, in the auth service, and is lost on restart - which is
 acceptable because a restart already means every player re-authenticates.
 
 **Durable identity is never physical.** Accounts, characters and parties are identified by GUID. A
@@ -143,15 +143,15 @@ keyed on one. This is what lets a world move to another machine without anything
 
 **The login credential is a pair, and both halves are checked.** The client presents a portal user id
 and a session id; the `session` table holds them in separate columns (`portal_user`, `id`) because the
-lookup is on both — GWPS's `Db_GetSession(user_id, session_id)` and the same shape here
+lookup is on both - GWPS's `Db_GetSession(user_id, session_id)` and the same shape here
 (`crates/asura-db/src/login.rs`). A session that is closed never resolves again, and a session without
 a portal user is not a session: `crates/asura-db/migrations/0003_portal_identity.sql` refuses to
-invent one. Conflating the two ids into one column is the failure this structure exists to prevent —
+invent one. Conflating the two ids into one column is the failure this structure exists to prevent -
 it would read fine until the day a stale or forged pair was accepted.
 
 ## What is authoritative
 
-Each piece of state is classified, and the classification decides how a restart is recovered — reload
+Each piece of state is classified, and the classification decides how a restart is recovered - reload
 from disk, or rebuild by asking (`docs/05-gw2-lessons.md`, rule 2):
 
 | state | authoritative home | after a restart |
@@ -163,7 +163,7 @@ from disk, or rebuild by asking (`docs/05-gw2-lessons.md`, rule 2):
 | registry rows | each world server, rewritten on startup | stale rows are reaped |
 
 The consequence to hold onto: **no design may require two components to restart together.** That is
-why leases are reconciled from the worlds instead of being treated as the database's own truth — a
+why leases are reconciled from the worlds instead of being treated as the database's own truth - a
 table that is *always* right only stays right if nothing restarts, and things restart.
 
 ## Deployment and draining
@@ -171,11 +171,11 @@ table that is *always* right only stays right if nothing restarts, and things re
 Builds run side by side: start the new one, advertise it, send it new players, and let the old one
 drain before it exits. The **newest build is the only one placement offers**: `find_worlds` takes
 the build of the most recently started fresh world hosting the map (`world.started_at`) and offers
-only that build — `build` and `started_at` are the deploy's comparison, which is why each build
+only that build - `build` and `started_at` are the deploy's comparison, which is why each build
 stamps a git description (`--build`; `ASURA_BUILD`; the compiled `build.rs` value). A full newest
 build refuses rather than falling back to an older one, and a draining world keeps the players it
 has and accepts nobody new (placement excludes it). A player keeps their world until the client
-reconnects — on their next travel — and that reconnect is placed on the newest build; nothing pushes
+reconnects - on their next travel - and that reconnect is placed on the newest build; nothing pushes
 a transfer and nothing kicks. A draining world leaves the registry itself once its last player has
 disconnected. Because the registry carries `build` and `draining`, no other component needs to know
 a deployment is happening (`docs/05-gw2-lessons.md`, rule 6); the supervisor's
@@ -186,15 +186,15 @@ the old one.
 
 - **The travel path retries nothing.** A timeout is a refusal: the client is in an outpost and must
   not be sent somewhere that may not answer.
-- Idempotent database work may retry on timeout only — 4 to 6 attempts, roughly 30 s apart. Any other
+- Idempotent database work may retry on timeout only - 4 to 6 attempts, roughly 30 s apart. Any other
   error is reported and abandoned; no exponential backoff with jitter.
 - Login may retry a little; the client's own reconnect loop is the outer retry.
 
 ## Observability
 
 The intended shape, not yet implemented: each world server and the auth service should expose a small
-fixed set of counters — instances, leases, players, refused travels, database queue depth, tick
-latency — and a **rate** form for anything cumulative, because a counter that resets on restart hides
+fixed set of counters - instances, leases, players, refused travels, database queue depth, tick
+latency - and a **rate** form for anything cumulative, because a counter that resets on restart hides
 the rate it is supposed to show (`docs/05-gw2-lessons.md`, rule 5). Nothing exports a counter today
 and nothing reads one. Counters are cheap and always on; aggregation is a separate task, not
 something a simulation thread does.
@@ -216,7 +216,7 @@ something a simulation thread does.
 
 ## Inside a world server
 
-- **One IO reactor** accepts and serves gameplay connections — the ones the front door relays from
+- **One IO reactor** accepts and serves gameplay connections - the ones the front door relays from
   the client (the client dials the auth address, and the auth service copies bytes to this world).
 - **A bounded pool of update threads with map affinity.** A hot map is always updated by the same
   thread, so simulation state needs no locking, and the pool size is configuration rather than a
@@ -238,7 +238,7 @@ something a simulation thread does.
 | stale registry row | the reaper marks the world offline and frees its leases; the auth service skips it |
 
 The asymmetry is deliberate: losing the auth service interrupts *entry*, losing a world interrupts
-*one map*, losing the database interrupts *everything* — which is why the database gets the
+*one map*, losing the database interrupts *everything* - which is why the database gets the
 operational attention (backups, a restore test, later a standby).
 
 ## Startup order
@@ -268,10 +268,10 @@ Measured from GWPS, per map instance, against what this structure changes:
 | OS threads | 1 per instance | bounded pool, constant with instance count |
 | database connections | 1 per instance | a small pool per world server |
 | `Gw.dat` index | private copy per instance (4.7 MB) | one memory-mapped copy per world server |
-| SQLite page cache | 2 MB per instance | gone — pooled PostgreSQL connections |
+| SQLite page cache | 2 MB per instance | gone - pooled PostgreSQL connections |
 
 Sizing: a world server holding 500 instances is roughly 2.5 GB. More worlds, more machines, same
-code — the client is told a real address, so nothing in the protocol changes when a world moves.
+code - the client is told a real address, so nothing in the protocol changes when a world moves.
 
 ## Deliberate non-goals
 

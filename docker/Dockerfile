@@ -18,7 +18,7 @@ RUN apt-get update \
 
 # The layout is the repository's own, on purpose: binaries at target/debug/<name>, the repository
 # root at /src. The supervisor resolves config, tools and the migration directory from the path it
-# was built with, and runs the services with the repository root as their working directory — so
+# was built with, and runs the services with the repository root as their working directory - so
 # config/services.toml works unchanged inside the container. The image IS the machine.
 WORKDIR /src
 COPY --from=build /src/target/release/asura-webgate      /src/target/debug/asura-webgate

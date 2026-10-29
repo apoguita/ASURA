@@ -1,7 +1,7 @@
 //! The game connection, as the **auth** service sees it: the client's second connection arrives here.
 //!
 //! This was measured, not assumed. A real client (build 39112) answered `AUTH_SMSG_GAME_SERVER_INFO`
-//! by opening its game connection to the address it was launched with — the auth service — even though
+//! by opening its game connection to the address it was launched with - the auth service - even though
 //! the message named another port. The reference never noticed, because its info message names the auth
 //! address too: its auth port receives *both* kinds of connection and hands the gameplay one to a game
 //! server over its control channel (`AuthSrv_DoPostHandshake`, `CtrlMsgId_TransferConnection`).
@@ -19,7 +19,7 @@
 //! Three things are worth stating because they are easy to get wrong:
 //!
 //! * the 64-byte version message is read here only to learn **which world** the client named, and then
-//!   forwarded byte for byte — the world decodes it again, and that decode is the authoritative one;
+//!   forwarded byte for byte - the world decodes it again, and that decode is the authoritative one;
 //! * the router dials the world's **registered** address, which is the address the world publishes for
 //!   clients, not the address it binds (a server behind a NAT listens on one and is reachable at the
 //!   other, exactly as a realmlist works);

@@ -1,8 +1,8 @@
 //! Talk to a running auth service the way the game does, and print what comes back.
 //!
 //! This is the "does it answer?" check that a person can run before pointing the real client at the
-//! service. It uses the reference client in `asura_protocol::client::peer` — the same one the
-//! end-to-end tests use — so it needs no game, no patch and no captures:
+//! service. It uses the reference client in `asura_protocol::client::peer` - the same one the
+//! end-to-end tests use - so it needs no game, no patch and no captures:
 //!
 //! ```text
 //! cargo run -p asura-auth --example login -- 127.0.0.1:6112 <portal-user-uuid> <session-uuid>

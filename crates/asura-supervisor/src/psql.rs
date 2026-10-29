@@ -2,7 +2,7 @@
 //!
 //! `seed` and `schema` are data plus `psql`, so they are the same on Windows and Linux: the SQL
 //! files are the repository's own (`tools/seed-dev.sql`, `tools/map-config.sql`,
-//! `crates/asura-db/migrations/*.sql`), and psql is found the same way — `ASURA_PSQL` when set,
+//! `crates/asura-db/migrations/*.sql`), and psql is found the same way - `ASURA_PSQL` when set,
 //! then PATH, then the usual Windows install.
 
 use std::path::{Path, PathBuf};

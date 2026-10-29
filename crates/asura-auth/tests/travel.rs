@@ -4,13 +4,13 @@
 //! What is proved here, in the order the assertions appear:
 //!
 //! * a travel request to a map a fresh world publishes is answered with `AUTH_SMSG_GAME_SERVER_INFO`
-//!   (42 bytes) and then the success response — the reference's pair, in that order;
+//!   (42 bytes) and then the success response - the reference's pair, in that order;
 //! * the info message names the world's address and port in the reference's own encoding, the map the
 //!   client asked for, and a player token that is not the same every time;
 //! * the travel *took a lease*, so a second client cannot be given more slots than the world published;
 //! * a map nobody publishes is refused with status 2 and no info message;
-//! * a world that is registered but not listening is refused too — the one rule: never send a client
-//!   to a port nothing answers on — and the refusal leaves the counter untouched.
+//! * a world that is registered but not listening is refused too - the one rule: never send a client
+//!   to a port nothing answers on - and the refusal leaves the counter untouched.
 //!
 //! With no database configured, each test prints a skip line and returns.
 

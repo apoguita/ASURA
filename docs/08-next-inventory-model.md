@@ -1,7 +1,7 @@
 # The inventory model, and what measuring it changed
 
 `docs/08` used to be a plan: three tables, an item block built from rows, `DROP_ITEM`, and a position
-that survives a logout. This is what of it is now true, and — more usefully — the four places where the
+that survives a logout. This is what of it is now true, and - more usefully - the four places where the
 reference disagreed with the plan. Two of them are in `GmInventory.c` and were settled by reading it; one
 is in `msgpack.c` and was settled by counting the bytes in the capture; and one is only visible in the
 capture's ordering.
@@ -19,7 +19,7 @@ capture's ordering.
 | the position saved on the way out and read on the way in | `asura_db::game::record_position` / `position`, `Standing::resume` |
 
 **The proof that this is the reference's inventory and not an approximation of it**: the block built from
-six bag rows and nine item rows is compared to the captured messages — every message, in order, byte for
+six bag rows and nine item rows is compared to the captured messages - every message, in order, byte for
 byte (`the_item_block_from_rows_is_the_capture_byte_for_byte`). The inventory did not go from "replayed" to
 "rebuilt and close enough"; it went from replayed to rebuilt and *identical*, and the test says so on every
 run.
@@ -32,11 +32,11 @@ in the status document, rather than a guess someone would have to rediscover.
 1. **A drop does not take the item out of the bag.** `docs/08` said "find the item, remove it from its
    slot, create the world item, broadcast". `GameSrv_HandleDropItem` finds the item, checks the count,
    creates an agent for it at the player's position plus (30, 30) and returns. It never touches the bag,
-   never frees the item id, and never sends `ITEM_REMOVE` — so a dropped cupcake is a second cupcake
+   never frees the item id, and never sends `ITEM_REMOVE` - so a dropped cupcake is a second cupcake
    standing on the ground while the first stays in the backpack. The function is plainly unfinished (its
    partial-stack branch is a `TODO` in its own comment).
-   **This port finishes it instead of copying it** — `crates/asura-db/src/inventory.rs`,
-   `take_from_stack` — because a *measured* live session settled the argument: the client sends
+   **This port finishes it instead of copying it** - `crates/asura-db/src/inventory.rs`,
+   `take_from_stack` - because a *measured* live session settled the argument: the client sends
    `DROP_ITEM` with `count = 1` for a stack of a hundred, so the reference's rule (`count` must equal the
    whole stack) means the reference's own default cupcake cannot be dropped **at all**, and a live client
    asked three times and got nothing. Copying that is copying a dead end.
@@ -47,11 +47,11 @@ in the status document, rather than a guess someone would have to rediscover.
 3. **`CREATE_NAMED_ITEM`'s modifier count is one byte, not two.** Every other counted field in both
    message families is a `u16`; `TYPE_NESTED_STRUCT` in the reference's own packer writes a `u8`
    (`msgpack.c`). That is why the cupcake's message is 36 bytes and `sizeof(GameSrv_CreateNamedItem)` is
-   425 — the same trap `docs/03-protocol.md` records for the auth messages, one field further in.
+   425 - the same trap `docs/03-protocol.md` records for the auth messages, one field further in.
 4. **The bags go out in model order, not id order.** The capture's bags are ids 1, 2, 6, 3, 4, 5, because
    the reference walks its `GmBagArray` (backpack, material storage, unclaimed, storage, equipped) and the
    ids were handed out in a different order. Sorting the rows by `bag_id` produces a stream that differs
-   from the reference's in message order alone — which `tools/compare-load.py` would have reported as an
+   from the reference's in message order alone - which `tools/compare-load.py` would have reported as an
    ordering fault in a block whose bytes were all correct.
 
 **And two things that are deliberately not the reference's**, both now implemented and both recorded in
@@ -59,7 +59,7 @@ in the status document, rather than a guess someone would have to rediscover.
 
 - **moving an item and wearing one.** `GAME_CMSG_ITEM_MOVE` (`0x8072`, measured: `{item_id u32, bag_id
   u16, slot u8}`, the inverse of the `ITEM_MOVE_TO_LOCATION` we send) and `GAME_CMSG_EQUIP_ITEM`
-  (`0x8030`) are messages the reference does not dispatch at all — its whole client-message list is 18
+  (`0x8030`) are messages the reference does not dispatch at all - its whole client-message list is 18
   cases and none of them touch an item. So this behaviour is this project's: a move is checked against
   the bag, the slot and its occupant, and a refused move is answered by telling the client where the item
   really is, because the client moves it in its own model before it asks. Wearing something moves it into
@@ -73,16 +73,16 @@ in the status document, rather than a guess someone would have to rediscover.
 
 ## The traps this left behind
 
-- **A message nobody has measured will crash a client, and three did — one per guess.** `ITEM_REMOVE`
+- **A message nobody has measured will crash a client, and three did - one per guess.** `ITEM_REMOVE`
   (`0x014D`) and the item re-creation crashed it; the ground agent (`0x0020` with `AgentType_Item`)
   crashed it; `!hello` crashed it. None of `0x014D`, the item-agent form of `0x0020`, `0x005D`, `0x005E`
   or `0x0061` appears in the capture, and the reference's own comments predicted the chat one exactly
-  (*"sending chat crashed the client twice … every message we send is a guess"*). What survived is what a
+  (*"sending chat crashed the client twice ... every message we send is a guess"*). What survived is what a
   capture or a client measured: a drop that sends **nothing** (the client does its own subtraction, and
   the stack went down in a live session with no message at all), and chat that sends nothing unless
   `ASURA_CHAT=1`. **The rule, in one line: a message that is in no capture waits for one.**
 - **The move's confirmation is still open, and both answers were reported.** With the echo (`0x013E`,
-  which *is* in the capture — eight times, in the inventory block) a live client moved the item; with
+  which *is* in the capture - eight times, in the inventory block) a live client moved the item; with
   silence, the item sprang back and the move did nothing. So the echo is the default. The same session
   also reported a clone, but that build was re-creating items on a drop, so the clone's cause is not
   settled: `ASURA_ITEM_MOVE=silent` and `ASURA_DROP=none` separate them in two runs.
@@ -93,23 +93,23 @@ in the status document, rather than a guess someone would have to rediscover.
   `GameSrv_AllocateItem` and a client only needs them to be consistent within a session. ASURA writes them
   from `item_id_seq`, so the seed's capture ids (1..9) are renumbered as they are written and two
   characters never share one. A fresh database seeds the first character with 1..9 and therefore
-  reproduces the capture exactly — but no test depends on that, because a test that depends on a sequence
+  reproduces the capture exactly - but no test depends on that, because a test that depends on a sequence
   is a test that fails on the second character.
 - **A bag's own item is a row with no slot.** The reference's `items` table is keyed by
   `(account_id, char_id, bag_model_id, slot)`, so it cannot store one at all; it rebuilds the backpack
   from a struct compiled into the server (`g_Backpack`). Here it is an ordinary item row with `bag_id` and
-  `slot` NULL, and `bag.assoc_item_id` names it — which is why the schema has a CHECK that both are NULL
+  `slot` NULL, and `bag.assoc_item_id` names it - which is why the schema has a CHECK that both are NULL
   or neither is, and a *partial* unique index on the slot.
 - **`GAME_CMSG_POSITION_UPDATE` is 26 bytes, not 12.** `{position, plane, unk0, unk1}`; the world reads
   the first three fields and the framer still wants all 26. A test that writes 12 bytes leaves the
   connection waiting for the rest of a message it never finishes, and looks exactly like a hang.
 - **The spawn answer is where the agent is, not where the map says to arrive.** `GameSrv_HandleInstance
   LoadRequestSpawn` sends `agent->position`, so a client that asks after it has walked gets the walked
-  position back — and it is the same number `WORLD_CREATE_AGENT` carries. That was invisible while the
+  position back - and it is the same number `WORLD_CREATE_AGENT` carries. That was invisible while the
   server kept no position at all; it is the first thing that makes a stored position observable.
 - **There is no "this stack changed" message.** Neither family has one, so a stack that loses something
   is removed from the client's model (`ITEM_REMOVE`, `0x014D`) and re-created at what is left, in the slot
-  it was in. `GameSrv_SendBagItems` is the same rebuild — create, then move — which is where the pattern
+  it was in. `GameSrv_SendBagItems` is the same rebuild - create, then move - which is where the pattern
   comes from.
 - **The client moves an item in its own model before it asks.** A refused `ITEM_MOVE` that answers with
   silence leaves the two sides disagreeing until the next inventory reload, so a refusal sends
@@ -119,12 +119,12 @@ in the status document, rather than a guess someone would have to rediscover.
 
 The four `CHAR_CREATION_*` handlers are what is left of the reference's dispatch (`docs/07-status.md`), and
 they need the two things `docs/08` named: a character-creation instance, and the default-equipment table
-that `GetDefaultEquipments` answers with. The equipment half is now cheap — an item row is a row, and the
-table that `GmDefaultArmors.c` carries is 2820 lines of it — so the instance type is what is actually
+that `GetDefaultEquipments` answers with. The equipment half is now cheap - an item row is a row, and the
+table that `GmDefaultArmors.c` carries is 2820 lines of it - so the instance type is what is actually
 missing.
 
 What the inventory still cannot do, in the order a player would notice it: **pick a dropped item back up**
-(`GAME_CMSG_INTERACT_ITEM`, `0x803F` — the reference has no handler, so this is a measurement away: drop
+(`GAME_CMSG_INTERACT_ITEM`, `0x803F` - the reference has no handler, so this is a measurement away: drop
 one, interact with one, read the header out of the trace); split a stack by hand
 (`GAME_CMSG_ITEM_SPLIT_STACK`, `0x8075`); buy and sell (`GAME_CMSG_TRANSACT_ITEMS`, `0x804D`); and
 `UNEQUIP_ITEM` (`0x804F`), whose 6-byte layout carries no item id and has never been seen from a client.

@@ -2,13 +2,13 @@
 //!
 //! A map's path graph is derived data: `map_data::PathStaticData` is imported from one `Gw.dat`
 //! blob, and after that the archive is only a *source*. This module is the portable form of that
-//! data — a compact, versioned, little-endian file that `asura-world --path-graphs` can load at
+//! data - a compact, versioned, little-endian file that `asura-world --path-graphs` can load at
 //! startup so a server machine needs a few megabytes instead of a 3.6 GB client archive.
 //!
 //! It deliberately carries **exactly** what the reference's A* consumes (`GmPaths.c`): every plane,
 //! its trapezoids with their neighbour and portal ids, its x/y split nodes and sink nodes, and its
-//! portals with the paired portal on the other plane. A lossy form — the community's `.pmap` files,
-//! for instance — keeps trapezoids and adjacency but drops the portals and the node tree, which the
+//! portals with the paired portal on the other plane. A lossy form - the community's `.pmap` files,
+//! for instance - keeps trapezoids and adjacency but drops the portals and the node tree, which the
 //! finder needs; that is why this is our own format and not a pmap reader.
 //!
 //! ```text
@@ -49,7 +49,7 @@ pub const VERSION: u32 = 1;
 /// One dumped graph: the map it belongs to, the archive blob it came from, and the data.
 pub struct DumpedGraph {
     /// The map id that was dumped, when known. `-1` for a whole-archive dump, where only the blob id
-    /// is known — the world resolves the map id from its own catalogue by [`Self::map_file_id`].
+    /// is known - the world resolves the map id from its own catalogue by [`Self::map_file_id`].
     pub map_id: i32,
     /// The `Gw.dat` blob id: the real key of a graph, because several maps share one blob
     /// (146/148, 160/163, 161/165 and 162/166 in the reference's catalogue all do).

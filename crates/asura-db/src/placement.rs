@@ -2,7 +2,7 @@
 //!
 //! Every statement that mutates `world`, `world_pool` or `lease` lives here. Callers (the auth
 //! service, a world server, the fake-world harness) get functions whose names say what happens,
-//! never SQL strings — the rule this crate exists to enforce (`src/lib.rs`).
+//! never SQL strings - the rule this crate exists to enforce (`src/lib.rs`).
 //!
 //! AzerothCore parallel: `realmlist` registration, the atomic realm/pool update, and the
 //! `DatabaseWorkerPool`'s asynchronous write discipline. The shape is theirs; the vendor is
@@ -36,7 +36,7 @@ pub async fn connect(database_url: &str, max_connections: u32) -> sqlx::Result<P
 ///
 /// This is the startup half of the registry (`docs/02-architecture.md`, "The registry"). Registering
 /// is also the reset point after a restart: a world rebuilds its leases by asking the database, so
-/// the previous process's lease rows are cleared and its counter reset — one transaction, so a crash
+/// the previous process's lease rows are cleared and its counter reset - one transaction, so a crash
 /// halfway never leaves the ledger and the counter disagreeing.
 pub async fn register_world(
     pool: &PgPool,
@@ -105,7 +105,7 @@ pub async fn register_world(
     tx.commit().await
 }
 
-/// Publish pool capacity for **one** map a world serves — the on-demand half of [`register_world`].
+/// Publish pool capacity for **one** map a world serves - the on-demand half of [`register_world`].
 ///
 /// `register_world` resets `leased` because it is a restart: the world owns nothing yet. This does
 /// not touch `leased`, because a travel to the same map may already hold the seat and a capacity
@@ -427,10 +427,10 @@ pub async fn world_endpoint(
 /// * it runs the **newest build** hosting this map (S3): the rolling deploy's rule is that the
 ///   newest build serves new arrivals and reconnects, and the old build serves only the players
 ///   already inside it. "Newest" is the build of the most recently started fresh world hosting the
-///   map — draining or not, so once a newer build exists the older ones are never offered again,
+///   map - draining or not, so once a newer build exists the older ones are never offered again,
 ///   even if the newest is full or itself draining (a refusal, never a fallback). This also means a
 ///   restart of an old build cannot masquerade as new: the registry records `started_at` per start;
-/// * its counter says there is room. The count is a *hint* — only [`reserve`] can actually win a slot —
+/// * its counter says there is room. The count is a *hint* - only [`reserve`] can actually win a slot -
 ///   but offering a full world would make every travel a round trip that ends in a refusal.
 ///
 /// Several candidates come back, not one, because the caller has to *probe* the port: a world can be
@@ -557,7 +557,7 @@ pub async fn begin_transfer(
 /// * the token was already claimed (a replay),
 /// * the token is for another world.
 ///
-/// All three are the same answer to the client — this token is not yours — and no attempt is made to
+/// All three are the same answer to the client - this token is not yours - and no attempt is made to
 /// tell them apart on the wire.
 pub async fn claim_transfer(
     pool: &PgPool,

@@ -1,14 +1,14 @@
 //! A test client: the same protocol from the other end.
 //!
 //! This exists so the auth service can be tested without the game. It speaks what
-//! `docs/03-protocol.md` says a client speaks — the version message, the client seed, the ARC4
-//! scrambler, and the framed messages — so a bug in the server's ordering, framing or encryption
+//! `docs/03-protocol.md` says a client speaks - the version message, the client seed, the ARC4
+//! scrambler, and the framed messages - so a bug in the server's ordering, framing or encryption
 //! shows up as a failed assertion rather than as `007` in front of a player.
 //!
 //! **What it does not prove.** It computes the shared secret with the same
 //! [`super::handshake::modpow`] the server uses, because it knows the fixed private exponent. So it
-//! agrees with the server *by construction*: the Diffie–Hellman arithmetic itself is pinned
-//! separately, by the modpow padding test. What this does prove is everything around it — message
+//! agrees with the server *by construction*: the Diffie-Hellman arithmetic itself is pinned
+//! separately, by the modpow padding test. What this does prove is everything around it - message
 //! order, sizes, UTF-16 names, UUID byte order, the cipher offsets on both directions.
 //!
 //! It is a test client, not a production client: it does not retry, does not interpret more of the
@@ -146,7 +146,7 @@ impl ReferenceClient {
 
     /// Scramble bytes that are already in wire form.
     ///
-    /// Needed for the messages the table cannot size — the computer info (`0x8001`, variable length)
+    /// Needed for the messages the table cannot size - the computer info (`0x8001`, variable length)
     /// and anything pipelined behind it.
     pub fn seal_raw(&mut self, bytes: &mut [u8]) {
         let scrambler = self
@@ -161,7 +161,7 @@ impl ReferenceClient {
     /// carries the build number).
     ///
     /// The service answers the hash with `AUTH_SMSG_SESSION_INFO`, and the client waits for that before
-    /// it will send a login — so a client double that skips this is not faithful to the wire.
+    /// it will send a login - so a client double that skips this is not faithful to the wire.
     pub fn computer_info_preamble(&self, username: &str, pc_name: &str, build: u32) -> Vec<u8> {
         let mut bytes = Vec::new();
         // 0x8001: header, u16 count + UTF-16 units, u16 count + UTF-16 units.
@@ -244,7 +244,7 @@ impl ReferenceClient {
 
     /// Decrypt a chunk in place, without framing it.
     ///
-    /// For a caller that needs the raw byte stream rather than messages — when two servers disagree
+    /// For a caller that needs the raw byte stream rather than messages - when two servers disagree
     /// about where a message ends, the bytes are the only evidence.
     pub fn decrypt(&mut self, bytes: &mut [u8]) {
         let scrambler = self

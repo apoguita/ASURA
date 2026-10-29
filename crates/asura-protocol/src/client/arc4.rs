@@ -1,19 +1,19 @@
 //! ARC4, the stream cipher the client protocol scrambles everything with after the key exchange.
 //!
 //! **This is a port, not a design.** Source: GWPS `arc4.c` (30 lines: `arc4_setup`, `arc4_crypt`,
-//! `arc4_crypt_inplace`), which is textbook RC4 — the key schedule and the byte generator below are
+//! `arc4_crypt_inplace`), which is textbook RC4 - the key schedule and the byte generator below are
 //! the standard ones, and the known-answer tests pin that down against published vectors rather than
 //! against my reading of the C.
 //!
 //! RC4 is broken as a cipher, and nobody should use it for anything new. It is here because the
 //! client speaks it and there is no negotiating: `docs/03-protocol.md` section 3. That also means a
-//! *crate* would not help — the requirement is byte-exactness with one specific implementation, and
+//! *crate* would not help - the requirement is byte-exactness with one specific implementation, and
 //! the honest way to get that is to write the 20 lines and test them (`docs/adr/0009-crypto-
 //! primitives.md`).
 //!
 //! Two instances per connection, one per direction, keyed identically: GWPS copies the encryption
 //! context into the decryption one (`cipher_dec = cipher_enc` in `AuthSrv_DoPostHandshake`). They are
-//! independent *states*, so each direction has its own keystream offset — which is why [`Arc4`] is
+//! independent *states*, so each direction has its own keystream offset - which is why [`Arc4`] is
 //! `Clone` and why the handshake clones rather than shares.
 
 /// The RC4 keystream state: a 256-byte permutation and two indices.
@@ -84,7 +84,7 @@ impl Arc4 {
         }
     }
 
-    /// A decrypting or encrypting copy at the current position — what GWPS's `cipher_dec =
+    /// A decrypting or encrypting copy at the current position - what GWPS's `cipher_dec =
     /// cipher_enc` does.
     pub fn fork(&self) -> Self {
         self.clone()
@@ -94,8 +94,8 @@ impl Arc4 {
 impl Drop for Arc4 {
     /// Overwrite the state on drop.
     ///
-    /// Not load-bearing for correctness — a leaked RC4 state only exposes a dead connection's
-    /// keystream — but a login path should not scatter key material into freed memory, and this costs
+    /// Not load-bearing for correctness - a leaked RC4 state only exposes a dead connection's
+    /// keystream - but a login path should not scatter key material into freed memory, and this costs
     /// nothing. `write_volatile` keeps the writes from being optimised away.
     fn drop(&mut self) {
         for byte in self.m.iter_mut() {

@@ -8,12 +8,12 @@
 //!   the third of them;
 //! * each of the three things a client asks for is answered, and the item request's answer ends with
 //!   the download manifest, whose last message names the map;
-//! * the spawn point tells the client the map blob and where to stand ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the two numbers without which
+//! * the spawn point tells the client the map blob and where to stand -'- the two numbers without which
 //!   the loading screen never ends;
 //! * the players request ends with `INSTANCE_LOAD_FINISH`, which is what takes a client off the loading
 //!   screen;
 //! * the world keeps the clock running without being asked, and answers a ping;
-//! * a dropped item becomes an agent of its own, and Ã¢â‚¬â€ as in the reference Ã¢â‚¬â€ stays in its bag;
+//! * a dropped item becomes an agent of its own, and -'- as in the reference -'- stays in its bag;
 //! * a character that leaves standing somewhere comes back standing there, and the slot it took goes
 //!   back to the pool both times.
 //!
@@ -279,7 +279,7 @@ impl Harness {
 
     /// Do what the auth service does for one travel: take a slot, then write the pending transfer.
     ///
-    /// A second call is how a test gets a second session for the same character Ã¢â‚¬â€ the first transfer is
+    /// A second call is how a test gets a second session for the same character -'- the first transfer is
     /// claimed by the first connection and cannot be presented twice.
     async fn transfer(&self) -> u32 {
         placement::reserve(&self.pool, self.world_id, self.map_id, self.session)
@@ -305,7 +305,7 @@ impl Harness {
     ///
     /// The window is generous on purpose: leaving writes the character's position *and* releases the
     /// lease, and a whole test suite hammering one database can make two round trips take longer than a
-    /// couple of seconds Ã¢â‚¬â€ which produced a flake before this comment existed.
+    /// couple of seconds -'- which produced a flake before this comment existed.
     async fn slot_released(&self) -> bool {
         for _ in 0..100 {
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -2192,7 +2192,7 @@ async fn a_character_is_created_in_a_creation_instance() {
         .collect();
     assert!(!worn.is_empty(), "the profession's equipment was written");
     // And it is the *Ranger's* set, which is what the profession change asked for (campaign 1,
-    // profession 2) — not the Warrior the screen started with.
+    // profession 2) - not the Warrior the screen started with.
     let expected: Vec<i64> = asura_world::default_equipment::default_equipment(1, 2)
         .iter()
         .map(|spec| i64::from(spec.file_id))
@@ -2861,7 +2861,7 @@ async fn a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path() {
 /// A cancelled walk stops the server's own copy where it stands.
 ///
 /// `GAME_CMSG_CANCEL_MOVEMENT` (`0x8028`, header only) is what the client sends when it takes the walk
-/// back — the user clicking or walking away. The reference answers with
+/// back - the user clicking or walking away. The reference answers with
 /// `GameSrv_CancelAgentMovement` (destination = position, speed = 0) and a stop broadcast
 /// (`GmAgent.c:533-544`). The cancel is the load-bearing half: without it this server kept advancing
 /// the agent along the abandoned path on every tick, and the next click was answered from a position

@@ -6,7 +6,7 @@
 //!
 //! Two of those facts are a character's position, and this is where it is read and written: the world
 //! saves it when a player leaves and starts from it when the player comes back. **The reference does not
-//! do this** — it re-spawns every character at its map's spawn point on every session, and keeps only
+//! do this** - it re-spawns every character at its map's spawn point on every session, and keeps only
 //! the map a character was last in (`characters.last_outpost`). ASURA keeps the coordinate because the
 //! whole of placement exists to answer "who is where", and a player who logs back in where it logged out
 //! is the smallest thing that answer is worth. The seed leaves the column NULL, so a character that has
@@ -31,7 +31,7 @@ pub struct SpawnMap {
     /// The plane inside the map blob, not a height: 0 for every pre-Searing map measured so far.
     pub spawn_plane: i16,
     /// What to call it, so `/maps` and the log can name a map instead of printing its number. Empty when
-    /// the database has no name for it — a worse answer, not a broken one.
+    /// the database has no name for it - a worse answer, not a broken one.
     pub name: String,
 }
 
@@ -67,7 +67,7 @@ pub async fn spawn_map(pool: &PgPool, map_id: i32) -> sqlx::Result<Option<SpawnM
 ///
 /// What a world hosts when it is not told otherwise: the reference pre-spawns one server per configured
 /// map, so a freshly started world here serves the same set. `--maps` narrows it on purpose (a soak, a
-/// single-map test), never by default — a world hosting one map answers `/tp` with "not hosted" for the
+/// single-map test), never by default - a world hosting one map answers `/tp` with "not hosted" for the
 /// rest, and `/maps` prints one alias.
 pub async fn configured_map_ids(pool: &PgPool) -> sqlx::Result<Vec<i32>> {
     sqlx::query_scalar("SELECT map_id FROM map_config ORDER BY map_id")
@@ -89,7 +89,7 @@ pub async fn character_name(pool: &PgPool, character: Uuid) -> sqlx::Result<Opti
 /// reference's `sex`/`height`/`skin_color`/`hair_color`/`face_style`/`hair_style`/`race`, packed by
 /// `Appearance`), `profession` and `unlocked_professions` ride the two profession messages, and `gold` is
 /// `UPDATE_GOLD_STORAGE`. Before this existed the load block sent the reference's *default* character to
-/// everyone — a real liberty, recorded in `docs/09-parity-audit.md` §9.
+/// everyone - a real liberty, recorded in `docs/09-parity-audit.md` #9.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Traits {
     pub appearance: u32,

@@ -1,29 +1,29 @@
 # The client patcher
 
 Nothing in this project runs without a patched Guild Wars client. The stock `Gw.exe` carries
-ArenaNet's Diffie–Hellman parameters, a game-window mutex and ArenaNet hostnames; this script
+ArenaNet's Diffie-Hellman parameters, a game-window mutex and ArenaNet hostnames; this script
 rewrites them so the client can talk to a server we control. It is the first step of every
 client-facing test, and it lives here as first-class tooling, not as a buried utility.
 
-- **`patch-gw.py`** — the patcher. Reads a keys file, writes `Gw.custom.exe`.
-- **`hosts-redirect.py`** — the optional companion: puts the client's ArenaNet hostnames into the
+- **`patch-gw.py`** - the patcher. Reads a keys file, writes `Gw.custom.exe`.
+- **`hosts-redirect.py`** - the optional companion: puts the client's ArenaNet hostnames into the
   machine's hosts file (or takes them back out), so the patch and the runtime lookups agree.
-- **`keys.txt`** — the DH parameters that go into the client. **They are the server's parameters**:
+- **`keys.txt`** - the DH parameters that go into the client. **They are the server's parameters**:
   `prime` and `server_private` are the two constants in
   `crates/asura-protocol/src/client/handshake.rs` (`PRIME_MODULUS_DECIMAL`,
   `SERVER_PRIVATE_DECIMAL`), so a client patched with this file and this server agree on the
-  handshake. If the server's constants ever change, this file changes with them — they are one pair.
+  handshake. If the server's constants ever change, this file changes with them - they are one pair.
 
 ## What the patch does
 
 | patch | why |
 |---|---|
-| Diffie–Hellman constants in `.text`/`.rdata` | the client and the server must run the same key exchange; the client carries a copy of the parameters |
-| `CreateMutexA` code and mutex name (`AN-Mutex-Window` → `AN-Futex`) | without it the client refuses to start when another copy is running, which kills every two-client test |
+| Diffie-Hellman constants in `.text`/`.rdata` | the client and the server must run the same key exchange; the client carries a copy of the parameters |
+| `CreateMutexA` code and mutex name (`AN-Mutex-Window` -> `AN-Futex`) | without it the client refuses to start when another copy is running, which kills every two-client test |
 | the six ArenaNet hostnames | on by default. They are repointed at `127.0.0.1` so the client stops resolving them to ArenaNet |
 | `File1.ArenaNetworks.com` (the file server) | optional. Off by default: the client keeps using it live. On with `--file-server`: repointed too, and the hosts redirect sends it to this machine |
 
-What it does **not** touch: the auth address — the client takes that from its command line
+What it does **not** touch: the auth address - the client takes that from its command line
 (`Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1`). It does not decompile anything; it finds byte
 signatures and overwrites the bytes in place.
 
@@ -46,7 +46,7 @@ pip install pefile
 python client-patcher/patch-gw.py "F:\GW\GW1\Gw.exe" client-patcher/keys.txt --output "F:\GW\GW1\Gw.custom.exe"
 ```
 
-Linux (same script, same output — patch a copy of the game's `Gw.exe`, then copy `Gw.custom.exe` to
+Linux (same script, same output - patch a copy of the game's `Gw.exe`, then copy `Gw.custom.exe` to
 the Windows rig):
 
 ```bash
@@ -59,7 +59,7 @@ client side of the portal login: it asks the web gate on `:6601` who the player 
 connection sends `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN`. Its source is the GWPS repository's
 `portal/portal.c` (built with the client rig's toolchain); this project consumes it, it does not
 rebuild it. Without it the client opens the auth connection, does the key exchange, sends its
-preamble and closes — which looks exactly like "cannot connect" while the server is running.
+preamble and closes - which looks exactly like "cannot connect" while the server is running.
 
 ## Launch
 
@@ -68,7 +68,7 @@ F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1
 ```
 
 Log in as one of the seeded accounts (`user1@example.com`, `user2@example.com`,
-`user3@example.com`; the web gate does not check the password — `docs/19-running.md`).
+`user3@example.com`; the web gate does not check the password - `docs/19-running.md`).
 
 Success is the client reaching the character list and entering an outpost. If it fails, the verdict
 is the auth service's trace: set `ASURA_TRACE=1` before starting the stack and read the log

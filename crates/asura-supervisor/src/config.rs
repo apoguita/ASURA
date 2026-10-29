@@ -5,7 +5,7 @@
 //! change. TOML, because it is commentable, diffable, and needs no tooling to read.
 //!
 //! The database is *not* in this file. It is checked and waited for, never started (a Windows
-//! service on Windows, systemd on Linux — "managed elsewhere"); its URL comes from `.env`
+//! service on Windows, systemd on Linux - "managed elsewhere"); its URL comes from `.env`
 //! (`ASURA_DATABASE_URL`), the same place every other program reads it.
 
 use std::collections::{BTreeMap, HashSet};

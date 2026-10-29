@@ -12,7 +12,7 @@
 //!   and no further. Between two reports 2 seconds apart at 288 units a second that is a generous
 //!   budget; a report after a five-minute stall is not a teleport, it is a client that resumed;
 //! * an out-of-budget report is not dropped. The agent is moved as far along the reported direction as
-//!   the budget allows — dropping it leaves the two views further apart than accepting part of it;
+//!   the budget allows - dropping it leaves the two views further apart than accepting part of it;
 //! * a plane change is allowed only when it is short (stairs, a small portal);
 //! * a correction after a cancelled move is accepted only within 100 units and only on the same plane.
 //!
@@ -28,6 +28,32 @@
 use std::time::{Duration, Instant};
 
 use crate::pathfind::{Pos, Waypoint};
+
+/// The server's `Agent` - Py4GW_Stealth's `agent.py`, same member names where this server
+/// answers them.
+///
+/// A member takes the agent (or the connection's agent table) instead of an `agent_id` looked up
+/// in a process-wide client: the state here is [`AgentState`] and [`Agents`].
+#[allow(non_snake_case)]
+pub struct Agent;
+
+#[allow(non_snake_case)]
+impl Agent {
+    /// `Agent.IsValid()`: whether the connection's agent table holds that id.
+    pub fn IsValid(agents: &Agents, agent_id: u32) -> bool {
+        agents.player.agent_id == agent_id
+    }
+
+    /// `Agent.GetXY()`: the agent's position, as the server last believed it.
+    pub fn GetXY(agent: &AgentState) -> (f32, f32) {
+        agent.position
+    }
+
+    /// `Agent.GetZPlane()`: the plane the agent stands on.
+    pub fn GetZPlane(agent: &AgentState) -> u16 {
+        agent.plane
+    }
+}
 
 /// The reference's `POSITION_UPDATE_TOLERANCE`: how far a client may be from where the server thought,
 /// before distance is even considered.
@@ -56,13 +82,13 @@ pub enum Adopted {
 ///
 /// The reference allocates agent ids from a per-server table (`GmIdAllocate`) and frees them when the
 /// agent goes away; a dropped item's agent is never freed, because there is nothing in the reference that
-/// picks an item up. With one player and a handful of dropped items the table is a counter — but the ids
+/// picks an item up. With one player and a handful of dropped items the table is a counter - but the ids
 /// still have to be distinct, because a client told that two agents share an id draws one of them.
 #[derive(Debug, Clone)]
 pub struct Agents {
     /// The character this connection drives.
     pub player: AgentState,
-    next_id: u32,
+    pub next_id: u32,
 }
 
 impl Agents {
@@ -90,9 +116,9 @@ pub struct AgentState {
     pub position: (f32, f32),
     pub plane: u16,
     /// The reference's `last_position_update`, in milliseconds since the connection started.
-    last_report: Option<Instant>,
+    pub last_report: Option<Instant>,
     /// The agent's walking speed, which is what the budget is computed from.
-    speed_base: f32,
+    pub speed_base: f32,
     /// The walk in progress, if any (`GmAgent.destination`, `.direction`, `.speed`, `.waypoints`,
     /// `.waypoint_idx`).
     pub motion: Motion,
@@ -157,7 +183,7 @@ impl AgentState {
     /// and reloaded on the next visit. This keeps the direction it had instead, which makes such a walk a
     /// no-op that the arrival test below clears on the next tick. That is a deliberate difference, and
     /// the only one in this file.
-    fn set_destination(&mut self, destination: Pos) {
+    pub fn set_destination(&mut self, destination: Pos) {
         self.motion.speed = self.speed_base;
         self.motion.destination = destination;
         let dx = destination.x - self.position.0;
@@ -312,29 +338,529 @@ impl AgentState {
             .map(|last| now.saturating_duration_since(last))
     }
 
-    fn distance_to(&self, other: (f32, f32)) -> f32 {
+    pub fn distance_to(&self, other: (f32, f32)) -> f32 {
         distance_between(self.position, other)
     }
 }
 
 /// `Vec2f_Dist2`: the real square root, which is what the reference's movement uses (its *path* finder
 /// uses the table-driven one, and that is `pathfind::path_sqrt`).
-fn distance_between(left: (f32, f32), right: (f32, f32)) -> f32 {
+pub fn distance_between(left: (f32, f32), right: (f32, f32)) -> f32 {
     let dx = right.0 - left.0;
     let dy = right.1 - left.1;
     ((dx * dx) + (dy * dy)).sqrt()
+}
+
+use crate::*;
+
+/// `AgentProperty_Value64` (`GmAgentProperties.h`): the third property the creation path sends, always 0.
+pub const AGENT_PROPERTY_VALUE64: u32 = 64;
+
+/// Where a character stands as it enters a map.
+///
+/// Two sources, and which one applies is the whole of the persistence rule: the position the character
+/// was saved at when it last left **if it was saved in this map**, and otherwise the map's own spawn
+/// point. A character that has never been played has no saved position, and one that was saved in a
+/// different map is arriving here for the first time (`asura_db::game::position`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Standing {
+    pub position: (f32, f32),
+    pub plane: u16,
+}
+
+impl Standing {
+    /// The map's own spawn point: where the map row says a character arrives.
+    pub fn from_map(map: &MapEntry) -> Standing {
+        Standing {
+            position: map.spawn,
+            plane: map.spawn_plane,
+        }
+    }
+
+    /// This character's standing, from what the database remembers about it.
+    ///
+    /// The saved position is used only when it is a position *in this map*: a character saved in another
+    /// map has no coordinate here, and using one would put it somewhere the map's geometry does not
+    /// contain. `None` is a character that has never been saved, which is every character's first visit.
+    pub fn resume(map: &MapEntry, saved: Option<db_game::Position>) -> Standing {
+        match saved {
+            Some(saved) if saved.map_id == map.map_id => Standing {
+                position: (saved.x, saved.y),
+                plane: saved.plane.max(0) as u16,
+            },
+            _ => Standing::from_map(map),
+        }
+    }
+}
+
+/// What the finder said about a walk.
+#[derive(Debug, Clone)]
+pub enum Walk {
+    /// A path, in the reference's reduced form. It may hold a single waypoint naming the destination.
+    Found(Vec<pathfind::Waypoint>),
+    /// The finder ran and refused: the destination is not reachable from where the agent stands.
+    NoPath,
+    /// This world has no graph for the map, so nothing can be said about reachability. That happens when
+    /// the map's blob could not be imported from `Gw.dat` -- a server whose archive is missing or older
+    /// than the catalogue refuses walks rather than inventing them.
+    NoGraph,
+}
+
+/// Counters the movement trace keeps for its session summary: what the client asked for, what the
+/// server decided about each report, and every point where the agent's plane changed - which is what
+/// a client shows as a terrain jump.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct MoveStats {
+    pub walk_requests: u32,
+    pub reports: u32,
+    pub accepted: u32,
+    pub clamped: u32,
+    pub refused: u32,
+    pub plane_changes: u32,
+    pub ticks: u32,
+    /// The largest gap seen between a reported position and the server's own, before adoption.
+    pub max_drift: f32,
+}
+
+/// Whether the movement trace is on (`ASURA_MOVE_TRACE=1`; set it in the shell before `start`).
+///
+/// Movement is the one part of the wire a capture cannot diagnose after the fact: drift and terrain
+/// jumps are a sequence of requests, answers and ticks, and the question is always *what did the
+/// server think the agent's position and plane were* at each step. This prints that sequence - every
+/// move request with its parsed destination, the path the finder produced (each waypoint's position,
+/// plane and trapezoid), the echoed waypoint, every tick that crosses one, and every position report
+/// with the budget decision. It prints no packet log, so a session stays readable.
+pub fn move_trace_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("ASURA_MOVE_TRACE").ok().as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        )
+    })
+}
+
+/// How far apart the live servers hand out destinations: **145 units**, measured from
+/// `recordings/client/feature/movement/movement-sniff.log`.
+///
+/// The capture's 104 destination announcements for the player agent are spaced a median 0.51 s apart and
+/// 145-158 units apart, i.e. a copy walking at the character's own 288 u/s and re-announcing the next
+/// point about every half second. That cadence, rather than the corner of a trapezoid, is what keeps the
+/// client and the server's copy together: announcing only at corners (1,000 units apart in the session
+/// that drifted) gives a client that rounds a wall or is slowed seconds to drift, and the next correction
+/// is the ~300-unit snap. The reference's own path is untouched; the points added between its corners lie
+/// on the same straight segment.
+pub const LIVE_CADENCE_STEP: f32 = 145.0;
+
+/// The announcement step in units: [`LIVE_CADENCE_STEP`], or `ASURA_ANNOUNCE_STEP` when set, for a
+/// session that wants to compare cadences without a rebuild.
+pub fn live_cadence_step() -> f32 {
+    std::env::var("ASURA_ANNOUNCE_STEP")
+        .ok()
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|step| *step >= 1.0)
+        .unwrap_or(LIVE_CADENCE_STEP)
+}
+
+/// Sample a walk so no two points are farther apart than `step`, keeping every point the path finder
+/// produced and adding the intermediate ones on the same straight segment.
+///
+/// The added points carry the plane the segment **starts** on, and only the path finder's own point
+/// carries its plane. That is the reference's own stamping: a step before a portal is walked on the plane
+/// being traversed and only the crossing is stamped with the plane it enters (`GmPaths.c:897-900`), so a
+/// plane change is announced once, at the corner, exactly as it is without sampling. Sampling it with the
+/// corner's plane instead told the client to change plane every 145 units, which is worse than not
+/// sampling at all.
+pub fn densify(
+    waypoints: Vec<pathfind::Waypoint>,
+    from: pathfind::Pos,
+    step: f32,
+) -> Vec<pathfind::Waypoint> {
+    if waypoints.is_empty() || step <= 0.0 {
+        return waypoints;
+    }
+    let mut dense = Vec::with_capacity(waypoints.len() * 4);
+    let mut at = from;
+    for waypoint in waypoints {
+        let dx = waypoint.pos.x - at.x;
+        let dy = waypoint.pos.y - at.y;
+        let distance = ((dx * dx) + (dy * dy)).sqrt();
+        let pieces = (distance / step).ceil();
+        let pieces = if pieces.is_finite() && pieces > 1.0 {
+            pieces as usize
+        } else {
+            1
+        };
+        for piece in 1..pieces {
+            let fraction = piece as f32 / pieces as f32;
+            dense.push(pathfind::Waypoint {
+                pos: pathfind::Pos {
+                    x: at.x + dx * fraction,
+                    y: at.y + dy * fraction,
+                    plane: at.plane,
+                },
+                trap_id: waypoint.trap_id,
+            });
+        }
+        dense.push(waypoint);
+        at = waypoint.pos;
+    }
+    dense
+}
+
+/// A path as the trace prints it: the first few waypoints with their planes and trapezoids.
+pub fn waypoints_preview(waypoints: &[pathfind::Waypoint]) -> String {
+    let shown: Vec<String> = waypoints
+        .iter()
+        .take(10)
+        .map(|waypoint| {
+            format!(
+                "(x={:.1}, y={:.1}, plane={}, trap={})",
+                waypoint.pos.x, waypoint.pos.y, waypoint.pos.plane, waypoint.trap_id
+            )
+        })
+        .collect();
+    let more = if waypoints.len() > 10 {
+        format!(" ... {} more", waypoints.len() - 10)
+    } else {
+        String::new()
+    };
+    format!("[{}]{}", shown.join(" "), more)
+}
+
+/// The client asks to walk somewhere (`GameSrv_HandleMoveToCoord`, `GmAgent.c:371-398`).
+///
+/// The reference asks its path finder for the walk and then answers with **the first waypoint of
+/// its own path**, not with the client's destination: the client predicts a straight line, and a
+/// straight line through a wall is exactly what this message corrects. When the finder refuses, the
+/// reference sends no refusal of its own -- it cancels the walk and broadcasts where the agent
+/// really is, which is what makes the client snap back.
+pub async fn handle_move_to_coord(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    frame: &Frame,
+    world: &World,
+    player: &mut Player,
+    trace: bool,
+) -> Result<bool, GameError> {
+    if frame.body.len() < 12 {
+        return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
+    }
+    let destination = (
+        f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
+        f32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]),
+    );
+    let plane =
+        u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]]) as u16;
+    let agent_id = player.agents.player.agent_id;
+    let from = player.agents.player.here();
+    let to = pathfind::Pos {
+        x: destination.0,
+        y: destination.1,
+        plane,
+    };
+    let walk_active = 0.0 < player.agents.player.motion.speed;
+    if move_trace_on() {
+        player.move_stats.walk_requests += 1;
+        eprintln!(
+            "move[pathfind] agent {agent_id} asked to walk to (x={:.1}, y={:.1}, plane={plane}) \
+             while the server thinks it stands at (x={:.1}, y={:.1}, plane={}){} \
+             [0x803E, {} bytes]",
+            destination.0,
+            destination.1,
+            from.x,
+            from.y,
+            from.plane,
+            if walk_active {
+                " - a server-side walk was still running (client has walked since its last report)"
+            } else {
+                ""
+            },
+            frame.body.len() + 2
+        );
+    }
+
+    let walked = world.graphs.walk(player.instance.map_id, from, to);
+    if move_trace_on() {
+        match &walked {
+            Walk::Found(waypoints) => eprintln!(
+                "move[pathfind] finder produced {} waypoint(s): {}",
+                waypoints.len(),
+                waypoints_preview(waypoints)
+            ),
+            Walk::NoPath => eprintln!("move[pathfind] finder refused: no path"),
+            Walk::NoGraph => eprintln!(
+                "move[pathfind] finder refused: this world has no path graph for map {}",
+                player.instance.map_id
+            ),
+        }
+    }
+    if trace {
+        let said = match &walked {
+            Walk::Found(waypoints) => format!("{} waypoint(s)", waypoints.len()),
+            Walk::NoPath => "no path".to_string(),
+            Walk::NoGraph => "no path graph for this map".to_string(),
+        };
+        eprintln!(
+            "world: agent {agent_id} walks from ({:.1}, {:.1}) plane {} to ({:.1}, {:.1}) \
+             plane {plane}: {said}",
+            from.x, from.y, from.plane, destination.0, destination.1
+        );
+    }
+
+    match walked {
+        // An empty path sends nothing: the reference checks `0 < agent->waypoints.len`.
+        Walk::Found(waypoints) => {
+            // The path as the live servers hand it out: a destination about every 145 units,
+            // which at the character's 288 u/s is the ~0.5 s cadence the live capture shows.
+            let waypoints = densify(waypoints, from, live_cadence_step());
+            // The reference's own point, as it is: no re-writing of its plane, no dropping of its
+            // points. The plane id is whatever the map's pmaps call the surface the path is on
+            // (floor is 0; slopes and bridges have their own ids), and that is the reference's
+            // business, not this server's.
+            if let Some(first) = player.agents.player.begin_walk(waypoints) {
+                let walk = game::agent_move_to_point(
+                    agent_id,
+                    (first.pos.x, first.pos.y),
+                    first.pos.plane,
+                    player.agents.player.plane,
+                );
+                if move_trace_on() {
+                    eprintln!(
+                        "move[pathfind] answered with waypoint 0 (x={:.1}, y={:.1}, \
+                             plane={}) current_plane={} [0x0029, {} bytes]; {} waypoint(s) left \
+                             to walk, agent stays at (x={:.1}, y={:.1}, plane={})",
+                        first.pos.x,
+                        first.pos.y,
+                        first.pos.plane,
+                        player.agents.player.plane,
+                        walk.len(),
+                        player.agents.player.motion.waypoints.len(),
+                        player.agents.player.position.0,
+                        player.agents.player.position.1,
+                        player.agents.player.plane
+                    );
+                }
+                // Everyone else is told where this agent is walking: the reference
+                // broadcasts the same message (`GameSrv_BroadcastAgentMoveToPoint`), and a
+                // client that is not told keeps drawing the walker where it last stood.
+                world
+                    .peers
+                    .broadcast(player.player_id, std::slice::from_ref(&walk));
+                send(stream, session, vec![walk], trace).await?;
+            }
+        }
+        Walk::NoPath | Walk::NoGraph => {
+            if trace {
+                eprintln!("world: path finding failed for agent {agent_id}; standing still");
+            }
+            player.agents.player.cancel_movement();
+            let standing = player.standing();
+            // **Nothing goes on the wire.** The reference answers a refused walk with
+            // `AGENT_UPDATE_POSITION` (`0x002C`, `GmAgent.c:391-394`), and that message carries
+            // the server's copy position: measured, it disconnected the client with 007 once
+            // (capture-8001-20261027-221113 seq 519) and teleported it into a wall once
+            // (capture of 22:16: `snapped to (9438.1, 7118.5)` after the clamp had dragged the
+            // copy off the navmesh). Silence is what the reference sends in its other correction
+            // path (`GameSrv_HandleLastPosOnMoveCanceled`), and the client's own reports settle
+            // the truth.
+            if move_trace_on() {
+                eprintln!(
+                    "move[pathfind] walk refused; the agent stands at (x={:.1}, y={:.1}, \
+                     plane={}) and nothing is sent",
+                    standing.position.0, standing.position.1, standing.plane
+                );
+            }
+            world.peers.update(player.player_id, standing);
+        }
+    }
+    Ok(true)
+}
+
+/// The client reports where it is (`GameSrv_HandlePositionUpdate`). The position is adopted when
+/// the budget allows it, clamped when it does not, and refused across a plane change that is too
+/// far. Nothing goes back to the reporter - it already knows where it is - but everyone else is
+/// told, which is what the reference's `GameSrv_BroadcastAgentPosition` does and why a second
+/// client sees the first one move.
+pub fn handle_position_update(
+    frame: &Frame,
+    world: &World,
+    player: &mut Player,
+    trace: bool,
+) -> Result<bool, GameError> {
+    if frame.body.len() < 12 {
+        return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
+    }
+    let position = (
+        f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
+        f32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]),
+    );
+    let plane =
+        u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]]) as u16;
+    let now = Instant::now();
+    let before = player.standing();
+    let since = player.agents.player.since_last_report(now);
+    let walk_was_running = 0.0 < player.agents.player.motion.speed;
+    let adopted = player.agents.player.adopt_report(position, plane, now);
+    let standing = player.standing();
+    if move_trace_on() {
+        player.move_stats.reports += 1;
+        match adopted {
+            Adopted::Accepted => player.move_stats.accepted += 1,
+            Adopted::Clamped => player.move_stats.clamped += 1,
+            Adopted::Refused => player.move_stats.refused += 1,
+        }
+        let distance = {
+            let dx = position.0 - before.position.0;
+            let dy = position.1 - before.position.1;
+            (dx * dx + dy * dy).sqrt()
+        };
+        player.move_stats.max_drift = player.move_stats.max_drift.max(distance);
+        eprintln!(
+            "move[manual] report (x={:.1}, y={:.1}, plane={plane}) against the server's \
+             (x={:.1}, y={:.1}, plane={}) - d={distance:.1}, {} ms since the last report, \
+             server walk running={walk_was_running}: {adopted:?}, agent now \
+             (x={:.1}, y={:.1}, plane={}) [0x803D, {} bytes]",
+            position.0,
+            position.1,
+            before.position.0,
+            before.position.1,
+            before.plane,
+            since.map(|elapsed| elapsed.as_millis()).unwrap_or(0),
+            standing.position.0,
+            standing.position.1,
+            standing.plane,
+            frame.body.len() + 2
+        );
+        if adopted == Adopted::Accepted && plane != before.plane {
+            player.move_stats.plane_changes += 1;
+            eprintln!(
+                "move[jump] the client's report changed the plane {before_plane} -> {plane} \
+                 at (x={:.1}, y={:.1}){note}",
+                position.0,
+                position.1,
+                before_plane = before.plane,
+                note = if distance > 50.0 {
+                    " - more than the tolerance away, so this is a real plane change, not stairs"
+                } else {
+                    ""
+                }
+            );
+        }
+        if adopted != Adopted::Accepted && distance > 50.0 {
+            eprintln!(
+                "move[jump] report rejected or clamped {adopted:?}: client at (x={:.1}, \
+                 y={:.1}, plane={plane}), server at (x={:.1}, y={:.1}, plane={}), d={distance:.1}",
+                position.0, position.1, before.position.0, before.position.1, before.plane
+            );
+        }
+    }
+    world.peers.update(player.player_id, standing);
+    if adopted != Adopted::Refused {
+        world.peers.broadcast(
+            player.player_id,
+            &[game::agent_update_position(
+                player.agents.player.agent_id,
+                standing.position,
+                standing.plane,
+            )],
+        );
+    }
+    if trace {
+        eprintln!(
+            "world: agent {} reported ({:.1}, {:.1}) plane {plane}: {adopted:?} -> ({:.1}, \
+             {:.1})",
+            player.agents.player.agent_id,
+            position.0,
+            position.1,
+            player.agents.player.position.0,
+            player.agents.player.position.1
+        );
+    }
+    Ok(true)
+}
+
+/// The client stopped walking (`GameSrv_HandleCancelMovement`): the agent stops where it is and
+/// everyone is told, which is the mover too as far as this server is concerned.
+/// The client stopped walking (`GameSrv_HandleCancelMovement`): cancel the agent's own walk --
+/// `GameSrv_CancelAgentMovement` sets its destination to where it stands and its speed to zero --
+/// and then tell everyone it stopped. Cancelling is the load-bearing half: without it the server
+/// keeps advancing its copy along the abandoned path, and the next click is answered from a
+/// position the client walked away from minutes ago (observed live: a click to x4 started from
+/// the old x2 the client had already left, pulling the agent back to it).
+pub async fn handle_cancel_movement(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    frame: &Frame,
+    world: &World,
+    player: &mut Player,
+    trace: bool,
+) -> Result<bool, GameError> {
+    let was_walking = 0.0 < player.agents.player.motion.speed;
+    player.agents.player.cancel_movement();
+    let stop = game::agent_stop_moving(player.agents.player.agent_id);
+    if move_trace_on() {
+        eprintln!(
+            "move[stop] client cancelled walking at (x={:.1}, y={:.1}, plane={}){} \
+             [0x8028, {} bytes]",
+            player.agents.player.position.0,
+            player.agents.player.position.1,
+            player.agents.player.plane,
+            if was_walking {
+                " - a server-side walk WAS running: cancelled (speed -> 0, destination cleared)"
+            } else {
+                " (no server-side walk was running)"
+            },
+            frame.body.len() + 2
+        );
+    }
+    world
+        .peers
+        .broadcast(player.player_id, std::slice::from_ref(&stop));
+    send(stream, session, vec![stop], trace).await?;
+    Ok(true)
+}
+
+/// The client corrects its position after a cancelled walk
+/// (`GameSrv_HandleLastPosOnMoveCanceled`): short corrections on the same plane are taken, longer
+/// ones refused, and nothing is sent either way.
+pub fn handle_last_position(
+    frame: &Frame,
+    player: &mut Player,
+    trace: bool,
+) -> Result<bool, GameError> {
+    if frame.body.len() < 12 {
+        return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
+    }
+    let position = (
+        f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
+        f32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]),
+    );
+    let plane =
+        u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]]) as u16;
+    let taken = player.agents.player.adopt_correction(position, plane);
+    if trace {
+        eprintln!(
+            "world: agent {} correction to ({:.1}, {:.1}) plane {plane}: {}",
+            player.agents.player.agent_id,
+            position.0,
+            position.1,
+            if taken { "taken" } else { "refused" }
+        );
+    }
+    Ok(true)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn agent() -> AgentState {
+    pub fn agent() -> AgentState {
         AgentState::new(1, (6602.0, 4485.0), 0, 288.0)
     }
 
     #[test]
-    fn a_report_inside_the_budget_is_believed() {
+    pub fn a_report_inside_the_budget_is_believed() {
         let now = Instant::now();
         let mut agent = agent();
         let later = now + Duration::from_millis(500);
@@ -346,7 +872,7 @@ mod tests {
     }
 
     #[test]
-    fn a_report_ahead_of_the_budget_is_clamped_not_dropped() {
+    pub fn a_report_ahead_of_the_budget_is_clamped_not_dropped() {
         // The first report of a session gets the full budget, so the budget only bites from the second
         // one: 5000 units in 500 ms is not something the agent could have walked, and it is moved as far
         // as 500 ms of its own speed plus the tolerance allows, along the same line.
@@ -368,7 +894,7 @@ mod tests {
     }
 
     #[test]
-    fn a_far_plane_change_is_refused_and_a_near_one_is_taken() {
+    pub fn a_far_plane_change_is_refused_and_a_near_one_is_taken() {
         let now = Instant::now();
         let mut near = agent();
         let later = now + Duration::from_millis(100);
@@ -389,7 +915,7 @@ mod tests {
     }
 
     #[test]
-    fn a_correction_is_short_on_the_same_plane() {
+    pub fn a_correction_is_short_on_the_same_plane() {
         let mut fresh = agent();
         assert!(fresh.adopt_correction((6602.0 + 50.0, 4485.0), 0));
         assert_eq!(fresh.position, (6652.0, 4485.0));
@@ -404,7 +930,7 @@ mod tests {
     }
 
     #[test]
-    fn the_first_report_of_a_session_gets_the_full_budget() {
+    pub fn the_first_report_of_a_session_gets_the_full_budget() {
         // A client that stood still through the load then reports a position is not cheating: the
         // reference gives the first report the maximum elapsed time, and so does this.
         let mut agent = agent();
@@ -414,7 +940,7 @@ mod tests {
         );
     }
 
-    fn waypoint(x: f32, y: f32, trap_id: u32) -> Waypoint {
+    pub fn waypoint(x: f32, y: f32, trap_id: u32) -> Waypoint {
         Waypoint {
             pos: Pos { x, y, plane: 0 },
             trap_id,
@@ -422,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn a_walk_starts_at_the_paths_first_waypoint() {
+    pub fn a_walk_starts_at_the_paths_first_waypoint() {
         let mut walker = agent();
         let started = walker
             .begin_walk(vec![
@@ -445,7 +971,7 @@ mod tests {
     }
 
     #[test]
-    fn the_tick_walks_the_segment_and_hands_over_to_the_next_waypoint() {
+    pub fn the_tick_walks_the_segment_and_hands_over_to_the_next_waypoint() {
         // 288 units a second, half a second at a time: 144 units a tick, and what is left of a tick after
         // a waypoint is spent on the next segment -- which is what the reference's `dist -=` does.
         let mut walker = agent();
@@ -470,7 +996,7 @@ mod tests {
     }
 
     #[test]
-    fn arriving_ends_the_walk() {
+    pub fn arriving_ends_the_walk() {
         let mut agent = agent();
         agent.begin_walk(vec![waypoint(6602.0 + 100.0, 4485.0, 1)]);
         // 100 units at 288 a second is inside one tick.
@@ -487,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn a_walk_to_where_the_agent_stands_does_not_poison_its_direction() {
+    pub fn a_walk_to_where_the_agent_stands_does_not_poison_its_direction() {
         // The reference divides by the distance here without checking it, so this exact case gives it a
         // NaN direction and then a NaN position. This keeps the direction it had and ends the walk on the
         // next tick instead -- the one deliberate difference in the movement code.
@@ -509,7 +1035,7 @@ mod tests {
     }
 
     #[test]
-    fn cancelling_stands_still_without_forgetting_the_path() {
+    pub fn cancelling_stands_still_without_forgetting_the_path() {
         // `GameSrv_CancelAgentMovement` sets the destination to the position and the speed to zero; the
         // waypoint list is the caller's business, and `MOVE_TO_COORD` clears it first.
         let mut agent = agent();

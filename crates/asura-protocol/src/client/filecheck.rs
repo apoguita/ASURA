@@ -1,6 +1,6 @@
 //! The file check: a fixed 21-byte question and a fixed 32-byte answer, on the auth port.
 //!
-//! This is not a message with a header in the table — it is a bare request that arrives **before** the
+//! This is not a message with a header in the table - it is a bare request that arrives **before** the
 //! version message, in the reference's `ConnState_AwaitHello` state
 //! (`AuthSrv_TryHandleFileCheck` in GWPS `AuthSrv.c`). The client compares the reply against what it
 //! expects; the reference answers and then keeps waiting, because "the client repeats the check, and
@@ -11,7 +11,7 @@
 //! which is a check of *which* files the client should have, not a transfer.
 //!
 //! Refusing this request costs the whole login, which is why it is here: a service that classifies the
-//! first four bytes as an unknown connection type — as this one did before the check existed — closes a
+//! first four bytes as an unknown connection type - as this one did before the check existed - closes a
 //! socket the client is waiting on, and the client sits at "Connecting" with nothing to report.
 
 /// The request, exactly as the reference compares it (`memcmp` against all 21 bytes).
@@ -20,12 +20,12 @@ pub const FILE_CHECK_REQUEST: [u8; 21] = [
     0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
-/// The reply: `F1 02 20 00` (header 0x02F1 and a 0x2000 length) then six file ids and a zero —
+/// The reply: `F1 02 20 00` (header 0x02F1 and a 0x2000 length) then six file ids and a zero -
 /// 391083, 391092, 344988, 391094, 391095, 0, 391093 as little-endian words.
 ///
 /// **These are the reference's ids, and they are not the ones ArenaNet sends.** A capture of a real
 /// file check (`PreSearing/docs/09-client-connections.md`) shows 391339, 391348, 344988, 391350,
-/// 391351, 0, 391349 — every id that differs is exactly `0x100` higher, so the reference's literal is
+/// 391351, 0, 391349 - every id that differs is exactly `0x100` higher, so the reference's literal is
 /// an approximation of the real answer. The reference's own value is used here because it is what the
 /// rig demonstrably accepts (and GWPS is the floor, `docs/adr/0010-gwps-is-the-floor.md`); the captured
 /// ids are the alternative if the client ever rejects this reply.

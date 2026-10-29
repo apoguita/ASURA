@@ -1,4 +1,4 @@
-//! "Is it alive?" — the two checks the supervisor knows.
+//! "Is it alive?" - the two checks the supervisor knows.
 
 use std::time::Duration;
 

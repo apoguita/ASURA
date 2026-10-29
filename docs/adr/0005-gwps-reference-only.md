@@ -1,4 +1,4 @@
-# ADR 0005 — GWPS becomes reference only; ASURA is where things are built and tested
+# ADR 0005 - GWPS becomes reference only; ASURA is where things are built and tested
 
 - **Status:** Accepted (owner's direction, 2026-10-25)
 - **Date:** 2026-10-25
@@ -14,8 +14,8 @@ thread and one database connection per instance, and no boundary between authent
 simulation.
 
 Two things follow from that. First, continuing to patch GWPS is spending effort on a structure we have
-already decided to leave. Second, the most important open question — whether a map instance may be
-created on demand or must always be prebuilt — cannot be answered with more GWPS experiments, because
+already decided to leave. Second, the most important open question - whether a map instance may be
+created on demand or must always be prebuilt - cannot be answered with more GWPS experiments, because
 the one experiment we ran was confounded: the settings acknowledgement and the prebuild landed in the
 same binary. Splitting that apart in GWPS means another round of patching the very code we are
 abandoning.
@@ -38,7 +38,7 @@ abandoning.
      rebuilds its world or hangs. That is a five-minute test in the new stack and another week in the
      old one.
 4. **Instance creation has to live somewhere explicit.** It belongs to the world server, behind an
-   interface that takes (map, party) and returns an instance — whether that instance came from a pool
+   interface that takes (map, party) and returns an instance - whether that instance came from a pool
    or was built on the spot is that server's business. No caller should be able to tell the difference,
    and no caller may construct one itself.
 

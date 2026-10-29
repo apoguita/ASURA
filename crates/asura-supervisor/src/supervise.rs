@@ -1,5 +1,5 @@
 //! The supervisor's runtime: one child per service, a watcher per child, and the bounded restart
-//! rule (D1.3: restart a few times, then report the service dead — never forever).
+//! rule (D1.3: restart a few times, then report the service dead - never forever).
 //!
 //! State lives behind one mutex and is never held across an `await`. The watcher owns its child; the
 //! control channel asks a watcher to stop through a flag and a kill signal (a one-shot channel), and
@@ -519,8 +519,8 @@ pub async fn stop_all(shared: &Shared, timeout: Duration) {
 /// The rolling deploy (S3): start the new world, wait until it is registered, then mark the old
 /// world draining.
 ///
-/// The order is the point. The new world must be answering *before* the old one is told to drain —
-/// the one rule — and the old world is never killed: it keeps the players already inside it and
+/// The order is the point. The new world must be answering *before* the old one is told to drain -
+/// the one rule - and the old world is never killed: it keeps the players already inside it and
 /// leaves the registry itself once its last player has disconnected.
 pub async fn deploy_world(shared: &Shared, old_world: i32, new_world: i32) -> Result<(), String> {
     let (new_service, pool) = {

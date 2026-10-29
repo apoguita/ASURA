@@ -3,7 +3,7 @@
 //! This is the first test in the project where the pieces meet: a socket, the version
 //! classification, the key exchange with real randomness, ARC4 in both directions, the message
 //! layouts, and the database. It uses the reference client from `asura_protocol::client::peer`, so it
-//! needs no game client — but it is *not* a substitute for one: M3 is only accepted when the real
+//! needs no game client - but it is *not* a substitute for one: M3 is only accepted when the real
 //! client reaches the character list and the packet trace diffs clean against GWPS
 //! (`docs/roadmap.md`).
 //!

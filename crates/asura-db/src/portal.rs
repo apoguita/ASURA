@@ -1,12 +1,12 @@
 //! The portal identity: which account an email is, and the pair the web gate hands the client.
 //!
-//! The client's login does not ask an account database who it is — it asks the **portal web gate**
+//! The client's login does not ask an account database who it is - it asks the **portal web gate**
 //! (`/Spawned/WebGate/...`) and then presents the pair it was given: the portal user id and the
-//! session id (`docs/03-protocol.md` §4, `docs/06-reference-session.md`). The reference's
+//! session id (`docs/03-protocol.md` #4, `docs/06-reference-session.md`). The reference's
 //! `tools/webgate.py` answers from a hard-coded table of three emails and UUID pairs; this project
 //! answers from the rows `tools/seed-dev.ps1` writes, which are the same pairs.
 //!
-//! The lookup is exact on both UUIDs — `WHERE portal_user = $1 AND id = $2` in the auth service —
+//! The lookup is exact on both UUIDs - `WHERE portal_user = $1 AND id = $2` in the auth service -
 //! so the gate's answer is not a claim about identity, it is the identity the auth service will
 //! resolve. The pair must come from one **live** session: a closed session is a credential that was
 //! surrendered, exactly as the auth service treats it (`docs/05-gw2-lessons.md`, rule 1).

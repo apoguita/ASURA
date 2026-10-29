@@ -1,4 +1,4 @@
-# ASURA in Docker — the optional second runner.
+# ASURA in Docker - the optional second runner.
 #
 # The machine container runs the supervisor exactly as a host does: same config/services.toml,
 # same start/stop/status, same registry rows, same logs. Docker only supplies the machine and the

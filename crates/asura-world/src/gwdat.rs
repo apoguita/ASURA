@@ -7,7 +7,7 @@
 //!
 //! This module is the **index**: the header, the file table and the hash that turns a file id into an
 //! entry. That half needs no decompression, so it can be written and tested against the real file before
-//! any decoder exists — and it is the half that answers the question the map catalogue already depends on,
+//! any decoder exists - and it is the half that answers the question the map catalogue already depends on,
 //! "is `0x1B97D` in this archive and how big is it".
 //!
 //! Format, from `FaArchive.h` (little endian, packed):
@@ -101,7 +101,7 @@ fn u64_at(bytes: &[u8], at: usize) -> u64 {
 impl GwDat {
     /// Open an archive and build its index.
     ///
-    /// Only the header, the file table and the TOC are read — a few megabytes of the 3.6 GB — so opening
+    /// Only the header, the file table and the TOC are read - a few megabytes of the 3.6 GB - so opening
     /// is fast and leaves the entries to be fetched one at a time.
     pub fn open(path: &str) -> io::Result<GwDat> {
         let mut file = File::open(path)?;

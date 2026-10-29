@@ -1,4 +1,4 @@
-# A.S.U.R.A. — Automated Server Utility for Remote Authentication
+# A.S.U.R.A. - Automated Server Utility for Remote Authentication
 
 A private Guild Wars 1 server. **Language: Rust. Database: PostgreSQL.**
 
@@ -6,16 +6,16 @@ A private Guild Wars 1 server. **Language: Rust. Database: PostgreSQL.**
 
 The client talks to the **auth service** (login, session, character list, and the address the client
 dials for its game connection), gets its portal identity from the **web gate**, and is placed into one
-of many **instance servers** that host the maps. Everything durable — accounts, sessions, characters,
-items, the list of running servers — lives in **PostgreSQL**. Each machine runs a **supervisor** that
+of many **instance servers** that host the maps. Everything durable - accounts, sessions, characters,
+items, the list of running servers - lives in **PostgreSQL**. Each machine runs a **supervisor** that
 starts and watches its local services.
 
 ```
-client ──portal login──▶ web gate  :6601  (who am I?)
-client ──login────────▶ auth       :6112  (key exchange, session, character)
-client ──gameplay────▶ auth       :6112 ──relays──▶ instance server :6113+  (one of many)
-                                                          │
-           sessions · characters · items · server list ───┴──▶ PostgreSQL (the shared truth)
+client --portal login--> web gate  :6601  (who am I?)
+client --login--------> auth       :6112  (key exchange, session, character)
+client --gameplay----> auth       :6112 --relays--> instance server :6113+  (one of many)
+                                                          |
+           sessions | characters | items | server list ---+--> PostgreSQL (the shared truth)
 ```
 
 Every player is always in an instance. An **outpost** is a shared hub instance; an **explorable** is a
@@ -41,7 +41,7 @@ Every service reads and writes the database; that is how the services coordinate
 - **More instances, anywhere.** An instance server keeps nothing of its own: characters, their
   positions and items are in the database, and map geometry comes bundled with the build. So an outpost
   or explorable can be hosted by any running server, and replacing a server is just starting another
-  process — on this machine, on a second machine, or a newer build during an upgrade.
+  process - on this machine, on a second machine, or a newer build during an upgrade.
 - **The database decides where a travel goes.** Every instance server tells the database it is alive
   every few seconds. When a player travels, the auth service picks a server that reported recently and
   sends them there; if none did, the travel is refused and the player stays where they are. A server
@@ -59,7 +59,7 @@ Every service reads and writes the database; that is how the services coordinate
 
 The whole path works against a real client: the patched client (build 39112) logs in through the web
 gate and `asura-auth`, enters an outpost on an instance server, walks, travels between maps, and uses
-its inventory — items, drops, moves, equipment — against the live server. The supervisor starts and
+its inventory - items, drops, moves, equipment - against the live server. The supervisor starts and
 stops the stack, the database tracks every running service, an upgrade beside the old build was proven
 on one machine, and the auth service was proven to dial a server registered at a second address rather
 than its bind address. The open verification is the same two things done with the client in hand: a
@@ -70,13 +70,13 @@ player standing in an instance during an upgrade, and a client travel to the sec
 **The server runs on Windows and Linux.** The supervisor, the auth service, the instance servers and
 the web gate are the same Rust programs on both; the database is PostgreSQL on either; `config/services.toml`
 is the only thing that differs between machines. The same supervisor commands start the stack on both
-operating systems — `docs/17-running-on-linux.md` is the Linux runbook (what runs where, the ports,
+operating systems - `docs/17-running-on-linux.md` is the Linux runbook (what runs where, the ports,
 the database, and the supervisor's cross-platform setup commands).
 
-**The game client is Windows-only** — the client rig, its patching and its hooks are Windows work, so a
+**The game client is Windows-only** - the client rig, its patching and its hooks are Windows work, so a
 Linux machine is a server host.
 
-**The client patcher is in `client-patcher/`** — `patch-gw.py` plus `keys.txt`, the DH parameters that
+**The client patcher is in `client-patcher/`** - `patch-gw.py` plus `keys.txt`, the DH parameters that
 match the server's handshake. The stock `Gw.exe` cannot talk to this server; `Gw.custom.exe` is built
 with that folder, and its README has the commands.
 
@@ -93,10 +93,10 @@ empty on purpose.
 | document | what it settles |
 |---|---|
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | environment status and the next tasks |
-| [`MILESTONES.md`](MILESTONES.md) | **what is proven** — the ledger of confirmed milestones, each with its evidence |
-| [`docs/19-running.md`](docs/19-running.md) | **how to run it** — what you need once, the one command, what success looks like, troubleshooting |
-| [`docs/17-running-on-linux.md`](docs/17-running-on-linux.md) | **the Linux runbook** — the same supervisor commands on a Linux server host |
-| [`client-patcher/README.md`](client-patcher/README.md) | **the client patcher** — how `Gw.custom.exe` is built, and the keys that match the server |
+| [`MILESTONES.md`](MILESTONES.md) | **what is proven** - the ledger of confirmed milestones, each with its evidence |
+| [`docs/19-running.md`](docs/19-running.md) | **how to run it** - what you need once, the one command, what success looks like, troubleshooting |
+| [`docs/17-running-on-linux.md`](docs/17-running-on-linux.md) | **the Linux runbook** - the same supervisor commands on a Linux server host |
+| [`client-patcher/README.md`](client-patcher/README.md) | **the client patcher** - how `Gw.custom.exe` is built, and the keys that match the server |
 | [`docs/02-architecture.md`](docs/02-architecture.md) | the components and travel, in more detail |
 | [`docs/03-protocol.md`](docs/03-protocol.md) | the protocol facts: framing, key exchange, login, travel, the game connection |
 | [`docs/01-scope.md`](docs/01-scope.md) | the boundary: what each service owns and what it explicitly does not |

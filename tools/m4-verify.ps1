@@ -15,7 +15,7 @@
       4. the auth tests (crates/asura-auth): a client logs in over a socket, and a travel request is
          answered with a world that answers, or refused honestly.
       5. the world tests (crates/asura-world): a placed client is loaded into its map, a token nobody
-         issued is closed silently, and — the one that matters — a client logs in to the auth service,
+         issued is closed silently, and - the one that matters - a client logs in to the auth service,
          travels, and reaches INSTANCE_LOAD_FINISH on the world server it was sent to.
       6. the generated files still match the reference: the auth table and the game table.
 

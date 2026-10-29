@@ -107,7 +107,7 @@ fn argument(args: &[String], name: &str) -> Option<String> {
 
 fn print_help() {
     println!(
-        "asura-auth {} — the ASURA auth service",
+        "asura-auth {} - the ASURA auth service",
         env!("CARGO_PKG_VERSION")
     );
     println!();
@@ -124,6 +124,6 @@ fn print_help() {
     println!("    ASURA_AUTH_BIND      the default bind address");
     println!("    ASURA_TRACE=1        log every message: direction, header, size, first bytes");
     println!();
-    println!("The trace is what answers \"why does the client say 007\" — turn it on for any real");
+    println!("The trace is what answers \"why does the client say 007\" - turn it on for any real");
     println!("client session.");
 }

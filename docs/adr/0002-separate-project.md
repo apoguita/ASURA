@@ -1,4 +1,4 @@
-# ADR 0002 — A separate project instead of another fork of GWPS
+# ADR 0002 - A separate project instead of another fork of GWPS
 
 - **Status:** Proposed
 - **Date:** 2026-10-25

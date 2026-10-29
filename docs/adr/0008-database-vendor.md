@@ -1,4 +1,4 @@
-# ADR 0008 — Database vendor: PostgreSQL, a justified deviation
+# ADR 0008 - Database vendor: PostgreSQL, a justified deviation
 
 - **Status:** Accepted (owner's direction: keep the mechanisms, choose the better design)
 - **Date:** 2026-10-25
@@ -31,14 +31,14 @@ loads, a rapid schema iteration phase ahead of us, and an administrator who is a
 
 | concern | PostgreSQL 15 | MySQL 8.0.16+ | who wins for us |
 |---|---|---|---|
-| atomic slot reservation | `UPDATE … RETURNING` returns the winner in one statement | same atomicity via affected-rows | tie |
-| row locking under contention | row locks, no gap locking | row locks **and gap locks** | PostgreSQL — fewer surprise deadlocks once there are several processes updating pools |
-| migrations while the schema churns | DDL is transactional: a failed migration leaves nothing half-applied | atomic per statement, not per migration | **PostgreSQL — this is the one that will actually bite us at M2–M5** |
-| partial index (`session … WHERE ended_at IS NULL`) | supported | not supported; composite index instead | PostgreSQL |
-| types we actually use | native `uuid`, `timestamptz`, `inet`, `real`, `jsonb` | `CHAR(36)`/`BINARY(16)`, `DATETIME(6)` with UTC discipline, `VARCHAR(45)` | PostgreSQL — fewer conventions to remember, so fewer bugs |
+| atomic slot reservation | `UPDATE ... RETURNING` returns the winner in one statement | same atomicity via affected-rows | tie |
+| row locking under contention | row locks, no gap locking | row locks **and gap locks** | PostgreSQL - fewer surprise deadlocks once there are several processes updating pools |
+| migrations while the schema churns | DDL is transactional: a failed migration leaves nothing half-applied | atomic per statement, not per migration | **PostgreSQL - this is the one that will actually bite us at M2-M5** |
+| partial index (`session ... WHERE ended_at IS NULL`) | supported | not supported; composite index instead | PostgreSQL |
+| types we actually use | native `uuid`, `timestamptz`, `inet`, `real`, `jsonb` | `CHAR(36)`/`BINARY(16)`, `DATETIME(6)` with UTC discipline, `VARCHAR(45)` | PostgreSQL - fewer conventions to remember, so fewer bugs |
 | `CHECK` constraints | always | 8.0.16+ | tie at our floor |
 | Rust driver maturity (`sqlx`) | the reference driver of the crate | good, but the less-travelled path | PostgreSQL |
-| reading AzerothCore's SQL as reference | translates trivially (both are standard SQL for our six tables) | identical dialect | MySQL, marginally — and irrelevant, since we copy no queries |
+| reading AzerothCore's SQL as reference | translates trivially (both are standard SQL for our six tables) | identical dialect | MySQL, marginally - and irrelevant, since we copy no queries |
 | operational familiarity with their backup/tooling docs | `pg_dump`/`pg_restore` instead | same tools as theirs | MySQL |
 
 The tally is not close once you weight by what will actually happen to this project in the next few

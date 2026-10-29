@@ -13,7 +13,7 @@ Which component owns what, in an ASURA stack built on AzerothCore's structure
 
 These are the only three kinds of component that matter. The auth service is small and long-lived;
 world servers are interchangeable and disposable; the database is what they both agree on. There is
-no live control connection between the auth service and world servers for state or placement — the
+no live control connection between the auth service and world servers for state or placement - the
 database is the handoff.
 
 ## The auth service owns
@@ -36,7 +36,7 @@ client error, not a crash.
 The portal the client talks to before it talks to us, which hands it a `user_id` and a `session_id`.
 The auth service authenticates those.
 
-### Reading the registry — not owning it
+### Reading the registry - not owning it
 
 The auth service reads the `world` table to answer "where should this client connect?" It does not
 decide placement, and it does not keep the directory's truth in memory: the table is the truth, and
@@ -53,7 +53,7 @@ while the client is still standing in its current map.
 
 ### Character state
 
-Characters, bags, items and instance records in the `game` database — read when entering an instance,
+Characters, bags, items and instance records in the `game` database - read when entering an instance,
 written when leaving and on a timer, never per frame. The world server is the owner; the auth service
 never writes character data.
 
@@ -86,7 +86,7 @@ and nothing in the project writes SQL outside that crate.
 
 ## Phase 1 boundary: what does not exist *yet*
 
-Simulation — agents, movement, pathfinding, combat, skills, drops — is in this project's long-term
+Simulation - agents, movement, pathfinding, combat, skills, drops - is in this project's long-term
 scope, deferred until the base structure works (`docs/adr/0003-simulation-in-scope.md`). In phase 1 it
 lives in the existing C world server.
 

@@ -2,6 +2,66 @@
 
 State of the project as of the last commit, so a new session can begin without re-reading everything.
 
+## The objective: the packet stream is the specification
+
+Verbatim, from the owner of this repository (2026-10-28):
+
+> "this is a reverse engineer work on a custom private server, our task is ellaborate but extremely
+> simple, "reproduce faithfully the packet stream of the live server/client" we do not want to improve
+> or patch unless explicitely asked for we aim to have a 1:1 correspondance on packets, so the client
+> can heha?ve exaclty like its live, and we need to aim (slowly but surely) to decode and infer tha
+> namings and fucntion of every server/clietn packet that is handled, i need this rule to ve the wone
+> that will .,.. rule our project at all times, i do not want to keep repeating this guideline over
+> and over and i font want tampering with our objective of 1:1"
+
+(Transcribed to ASCII: the one non-ASCII character the owner typed reads as `?`.)
+
+**This is the top rule. Every rule below serves it.**
+
+- **This is reverse engineering, not server development.** The deliverable is the packet stream. For
+  every exchange: the same headers, in the same order, at the same sizes, with the same field layout
+  and the same values the reference puts in those fields, produced by the same trigger. Anything else
+  is not the job.
+- **Nothing is improved or patched unless the owner asks for it - in that session, by name.** A packet
+  whose content looks wrong is reproduced exactly as the reference sends it, and reported. A faithful
+  copy is a known quantity and can be corrected later; a corrected copy hides what the live server
+  actually does.
+- **No tampering with the 1:1 objective.** No extra messages, no missing messages, no reordering, no
+  "safer" variant, no message the reference never sends, nothing removed because it looks redundant.
+  A deviation is a defect in the work, never a design choice.
+- **Decoding and naming is part of the objective, not a side effect.** Every handled packet is aimed
+  at: its header, direction, size, field layout and inferred function, named from evidence (a capture,
+  the client's reaction, the reference's own code) with the evidence written next to the name, in the
+  message table and, once understood, in `docs/03-protocol.md`. A name that is a guess is written as a
+  guess; an unhandled packet is listed as unhandled, never implied to be absent.
+- **"Works" means the client behaves as it does against the live server.** A green test is not the
+  proof of parity; the client is.
+
+## The encoding rule: every file is ASCII
+
+Verbatim, from the owner of this repository (2026-10-28):
+
+> "remove all mojibake and make a rule never to write outside tha scii character set, this is a
+> common ocurrence"
+
+Every file this project writes is ASCII: source, comments, documents, commit messages, scripts,
+config, test expectations. No em dashes, no arrows, no smart quotes, no box drawing, no section
+signs, no single-character ellipsis. Write `-`, `->`, `=>`, `"`, `'`, `...`, `#`.
+
+**Why, with this repository's own evidence.** Windows PowerShell 5.1 reads a BOM-less file as
+ANSI, so a UTF-8 em dash arrives as a three-character mojibake sequence and the file is written
+back with the corruption built in. A `Get-Content` / `Set-Content` round trip did exactly that to
+`docs/HANDOFF.md`, `crates/asura-world/src/lib.rs` and `main.rs` - 18 spots in `lib.rs` alone - and
+the damage then spread every time a file was moved, copied or reformatted. ASCII cannot be
+corrupted by an ANSI read: it is the one encoding every tool in this stack agrees on.
+
+**Enforcement.** `tools/ascii-check.ps1` scans the tree and exits non-zero on a non-ASCII byte;
+run it before a commit that touches prose or comments. The one exception is `recordings/`: those
+hold bytes captured from a live client, evidence rather than writing, and are never edited.
+
+The mojibake that existed before this rule was removed in one pass (`tools/to-ascii.py`); a
+non-ASCII character in a new edit is a defect in the work.
+
 ## NOTICE: six times, invented on top of the instruction, six working features broken
 
 Verbatim, from the owner of this repository (2026-10-27):
@@ -23,13 +83,13 @@ repository by the assistant, and it is written here so that it is read before an
 | 1 | port `/tp` from GWPS | an inferred `0x01A6` layout ("46 bytes, my field order") instead of GWPS's own struct | client error `007`, then `005`; the feature only worked once GWPS's `GameMsg.h:659` struct was copied (`e0f671c`) |
 | 2 | make movement match the live capture | replaced the reference's movement frames with the retail capture's (8-byte `0x001E`, 24-byte `0x0029`, `0x0025`, `0x002B`) without asking | the client refused to connect (`007`), then crashed on the first click |
 | 3 | fix movement drift | "adopt the reported position exactly" instead of GWPS's budget clamp, plus a path find and `0x0025`/`0x002B` replies on `0x003D` | drift and terrain jumps, then crashes: the server's copy stood where the reference's never would, and the paths it announced put the client outside its plane box |
-| 4 | stop the slope crash | a filter that dropped a walk's leading waypoint when it was on another plane | the filter emptied a whole walk, the world answered with the reference's `0x002C` — and the client **disconnects on `0x002C`**: a `007` kick |
+| 4 | stop the slope crash | a filter that dropped a walk's leading waypoint when it was on another plane | the filter emptied a whole walk, the world answered with the reference's `0x002C` - and the client **disconnects on `0x002C`**: a `007` kick |
 | 5 | stop the slope crash, again | pinning every waypoint to the agent's plane ("flattening") | client crash, `Assertion: pos.x >= worldDims.x0` (`agint.h(929)`) |
-| 6 | *explaining what a plane is* ("all floor is plane 0, non-zero is a slope or bridge, the id is not meaningful") | turned the explanation into a **rule**: "every announced destination is plane 0, and nothing is announced while the agent is off the floor" | announced nothing for any walk that touches a slope or bridge — a behaviour nobody asked for, over a fact that was only meant to explain the data |
+| 6 | *explaining what a plane is* ("all floor is plane 0, non-zero is a slope or bridge, the id is not meaningful") | turned the explanation into a **rule**: "every announced destination is plane 0, and nothing is announced while the agent is off the floor" | announced nothing for any walk that touches a slope or bridge - a behaviour nobody asked for, over a fact that was only meant to explain the data |
 
 Every one of those six was working before the addition, and #6 was not even a request: it was an
 explanation, and an explanation is not an instruction. **The reference is the implementation. It is not a
-starting point for improvements, and a measurement — or an explanation — is not a licence to change
+starting point for improvements, and a measurement - or an explanation - is not a licence to change
 behaviour.**
 
 Rules that follow, and that are binding for any later session:
@@ -41,7 +101,7 @@ Rules that follow, and that are binding for any later session:
   messages, no thresholds, no "defensive" rewrites. The reference's code is the specification; if it
   has a defect, that defect is the specification until the owner says otherwise.
 - **An explanation is not an instruction.** When the owner explains how something in the game works,
-  that is context for understanding the reference — nothing is to be changed because of it. Changing
+  that is context for understanding the reference - nothing is to be changed because of it. Changing
   behaviour from an explanation is incident #6 in the ledger.
 - **A measurement is evidence, not permission.** Capture it, report it, wait. A capture has been used
   six times already to justify a deviation that broke something.
@@ -73,7 +133,7 @@ watched for:
 4. **Compounding.** Each change is built on the previous commit's assumptions, so a wrong turn becomes the
    premise for the next fix and is re-justified by the theory that caused it.
 5. **Self-approval.** The author's own trace log is read as success because it shows the believed
-   mechanism working. The only judge that counts — a real client in the owner's hands — is not in the
+   mechanism working. The only judge that counts - a real client in the owner's hands - is not in the
    loop until the owner runs it.
 
 What is therefore **required before any behaviour change**, in this order:
@@ -90,7 +150,7 @@ What is therefore **required before any behaviour change**, in this order:
 - **Report, do not decide**, when the reference's own behaviour looks wrong: the owner decides, and the
   decision is recorded in the ledger above.
 
-A change is done when the reference's behaviour is reproduced and **nothing else moved** — not when the
+A change is done when the reference's behaviour is reproduced and **nothing else moved** - not when the
 tests pass, and not when the author's log looks right.
 
 ## Working directive: the user's command is the requirement
@@ -104,12 +164,12 @@ Verbatim, from the owner of this repository (2026-10-27):
   command wins and the disagreement is reported, not acted on.
 - **A port is a port.** "Port feature X as the source" means: the reference implementation IS the
   target. Port its behaviour, its message bytes, its field order, its sizes, and its order of
-  operations — verbatim. Do not "fix", "modernise", "improve" or "correct" the source. If the source
+  operations - verbatim. Do not "fix", "modernise", "improve" or "correct" the source. If the source
   looks wrong to me, that is a reason to say so, never licence to ship something else.
 - **Never re-decide a decision the user has already made** (e.g. "do not gate the server under any
   tag or key, the server must work as is"; "we need parity at least with GWPS"; "if it works on GWPS,
   make it work here"). If evidence suggests the chosen direction is wrong, present the evidence and
-  wait for the user — do not silently substitute my own choice.
+  wait for the user - do not silently substitute my own choice.
 - **"Works" means the user's definition**, not mine: a *real client* does the thing (logs in, loads
   the map, teleports) exactly as it does on the reference. Unit tests passing is not "works".
 - Any deviation is a defect in the work, not a design choice. When in doubt, ask one short question.
@@ -122,12 +182,12 @@ Verbatim, from the owner of this repository (2026-10-27):
 - Do not hide a decision in prose. Name the setting, say what it does, stop.
 - If something is optional, say "optional" and what it defaults to. Do not narrate the reasons.
 - No jargon the owner did not use. If a term is needed, define it in the same sentence.
-- When the owner corrects a fact, the correction replaces the text — it does not get appended to it.
+- When the owner corrects a fact, the correction replaces the text - it does not get appended to it.
 
 **The incident this rule exists because of** (`/tp`, 2026-10-27, commit `e0f671c`). The user asked
 from the first message for the teleport to be ported from GWPS, whose code works. I instead sent my
-own inferred `0x01A6` layout: 46 bytes in *my* dword order → client error `007`; then 52 bytes in a
-captured order → client error `005`. The feature only worked once GWPS's **own struct** was copied
+own inferred `0x01A6` layout: 46 bytes in *my* dword order -> client error `007`; then 52 bytes in a
+captured order -> client error `005`. The feature only worked once GWPS's **own struct** was copied
 verbatim (`GameMsg.h:659`: 46 bytes, two-byte header, `map_token, region, player_token,
 is_explorable, map_id`). The port target was named by the user all along.
 
@@ -154,18 +214,18 @@ This is a standing rule, not an opinion to trade against a coverage argument:
 - **The standing suites are a regression net, run when the change reaches shared machinery** (framing,
   the generated tables, schema or migrations, start-up) **or immediately before a commit that claims a
   milestone.** They are not run per edit, per fix, or per message.
-- **A test that encodes superseded behaviour is updated or deleted in the same change** — never
+- **A test that encodes superseded behaviour is updated or deleted in the same change** - never
   extended, never worked around, and never the reason to keep an old behaviour alive.
 - **Time budget:** for a minor feature, testing must stay smaller than the implementation. If the
   testing is about to take longer than the change, stop and let the live client decide.
 - When a run is needed anyway, it is one targeted invocation (`cargo test -p <crate> --test <name>`
-  with a name filter), and its result is reported in one line — not a narrative of every test.
+  with a name filter), and its result is reported in one line - not a narrative of every test.
 
 ## Where this stands
 
 - **`/tp` works on a live client, ported from GWPS.** A real client in a map types `/tp ascalon`, receives
   GWPS's own `0x01A6` struct (46 bytes, `map_token, region, player_token, is_explorable, map_id`) and
-  the 12-byte `0x0099`, reconnects, and lands in the destination's spawn. `docs/03-protocol.md` §5
+  the 12-byte `0x0099`, reconnects, and lands in the destination's spawn. `docs/03-protocol.md` #5
   records the port target and the two failed attempts that proved it (`007` from a wrong field order,
   `005` from a wrong frame size). `/maps` prints the reference's own table, one row per alias.
 - **Everything a run needs is in this repository.** The web gate is `crates/asura-webgate` (the
@@ -176,12 +236,12 @@ This is a standing rule, not an opinion to trade against a coverage argument:
   reference capture the offline checks read is committed as a recording under
   `recordings/gwps/world/` (`recordings/README.md`). No
   reference checkout is consulted at runtime, and `asura-supervisor start` builds and starts all of it
-  (`docs/03-protocol.md` §5d has the dump runbook).
+  (`docs/03-protocol.md` #5d has the dump runbook).
 - **Diagnosing a live session has its own tools, in this repository.** `-MoveTrace`
-  (`ASURA_MOVE_TRACE=1`) logs every movement event — `move[pathfind]`/`[manual]`/`[tick]`/`[stop]`,
+  (`ASURA_MOVE_TRACE=1`) logs every movement event - `move[pathfind]`/`[manual]`/`[tick]`/`[stop]`,
   a `move[jump]` wherever the agent's plane changes, and a `move[summary]` at teardown; `-Capture`
   (`--capture PATH` / `ASURA_CAPTURE`) writes **every game message both ways, decrypted**, as JSONL
-  into `recordings/asura/world/` (the committed research archive) — no client hook, no elevation. `tools/sniff-capture.py` is the
+  into `recordings/asura/world/` (the committed research archive) - no client hook, no elevation. `tools/sniff-capture.py` is the
   client-side counterpart for capturing the **live client on live servers**; it needs an elevated
   shell, the Py4GW_Stealth injection, and a **32-bit** Python (the tool re-executes itself under it,
   because the rig reads the instruction pointer through the x86 CONTEXT). A capture plus the movement log is how a drift or a jump is pinned to a
@@ -192,7 +252,7 @@ This is a standing rule, not an opinion to trade against a coverage argument:
   loop of teleports (148 -> 163 -> 164 -> 165 -> 166 -> 148 ...) loaded each destination on demand in
   0-2 ms and the client took every hop without an issue. The hang that forced the reference's
   pre-spawn was OpenTyria's construction inside the hop, not a client requirement. The switch stays
-  for testing; the runbook and the numbers are in `docs/03-protocol.md` §5c, and the server half is
+  for testing; the runbook and the numbers are in `docs/03-protocol.md` #5c, and the server half is
   pinned by the two `*_loaded_on_demand` tests.
 - **Items work on a live client.** Dropping takes the stack down (`count = 1` of a hundred is what a
   client sends, and the reference refuses exactly that), the ground agent wears the item's *model*, moving
@@ -218,16 +278,16 @@ This is a standing rule, not an opinion to trade against a coverage argument:
   row by row, with `file:line` on both sides and a verdict (1:1 / AHEAD / DEVIATION / BEHIND / STUB).
   51 of 78 are indistinguishable, 10 are ASURA's own, 5 differ on purpose, 11 are behind but collapse
   into three work items, and 1 is a stub in both. Read it before deciding that something is "missing". The
-  tooling behind it — the oracle, the `parity-*` and `gen-*` scripts — was retired when parity closed
+  tooling behind it - the oracle, the `parity-*` and `gen-*` scripts - was retired when parity closed
   (docs/16); the audit and the parity documents are history, and the tree no longer references the
   reference project.
 - **M2 delivered: placement is safe, and it is proven against the real database.** The `asura-db`
   crate now owns registration, the atomic reservation, the lease ledger, the reaper and the
   reconciler; `asura-fakeworld` runs the whole sequence as a harness; the acceptance suite passes
-  repeatedly (`.\tools\m2-verify.ps1`). No game client was involved — that was the point.
+  repeatedly (`.\tools\m2-verify.ps1`). No game client was involved - that was the point.
 - **M3 is delivered: the patched client reaches the character list against this service.** Measured
   2026-10-26: build 39112 logged in as `user1@example.com`, took the EULA, and reached character select.
-  `docs/06-reference-session.md` holds the whole session — both directions, every header and size — and
+  `docs/06-reference-session.md` holds the whole session - both directions, every header and size - and
   `asura-auth` reproduced it line for line up to the client's travel request, which it refused while no
   world server existed yet. The service runs: it reads its configuration, refuses a stale schema,
   binds a socket, classifies each connection, performs the key exchange with real randomness, answers
@@ -236,7 +296,7 @@ This is a standing rule, not an opinion to trade against a coverage argument:
   `.\tools\m3-verify.ps1` runs the whole path in one command (it was 105 tests when M3 landed; the
   suite is 175 now).
 - **What the pieces are:** classification from the first four bytes, framing by the table's fixed size
-  per header with no length field, the key exchange (ARC4, the fixed-constant Diffie–Hellman, the
+  per header with no length field, the key exchange (ARC4, the fixed-constant Diffie-Hellman, the
   protocol's own key derivation, pinned by fixtures **compiled from the reference's own C**), typed
   message layouts for the login path, the reference client, the login decision in `asura-db::login`,
   the migration record, and a seed for the three identity pairs the rig's portal DLL hands out.
@@ -245,16 +305,16 @@ This is a standing rule, not an opinion to trade against a coverage argument:
   login batch has a fixed order the client expects (`docs/03-protocol.md` section 4).
 - **The real client has been pointed at this service, and the risky half is confirmed.** Client build
   39112, on this machine, 2026-10-26: it classified as an auth connection, completed the key exchange,
-  and **its subsequent traffic decrypted correctly in our ARC4** — which is the first proof that the
-  fixed-constant Diffie–Hellman and the protocol's own key derivation match the real client rather
+  and **its subsequent traffic decrypted correctly in our ARC4** - which is the first proof that the
+  fixed-constant Diffie-Hellman and the protocol's own key derivation match the real client rather
   than just the reference's C. Its opening messages were captured byte for byte: `0x8001`
-  `SEND_COMPUTER_INFO` (**42 bytes, variable-length, `u16` counts — not the table's 138**) and `0x8002`
+  `SEND_COMPUTER_INFO` (**42 bytes, variable-length, `u16` counts - not the table's 138**) and `0x8002`
   `SEND_COMPUTER_HASH` (22 bytes), 64 bytes in total. Both are now decoded, and the capture is a
   regression test.
 - **The portal is a real HTTP service, and this project now serves it itself**
-  (`docs/03-protocol.md` §4, corrected): with `-portal 127.0.0.1` the client calls four
-  `/Spawned/WebGate/…` endpoints on `localhost:6601` and takes its `user_id`/`session_id` from them.
-  The reference answered them with `tools/webgate.py`; **`crates/asura-webgate` is now the port** —
+  (`docs/03-protocol.md` #4, corrected): with `-portal 127.0.0.1` the client calls four
+  `/Spawned/WebGate/...` endpoints on `localhost:6601` and takes its `user_id`/`session_id` from them.
+  The reference answered them with `tools/webgate.py`; **`crates/asura-webgate` is now the port** -
   same endpoints, same XML and status codes, answered from the rows `tools/seed-dev.ps1` writes
   (`asura_db::portal`). `asura-supervisor start` builds and starts it; no Python, no reference
   checkout.
@@ -262,15 +322,15 @@ This is a standing rule, not an opinion to trade against a coverage argument:
   second auth connection, sent the same preamble, and reset it instead of sending the portal login.
   Against GWPS the login did arrive, nine seconds later, and worked. The reference's own log shows it
   *mis-framing* that preamble (`Unhandled AuthSrv packet with header 35`), so it is not that GWPS
-  handles the message better — something else differs. `docs/03-protocol.md` §10 records the two cheap
+  handles the message better - something else differs. `docs/03-protocol.md` #10 records the two cheap
   pieces of evidence that would settle it: the client's on-screen error text, and a trace with
   timestamps and connection ids.
 
 - **M1's scaffold still holds:** the workspace compiles, `cargo test --workspace` is green (the M1/M2
   part of it: 12 unit + 4 live-database placement tests that skip cleanly without a database), and
   `cargo clippy --workspace --all-targets` is clean.
-- **The login identities exist.** The client does not ask a web service who it is — the rig's portal
-  DLL hands it a fixed pair (`PreSearing/portal/portal.c`) — so `tools/seed-dev.ps1` writes the rows
+- **The login identities exist.** The client does not ask a web service who it is - the rig's portal
+  DLL hands it a fixed pair (`PreSearing/portal/portal.c`) - so `tools/seed-dev.ps1` writes the rows
   those pairs must resolve to: three accounts with a character each. Idempotent; re-running reopens
   the sessions.
 - **M1's scaffold still holds:** the workspace compiles, `cargo test --workspace` is green (the M1/M2
@@ -286,7 +346,7 @@ This is a standing rule, not an opinion to trade against a coverage argument:
 - **GWPS is research material** (`docs/adr/0005-gwps-reference-only.md`). ASURA is written from
   scratch; nothing is ported or patched there.
 - **AzerothCore is the design authority** for structure (`docs/adr/0006-azerothcore-is-the-reference.md`).
-  A deviation has to be recorded before it is implemented — see ADR 0008 for how that is done well and
+  A deviation has to be recorded before it is implemented - see ADR 0008 for how that is done well and
   how it is done badly.
 
 ## What M2 delivered
@@ -294,16 +354,16 @@ This is a standing rule, not an opinion to trade against a coverage argument:
 | piece | where |
 |---|---|
 | lease ledger migration (`lease` table: one row per reserved slot, unique per session) | `crates/asura-db/migrations/0002_leases.sql` |
-| typed placement queries — register, heartbeat, reserve, release, reap, reconcile, remove | `crates/asura-db/src/placement.rs` |
+| typed placement queries - register, heartbeat, reserve, release, reap, reconcile, remove | `crates/asura-db/src/placement.rs` |
 | synchronous, idempotent migrations and the schema tests that keep them honest | `crates/asura-db/src/lib.rs` |
 | the concurrency acceptance test (capacity N-1, N concurrent reservations, exactly N-1 win; full-pool refusal; reaper; reconcile) | `crates/asura-db/tests/placement.rs` |
 | the fake-world harness (`asura-fakeworld scenario`) | `crates/asura-fakeworld/` |
 | one command: integration tests + harness scenario | `tools/m2-verify.ps1` |
 | dependencies, added with the code that needs them: `sqlx` 0.8 (PostgreSQL), `tokio` 1, `uuid` | `Cargo.toml` |
 
-The acceptance result, verbatim from a run: capacity 4 with 5 concurrent reservations → 4 won, 1
+The acceptance result, verbatim from a run: capacity 4 with 5 concurrent reservations -> 4 won, 1
 refused; `leased` ends at capacity; the ledger matches; the reaper freed a silent world's leases and
-left a fresh world's alone; reconcile rebuilt the counter from the ledger. Repeated 5×, no flakiness.
+left a fresh world's alone; reconcile rebuilt the counter from the ledger. Repeated 5x, no flakiness.
 
 **Why a ledger beside the counter:** `world_pool.leased` makes the reservation atomic; the `lease`
 rows make a lease *identifiable*, which is what the reaper needs to free a dead world's slots and the
@@ -316,16 +376,16 @@ transaction, so `count(lease) <= leased <= capacity` holds at every commit and t
 
 | what | state | evidence |
 |---|---|---|
-| **Rust** | installed, 1.99.1 | `cargo test --workspace` → **175 tests, 0 failures**; `cargo clippy --workspace --all-targets` → clean; `cargo fmt --all -- --check` → clean |
+| **Rust** | installed, 1.99.1 | `cargo test --workspace` -> **175 tests, 0 failures**; `cargo clippy --workspace --all-targets` -> clean; `cargo fmt --all -- --check` -> clean |
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
 | **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **9 migrations applied / 11 tables** (`account`, `bag`, `characters`, `item`, `lease`, `map_config`, `schema_version`, `session`, `transfer`, `world`, `world_pool`); credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
 | client rig (Reforged + stealth hooks) | present from the PreSearing work | `asura-supervisor start`, then the client; the trace is the verdict. The client is patched by `client-patcher/patch-gw.py` with `client-patcher/keys.txt` (the server's own DH constants) |
 
 **Database is ready.** `ASURA_DATABASE_URL` is in `.env` (gitignored, never committed). Every migration
-is applied; `crates/asura-db/tests/placement.rs` verified the pool invariants against the live database —
+is applied; `crates/asura-db/tests/placement.rs` verified the pool invariants against the live database -
 at capacity the reservation `UPDATE ... WHERE leased < capacity` returns no row (the refusal signal), and
-an over-capacity row is rejected by `world_pool_never_oversold` — and `tests/inventory.rs` verifies that a
+an over-capacity row is rejected by `world_pool_never_oversold` - and `tests/inventory.rs` verifies that a
 character is seeded once, that its items read back identical to what was written, and that a position
 survives.
 
@@ -367,7 +427,7 @@ harness -- the reference runs a process per map and watches that process. Same q
 
 ## Run it: one document
 
-The "how do I run this" page is **`docs/19-running.md`** — what you need once, the one command, what
+The "how do I run this" page is **`docs/19-running.md`** - what you need once, the one command, what
 success looks like, the everyday supervisor commands, the rolling deploy, the client, CI, and a
 troubleshooting table. It is the only place those instructions live now; this section keeps only the
 rules behind them:
@@ -378,15 +438,15 @@ rules behind them:
 
 - **It is quiet by default, and that is a rule now**: `-Trace` prints every packet, and the packet log is
   off unless asked for, because a world tick every 500 ms is three lines a second forever and it buries the
-  lines that matter. What is *always* printed is the events — `auth: login ok for …`, `auth: travel to map
-  146 placed on world 8001 …`, `world: … joined map 146 … with 6 bag(s) and 9 item(s)`, a saved position, a
+  lines that matter. What is *always* printed is the events - `auth: login ok for ...`, `auth: travel to map
+  146 placed on world 8001 ...`, `world: ... joined map 146 ... with 6 bag(s) and 9 item(s)`, a saved position, a
   dropped item, a moved item, a worn item, a refused move, a chat that was not sent.
 - **The web gate is not optional for a client attempt.** With `-portal 127.0.0.1` the client asks the gate
   on `6601` who it is before it sends a login; with nothing there it opens the auth connection, does the key
-  exchange, sends its preamble, and closes — which looks like "I cannot connect to the server" while the
+  exchange, sends its preamble, and closes - which looks like "I cannot connect to the server" while the
   server is running perfectly (`AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` never arrives). The gate is this
   project's own (`crates/asura-webgate`).
-- **The launcher scripts are retired** (2026-10-28, S1's separate step): `tools/start-server.ps1`, `tools/play.ps1` and `tools/stop-server.ps1` are gone — no more PowerShell in the run path, and the supervisor is the one start path on Windows and Linux (`docs/19-running.md`). What they did that the supervisor does not: `start-server.ps1` started PostgreSQL (elevation); the database is "managed elsewhere", so start it yourself — `Start-Service 'postgresql-x64-<version>'` on Windows, `sudo systemctl start postgresql` on Linux. A hard stop no longer leaves a visible "what is still leased" note: the supervisor's stop is clean, and a hard kill still leaves a connected player's pool slot for the unscheduled reaper. M2 is provable at any time with `tools/m2-verify.ps1` (integration tests + the fake-world scenario, live database).
+- **The launcher scripts are retired** (2026-10-28, S1's separate step): `tools/start-server.ps1`, `tools/play.ps1` and `tools/stop-server.ps1` are gone - no more PowerShell in the run path, and the supervisor is the one start path on Windows and Linux (`docs/19-running.md`). What they did that the supervisor does not: `start-server.ps1` started PostgreSQL (elevation); the database is "managed elsewhere", so start it yourself - `Start-Service 'postgresql-x64-<version>'` on Windows, `sudo systemctl start postgresql` on Linux. A hard stop no longer leaves a visible "what is still leased" note: the supervisor's stop is clean, and a hard kill still leaves a connected player's pool slot for the unscheduled reaper. M2 is provable at any time with `tools/m2-verify.ps1` (integration tests + the fake-world scenario, live database).
 
 ## Run it: the supervisor (cross-platform)
 
@@ -396,33 +456,35 @@ both operating systems; the PowerShell launchers it replaced are retired. **Star
 (`start`); it builds what is missing, seeds the rows a fresh database needs (the same steps the old
 start script ran), starts everything, and watches until Ctrl+C or `stop`. It also carries the two setup
 steps as cross-platform commands: `schema` (the migrations) and `seed` (the dev identities and the map
-catalogue) — the SQL lives in `tools/seed-dev.sql` and `tools/map-config.sql`, applied through `psql`
+catalogue) - the SQL lives in `tools/seed-dev.sql` and `tools/map-config.sql`, applied through `psql`
 the same way on Windows and Linux. Every service it starts is registered in the `service` table (S2):
 kind, address, port, build, state and a heartbeat; `asura-supervisor status` prints that registry with
 a STALE marker, and a stopped supervisor leaves the rows at `stopped`. A world's build is stamped with
 `git describe` (`--build` overrides it), and `deploy-world --old N --new M` starts the new build,
-proves it is registered, and only then marks the old world draining — the old world keeps its players
+proves it is registered, and only then marks the old world draining - the old world keeps its players
 and leaves once its last one reconnects, with nobody kicked (`docs/02-architecture.md`, Deployment and
 draining). On a Linux server host, the runbook is `docs/17-running-on-linux.md` (same commands; the
 game client stays Windows-only, and Linux has not had a live run recorded yet). The command list lives
 in `docs/19-running.md`; it is not repeated here.
 
 Two operational rules the supervisor encodes: a crash is retried at most `restart_max` times
-(`config/services.toml`), then the service is reported FAILED — never restarted forever; and the
+(`config/services.toml`), then the service is reported FAILED - never restarted forever; and the
 services run in their own process group, so Ctrl+C stops them *through* the supervisor (closing the
 console window still ends everything attached to it, and a hard kill of the supervisor orphans the
-services — there is no code that can run on SIGKILL).
+services - there is no code that can run on SIGKILL).
 
 (No network is needed for either once dependencies are cached. If `cargo` cannot reach crates.io,
-the sandbox token may be blocking TLS — run it from a normal shell, or with full access.)
+the sandbox token may be blocking TLS - run it from a normal shell, or with full access.)
 
-Scripts in this repository stay ASCII-only: Windows PowerShell 5.1 reads a BOM-less file as ANSI,
-where a UTF-8 em dash decodes to a smart quote and breaks the parse at a line far from the cause.
+Scripts in this repository stay ASCII-only (see "The encoding rule" above). Windows PowerShell
+5.1 reads a BOM-less file as ANSI, where a UTF-8 em dash decodes to a smart quote and breaks the
+parse at a line far from the cause.
 
 ## Decisions already made (do not re-litigate without reading these)
 
 | decision | where |
 |---|---|
+| **1:1 packet parity is the objective; nothing is improved or patched without an explicit request** | this document, # The objective |
 | **Rust** for the whole stack, translated from AzerothCore's structure | `docs/adr/0001-rust.md`, `docs/adr/0007-rust-translation.md` |
 | **PostgreSQL**, a justified deviation from AzerothCore's MySQL; mechanisms unchanged | `docs/adr/0008-database-vendor.md` |
 | Separate project from GWPS | `docs/adr/0002-separate-project.md` |
@@ -434,10 +496,10 @@ where a UTF-8 em dash decodes to a smart quote and breaks the parse at a line fa
 
 ## Where the next session starts
 
-M4 is delivered — a real client logs in, travels, and stands in a map (`git log`, `4f610a8`) — and it now
+M4 is delivered - a real client logs in, travels, and stands in a map (`git log`, `4f610a8`) - and it now
 carries an inventory and comes back where it logged out.
 
-1. **Verify the baseline** (3 minutes): `cargo test --workspace --offline` → **175 passing**, of which 16
+1. **Verify the baseline** (3 minutes): `cargo test --workspace --offline` -> **175 passing**, of which 16
    are live-database tests in `asura-db` (login, placement, inventory, migrations) and 6 drive real
    sockets in `asura-world` (the load, a drop, a return). Then `.\tools\test-battery.ps1`. If a count
    changed, read `git log` before assuming it is broken.
@@ -448,7 +510,7 @@ carries an inventory and comes back where it logged out.
    lines of it). The second is generation work rather than design, and the generators were retired when parity
    closed (docs/16): the table is item rows, generated once from the reference and kept as data.
 3. **Then the things the reference never wrote**: picking a dropped item back up
-   (`GAME_CMSG_INTERACT_ITEM`, `0x803F` — the last piece that makes a drop reversible), splitting a
+   (`GAME_CMSG_INTERACT_ITEM`, `0x803F` - the last piece that makes a drop reversible), splitting a
    stack by hand (`0x8075`), buying and selling (`GAME_CMSG_TRANSACT_ITEMS`, `0x804D`), swapping two
    items in one move, and `UNEQUIP_ITEM` (`0x804F`), whose layout is still unmeasured. Each starts with
    a *measurement* of what the client sends; the reference's C has now been insufficient four times, and
@@ -459,7 +521,7 @@ carries an inventory and comes back where it logged out.
    are the record.
 5. **The real client is the last word on anything the wire does.** Everything above is harness-only, and
    three messages that no capture contains have now crashed a live client (`ITEM_REMOVE`, an item agent,
-   chat). `asura-supervisor start` with `ASURA_TRACE=1` set in the shell is the verdict — and if a client
+   chat). `asura-supervisor start` with `ASURA_TRACE=1` set in the shell is the verdict - and if a client
    crashes, the log's last `world ->` line names the message that did it.
 
 **Decided, and not to be re-opened without a reason:**
@@ -479,7 +541,7 @@ carries an inventory and comes back where it logged out.
   read the header out of the trace).
 - **A move that would swap two items is refused**, not swapped: an occupied slot is `Refused::Occupied`
   and the client is told where the item really is. The reference has no move handler at all, so there
-  was nothing to copy — swapping is a decision nobody has made yet.
+  was nothing to copy - swapping is a decision nobody has made yet.
 - **`UNEQUIP_ITEM` is not implemented.** Its 6 bytes (`u8, u16, u8`) carry no item id and no capture has
   shown what it means; taking an item off by dragging it out of the equipped bag arrives as `ITEM_MOVE`
   and works.
@@ -554,7 +616,7 @@ the same captured one for every character. It is now built from the row.
 Two schema details worth not re-learning: `smallint` and `integer` are *different Rust types* to sqlx, so a
 query that reads a mixed set of them needs `::int` casts or it fails at runtime; and the settings block is
 always 62 bytes even for a character wearing nothing, because the reference sends `sizeof(CharacterSettings)`
-— the five piece slots are blank, not absent. The comparison tools that produced `docs/12` and the load
+- the five piece slots are blank, not absent. The comparison tools that produced `docs/12` and the load
 allowances were retired with the rest of the parity tooling (docs/16).
 
 ## The pieces M3 added
@@ -563,8 +625,7 @@ allowances were retired with the rest of the parity tooling (docs/16).
 |---|---|
 | connection classification: the three version headers, their sizes, and the refusal to guess | `crates/asura-protocol/src/client/version.rs` |
 | framing: header plus table-sized body, no length field, with encode-side size validation | `crates/asura-protocol/src/client/frame.rs` |
-| the auth message table: 100 rows with names, sizes and field layouts | `crates/asura-protocol/src/client/tables.rs` |
-| the game message table: 194 client-to-server and 488 server-to-client headers | `crates/asura-protocol/src/client/game_tables.rs` |
+| the packet table: every header of both families, 100 auth rows and 682 game rows, with names, sizes and field layouts | `crates/asura-protocol/src/packets.rs` |
 | the portal identity column, and why it is not the account id | `crates/asura-db/migrations/0003_portal_identity.sql` |
 | the login decision: find the session, close the others, read the characters | `crates/asura-db/src/login.rs` |
 | the refusal rules under test against the live database | `crates/asura-db/tests/login.rs` |
@@ -597,22 +658,22 @@ Two PowerShell traps are fixed in the scripts and worth not re-introducing:
 ## Definition of done for the first session (met)
 
 A `world` registered in the database, capacity published, reservations proven atomic under
-concurrency, and the reaper proven to free a dead world's leases — all against the live database,
+concurrency, and the reaper proven to free a dead world's leases - all against the live database,
 repeatedly, with no client, no protocol and no simulation. That is M2, and it is done.
 
 ## What is deliberately not here yet
 
 - **What a drop puts on the wire.** Dropping deducts the stack, prints it, and sends nothing: both candidate
   messages crashed a live client and neither is in any capture. There is **no switch** for that, deliberately
-  — a knob nobody can use is worse than the plain behaviour. The ground item waits for a capture of GWPS
+  - a knob nobody can use is worse than the plain behaviour. The ground item waits for a capture of GWPS
   actually dropping something, and its handler is the unfinished one, so that capture may never exist.
 - **`/tp` and `/teleport`**: they need a *world-initiated* travel (reserve a slot, write a transfer row,
   send `TRANSFER_GAME_SERVER_INFO`, then `MAP_UPDATE_CURRENT`). The redirect is **not** the unknown part:
   the reference sends it on every `/tp`, its 46-byte layout is the one `game::TRANSFER_GAME_SERVER_INFO`
-  already carries, and the cycle is written up in `docs/03-protocol.md` §5. What is missing is a way for a
-  world to start it — today only the client can, through the auth service. `/maps`, `/stuck` and every chat
+  already carries, and the cycle is written up in `docs/03-protocol.md` #5. What is missing is a way for a
+  world to start it - today only the client can, through the auth service. `/maps`, `/stuck` and every chat
   channel are implemented and **not gated**: a spoken line is sent, a generated answer is printed, because
-  printing is the half that has always worked — the reference's `/maps` answered into its own log and never
+  printing is the half that has always worked - the reference's `/maps` answered into its own log and never
   onto a screen.
 - **No trade, no salvage, no pick-up**: an item can be dropped (silently), moved and worn, and nothing
   else. Nothing picks a dropped item up, because the reference has no handler for that either
@@ -620,7 +681,7 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
 - **No character creation**: the four `CHAR_CREATION_*` handlers need a creation instance and the default
   equipment table.
 - **One agent, one player**: no NPCs, no other players, no combat, no quests, and no session registry in
-  memory — the service resolves a connection per connection and keeps no record of who is connected.
+  memory - the service resolves a connection per connection and keeps no record of who is connected.
 - **No character selection yet**: the client's `AUTH_CMSG_CHANGE_PLAY_CHARACTER` is logged as unhandled,
   and `asura_db::login::select_character` exists but nothing calls it. The login batch reports the
   character the session already points at; choosing one is the next login-path message.
@@ -629,7 +690,7 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
 
 ## Reading order for a fresh session
 
-`docs/HANDOFF.md` (this file) → `MILESTONES.md` (what is proven, with the proof) →
-`docs/01-scope.md` → `docs/02-architecture.md` → `docs/03-protocol.md` → `docs/roadmap.md` → the ADR
+`docs/HANDOFF.md` (this file) -> `MILESTONES.md` (what is proven, with the proof) ->
+`docs/01-scope.md` -> `docs/02-architecture.md` -> `docs/03-protocol.md` -> `docs/roadmap.md` -> the ADR
 that matches the question you have. `docs/00-glossary.md` defines every term if something reads as
 jargon.

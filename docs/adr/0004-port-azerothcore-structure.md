@@ -1,9 +1,9 @@
-# ADR 0004 — Port AzerothCore's server structure
+# ADR 0004 - Port AzerothCore's server structure
 
 - **Status:** Accepted (owner's direction, 2026-10-25). AzerothCore is now the standing design
   authority, not only the source of this structure: `docs/adr/0006-azerothcore-is-the-reference.md`.
 - **Date:** 2026-10-25
-- **Context:** AzerothCore is a mature, multi-process Guild Wars–scale emulator that supports far
+- **Context:** AzerothCore is a mature, multi-process Guild Wars-scale emulator that supports far
   larger populations than anything GWPS has attempted. Its server structure is proven in production
   by a large community, and it solves exactly the problems GWPS hit: concurrent database access from
   many processes, character state ownership, instance lifecycle, and scaling map simulation across
@@ -16,7 +16,7 @@ Adopt AzerothCore's structure for ASURA. Five elements, ported as a whole rather
 1. **Two program types.** An **auth service** that only handles login, and **world servers** that
    run everything else. They do not hold a live connection to each other for state.
 2. **Three databases, separate concerns and separate connection pools:** `auth` (accounts, sessions,
-   tokens), `game` (characters, items, instance records), `content` (map configuration, spawns —
+   tokens), `game` (characters, items, instance records), `content` (map configuration, spawns -
    effectively read-only). This mirrors AzerothCore's Login / Character / World split.
 3. **The database is the coordination channel.** A **registry table** lists every world server with
    its id, client-facing address, port, flags and population, exactly as `realmlist` does. A world
@@ -27,14 +27,14 @@ Adopt AzerothCore's structure for ASURA. Five elements, ported as a whole rather
    blocks on a query, and transactions for anything multi-statement.
 5. **Instances and map updates live inside the world server.** A map-instance manager keys instances
    by id, persists instance records, and destroys what is empty. Map simulation runs on a bounded
-   pool of update threads with map affinity — not one thread per map, which is how AzerothCore's
+   pool of update threads with map affinity - not one thread per map, which is how AzerothCore's
    `MapUpdater` works and what GWPS gets wrong.
 
 ## The one deviation, and why it is forced
 
 AzerothCore creates an instance **on demand**, when a player enters it (`CreateInstanceForPlayer`).
 We cannot copy that, because our client does not tolerate it: in GWPS, a travel to a map with no
-server yet hung the loading screen in 7 of 53 hops, and the client recorder showed why — it tears its
+server yet hung the loading screen in 7 of 53 hops, and the client recorder showed why - it tears its
 world down and waits for a redirect from a server that is not answering, then never recovers.
 
 So for explorables, ASURA prebuilds pools and **reserves** a slot:
@@ -47,7 +47,7 @@ UPDATE world_pool
 ```
 
 No row returned means no room, and the travel is refused while the client is still standing in the
-outpost. World servers still create and destroy instances in AzerothCore's style — but they create
+outpost. World servers still create and destroy instances in AzerothCore's style - but they create
 them **ahead of need**, into a pool, and never in response to a travel.
 
 This is the only structural difference, and it is dictated by the client's behaviour, not by taste.
@@ -55,7 +55,7 @@ This is the only structural difference, and it is dictated by the client's behav
 ## Database vendor
 
 **PostgreSQL**, recorded as a justified deviation in `docs/adr/0008-database-vendor.md`. The structure
-in this ADR — pool, async write queue, transactions, registry table — is vendor-neutral and is exactly
+in this ADR - pool, async write queue, transactions, registry table - is vendor-neutral and is exactly
 what AzerothCore does; the vendor is a separate decision with its own reasoning.
 
 The vendor lives behind one crate (`asura-db`); nothing else in the project writes SQL.

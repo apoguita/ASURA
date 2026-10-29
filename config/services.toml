@@ -8,7 +8,7 @@
 # systemd on Linux, managed elsewhere. Its URL comes from `.env` (ASURA_DATABASE_URL).
 #
 # `restart` is "on-failure" (restart a crashed service), "always", or "never". A service is
-# retried at most `restart_max` times, `restart_delay_ms` apart, and then reported FAILED — it
+# retried at most `restart_max` times, `restart_delay_ms` apart, and then reported FAILED - it
 # never restarts forever.
 #
 # `health` is how "alive" is decided before the service counts as ready:

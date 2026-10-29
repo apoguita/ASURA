@@ -1,7 +1,7 @@
 //! The fake-world harness: a world server with no simulation, used to prove placement.
 //!
 //! It registers itself in `world`, publishes `world_pool` capacity, takes concurrent reservations,
-//! refuses when the pool is full, goes silent, and is reaped — the whole M2 acceptance run, against
+//! refuses when the pool is full, goes silent, and is reaped - the whole M2 acceptance run, against
 //! the real PostgreSQL, no game client involved (`docs/roadmap.md`, M2; `docs/HANDOFF.md`).
 //!
 //! Run it with a database configured (environment or repo `.env`):

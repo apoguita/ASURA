@@ -43,7 +43,7 @@ pub struct Bag {
 pub struct Item {
     /// The client-visible id: what a drop names, and what `UPDATE_AGENT_VISUAL_EQUIPMENT` carries.
     pub id: i32,
-    /// Where it sits. `None` for an item that is not in a slot — a bag's own item.
+    /// Where it sits. `None` for an item that is not in a slot - a bag's own item.
     pub bag_id: Option<i32>,
     pub slot: Option<i32>,
     pub file_id: i64,
@@ -105,7 +105,7 @@ impl Inventory {
         self.items.iter().find(|item| item.id == item_id)
     }
 
-    /// The items in one bag, by slot — the order the reference sends them in.
+    /// The items in one bag, by slot - the order the reference sends them in.
     pub fn items_in(&self, bag_id: i32) -> Vec<&Item> {
         let mut found: Vec<&Item> = self
             .items
@@ -723,7 +723,7 @@ pub struct Taken {
 ///
 /// **This is the half the reference never wrote.** `GameSrv_HandleDropItem` bails out with
 /// `TODO: we must still implement this` as soon as `count < quantity`, so a stacked item cannot be
-/// dropped there at all — and the client sends `count = 1` for a stack of a hundred, which is why
+/// dropped there at all - and the client sends `count = 1` for a stack of a hundred, which is why
 /// dropping the reference's own cupcake never did anything.
 ///
 /// `Ok(None)` means nothing was taken: no such item, not in a slot (a bag's own item is not litter), or
@@ -779,7 +779,7 @@ pub async fn take_from_stack(
 pub enum Refused {
     /// No such item for this character.
     NoSuchItem,
-    /// It is not in a slot — a bag's own item, which is part of the bag rather than an item in it.
+    /// It is not in a slot - a bag's own item, which is part of the bag rather than an item in it.
     NotInASlot,
     /// No such bag for this character.
     NoSuchBag,
@@ -796,7 +796,7 @@ pub enum MoveOutcome {
     At { item: Item, bag_id: i32, slot: i32 },
     /// It was already there; nothing was written.
     Unchanged { item: Item },
-    /// Nothing happened, and `item` is where it actually is — a caller uses that to put the client's
+    /// Nothing happened, and `item` is where it actually is - a caller uses that to put the client's
     /// own model back, because the client moves the item optimistically before it asks.
     Refused { item: Option<Item>, reason: Refused },
 }
@@ -896,7 +896,7 @@ pub async fn move_item(
 
 /// The first free slot in the bags a player carries, backpack first.
 ///
-/// The reference has the same idea (`GmBag_TryAddToBag`) and the same bug — its loop tests
+/// The reference has the same idea (`GmBag_TryAddToBag`) and the same bug - its loop tests
 /// `items[idx] != 0` where it means `== 0`, so it overwrites an occupied slot instead of finding an
 /// empty one. This is the intent, not the bug: unequipping something has to have somewhere to put it.
 pub async fn first_free_carrying_slot(

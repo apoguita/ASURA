@@ -16,7 +16,7 @@
 //!
 //! Everything after the server seed is scrambled. Note what is *not* here: there is no generator and
 //! no server public value on the wire. The client's patch carries the matching parameters, so the
-//! server's job is only to raise the client's number to a fixed exponent — which is why this module
+//! server's job is only to raise the client's number to a fixed exponent - which is why this module
 //! needs modular exponentiation and nothing else.
 //!
 //! Two things are deliberately different from the reference, and both are recorded:
@@ -61,7 +61,7 @@ pub const SERVER_PRIVATE_DECIMAL: &str = "49550138388004424775633228450229609984
 pub enum HandshakeError {
     /// Fewer bytes than a whole client seed. Read more.
     Incomplete { needed: usize },
-    /// A whole client seed whose header is not [`CLIENT_SEED_HEADER`] — GWPS returns
+    /// A whole client seed whose header is not [`CLIENT_SEED_HEADER`] - GWPS returns
     /// `ERR_BAD_USER_DATA` and drops the connection, without guessing what was meant.
     UnexpectedHeader { got: u16, expected: u16 },
     /// The shared secret came out zero, which would mean the exchange exchanged nothing. See the
@@ -161,11 +161,11 @@ pub fn modpow(public: &[u8; PUBLIC_LEN]) -> [u8; PUBLIC_LEN] {
 /// five rounds over the 20 input bytes, and *adds* the working state back onto the input words rather
 /// than emitting a chaining value. There is no padding, no length encoding and no second block: the
 /// input is always exactly the 20-byte master secret. Reproduced exactly, because a different digest
-/// means a keystream the client will not recognise — and the client reports nothing but `007`.
+/// means a keystream the client will not recognise - and the client reports nothing but `007`.
 ///
 /// It is also not a strong hash: five rounds diffuse poorly, so flipping one input bit changes only
-/// some of the digest. That is fine for what it is — the input is a uniformly random secret, so there
-/// is nothing to protect against by mixing — and it is *not* something to improve on. Improving it
+/// some of the digest. That is fine for what it is - the input is a uniformly random secret, so there
+/// is nothing to protect against by mixing - and it is *not* something to improve on. Improving it
 /// would break the handshake.
 pub fn derive_key(master: &[u8; MASTER_SECRET_LEN]) -> [u8; KEY_LEN] {
     fn read_le(bytes: &[u8]) -> u32 {

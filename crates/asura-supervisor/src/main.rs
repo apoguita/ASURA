@@ -3,7 +3,7 @@
 //! The list is `config/services.toml` (`docs/16-implementation-plan.md`, S1): what to run, with what
 //! arguments, in what order, and where each one logs. The database is checked and waited for, never
 //! started. A service that keeps crashing is retried a bounded number of times and then reported
-//! FAILED — the supervisor never restarts one forever (D1.3).
+//! FAILED - the supervisor never restarts one forever (D1.3).
 //!
 //! Commands:
 //!
@@ -74,7 +74,7 @@ async fn main() -> ExitCode {
     }
 }
 
-/// Start everything listed — build if needed, seed, then start — and watch it until Ctrl+C or a
+/// Start everything listed - build if needed, seed, then start - and watch it until Ctrl+C or a
 /// `stop`/`quit` command.
 async fn start(args: &[String]) -> ExitCode {
     let path = config_path(args);
@@ -350,7 +350,7 @@ fn build_services(fallback: Option<&config::Config>) -> Result<(), String> {
     }
 }
 
-/// The rows a fresh database needs — the two steps the old start script ran before starting the
+/// The rows a fresh database needs - the two steps the old start script ran before starting the
 /// services. Cross-platform: the SQL is the repository's own data files, applied by `psql`.
 fn seed() -> Result<(), String> {
     let psql = psql::find()?;

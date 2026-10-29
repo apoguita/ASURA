@@ -1,5 +1,5 @@
 //! The path-graph dump: a graph written once (`asura-world --dump-path-graphs`) must answer exactly
-//! the walks the `Gw.dat` import answers — otherwise the dump would be a different pathfinder.
+//! the walks the `Gw.dat` import answers - otherwise the dump would be a different pathfinder.
 //!
 //! These run against a local client archive (`ASURA_GW_DAT`, `./Gw.dat` or `data/Gw.dat`) and skip
 //! cleanly without one, like the other live-database tests.
@@ -129,7 +129,7 @@ fn a_dumped_graph_answers_the_same_walks_as_the_archive() {
     }
 }
 
-/// The bundled dump works out of the box: no archive, no database — `data/path-graphs.bin` is
+/// The bundled dump works out of the box: no archive, no database - `data/path-graphs.bin` is
 /// committed with the server, so the repository alone can answer pathfinding.
 #[test]
 fn the_bundled_dump_answers_walks_without_an_archive() {
@@ -160,7 +160,7 @@ fn the_bundled_dump_answers_walks_without_an_archive() {
 }
 
 /// The real command: `asura-world --dump-path-graphs` writes a file this crate can read back, and
-/// the catalogue binds to it — so a world can serve maps from the dump with no `Gw.dat` at all.
+/// the catalogue binds to it - so a world can serve maps from the dump with no `Gw.dat` at all.
 ///
 /// Needs the database (the catalogue is read for the map list) and the archive; skips without either.
 #[tokio::test]

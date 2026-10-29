@@ -30,7 +30,7 @@ pub struct ServiceRow {
 /// Register or refresh one service.
 ///
 /// An upsert, so a restarted service overwrites the previous life's address, build and state, and
-/// repeated calls are harmless — which is what lets the supervisor publish every few seconds.
+/// repeated calls are harmless - which is what lets the supervisor publish every few seconds.
 pub async fn upsert(
     pool: &PgPool,
     kind: &str,

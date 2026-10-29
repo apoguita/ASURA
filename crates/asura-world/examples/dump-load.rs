@@ -10,7 +10,7 @@
 //! ```
 //!
 //! The defaults are the values the reference session used (map 146, the reference's character name,
-//! its blob and spawn), and the inventory is the reference's own default set — read from the same rows
+//! its blob and spawn), and the inventory is the reference's own default set - read from the same rows
 //! the server seeds, not replayed, so this dump is what the *built* blocks contain. A diff against the
 //! reference's capture is therefore a diff of content and not of a replayed file.
 
