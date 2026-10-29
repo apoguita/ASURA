@@ -29,6 +29,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use asura_db::account as db_account;
 use asura_db::game as db_game;
 use asura_db::login as db_login;
 use asura_db::PgPool;
@@ -554,7 +555,28 @@ async fn dispatch(
         }
 
         // The reference keeps the client's player status on the connection and sends nothing.
-        tables::AUTH_CMSG_SET_PLAYER_STATUS | tables::AUTH_CMSG_ACCEPT_EULA => Ok(true),
+        tables::AUTH_CMSG_SET_PLAYER_STATUS => Ok(true),
+
+        // The client accepted the EULA and names the version it accepted (`1a` = 26 against build
+        // 39112). Recording it is the whole point: the account info of the next login carries it back
+        // and the client stops asking (`crates/asura-db/migrations/0012_account_eula.sql`).
+        //
+        // Nothing is sent in reply - the reference sends nothing here and the client waits for
+        // nothing. A write that fails is logged and swallowed: the login already succeeded, and a
+        // refusal now would only make the client ask again.
+        tables::AUTH_CMSG_ACCEPT_EULA => {
+            let version = messages::decode_eula(&frame.body).map_err(ConnectionError::Message)?;
+            if let Some(account) = session.account {
+                match db_account::record_eula(pool, account, i16::from(version)).await {
+                    // Printed, not traced: "this account accepted the EULA" is an event, and the
+                    // trace is the thing that buries events three lines deep in a 500 ms tick.
+                    Ok(true) => eprintln!("auth: {account} accepted EULA version {version}"),
+                    Ok(false) => eprintln!("auth: no account row {account} to record the EULA on"),
+                    Err(err) => eprintln!("auth: could not record the EULA of {account}: {err}"),
+                }
+            }
+            Ok(true)
+        }
 
         // A travel request is answered with a world that is actually reachable *now*
         // (`travel::answer`): the info message with an address, then the success response. The one
@@ -661,6 +683,27 @@ async fn answer_login(
         .await
         .map_err(ConnectionError::Database)?;
 
+    // The EULA version this account accepted, which the account info carries back so the client does
+    // not ask again. A read that fails is not worth losing a login over: 0 asks the client once, and
+    // its answer is recorded, so a transient error costs one extra page rather than a session.
+    let eula_accepted = match db_account::load(pool, resolved.account).await {
+        Ok(Some(account)) => account.eula_accepted.max(0) as u8,
+        Ok(None) => {
+            eprintln!(
+                "auth: no account row {} for a session that resolved",
+                resolved.account
+            );
+            0
+        }
+        Err(err) => {
+            eprintln!(
+                "auth: could not read the account of {}: {err}",
+                resolved.account
+            );
+            0
+        }
+    };
+
     session.account = Some(resolved.account);
     // The pair resolved, so the session row is real and this connection may act on it: a travel
     // request needs it for the lease, and a character selection is recorded on it. Leaving this unset
@@ -733,6 +776,7 @@ async fn answer_login(
         login.request,
         resolved.account.to_bytes_le(),
         selected.map(|character| character.to_bytes_le()),
+        eula_accepted,
     ));
     replies.push(
         RequestResponse {

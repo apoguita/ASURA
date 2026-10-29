@@ -28,9 +28,9 @@ The client rig patches the 32-bit client's threads and reads the instruction poi
 through the x86 ``CONTEXT``. A 64-bit interpreter sees a zero instruction pointer
 from that client and the patcher refuses to write. So this tool is 32-bit only:
 
-- started with a 64-bit interpreter, it re-executes itself under the 32-bit one
-  (found via ``ASURA_PY32``, the standard per-user 32-bit 3.12/3.13 install, or
-  ``py -3.13-32``);
+- started with a 64-bit interpreter, it runs itself again under the 32-bit one and waits
+  for it, so the console and the exit code are the capture's, not the wrapper's (found via
+  ``ASURA_PY32``, the standard per-user 32-bit 3.12/3.13 install, or ``py -3.13-32``);
 - with no 32-bit interpreter available, it says so and exits 2;
 - a 64-bit client is refused for the same reason.
 
@@ -67,7 +67,8 @@ Usage
     py tools/sniff-capture.py --self-test
 
 Exit codes: 0 captured (or self-test passed), 2 not elevated, 3 no client found,
-4 capture failed.
+4 capture failed, 130 stopped from the 64-bit wrapper by Ctrl+C (the 32-bit capture stops
+itself and prints its summary).
 
 This file stays ASCII-only, like every script in tools/ (docs/HANDOFF.md).
 """
@@ -77,6 +78,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -97,6 +99,10 @@ UTF16_RUN_MIN = 6
 
 #: Code units that count as text. Tab is included because client strings can hold it.
 PRINTABLE_RANGES = ((0x20, 0x7E), (0x09, 0x09))
+
+#: Seconds of silence after which the run says so once. A character-creation screen legitimately
+#: sends nothing while a person reads it, so this is a heartbeat, not an error.
+QUIET_NOTE_SECONDS = 60.0
 
 
 # --------------------------------------------------------------------------- #
@@ -352,11 +358,18 @@ def require_32_bit(argv: list[str]) -> int | None:
         print("ASURA_PY32 to a 32-bit python.exe, and run it again.", file=sys.stderr)
         return 2
     print(f"re-executing under the 32-bit interpreter: {interpreter}")
-    os.execv(
-        interpreter,
-        [interpreter, str(Path(__file__).resolve()), *argv],
-    )
-    return 2  # unreachable: os.execv replaces the process
+    # Not `os.execv`: Windows cannot overlay a process, so the C runtime starts the child and ends
+    # this one immediately. The console then gets its prompt back while the capture is still
+    # running, and the exit code belongs to the parent - a failed capture looked like "nothing
+    # happened". A blocking run keeps the console honest and hands the child's code back out.
+    try:
+        child = subprocess.run([interpreter, str(Path(__file__).resolve()), *argv])
+    except KeyboardInterrupt:
+        # Ctrl+C goes to the whole console group, so the child saw it as well and is running its
+        # own cleanup. Waiting on it here printed a second traceback after every capture; 130 is
+        # the shell's own code for "stopped by Ctrl+C".
+        return 130
+    return child.returncode
 
 
 def run_capture(args) -> int:
@@ -383,6 +396,15 @@ def run_capture(args) -> int:
         print("no Guild Wars client is running (looked for Gw*.exe; pass --pid if it is "
               "named something else)", file=sys.stderr)
         return 3
+    # Say which client this is before touching it. Discovery is automatic and takes the first one;
+    # printing every candidate makes it obvious when the window was watching the other copy, which
+    # is otherwise indistinguishable from a capture that simply recorded nothing.
+    for index, candidate in enumerate(clients):
+        verb = "using" if index == 0 else "also running"
+        print(
+            f"--- {verb}: pid {candidate.get('pid')} {candidate.get('name') or ''} "
+            f"{candidate.get('path') or '(path unreadable)'}"
+        )
     target = clients[0]
     if target.get("path") is None and target.get("pid"):
         try:
@@ -416,6 +438,17 @@ def run_capture(args) -> int:
     )
 
     client = py4gw.connect(target)
+    # Py4GW starts its own listeners on connect, and they share the callback thread that feeds the
+    # sniffer. The merchant listener indexes `words[1]` on every packet it is given and raises
+    # `IndexError` on a short one (`Py4GW_Stealth/py4gw/listeners.py:291`), which kills that thread:
+    # the capture then records nothing more while the tool keeps polling, and the only sign is the
+    # "tuple index out of range" it reports when it closes. This tool wants bytes, not listeners.
+    try:
+        from py4gw import listeners as listeners_module
+
+        listeners_module.Shutdown()
+    except Exception as exc:  # noqa: BLE001 - a listener that will not stop is not the capture's end
+        print(f"--- note: could not disable Py4GW's listeners ({exc})", file=sys.stderr)
     identity = exe_identity(target.get("path"))
     started = time.time()
     counts: dict[str, int] = {}
@@ -450,10 +483,17 @@ def run_capture(args) -> int:
                   f"version {identity['file_version']}) -> {out}")
 
             deadline = started + args.seconds if args.seconds else None
+            # A capture that goes quiet is the failure that looks like success: the callback thread
+            # can stop delivering while this loop keeps polling an empty ring. Say so once, with the
+            # number of seconds, instead of letting the run look healthy until Ctrl+C.
+            last_packet = started
+            warned = False
             try:
                 while True:
                     entries = SNIFFER.get_logs(args.dir)
                     if entries:
+                        last_packet = time.time()
+                        warned = False
                         for entry in entries:
                             header = int(entry.header)
                             if headers is not None and header not in headers:
@@ -478,6 +518,14 @@ def run_capture(args) -> int:
                         # Drain: the client-side log is a ring with a fixed cap.
                         SNIFFER.clear_logs(args.dir)
 
+                    if not warned and time.time() - last_packet > QUIET_NOTE_SECONDS:
+                        warned = True
+                        print(
+                            f"--- {captured} packet(s) so far; nothing for "
+                            f"{int(time.time() - last_packet)}s - still capturing",
+                            file=sys.stderr,
+                        )
+
                     if deadline is not None and time.time() >= deadline:
                         break
                     time.sleep(args.poll)
@@ -485,17 +533,20 @@ def run_capture(args) -> int:
                 print("\n--- interrupted")
     except Exception as exc:  # noqa: BLE001 - always disconnect before leaving
         print(f"capture failed: {exc}", file=sys.stderr)
-        try:
-            SNIFFER.terminate(args.dir)
-            py4gw.disconnect()
-        except Exception:  # noqa: BLE001
-            pass
         return 4
     finally:
+        # Cleanup of a capture that already happened. Both steps can fail in a way that says
+        # nothing about the recording - a client that died under the hooks, and Py4GW's own
+        # listeners re-raising their last callback failure on close - so each failure is one line
+        # and the packets that were captured stay good evidence.
         try:
             SNIFFER.terminate(args.dir)     # puts every handler entry back
-        finally:
+        except Exception as exc:  # noqa: BLE001
+            print(f"--- note: the sniffer did not stop cleanly ({exc})", file=sys.stderr)
+        try:
             py4gw.disconnect()
+        except Exception as exc:  # noqa: BLE001
+            print(f"--- note: disconnect reported {exc}", file=sys.stderr)
 
     print(f"--- {captured} packet(s) in {time.time() - started:.1f}s -> {out}")
     if counts:

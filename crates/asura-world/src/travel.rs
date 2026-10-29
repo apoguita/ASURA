@@ -161,7 +161,7 @@ pub async fn teleport(
             return Ok(true);
         }
     };
-    if target.map_id == player.instance.map_id {
+    if target.map_id == player.instance.map.map_id {
         // `GmCommands.c:198-202`.
         eprintln!("world: You are already here.");
         return Ok(true);
@@ -225,7 +225,7 @@ pub async fn teleport(
         "world: {:?} teleporting: map {} -> map {} '{}', player token {player_token:#010X}, \
          redirect to {public}",
         player.name,
-        player.instance.map_id,
+        player.instance.map.map_id,
         target.map_id,
         target.label()
     );

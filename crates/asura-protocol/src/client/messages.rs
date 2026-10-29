@@ -557,6 +557,15 @@ pub fn decode_change_character(body: &[u8]) -> Result<String, MessageError> {
         .ok_or(MessageError::Truncated { field: "charname" })
 }
 
+/// The EULA version out of `AUTH_CMSG_ACCEPT_EULA` (`0x8026`, 3 bytes): one byte, the version the
+/// client accepted. Measured against build 39112: `1a` = 26, and the account info the same login had
+/// answered with `18` = 24, which is the lower number that made the client show the page.
+pub fn decode_eula(body: &[u8]) -> Result<u8, MessageError> {
+    body.first()
+        .copied()
+        .ok_or(MessageError::Truncated { field: "eula" })
+}
+
 /// `AUTH_SMSG_ACCOUNT_SETTINGS` (`0x0016`): the client's stored settings.
 ///
 /// Layout (`AuthSrv_AccountSettings`): `req_id`, a **u16** `n_data`, then exactly that many bytes of
@@ -582,7 +591,16 @@ pub fn account_settings(request: u32) -> Frame {
 ///
 /// `character` is the session's last selection; the reference sends all zeroes when the account has
 /// no characters at all. Field widths and counts follow the whole-wire rule: u16 counts, no padding.
-pub fn account_info(request: u32, account: [u8; 16], character: Option<[u8; 16]>) -> Frame {
+///
+/// `eula_accepted` is the version of the EULA the account has accepted, `0` when it never has
+/// (`asura_db::account`). The reference hardcodes 24 here, which is why its clients are asked every
+/// login; measured on this server: 24 out, `1a` = 26 back from the client on acceptance.
+pub fn account_info(
+    request: u32,
+    account: [u8; 16],
+    character: Option<[u8; 16]>,
+    eula_accepted: u8,
+) -> Frame {
     /// `h000E` in `AuthSrv_SendAccountInfo`.
     const H000E: [u8; 8] = [0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
     /// `h0016`: which campaigns the account owns, per the reference's own comment.
@@ -602,7 +620,7 @@ pub fn account_info(request: u32, account: [u8; 16], character: Option<[u8; 16]>
     writer.u32(8); // h003E
     writer.u16(FEATURES.len() as u16); // n_unk4
     writer.bytes.extend_from_slice(&FEATURES);
-    writer.bytes.push(24); // eula_accepted
+    writer.bytes.push(eula_accepted); // eula_accepted
                            // `unk5` **is** on the wire, and getting this wrong is what desynchronised a real client:
                            // the `03 00` after the eula byte is the first half of this dword, not the next
                            // message's header. Measured: the reference reply is 812 bytes in total -
@@ -739,7 +757,7 @@ mod tests {
         // carries in the middle are 599 and 77 bytes, not the table's 2058 and 275.
         let settings = account_settings(7);
         assert_eq!(settings.len(), 599);
-        let info = account_info(7, [0x44; 16], Some([0x55; 16]));
+        let info = account_info(7, [0x44; 16], Some([0x55; 16]), 24);
         assert_eq!(info.len(), 81);
 
         assert_eq!(friend_stream_end(7).len(), 10);
@@ -822,7 +840,7 @@ mod tests {
     fn the_account_info_carries_the_account_and_the_selected_character() {
         let account = [0xAAu8; 16];
         let character = [0xBBu8; 16];
-        let frame = account_info(9, account, Some(character));
+        let frame = account_info(9, account, Some(character), 26);
 
         assert_eq!(
             u32::from_le_bytes(frame.body[0..4].try_into().expect("4")),
@@ -838,9 +856,19 @@ mod tests {
         assert_eq!(&frame.body[44..60], &character);
 
         // With no character selected the reference sends zeroes rather than omitting the field.
-        let empty = account_info(9, account, None);
+        let empty = account_info(9, account, None, 26);
         assert_eq!(empty.len(), frame.len());
         assert!(empty.body[44..60].iter().all(|byte| *byte == 0));
+
+        // The EULA version sits between the 8 feature bytes and `unk5`: 4 + 4 + 4 + 8 + 8 + 16 + 16
+        // + 4 + 2 + 8 = 74 bytes before it, and `unk5` (a dword) is all that follows.
+        assert_eq!(frame.body[74], 26, "the accepted version is the byte we send");
+        assert_eq!(&frame.body[75..79], &[3, 0, 0, 0], "unk5 after it");
+        assert_eq!(
+            account_info(9, account, None, 0).body[74],
+            0,
+            "a fresh account asks"
+        );
     }
 
     #[test]

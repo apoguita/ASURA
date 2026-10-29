@@ -77,6 +77,9 @@ pub const REQUIRED_TABLES: &[&str] = &[
     "service",
 ];
 
+/// The account row itself: the EULA version it accepted, and whatever later column a login needs.
+pub mod account;
+
 /// The queries placement needs: the atomic reservation, the lease ledger, and the reaper. Every
 /// statement that mutates a pool lives in this module, behind a function whose name says what it does.
 pub mod placement;

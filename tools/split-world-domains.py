@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-off: split the world server's monolith into Stealth-shaped domain modules.
+"""One-off: split the world server's monolith into domain modules, one file per noun.
 
 **Do not run this again.** It reads `lib.rs` as its input, and `lib.rs` is now the facade it
 wrote. It ran once, on the pre-split file; the domain modules are the implementation from here
@@ -8,9 +8,8 @@ visibility once they live in different modules), and `tools/check-world-split.py
 item was lost.
 
 `crates/asura-world/src/lib.rs` held every domain at once. This moves each top-level
-item to the file named after the game noun it belongs to, the way Py4GW_Stealth names
-its classes, and leaves `lib.rs` as the facade: module list, re-exports, the crate
-error, and the tests.
+item to the file named after the game noun it belongs to, and leaves `lib.rs` as the
+facade: module list, re-exports, the crate error, and the tests.
 
 No line of code is rewritten: every item is moved as text, with the doc comments and
 attributes that sit above it. The compiler and the test suite are what prove the move.
@@ -264,8 +263,8 @@ def main():
 HEADERS = {
     "agent": '''//! The agent: one thing standing in a map, and where it is.
 //!
-//! The server's `Agent` - the counterpart of Py4GW_Stealth's `agent.py`, same noun, same
-//! questions. The record is [`AgentState`] and [`Agents`] (below, moved here unchanged); a
+//! One noun, one set of questions, answered against the instance that owns the agents.
+//! The record is [`AgentState`] and [`Agents`] (below, moved here unchanged); a
 //! player's placement is [`Standing`]; a walk is [`Walk`] and [`Motion`]; the movement trace
 //! that a drift is diagnosed from lives at the bottom.
 //!
@@ -274,30 +273,30 @@ HEADERS = {
 //! budget, a clamp instead of a drop. The doc comments on the functions say which.''' ,
     "player": '''//! The player: the character one connection drives, and the block that describes it.
 //!
-//! The server's `Player` - the counterpart of Py4GW_Stealth's `player.py`. [`player_block`] is
-//! the character's own `GAME_SMSG_INSTANCE_PLAYER_DATA_*` run; the constants below are the
+//! [`Player`] is the record; [`player_block`] is the character's own
+//! `GAME_SMSG_INSTANCE_PLAYER_DATA_*` run; the constants below are the
 //! reference's defaults for it (`PLAYER_ID`, `AGENT_ID`, `PARTY_ID`) and the profession it
 //! reports when a character row carries none.''' ,
     "map": '''//! The map: a catalogue entry, its path graph, and the blocks that carry it to a client.
 //!
-//! The server's `Map` - the counterpart of Py4GW_Stealth's `map.py`. [`MapEntry`] is what a
-//! world publishes and what `/maps` lists; [`PathGraphs`] is the imported `Gw.dat` geometry a
-//! `MOVE_TO_COORD` is answered from (the reference's `srv->map_context`); [`spawn_block`],
-//! [`load_block`] and [`manifest`] are the map's side of the instance load.
+//! [`Map`] is the noun; [`MapEntry`] is what a world publishes and what `/maps` lists;
+//! [`PathGraphs`] is the imported `Gw.dat` geometry a `MOVE_TO_COORD` is answered from (the
+//! reference's `srv->map_context`); [`spawn_block`], [`load_block`] and [`manifest`] are the
+//! map's side of the instance load.
 //!
 //! A live instance is **not** here yet: today the map a connection is in is a `MapEntry` on its
 //! `Play` record (`connection.rs`). The instance object is the missing noun, recorded in
 //! `docs/HANDOFF.md` and deferred with the simulation (`docs/adr/0003-simulation-in-scope.md`).''' ,
     "party": '''//! The party.
 //!
-//! The server's `Party` - the counterpart of Py4GW_Stealth's `party.py`. Nothing in this module
-//! yet: the wire carries `PARTY_CREATE` / `PARTY_PLAYER_ADD` (built in `asura_protocol::game`),
-//! and membership is implied by the peers standing in the same world (`world.rs`). The file
-//! exists so the noun has a home before the first party rule does.''' ,
+//! The noun this file is for. Nothing in it yet: the wire carries `PARTY_CREATE` /
+//! `PARTY_PLAYER_ADD` (built in `asura_protocol::game`), and membership is implied by the peers
+//! standing in the same world (`world.rs`). The file exists so the noun has a home before the
+//! first party rule does.''' ,
     "item": '''//! The item and the inventory: what a character carries, and what a client may do with it.
 //!
-//! The server's `Item` / `Inventory` - the counterparts of Py4GW_Stealth's `item.py` and
-//! `inventory.py`. [`items_block`] and [`inventory_block`] are the load-time blocks; the four
+//! [`Item`] and [`Inventory`] are the two nouns. [`items_block`] and [`inventory_block`] are the
+//! load-time blocks; the four
 //! client operations below are `DROP_ITEM`, `ITEM_MOVE`, `EQUIP_ITEM` and the refusal path, and
 //! the row-level work is `asura_db::inventory`.
 //!
@@ -328,7 +327,7 @@ HEADERS = {
 //! that choice (`GetDefaultEquipments`, generated into `default_equipment.rs`).''' ,
     "connection": '''//! One gameplay connection: hello, load, play, goodbye.
 //!
-//! The server's `ConnectedClient` - the counterpart of Py4GW_Stealth's `client.py`. A socket is
+//! The server's `ConnectedClient`, and [`run`], which owns it. A socket is
 //! classified, its key exchange is completed, the token pair is claimed against a transfer, the
 //! load block goes out unasked, and then [`run`] owns the socket: the world tick, the ping, the
 //! client's messages (through `dispatch.rs`) and the broadcasts other players push at it.
@@ -355,7 +354,7 @@ HEADERS = {
 //! (`docs/HANDOFF.md`, the world server's domains).''' ,
 }
 
-MODULE_DECLS = '''// The domains: one file per noun, as Py4GW_Stealth names its classes.
+MODULE_DECLS = '''// The domains: one file per noun.
 pub mod chat;
 pub mod connection;
 pub mod creation;
@@ -369,7 +368,7 @@ pub mod world;'''
 FACADE = '''__HEAD__
 
 // -------------------------------------------------------------------------------------------
-// The domains. One file per noun, the way Py4GW_Stealth names its classes; `lib.rs` is the
+// The domains. One file per noun; `lib.rs` is the
 // facade that re-exports them, so `asura_world::MapEntry` and `asura_world::map::MapEntry` are
 // the same type. A domain's file is where to look: `item.rs` for items, `chat.rs` for chat.
 // -------------------------------------------------------------------------------------------

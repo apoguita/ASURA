@@ -291,8 +291,9 @@ async fn a_travel_request_is_answered_with_a_reachable_world() {
     assert_eq!(counts, Some((2, 1)), "one slot is leased by the travel");
 
     // And the world can now believe that token: the pending transfer names this world, this map, this
-    // account and this character. A token nobody claims is worthless; a token claimed twice is a
-    // replay, and the second claim must come back empty.
+    // account and this character. A token nobody claims is worthless. A second claim by the same world
+    // is the client's newer connection, which rule 1 says to honour (`docs/05-gw2-lessons.md`), so it
+    // returns the same transfer instead of nothing.
     let player_token = dword(36);
     let transfer = placement::claim_transfer(&harness.pool, world_id, player_token)
         .await
@@ -305,9 +306,10 @@ async fn a_travel_request_is_answered_with_a_reachable_world() {
     assert_eq!(
         placement::claim_transfer(&harness.pool, world_id, player_token)
             .await
-            .expect("claim again"),
-        None,
-        "the same token cannot be claimed twice"
+            .expect("claim again")
+            .expect("the newer connection is the one to honour"),
+        transfer,
+        "a second connection with the same token is the newer one, not a replay to refuse"
     );
     assert_eq!(
         placement::claim_transfer(&harness.pool, world_id + 1, player_token)

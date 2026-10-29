@@ -1,6 +1,6 @@
 //! One gameplay connection: hello, load, gameplay, goodbye.
 //!
-//! The server's `ConnectedClient` - the counterpart of Py4GW_Stealth's `client.py`. A socket is
+//! The server's `ConnectedClient`, and [`run`], which owns it. A socket is
 //! classified, its key exchange is completed, the token pair is claimed against a transfer, the
 //! load block goes out unasked, and then [`run`] owns the socket: the world tick, the ping, the
 //! client's messages (through `dispatch.rs`) and the broadcasts other players push at it.
@@ -144,20 +144,62 @@ pub async fn handle_connection(
         map_token: game_version.map_token,
         player_token: game_version.player_token,
     };
-    let transfer =
+    let claimed =
         placement::claim_transfer(&world.pool, world.world_id, game_version.player_token)
             .await
-            .map_err(GameError::Database)?
-            .ok_or(GameError::UnknownTransfer {
-                map_token: game_version.map_token,
-                player_token: game_version.player_token,
-            })?;
+            .map_err(GameError::Database)?;
+    let transfer = match claimed {
+        Some(transfer) => transfer,
+        None => {
+            // DIAGNOSTIC (temporary): say what the transfer table actually holds for this token, so a
+            // refusal names its cause instead of leaving "no pending transfer" as the whole story.
+            match placement::transfer_rows_for(&world.pool, game_version.player_token).await {
+                Ok(rows) if rows.is_empty() => eprintln!(
+                    "world: no transfer row at all for token {:#010X} (asked for world {})",
+                    game_version.player_token, world.world_id
+                ),
+                Ok(rows) => eprintln!(
+                    "world: token {:#010X} exists for world(s) {:?} (this world is {}); claimed: {:?}",
+                    game_version.player_token,
+                    rows.iter().map(|row| row.0).collect::<Vec<_>>(),
+                    world.world_id,
+                    rows.iter().map(|row| row.1.clone()).collect::<Vec<_>>()
+                ),
+                Err(err) => eprintln!("world: could not read the transfer table: {err}"),
+            }
+            return Err(refusal);
+        }
+    };
 
-    // The character the client claims must be the one the transfer was issued for. This is the check
-    // the reference makes (`AuthSrv_DoPostHandshake`); skipping it would let any client that knows a
-    // live token plays as any character on the account.
-    if game_version.character != transfer.character_id.to_bytes_le() {
-        return Err(refusal);
+    // The character the client presents is the one it is entering with, and the transfer row names the
+    // one the session last selected. Those are not always the same: the client chooses its character
+    // after login, in a 6-byte message (`0x8023`) this server does not yet read, so the session keeps
+    // whatever it had - measured 2026-10-28, the row named Asura Three while the client was entering
+    // with Asura One, and every login of Asura One died here as "no pending transfer".
+    //
+    // What must still hold is the reference's own rule (`AuthSrv_DoPostHandshake`): the character must
+    // belong to the account the transfer was issued for. Anything else is refused, and the refusal
+    // names both ids so a mismatch is readable instead of inferred.
+    let character = Uuid::from_bytes_le(game_version.character);
+    if character != transfer.character_id {
+        let owned = asura_db::login::characters(&world.pool, transfer.account_id)
+            .await
+            .map_err(GameError::Database)?
+            .iter()
+            .any(|candidate| candidate.id == character);
+        if !owned {
+            eprintln!(
+                "world: token {:#010X} is for account {}, and character {} is not on it (the \
+                 transfer named {})",
+                game_version.player_token, transfer.account_id, character, transfer.character_id
+            );
+            return Err(refusal);
+        }
+        eprintln!(
+            "world: token {:#010X} named character {} but the client entered with {}; using the \
+             client's, which is on the same account",
+            game_version.player_token, transfer.character_id, character
+        );
     }
 
     let map_id = transfer.map_id;
@@ -180,7 +222,7 @@ pub async fn handle_connection(
         None => return Err(GameError::UnknownMap(map_id)),
     };
 
-    let Some(name) = db_game::character_name(&world.pool, transfer.character_id)
+    let Some(name) = db_game::character_name(&world.pool, character)
         .await
         .map_err(GameError::Database)?
     else {
@@ -191,15 +233,15 @@ pub async fn handle_connection(
     // A character with no bags has never been played, and the reference gives it the default set before
     // it sends anything (`GameSrv_CreateDefaultBags`). A client with no inventory model dies when it draws
     // the character it was just given, so this happens before the load block and not lazily.
-    let mut inventory = db_inventory::load(&world.pool, transfer.character_id)
+    let mut inventory = db_inventory::load(&world.pool, character)
         .await
         .map_err(GameError::Database)?;
     if inventory.bags.is_empty() {
-        let seeded = db_inventory::seed_default(&world.pool, transfer.character_id)
+        let seeded = db_inventory::seed_default(&world.pool, character)
             .await
             .map_err(GameError::Database)?;
         if seeded {
-            inventory = db_inventory::load(&world.pool, transfer.character_id)
+            inventory = db_inventory::load(&world.pool, character)
                 .await
                 .map_err(GameError::Database)?;
             eprintln!(
@@ -211,7 +253,7 @@ pub async fn handle_connection(
     }
 
     // Where the character stands: where it left, if it left from this map.
-    let saved = db_game::position(&world.pool, transfer.character_id)
+    let saved = db_game::position(&world.pool, character)
         .await
         .map_err(GameError::Database)?;
     let standing = Standing::resume(&map, saved);
@@ -248,27 +290,18 @@ pub async fn handle_connection(
     // carries them.
     let equipped = inventory.equipped_item_ids();
     let (outbox, mut inbox) = tokio::sync::mpsc::unbounded_channel();
-    let (player_id, agent_id) = world.peers.join(Peer {
-        player_id: 0,
-        agent_id: 0,
-        name: name.clone(),
-        standing,
-        equipped,
-        outbox,
-    });
+    // The map as a running object, not a row: the instance keeps who is in it, owns each player's
+    // agent, and starts its clock the first time somebody joins (`Instance::run`).
+    let instance = world.instances.for_map(&map);
+    let (player_id, agent_id) = instance.join(name.clone(), standing, equipped, outbox);
     let map_type = map.map_type;
     let mut player = Player {
-        character: transfer.character_id,
+        character,
         player_id,
-        instance: map,
+        agent_id,
+        instance,
         name,
         inventory,
-        agents: Agents::new(
-            agent_id,
-            standing.position,
-            standing.plane,
-            game::PLAYER_SPEED_BASE,
-        ),
         session_id: transfer.session_id,
         account_id: transfer.account_id,
         moved: false,
@@ -279,22 +312,21 @@ pub async fn handle_connection(
         } else {
             None
         },
-        traits: db_game::traits(&world.pool, transfer.character_id)
+        traits: db_game::traits(&world.pool, character)
             .await
             .map_err(GameError::Database)?
             .unwrap_or_default(),
         started: Instant::now(),
-        move_stats: MoveStats::default(),
     };
     if move_trace_on() {
         eprintln!(
             "move[spawn] agent {} starts on map {} at (x={:.1}, y={:.1}, plane={}) with speed {} \
              (the client will walk from here)",
             player.GetAgentID(),
-            player.instance.map_id,
-            player.agents.player.position.0,
-            player.agents.player.position.1,
-            player.agents.player.plane,
+            player.instance.map.map_id,
+            player.GetXY().0,
+            player.GetXY().1,
+            player.standing().plane,
             game::PLAYER_SPEED_BASE
         );
     }
@@ -303,7 +335,7 @@ pub async fn handle_connection(
     // The reference sends these four the moment it has the connection, without waiting to be asked.
     let block = match &world.replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Load) => replay.load.clone(),
-        _ => load_block(&player.instance, player.GetName(), player.GetAgentID()),
+        _ => load_block(&player.instance.map, player.GetName(), player.GetAgentID()),
     };
     send(&mut stream, &mut session, block, trace).await?;
 
@@ -322,23 +354,30 @@ pub async fn handle_connection(
     )
     .await;
 
-    // The player left: everyone else's world loses the agent before the slot goes back, so a client that
-    // is being told about the departure never sees an agent whose seat is already free.
-    if world.peers.leave(player.player_id) {
-        world
-            .peers
+    // Where the player was when it left is what it comes back to, read from the instance before the
+    // player leaves it. Written *before* the lease goes back, and best-effort: a failed save must not
+    // turn an ordinary logout into an error, and losing a position is cheaper than refusing a player
+    // its way out.
+    let stood = player.standing();
+    let left = stood.position;
+    let left_plane = stood.plane;
+    let stats = player
+        .instance
+        .move_stats(player.player_id)
+        .unwrap_or_default();
+
+    // The player left: the instance loses the agent before the slot goes back, so a client that is
+    // being told about the departure never sees an agent whose seat is already free.
+    if player.instance.leave(player.player_id) {
+        player
+            .instance
             .broadcast_all(&farewell(player.GetPlayerNumber(), player.GetAgentID()));
     }
 
-    // Where the player was when it left is what it comes back to. Written *before* the lease goes back,
-    // and best-effort: a failed save must not turn an ordinary logout into an error, and losing a
-    // position is cheaper than refusing a player its way out.
-    let left = player.agents.player.position;
-    let left_plane = player.agents.player.plane;
     if let Err(err) = db_game::record_position(
         &world.pool,
         player.character,
-        player.instance.map_id,
+        player.instance.map.map_id,
         left.0,
         left.1,
         left_plane as i16,
@@ -359,17 +398,16 @@ pub async fn handle_connection(
     if player.moved {
         eprintln!(
             "world: {:?} was moved to map {}; the seat it holds is the destination's",
-            player.name, player.instance.map_id
+            player.name, player.instance.map.map_id
         );
     } else if let Err(err) = placement::release(&world.pool, transfer.session_id).await {
         eprintln!("world: could not release the lease of the leaving player: {err}");
     }
     eprintln!(
         "world: {:?} left map {} from ({:.1}, {:.1}) plane {left_plane}, saved",
-        player.name, player.instance.map_id, left.0, left.1
+        player.name, player.instance.map.map_id, left.0, left.1
     );
     if move_trace_on() {
-        let stats = player.move_stats;
         eprintln!(
             "move[summary] {} walk request(s) (pathfinding), {} position report(s) (manual walk): \
              {} accepted, {} clamped, {} refused, {} plane change(s); {} tick(s) walked, \
@@ -397,9 +435,10 @@ pub async fn run(
     inbox: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<Frame>>,
     trace: bool,
 ) -> Result<(), GameError> {
-    let mut tick = tokio::time::interval(TICK_INTERVAL);
-    // `GameSrv_WorldTick` announces the real elapsed time between frames, so the clock starts here.
-    let mut last_tick = Instant::now();
+    // The unasked load block is out, so the instance's clock may start ticking this player. Gating
+    // here - not at join - is what keeps a tick out of the load block, and not at the players ask,
+    // because the reference's clock runs for a connected client whether it has asked anything yet.
+    player.instance.loaded(player.player_id);
     let mut ping = tokio::time::interval(PING_INTERVAL);
     let mut buffer = [0u8; 8192];
 
@@ -445,94 +484,6 @@ pub async fn run(
                         Err(err) => return Err(GameError::Framing(err)),
                     }
                 }
-            }
-
-            _ = tick.tick() => {
-                // `GameSrv_WorldTick`: announce the elapsed time, then move every agent along its own
-                // walk. The announcement goes to this connection only -- each connection keeps its own
-                // ticker here, where the reference has one loop for the whole server, so every client
-                // still hears one tick per interval.
-                // The announced number is the **real** elapsed time since the previous tick, which is
-                // what `GameSrv_WorldTick` sends (`srv->current_frame_time - srv->last_world_tick`).
-                let elapsed = last_tick.elapsed();
-                last_tick = Instant::now();
-                let delta_ms = u32::try_from(elapsed.as_millis()).unwrap_or(u32::MAX);
-                let delta = elapsed.as_secs_f32();
-                let was_moving = 0.0 < player.agents.player.motion.speed;
-                let before = player.agents.player.position;
-                let before_plane = player.agents.player.plane;
-                let crossed = player.agents.player.advance(delta);
-                if move_trace_on() {
-                    player.move_stats.ticks += 1;
-                    if was_moving {
-                        let moved = {
-                            let dx = player.agents.player.position.0 - before.0;
-                            let dy = player.agents.player.position.1 - before.1;
-                            (dx * dx + dy * dy).sqrt()
-                        };
-                        let expected = game::PLAYER_SPEED_BASE * delta;
-                        eprintln!(
-                            "move[tick] walked {moved:.1} units (expected {expected:.1} at \
-                             {:.0}/s), agent (x={:.1}, y={:.1}, plane={})",
-                            game::PLAYER_SPEED_BASE,
-                            player.agents.player.position.0,
-                            player.agents.player.position.1,
-                            player.agents.player.plane
-                        );
-                        if player.agents.player.plane != before_plane {
-                            player.move_stats.plane_changes += 1;
-                            eprintln!(
-                                "move[jump] the walk changed the agent's plane {before_plane} -> {} \
-                                 at (x={:.1}, y={:.1}) - the client will place it on that plane now",
-                                player.agents.player.plane,
-                                player.agents.player.position.0,
-                                player.agents.player.position.1
-                            );
-                        }
-                    }
-                    if let Some(waypoint) = &crossed {
-                        eprintln!(
-                            "move[tick] crossed waypoint {}/{} (x={:.1}, y={:.1}, plane={}, trap={}); \
-                             agent now (x={:.1}, y={:.1}, plane={})",
-                            player.agents.player.motion.waypoint_idx,
-                            player.agents.player.motion.waypoints.len(),
-                            waypoint.pos.x,
-                            waypoint.pos.y,
-                            waypoint.pos.plane,
-                            waypoint.trap_id,
-                            player.agents.player.position.0,
-                            player.agents.player.position.1,
-                            player.agents.player.plane
-                        );
-                    } else if was_moving && player.agents.player.motion.speed == 0.0 {
-                        eprintln!(
-                            "move[tick] arrival at (x={:.1}, y={:.1}, plane={}); the walk is over",
-                            player.agents.player.position.0,
-                            player.agents.player.position.1,
-                            player.agents.player.plane
-                        );
-                    }
-                }
-                let mut frames = vec![game::world_simulation_tick(delta_ms)];
-                if let Some(waypoint) = crossed {
-                    // A crossed waypoint is a new destination, and the reference broadcasts it: `every`
-                    // client is drawing this agent from the last destination it was told
-                    // (`GameSrv_UpdateAgentDestination` -> `GameSrv_BroadcastAgentMoveToPoint`).
-                    let walk = game::agent_move_to_point(
-                        player.GetAgentID(),
-                        (waypoint.pos.x, waypoint.pos.y),
-                        waypoint.pos.plane,
-                        player.agents.player.plane,
-                    );
-                    world
-                        .peers
-                        .broadcast(player.player_id, std::slice::from_ref(&walk));
-                    frames.push(walk);
-                }
-                send(stream, session, frames, trace).await?;
-                // What the world believes about this player advances with it, so a joining client is told
-                // where a walker is now rather than where it was when it asked.
-                world.peers.update(player.player_id, player.standing());
             }
 
             _ = ping.tick() => {

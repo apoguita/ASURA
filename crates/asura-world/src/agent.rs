@@ -29,19 +29,18 @@ use std::time::{Duration, Instant};
 
 use crate::pathfind::{Pos, Waypoint};
 
-/// The server's `Agent` - Py4GW_Stealth's `agent.py`, same member names where this server
-/// answers them.
+/// The agent API: the questions a server answers about one agent, one question one name.
 ///
-/// A member takes the agent (or the connection's agent table) instead of an `agent_id` looked up
-/// in a process-wide client: the state here is [`AgentState`] and [`Agents`].
+/// A member takes the agent (or the instance that owns the agents) instead of an `agent_id` looked
+/// up in a process-wide client: the state here is [`AgentState`], owned by the [`Instance`].
 #[allow(non_snake_case)]
 pub struct Agent;
 
 #[allow(non_snake_case)]
 impl Agent {
-    /// `Agent.IsValid()`: whether the connection's agent table holds that id.
-    pub fn IsValid(agents: &Agents, agent_id: u32) -> bool {
-        agents.player.agent_id == agent_id
+    /// `Agent.IsValid()`: whether the instance's agents hold that id.
+    pub fn IsValid(instance: &Instance, agent_id: u32) -> bool {
+        instance.has_agent(agent_id)
     }
 
     /// `Agent.GetXY()`: the agent's position, as the server last believed it.
@@ -76,37 +75,6 @@ pub enum Adopted {
     Clamped,
     /// The report was refused (a plane change that is too far).
     Refused,
-}
-
-/// The agents one gameplay connection has: the player's own, and whatever a drop put on the ground.
-///
-/// The reference allocates agent ids from a per-server table (`GmIdAllocate`) and frees them when the
-/// agent goes away; a dropped item's agent is never freed, because there is nothing in the reference that
-/// picks an item up. With one player and a handful of dropped items the table is a counter - but the ids
-/// still have to be distinct, because a client told that two agents share an id draws one of them.
-#[derive(Debug, Clone)]
-pub struct Agents {
-    /// The character this connection drives.
-    pub player: AgentState,
-    pub next_id: u32,
-}
-
-impl Agents {
-    /// A session with one agent: the player, at `agent_id`, standing where the map or the saved position
-    /// says.
-    pub fn new(agent_id: u32, position: (f32, f32), plane: u16, speed_base: f32) -> Agents {
-        Agents {
-            player: AgentState::new(agent_id, position, plane, speed_base),
-            next_id: agent_id.saturating_add(1),
-        }
-    }
-
-    /// The next free agent id, for something the world creates (`GAME_CMSG_DROP_ITEM`).
-    pub fn allocate(&mut self) -> u32 {
-        let id = self.next_id;
-        self.next_id = self.next_id.saturating_add(1);
-        id
-    }
 }
 
 /// Where one agent is, and when it last said so.
@@ -552,16 +520,22 @@ pub async fn handle_move_to_coord(
     );
     let plane =
         u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]]) as u16;
-    let agent_id = player.agents.player.agent_id;
-    let from = player.agents.player.here();
+    let agent_id = player.GetAgentID();
+    let instance = Arc::clone(&player.instance);
+    let map_id = instance.map.map_id;
+    let Some((from, walk_active)) = instance.with_slot(player.player_id, |slot| {
+        (slot.agent.here(), 0.0 < slot.agent.motion.speed)
+    }) else {
+        eprintln!("world: agent {agent_id} asked to walk but has no slot in its instance");
+        return Ok(true);
+    };
     let to = pathfind::Pos {
         x: destination.0,
         y: destination.1,
         plane,
     };
-    let walk_active = 0.0 < player.agents.player.motion.speed;
     if move_trace_on() {
-        player.move_stats.walk_requests += 1;
+        instance.with_slot(player.player_id, |slot| slot.move_stats.walk_requests += 1);
         eprintln!(
             "move[pathfind] agent {agent_id} asked to walk to (x={:.1}, y={:.1}, plane={plane}) \
              while the server thinks it stands at (x={:.1}, y={:.1}, plane={}){} \
@@ -580,7 +554,7 @@ pub async fn handle_move_to_coord(
         );
     }
 
-    let walked = world.graphs.walk(player.instance.map_id, from, to);
+    let walked = world.graphs.walk(map_id, from, to);
     if move_trace_on() {
         match &walked {
             Walk::Found(waypoints) => eprintln!(
@@ -590,8 +564,7 @@ pub async fn handle_move_to_coord(
             ),
             Walk::NoPath => eprintln!("move[pathfind] finder refused: no path"),
             Walk::NoGraph => eprintln!(
-                "move[pathfind] finder refused: this world has no path graph for map {}",
-                player.instance.map_id
+                "move[pathfind] finder refused: this world has no path graph for map {map_id}"
             ),
         }
     }
@@ -618,35 +591,42 @@ pub async fn handle_move_to_coord(
             // points. The plane id is whatever the map's pmaps call the surface the path is on
             // (floor is 0; slopes and bridges have their own ids), and that is the reference's
             // business, not this server's.
-            if let Some(first) = player.agents.player.begin_walk(waypoints) {
+            let begun = instance
+                .with_slot(player.player_id, |slot| {
+                    let first = slot.agent.begin_walk(waypoints)?;
+                    Some((
+                        first,
+                        slot.agent.plane,
+                        slot.agent.motion.waypoints.len(),
+                        slot.agent.position,
+                    ))
+                })
+                .flatten();
+            if let Some((first, current_plane, left, stood)) = begun {
                 let walk = game::agent_move_to_point(
                     agent_id,
                     (first.pos.x, first.pos.y),
                     first.pos.plane,
-                    player.agents.player.plane,
+                    current_plane,
                 );
                 if move_trace_on() {
                     eprintln!(
                         "move[pathfind] answered with waypoint 0 (x={:.1}, y={:.1}, \
-                             plane={}) current_plane={} [0x0029, {} bytes]; {} waypoint(s) left \
-                             to walk, agent stays at (x={:.1}, y={:.1}, plane={})",
+                             plane={}) current_plane={current_plane} [0x0029, {} bytes]; {left} \
+                             waypoint(s) left to walk, agent stays at (x={:.1}, y={:.1}, plane={})",
                         first.pos.x,
                         first.pos.y,
                         first.pos.plane,
-                        player.agents.player.plane,
                         walk.len(),
-                        player.agents.player.motion.waypoints.len(),
-                        player.agents.player.position.0,
-                        player.agents.player.position.1,
-                        player.agents.player.plane
+                        stood.0,
+                        stood.1,
+                        current_plane
                     );
                 }
-                // Everyone else is told where this agent is walking: the reference
-                // broadcasts the same message (`GameSrv_BroadcastAgentMoveToPoint`), and a
-                // client that is not told keeps drawing the walker where it last stood.
-                world
-                    .peers
-                    .broadcast(player.player_id, std::slice::from_ref(&walk));
+                // Everyone else is told where this agent is walking: the reference broadcasts the
+                // same message (`GameSrv_BroadcastAgentMoveToPoint`), and a client that is not told
+                // keeps drawing the walker where it last stood.
+                instance.broadcast(player.player_id, std::slice::from_ref(&walk));
                 send(stream, session, vec![walk], trace).await?;
             }
         }
@@ -654,7 +634,7 @@ pub async fn handle_move_to_coord(
             if trace {
                 eprintln!("world: path finding failed for agent {agent_id}; standing still");
             }
-            player.agents.player.cancel_movement();
+            instance.with_slot(player.player_id, |slot| slot.agent.cancel_movement());
             let standing = player.standing();
             // **Nothing goes on the wire.** The reference answers a refused walk with
             // `AGENT_UPDATE_POSITION` (`0x002C`, `GmAgent.c:391-394`), and that message carries
@@ -671,7 +651,6 @@ pub async fn handle_move_to_coord(
                     standing.position.0, standing.position.1, standing.plane
                 );
             }
-            world.peers.update(player.player_id, standing);
         }
     }
     Ok(true)
@@ -684,7 +663,6 @@ pub async fn handle_move_to_coord(
 /// client sees the first one move.
 pub fn handle_position_update(
     frame: &Frame,
-    world: &World,
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
@@ -699,68 +677,77 @@ pub fn handle_position_update(
         u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]]) as u16;
     let now = Instant::now();
     let before = player.standing();
-    let since = player.agents.player.since_last_report(now);
-    let walk_was_running = 0.0 < player.agents.player.motion.speed;
-    let adopted = player.agents.player.adopt_report(position, plane, now);
-    let standing = player.standing();
-    if move_trace_on() {
-        player.move_stats.reports += 1;
-        match adopted {
-            Adopted::Accepted => player.move_stats.accepted += 1,
-            Adopted::Clamped => player.move_stats.clamped += 1,
-            Adopted::Refused => player.move_stats.refused += 1,
-        }
-        let distance = {
-            let dx = position.0 - before.position.0;
-            let dy = position.1 - before.position.1;
-            (dx * dx + dy * dy).sqrt()
+    let instance = Arc::clone(&player.instance);
+    let Some(outcome) = instance.with_slot(player.player_id, |slot| {
+        let since = slot.agent.since_last_report(now);
+        let walk_was_running = 0.0 < slot.agent.motion.speed;
+        let adopted = slot.agent.adopt_report(position, plane, now);
+        let standing = Standing {
+            position: slot.agent.position,
+            plane: slot.agent.plane,
         };
-        player.move_stats.max_drift = player.move_stats.max_drift.max(distance);
-        eprintln!(
-            "move[manual] report (x={:.1}, y={:.1}, plane={plane}) against the server's \
-             (x={:.1}, y={:.1}, plane={}) - d={distance:.1}, {} ms since the last report, \
-             server walk running={walk_was_running}: {adopted:?}, agent now \
-             (x={:.1}, y={:.1}, plane={}) [0x803D, {} bytes]",
-            position.0,
-            position.1,
-            before.position.0,
-            before.position.1,
-            before.plane,
-            since.map(|elapsed| elapsed.as_millis()).unwrap_or(0),
-            standing.position.0,
-            standing.position.1,
-            standing.plane,
-            frame.body.len() + 2
-        );
-        if adopted == Adopted::Accepted && plane != before.plane {
-            player.move_stats.plane_changes += 1;
+        if move_trace_on() {
+            slot.move_stats.reports += 1;
+            match adopted {
+                Adopted::Accepted => slot.move_stats.accepted += 1,
+                Adopted::Clamped => slot.move_stats.clamped += 1,
+                Adopted::Refused => slot.move_stats.refused += 1,
+            }
+            let distance = {
+                let dx = position.0 - before.position.0;
+                let dy = position.1 - before.position.1;
+                (dx * dx + dy * dy).sqrt()
+            };
+            slot.move_stats.max_drift = slot.move_stats.max_drift.max(distance);
             eprintln!(
-                "move[jump] the client's report changed the plane {before_plane} -> {plane} \
-                 at (x={:.1}, y={:.1}){note}",
+                "move[manual] report (x={:.1}, y={:.1}, plane={plane}) against the server's \
+                 (x={:.1}, y={:.1}, plane={}) - d={distance:.1}, {} ms since the last report, \
+                 server walk running={walk_was_running}: {adopted:?}, agent now \
+                 (x={:.1}, y={:.1}, plane={}) [0x803D, {} bytes]",
                 position.0,
                 position.1,
-                before_plane = before.plane,
-                note = if distance > 50.0 {
-                    " - more than the tolerance away, so this is a real plane change, not stairs"
-                } else {
-                    ""
-                }
+                before.position.0,
+                before.position.1,
+                before.plane,
+                since.map(|elapsed| elapsed.as_millis()).unwrap_or(0),
+                standing.position.0,
+                standing.position.1,
+                standing.plane,
+                frame.body.len() + 2
             );
+            if adopted == Adopted::Accepted && plane != before.plane {
+                slot.move_stats.plane_changes += 1;
+                eprintln!(
+                    "move[jump] the client's report changed the plane {before_plane} -> {plane} \
+                     at (x={:.1}, y={:.1}){note}",
+                    position.0,
+                    position.1,
+                    before_plane = before.plane,
+                    note = if distance > 50.0 {
+                        " - more than the tolerance away, so this is a real plane change, not stairs"
+                    } else {
+                        ""
+                    }
+                );
+            }
+            if adopted != Adopted::Accepted && distance > 50.0 {
+                eprintln!(
+                    "move[jump] report rejected or clamped {adopted:?}: client at (x={:.1}, \
+                     y={:.1}, plane={plane}), server at (x={:.1}, y={:.1}, plane={}), d={distance:.1}",
+                    position.0, position.1, before.position.0, before.position.1, before.plane
+                );
+            }
         }
-        if adopted != Adopted::Accepted && distance > 50.0 {
-            eprintln!(
-                "move[jump] report rejected or clamped {adopted:?}: client at (x={:.1}, \
-                 y={:.1}, plane={plane}), server at (x={:.1}, y={:.1}, plane={}), d={distance:.1}",
-                position.0, position.1, before.position.0, before.position.1, before.plane
-            );
-        }
-    }
-    world.peers.update(player.player_id, standing);
+        (adopted, standing)
+    }) else {
+        return Ok(true);
+    };
+    let (adopted, standing) = outcome;
     if adopted != Adopted::Refused {
-        world.peers.broadcast(
+        instance.broadcast(
             player.player_id,
             &[game::agent_update_position(
-                player.agents.player.agent_id,
+                player.GetAgentID(),
                 standing.position,
                 standing.plane,
             )],
@@ -768,20 +755,17 @@ pub fn handle_position_update(
     }
     if trace {
         eprintln!(
-            "world: agent {} reported ({:.1}, {:.1}) plane {plane}: {adopted:?} -> ({:.1}, \
-             {:.1})",
-            player.agents.player.agent_id,
+            "world: agent {} reported ({:.1}, {:.1}) plane {plane}: {adopted:?} -> ({:.1}, {:.1})",
+            player.GetAgentID(),
             position.0,
             position.1,
-            player.agents.player.position.0,
-            player.agents.player.position.1
+            standing.position.0,
+            standing.position.1
         );
     }
     Ok(true)
 }
 
-/// The client stopped walking (`GameSrv_HandleCancelMovement`): the agent stops where it is and
-/// everyone is told, which is the mover too as far as this server is concerned.
 /// The client stopped walking (`GameSrv_HandleCancelMovement`): cancel the agent's own walk --
 /// `GameSrv_CancelAgentMovement` sets its destination to where it stands and its speed to zero --
 /// and then tell everyone it stopped. Cancelling is the load-bearing half: without it the server
@@ -796,16 +780,30 @@ pub async fn handle_cancel_movement(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    let was_walking = 0.0 < player.agents.player.motion.speed;
-    player.agents.player.cancel_movement();
-    let stop = game::agent_stop_moving(player.agents.player.agent_id);
+    let _ = world;
+    let instance = Arc::clone(&player.instance);
+    let Some((was_walking, stop, stood)) = instance.with_slot(player.player_id, |slot| {
+        let was_walking = 0.0 < slot.agent.motion.speed;
+        slot.agent.cancel_movement();
+        let stood = Standing {
+            position: slot.agent.position,
+            plane: slot.agent.plane,
+        };
+        (
+            was_walking,
+            game::agent_stop_moving(slot.agent.agent_id),
+            stood,
+        )
+    }) else {
+        return Ok(true);
+    };
     if move_trace_on() {
         eprintln!(
             "move[stop] client cancelled walking at (x={:.1}, y={:.1}, plane={}){} \
              [0x8028, {} bytes]",
-            player.agents.player.position.0,
-            player.agents.player.position.1,
-            player.agents.player.plane,
+            stood.position.0,
+            stood.position.1,
+            stood.plane,
             if was_walking {
                 " - a server-side walk WAS running: cancelled (speed -> 0, destination cleared)"
             } else {
@@ -814,9 +812,7 @@ pub async fn handle_cancel_movement(
             frame.body.len() + 2
         );
     }
-    world
-        .peers
-        .broadcast(player.player_id, std::slice::from_ref(&stop));
+    instance.broadcast(player.player_id, std::slice::from_ref(&stop));
     send(stream, session, vec![stop], trace).await?;
     Ok(true)
 }
@@ -838,11 +834,16 @@ pub fn handle_last_position(
     );
     let plane =
         u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]]) as u16;
-    let taken = player.agents.player.adopt_correction(position, plane);
+    let instance = Arc::clone(&player.instance);
+    let Some(taken) = instance.with_slot(player.player_id, |slot| {
+        slot.agent.adopt_correction(position, plane)
+    }) else {
+        return Ok(true);
+    };
     if trace {
         eprintln!(
             "world: agent {} correction to ({:.1}, {:.1}) plane {plane}: {}",
-            player.agents.player.agent_id,
+            player.GetAgentID(),
             position.0,
             position.1,
             if taken { "taken" } else { "refused" }

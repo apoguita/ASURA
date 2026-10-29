@@ -1,7 +1,7 @@
 //! The player: the character one connection drives, and the block that describes it.
 //!
-//! The server's `Player` - the counterpart of Py4GW_Stealth's `player.py`. [`player_block`] is
-//! the character's own `GAME_SMSG_INSTANCE_PLAYER_DATA_*` run; the constants below are the
+//! [`Player`] is the record and [`player_block`] is the character's own
+//! `GAME_SMSG_INSTANCE_PLAYER_DATA_*` run; the constants below are the
 //! reference's defaults for it (`PLAYER_ID`, `AGENT_ID`, `PARTY_ID`) and the profession it
 //! reports when a character row carries none.
 
@@ -9,8 +9,8 @@ use crate::*;
 
 /// The player: the character one connection drives, and the instance it is in.
 ///
-/// The server's `Player` - Py4GW_Stealth's `player.py`, same nomenclature - as a record: the
-/// state this server owns, with the domain's verbs on it (`player.GetAgentID()`).
+/// The player as a record: the state this server owns, with the domain's verbs on it
+/// (`player.GetAgentID()`).
 ///
 /// Assembled after the token pair is believed and before the load block, so that everything the blocks
 /// need - whose character this is, where it stands, what it carries - is decided in one place rather than
@@ -22,12 +22,13 @@ pub struct Player {
     /// from `srv->players` (`GmIdAllocate`) and puts it in `GAME_SMSG_PLAYER_CREATE`, every agent's
     /// `model_id`, the party messages and the chat speaker field.
     pub player_id: u32,
-    /// The instance this player is in. A map is an instance: this row is its description
-    /// (map id, type, spawn, capacity) until the `Instance` object exists.
-    pub instance: MapEntry,
+    /// The agent this character drives in its instance, as `GAME_SMSG_WORLD_CREATE_AGENT` names it.
+    pub agent_id: u32,
+    /// The instance this player is in: the map as a running object (its players, their agents and its
+    /// clock), not the catalogue row that describes it. `player.instance.map` is that row.
+    pub instance: Arc<Instance>,
     pub name: String,
     pub inventory: Inventory,
-    pub agents: Agents,
     /// The login session and account the transfer named.
     ///
     /// The reference keeps both on its player (`GmPlayer.account_id`, `.char_id`) and uses them for every
@@ -46,23 +47,22 @@ pub struct Player {
     pub traits: db_game::Traits,
     /// When the connection began, for the load time the reference reports.
     pub started: Instant,
-    /// Movement counters, for the trace's closing summary.
-    pub move_stats: MoveStats,
 }
 
 #[allow(non_snake_case)]
 impl Player {
-    /// Where the agent is **now**, which is what the reference answers the spawn and players requests
-    /// with (`agent->position`): after the client has walked, that is no longer where it entered.
+    /// Where the agent is **now**, from the instance's own slot: what the reference answers the spawn
+    /// and players requests with (`agent->position`). After the client has walked, that is no longer
+    /// where it entered.
     pub fn standing(&self) -> Standing {
-        Standing {
-            position: self.agents.player.position,
-            plane: self.agents.player.plane,
-        }
+        self.instance
+            .standing(self.player_id)
+            .unwrap_or(Standing::from_map(&self.instance.map))
     }
+
     /// `Player.GetAgentID()`: the agent this character drives.
     pub fn GetAgentID(&self) -> u32 {
-        self.agents.player.agent_id
+        self.agent_id
     }
 
     /// `Player.GetPlayerNumber()`: the player id the wire calls the player.
@@ -77,12 +77,12 @@ impl Player {
 
     /// `Player.GetXY()`: where the character stands, as the server last believed it.
     pub fn GetXY(&self) -> (f32, f32) {
-        self.agents.player.position
+        self.standing().position
     }
 
-    /// `Player.GetAgent()`: the agent record itself.
-    pub fn GetAgent(&self) -> &AgentState {
-        &self.agents.player
+    /// `Player.GetAgent()`: the agent record itself, as a copy (the instance owns the original).
+    pub fn GetAgent(&self) -> Option<AgentState> {
+        self.instance.agent(self.player_id)
     }
 
     /// `Player.GetPlayerUUID()`: the character's uuid, the one the login connection carried.
@@ -95,7 +95,6 @@ impl Player {
         self.traits.gold
     }
 }
-
 /// The one player and one agent this world server has.
 ///
 /// The reference allocates both from per-server id tables (thousands of agents, hundreds of players).

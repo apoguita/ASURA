@@ -126,7 +126,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
             capacity: 2,
         }],
         replay: None,
-        peers: Default::default(),
+        instances: Default::default(),
         public: world_address,
         // This test is the login chain, not movement: no graph, so every walk would be refused.
         graphs: asura_world::PathGraphs::empty(),

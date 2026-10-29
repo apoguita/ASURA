@@ -1,7 +1,7 @@
 //! The map: a catalogue entry, its path graph, and the blocks that carry it to a client.
 //!
-//! The server's `Map` - the counterpart of Py4GW_Stealth's `map.py`. [`MapEntry`] is what a
-//! world publishes and what `/maps` lists; [`PathGraphs`] is the imported `Gw.dat` geometry a
+//! [`Map`] is the noun and [`MapEntry`] is what a world publishes and what `/maps` lists;
+//! [`PathGraphs`] is the imported `Gw.dat` geometry a
 //! `MOVE_TO_COORD` is answered from (the reference's `srv->map_context`); [`spawn_block`],
 //! [`load_block`] and [`manifest`] are the map's side of the instance load.
 //!
@@ -11,9 +11,8 @@
 
 use crate::*;
 
-/// The server's `Map` - Py4GW_Stealth's `map.py`, same member names where this server answers
-/// them. A member takes the catalogue entry instead of reading a live client: the map's state
-/// here is a `MapEntry` row from `map_config`.
+/// The map API: the questions a server answers about one map. A member takes the catalogue entry
+/// instead of reading a live client: the map's state here is a `MapEntry` row from `map_config`.
 #[allow(non_snake_case)]
 pub struct Map;
 
@@ -473,7 +472,7 @@ pub async fn handle_request_spawn(
     let replay = world.replay.as_ref();
     let block = match replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Spawn) => replay.spawn.clone(),
-        _ => spawn_block(&player.instance, player.standing()),
+        _ => spawn_block(&player.instance.map, player.standing()),
     };
     send(stream, session, block, trace).await?;
     Ok(true)

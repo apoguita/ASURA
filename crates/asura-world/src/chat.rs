@@ -258,20 +258,22 @@ pub async fn handle_chat_message(
                     // `HandleCancelMovement` (`0x8028`) answers, and the reference sends a position
                     // update here instead. It also broadcasts a world tick first; the 500 ms ticker
                     // covers that, so no second clock is invented.
-                    let player = &player.agents.player;
+                    let Some(agent) = player.GetAgent() else {
+                        return Ok(true);
+                    };
                     if trace {
                         eprintln!(
                             "world: /stuck -- agent {} stands at ({:.1}, {:.1}) plane {}",
-                            player.agent_id, player.position.0, player.position.1, player.plane
+                            agent.agent_id, agent.position.0, agent.position.1, agent.plane
                         );
                     }
                     send(
                         stream,
                         session,
                         vec![game::agent_update_position(
-                            player.agent_id,
-                            player.position,
-                            player.plane,
+                            agent.agent_id,
+                            agent.position,
+                            agent.plane,
                         )],
                         trace,
                     )

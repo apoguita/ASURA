@@ -550,15 +550,18 @@ pub async fn begin_transfer(
 
 /// Claim the pending transfer a connecting client presented, and return it.
 ///
-/// The claim is one statement: `UPDATE ... WHERE claimed_at IS NULL RETURNING`, so two connections
-/// presenting the same token cannot both be told it was theirs. `None` means one of
+/// **The newest connection wins** (`docs/05-gw2-lessons.md` rule 1: only ever honour the most recent
+/// connection, even if the older one looks alive and has work in flight). The claim therefore does not
+/// skip a token that was already claimed: build 39112 opens its game connection again with the same
+/// token after the first one has carried the load, that second connection is the newer one, and
+/// refusing it is what produced the client's `007` on 2026-10-28. Measured in this server's own world
+/// log: the token was claimed, the character joined the map, and then a second connection presenting
+/// the same token was refused as "no pending transfer".
+///
+/// `None` means one of
 ///
 /// * no such token for this world,
-/// * the token was already claimed (a replay),
 /// * the token is for another world.
-///
-/// All three are the same answer to the client - this token is not yours - and no attempt is made to
-/// tell them apart on the wire.
 pub async fn claim_transfer(
     pool: &PgPool,
     world_id: i32,
@@ -566,7 +569,7 @@ pub async fn claim_transfer(
 ) -> sqlx::Result<Option<Transfer>> {
     let row: Option<(i64, i32, i32, uuid::Uuid, uuid::Uuid, uuid::Uuid)> = sqlx::query_as(
         "UPDATE transfer SET claimed_at = now()
-          WHERE player_token = $1 AND world_id = $2 AND claimed_at IS NULL
+          WHERE player_token = $1 AND world_id = $2
           RETURNING player_token, world_id, map_id, session_id, account_id, character_id",
     )
     .bind(i64::from(player_token))
@@ -594,6 +597,21 @@ pub async fn cancel_transfer(pool: &PgPool, player_token: u32) -> sqlx::Result<b
         .execute(pool)
         .await?;
     Ok(done.rows_affected() > 0)
+}
+
+/// **Diagnostic only.** What the transfer table holds for one token: the world ids it was written for
+/// and whether each row was already claimed. Used by the world when a claim finds nothing, so the
+/// refusal says whether the row is missing, claimed, or meant for another world.
+pub async fn transfer_rows_for(
+    pool: &PgPool,
+    player_token: u32,
+) -> sqlx::Result<Vec<(i32, Option<String>)>> {
+    sqlx::query_as::<_, (i32, Option<String>)>(
+        "SELECT world_id, claimed_at::text FROM transfer WHERE player_token = $1 ORDER BY world_id",
+    )
+    .bind(i64::from(player_token))
+    .fetch_all(pool)
+    .await
 }
 
 /// Test support only: write a pool counter value directly, to simulate the drift a crash can leave

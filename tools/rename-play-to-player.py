@@ -2,8 +2,8 @@
 """One-off: rename the per-connection record `Play` to `Player`, and name the map field `instance`.
 
 `Play` was the record holding the character, its inventory and the map/agents it is playing in.
-"Play" is not the noun: it is a player. The record becomes `Player` (Py4GW_Stealth's `player.py`,
-same nomenclature) and its getters become methods on it, so a call reads `player.GetAgentID()`
+"Play" is not the noun: it is a player. The record becomes `Player`, and its getters become
+methods on it, so a call reads `player.GetAgentID()`
 instead of `Player::GetAgentID(&play)`. The map field becomes `instance`, because a map is an
 instance - a `MapEntry` row is its description until the `Instance` object exists.
 
@@ -72,8 +72,8 @@ def main():
     record = record.replace(
         "/// What one gameplay connection knows about itself.",
         "/// The player: the character one connection drives, and the instance it is in.\n///\n"
-        "/// The server's `Player` - Py4GW_Stealth's `player.py`, same nomenclature - as a record: the\n"
-        "/// state this server owns, with the domain's verbs on it (`player.GetAgentID()`).",
+        "/// The player as a record: the state this server owns, with the domain's verbs on it\n"
+        "/// (`player.GetAgentID()`).",
     )
     record = record.replace(
         "    pub instance: MapEntry,",

@@ -392,7 +392,7 @@ async fn main() -> ExitCode {
         world_id,
         maps,
         replay,
-        peers: Default::default(),
+        instances: Default::default(),
         public,
         graphs,
         lazy_maps: Default::default(),
@@ -412,7 +412,7 @@ async fn main() -> ExitCode {
             let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
             loop {
                 ticker.tick().await;
-                let population = heartbeat_world.peers.len() as i32;
+                let population = heartbeat_world.instances.len() as i32;
                 if let Err(err) =
                     placement::heartbeat(&heartbeat_world.pool, world_id, population).await
                 {

@@ -180,7 +180,7 @@ pub async fn handle_request_player(
     let Some(creation) = player.creation else {
         return Ok(true);
     };
-    let agent_id = player.agents.player.agent_id;
+    let agent_id = player.agent_id;
     let inventory = creation_inventory(creation);
     let mut frames = vec![game::instance_player_data_start()];
     frames.push(game::item_stream_create(ITEM_STREAM, 0));
@@ -273,7 +273,7 @@ pub async fn handle_change_profession(
     creation.profession = frame.body[1];
     player.creation = Some(creation);
 
-    let agent_id = player.agents.player.agent_id;
+    let agent_id = player.agent_id;
     let inventory = creation_inventory(creation);
     let mut frames = vec![
         game::update_unlocked_skills(&[]),
@@ -374,7 +374,7 @@ pub async fn handle_confirm(
         &world.pool,
         player.account_id,
         &name,
-        player.instance.map_id,
+        player.instance.map.map_id,
         traits,
         &equipped,
     )
@@ -386,16 +386,12 @@ pub async fn handle_confirm(
                 equipped.len(),
                 creation.campaign,
                 creation.profession,
-                player.instance.map_id
+                player.instance.map.map_id
             );
             send(
                 stream,
                 session,
-                vec![game::char_creation_success(
-                    character.to_bytes_le(),
-                    &name,
-                    &[],
-                )],
+                vec![game::char_creation_success(character.to_bytes_le(), &name, &[])],
                 trace,
             )
             .await?;

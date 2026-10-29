@@ -53,7 +53,7 @@ pub use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub use tokio::net::{TcpListener, TcpStream};
 
 // -------------------------------------------------------------------------------------------
-// The domains. One file per noun, the way Py4GW_Stealth names its classes; `lib.rs` is the
+// The domains. One file per noun; `lib.rs` is the
 // facade that re-exports them, so `asura_world::MapEntry` and `asura_world::map::MapEntry` are
 // the same type. A domain's file is where to look: `item.rs` for items, `chat.rs` for chat.
 //
@@ -67,6 +67,7 @@ pub mod chat;
 pub mod connection;
 pub mod creation;
 pub mod dispatch;
+pub mod instance;
 pub mod item;
 pub mod map;
 pub mod player;
@@ -75,6 +76,7 @@ pub mod world;
 
 pub use connection::*;
 pub use creation::*;
+pub use instance::*;
 pub use item::*;
 pub use map::*;
 pub use player::*;
@@ -778,12 +780,16 @@ mod tests {
     #[test]
     fn agent_ids_do_not_collide() {
         // A player's agent and a dropped item's are told apart: two agents sharing an id is one agent the
-        // client draws and one it does not.
-        let mut agents = Agents::new(AGENT_ID, (0.0, 0.0), 0, game::PLAYER_SPEED_BASE);
-        let first = agents.allocate();
-        let second = agents.allocate();
-        assert_eq!(first, AGENT_ID + 1, "the player's id is taken");
+        // client draws and one it does not. The instance hands both out.
+        let map = test_map();
+        let instance = Instance::new(map.clone());
+        let (outbox, _inbox) = tokio::sync::mpsc::unbounded_channel();
+        let (_, player_agent) =
+            instance.join("test".to_string(), Standing::from_map(&map), [0; 9], outbox);
+        let first = instance.allocate_agent_id();
+        let second = instance.allocate_agent_id();
+        assert_eq!(first, player_agent + 1, "the player's id is taken");
         assert_ne!(first, second);
-        assert_ne!(first, agents.player.agent_id);
+        assert_ne!(first, player_agent);
     }
 }

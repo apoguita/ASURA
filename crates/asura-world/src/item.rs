@@ -1,7 +1,7 @@
 //! The item and the inventory: what a character carries, and what a client may do with it.
 //!
-//! The server's `Item` / `Inventory` - the counterparts of Py4GW_Stealth's `item.py` and
-//! `inventory.py`. [`items_block`] and [`inventory_block`] are the load-time blocks; the four
+//! [`Item`] and [`Inventory`] are the two nouns. [`items_block`] and [`inventory_block`] are the
+//! load-time blocks; the four
 //! client operations below are `DROP_ITEM`, `ITEM_MOVE`, `EQUIP_ITEM` and the refusal path, and
 //! the row-level work is `asura_db::inventory`.
 //!
@@ -10,8 +10,8 @@
 
 use crate::*;
 
-/// The server's `Item` - Py4GW_Stealth's `item.py`, same member names where this server answers
-/// them. A member takes the item row (`asura_db::inventory::Item`); the wire side is
+/// The item API: the questions a server answers about one item row, one question one name. A
+/// member takes the item row (`asura_db::inventory::Item`); the wire side is
 /// `asura_protocol::game`'s builders.
 #[allow(non_snake_case)]
 pub struct Item;
@@ -39,8 +39,8 @@ impl Item {
     }
 }
 
-/// The server's `Inventory` - Py4GW_Stealth's `inventory.py`, same member names where this
-/// server answers them. A member takes the character's row-set (`asura_db::inventory::Inventory`).
+/// The inventory API: the questions a server answers about what a character carries. A member
+/// takes the character's row-set (`asura_db::inventory::Inventory`).
 #[allow(non_snake_case)]
 pub struct Inventory;
 
@@ -221,13 +221,13 @@ pub async fn drop_item(
         return Ok(());
     };
 
-    let agent_id = player.agents.allocate();
+    let agent_id = player.instance.allocate_agent_id();
     eprintln!(
         "world: {} dropped {count} of item {item_id} at ({:.1}, {:.1}), agent {agent_id} reserved, {} \
          left in the bag -- and nothing is sent: both messages a drop could send have crashed a client",
         player.name,
-        player.agents.player.position.0 + DROP_OFFSET,
-        player.agents.player.position.1 + DROP_OFFSET,
+        player.standing().position.0 + DROP_OFFSET,
+        player.standing().position.1 + DROP_OFFSET,
         taken.remaining
     );
     reload(world, player).await
@@ -436,10 +436,7 @@ pub async fn equip_item(
 }
 
 pub fn equipment_frame(player: &Player) -> Frame {
-    game::update_agent_visual_equipment(
-        player.agents.player.agent_id,
-        player.inventory.equipped_item_ids(),
-    )
+    game::update_agent_visual_equipment(player.GetAgentID(), player.inventory.equipped_item_ids())
 }
 
 /// How far from the player the reference puts an item it drops: `Vec2fAdd(position, (30, 30))`.
@@ -458,7 +455,7 @@ pub async fn handle_request_items(
     let replay = world.replay.as_ref();
     let block = match replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Items) => replay.items.clone(),
-        _ => items_block(&player.instance, &player.inventory, player.traits.gold),
+        _ => items_block(&player.instance.map, &player.inventory, player.traits.gold),
     };
     send(stream, session, block, trace).await?;
     Ok(true)

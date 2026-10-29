@@ -29,7 +29,7 @@ pub async fn answer(
 
         0x803E => agent::handle_move_to_coord(stream, session, &frame, world, player, trace).await,
 
-        0x803D => agent::handle_position_update(&frame, world, player, trace),
+        0x803D => agent::handle_position_update(&frame, player, trace),
 
         0x8028 => {
             agent::handle_cancel_movement(stream, session, &frame, world, player, trace).await
