@@ -528,13 +528,33 @@ async fn dispatch(
                             messages::STATUS_INVALID_CHARNAME
                         }
                         Some(character) => {
-                            match db_login::delete_character(pool, account, character.id).await {
-                                Ok(_) => {
+                            let deleted = character.id;
+                            match db_login::delete_character(pool, account, deleted).await {
+                                Ok(true) => {
                                     if trace.on() {
                                         eprintln!("auth: character {name:?} deleted");
                                     }
+                                    // This connection must stop naming it: the next travel - a
+                                    // creation instance or a map - carries `session.character` into
+                                    // the transfer row, and the world refuses a character that is
+                                    // gone ("the character named by the transfer is gone", measured
+                                    // 2026-10-28 right after a delete). The account's first remaining
+                                    // character takes its place, which is what the login would choose.
+                                    if session.character == Some(deleted) {
+                                        let remaining = db_login::characters(pool, account)
+                                            .await
+                                            .map_err(ConnectionError::Database)?;
+                                        session.character =
+                                            remaining.first().map(|character| character.id);
+                                        eprintln!(
+                                            "auth: the deleted character was this session's; it \
+                                             now names {:?}",
+                                            session.character
+                                        );
+                                    }
                                     STATUS_OK
                                 }
+                                Ok(false) => messages::STATUS_NETWORK_ERROR,
                                 Err(err) => {
                                     eprintln!("auth: could not delete {name:?}: {err}");
                                     messages::STATUS_NETWORK_ERROR
