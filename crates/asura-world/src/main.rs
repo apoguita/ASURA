@@ -278,6 +278,19 @@ async fn main() -> ExitCode {
         return ExitCode::from(4);
     }
 
+    // ---- the path-graph dump: write the graphs once and exit -----------------------------------
+    // `asura-world --dump-path-graphs FILE` writes the path graphs for the maps this world handles
+    // (the catalogue) so a server can run without a Gw.dat. `--dump-all` writes every pathing map in
+    // the archive instead. The dump is derived game data: keep it out of the repository, like Gw.dat.
+    //
+    // **Here, before the bind.** It used to sit after `TcpListener::bind`, which meant a world already
+    // running on its port took the bind failure and exited before the dump was ever reached - which is
+    // every time, because dumping is something you do while the stack is up. Found 2026-10-29.
+    if let Some(out) = argument(&args, "--dump-path-graphs") {
+        let all = args.iter().any(|arg| arg == "--dump-all");
+        return dump_path_graphs(&pool, &catalogue, &archive_path(&args), &out, all).await;
+    }
+
     // ---- step 5: register, publish, heartbeat, then accept -----------------------------------
     // The pool rows this world publishes. One per map it preloads; with `--on-demand`, one per
     // catalogue map - a database line saying "this world can host map X", so placement can hand it
@@ -354,15 +367,6 @@ async fn main() -> ExitCode {
 
     // The path graphs, which is what a `MOVE_TO_COORD` is answered from (`GameSrv_LoadMap` reads the same
     // blob). A map whose blob cannot be imported is served without one, and every walk in it is refused.
-    // ---- the path-graph dump: write the graphs once and exit -----------------------------------
-    // `asura-world --dump-path-graphs FILE` writes the path graphs for the maps this world handles
-    // (the catalogue) so a server can run without a Gw.dat. `--dump-all` writes every pathing map in
-    // the archive instead. The dump is derived game data: keep it out of the repository, like Gw.dat.
-    if let Some(out) = argument(&args, "--dump-path-graphs") {
-        let all = args.iter().any(|arg| arg == "--dump-all");
-        return dump_path_graphs(&pool, &catalogue, &archive_path(&args), &out, all).await;
-    }
-
     let archive = archive_path(&args);
     // The graphs, in priority order: a dump (a few megabytes, no archive needed) when one was named
     // or a local `data/path-graphs.bin` exists, then the `Gw.dat` import. A dump is written by
