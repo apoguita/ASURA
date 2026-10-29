@@ -114,6 +114,16 @@ Verbatim, from the owner of this repository (2026-10-27):
   the map, teleports) exactly as it does on the reference. Unit tests passing is not "works".
 - Any deviation is a defect in the work, not a design choice. When in doubt, ask one short question.
 
+**How to answer the owner: plainly.** (2026-10-28, the owner's standing instruction.)
+
+- Say the answer first, in one sentence. Then the detail, if it is needed.
+- Short sentences. No filler, no decoration, no "it is worth noting", no sales voice.
+- Do not describe a thing two ways in one paragraph. One claim at a time.
+- Do not hide a decision in prose. Name the setting, say what it does, stop.
+- If something is optional, say "optional" and what it defaults to. Do not narrate the reasons.
+- No jargon the owner did not use. If a term is needed, define it in the same sentence.
+- When the owner corrects a fact, the correction replaces the text — it does not get appended to it.
+
 **The incident this rule exists because of** (`/tp`, 2026-10-27, commit `e0f671c`). The user asked
 from the first message for the teleport to be ported from GWPS, whose code works. I instead sent my
 own inferred `0x01A6` layout: 46 bytes in *my* dword order → client error `007`; then 52 bytes in a
