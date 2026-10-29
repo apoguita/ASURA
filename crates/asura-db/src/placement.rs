@@ -599,21 +599,6 @@ pub async fn cancel_transfer(pool: &PgPool, player_token: u32) -> sqlx::Result<b
     Ok(done.rows_affected() > 0)
 }
 
-/// **Diagnostic only.** What the transfer table holds for one token: the world ids it was written for
-/// and whether each row was already claimed. Used by the world when a claim finds nothing, so the
-/// refusal says whether the row is missing, claimed, or meant for another world.
-pub async fn transfer_rows_for(
-    pool: &PgPool,
-    player_token: u32,
-) -> sqlx::Result<Vec<(i32, Option<String>)>> {
-    sqlx::query_as::<_, (i32, Option<String>)>(
-        "SELECT world_id, claimed_at::text FROM transfer WHERE player_token = $1 ORDER BY world_id",
-    )
-    .bind(i64::from(player_token))
-    .fetch_all(pool)
-    .await
-}
-
 /// Test support only: write a pool counter value directly, to simulate the drift a crash can leave
 /// behind (counter and ledger disagree). The reconciler is the code that repairs such drift; this is
 /// how a test creates the fault it repairs. No service calls this.

@@ -140,36 +140,14 @@ pub async fn handle_connection(
     }
 
     // ---- 3. the token pair is the credential ------------------------------------------------
-    let refusal = GameError::UnknownTransfer {
-        map_token: game_version.map_token,
-        player_token: game_version.player_token,
-    };
-    let claimed =
+    let transfer =
         placement::claim_transfer(&world.pool, world.world_id, game_version.player_token)
             .await
-            .map_err(GameError::Database)?;
-    let transfer = match claimed {
-        Some(transfer) => transfer,
-        None => {
-            // DIAGNOSTIC (temporary): say what the transfer table actually holds for this token, so a
-            // refusal names its cause instead of leaving "no pending transfer" as the whole story.
-            match placement::transfer_rows_for(&world.pool, game_version.player_token).await {
-                Ok(rows) if rows.is_empty() => eprintln!(
-                    "world: no transfer row at all for token {:#010X} (asked for world {})",
-                    game_version.player_token, world.world_id
-                ),
-                Ok(rows) => eprintln!(
-                    "world: token {:#010X} exists for world(s) {:?} (this world is {}); claimed: {:?}",
-                    game_version.player_token,
-                    rows.iter().map(|row| row.0).collect::<Vec<_>>(),
-                    world.world_id,
-                    rows.iter().map(|row| row.1.clone()).collect::<Vec<_>>()
-                ),
-                Err(err) => eprintln!("world: could not read the transfer table: {err}"),
-            }
-            return Err(refusal);
-        }
-    };
+            .map_err(GameError::Database)?
+            .ok_or(GameError::UnknownTransfer {
+                map_token: game_version.map_token,
+                player_token: game_version.player_token,
+            })?;
 
     // The character the client presents is the one it is entering with, and the transfer row names the
     // one the session last selected. Those are not always the same: the client chooses its character
@@ -193,7 +171,10 @@ pub async fn handle_connection(
                  transfer named {})",
                 game_version.player_token, transfer.account_id, character, transfer.character_id
             );
-            return Err(refusal);
+            return Err(GameError::UnknownTransfer {
+                map_token: game_version.map_token,
+                player_token: game_version.player_token,
+            });
         }
         eprintln!(
             "world: token {:#010X} named character {} but the client entered with {}; using the \
