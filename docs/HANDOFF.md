@@ -629,6 +629,7 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
 
 ## Reading order for a fresh session
 
-`docs/HANDOFF.md` (this file) → `docs/01-scope.md` → `docs/02-architecture.md` →
-`docs/03-protocol.md` → `docs/roadmap.md` → the ADR that matches the question you have.
-`docs/00-glossary.md` defines every term if something reads as jargon.
+`docs/HANDOFF.md` (this file) → `MILESTONES.md` (what is proven, with the proof) →
+`docs/01-scope.md` → `docs/02-architecture.md` → `docs/03-protocol.md` → `docs/roadmap.md` → the ADR
+that matches the question you have. `docs/00-glossary.md` defines every term if something reads as
+jargon.

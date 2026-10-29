@@ -93,6 +93,7 @@ empty on purpose.
 | document | what it settles |
 |---|---|
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | environment status and the next tasks |
+| [`MILESTONES.md`](MILESTONES.md) | **what is proven** — the ledger of confirmed milestones, each with its evidence |
 | [`docs/19-running.md`](docs/19-running.md) | **how to run it** — what you need once, the one command, what success looks like, troubleshooting |
 | [`docs/17-running-on-linux.md`](docs/17-running-on-linux.md) | **the Linux runbook** — the same supervisor commands on a Linux server host |
 | [`client-patcher/README.md`](client-patcher/README.md) | **the client patcher** — how `Gw.custom.exe` is built, and the keys that match the server |
