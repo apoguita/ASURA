@@ -158,7 +158,16 @@ pub async fn handle_connection(
     // What must still hold is the reference's own rule (`AuthSrv_DoPostHandshake`): the character must
     // belong to the account the transfer was issued for. Anything else is refused, and the refusal
     // names both ids so a mismatch is readable instead of inferred.
-    let character = Uuid::from_bytes_le(game_version.character);
+    // A character-creation connection presents **no** character - the uuid is all zeroes, because the
+    // character is what is about to be made. Measured 2026-10-28: with the client on the creation
+    // screen the version message carried 00000000-..., and the account check below refused it. A nil
+    // uuid means "the transfer's character", which is what the creation screen shows.
+    let presented = Uuid::from_bytes_le(game_version.character);
+    let character = if presented.is_nil() {
+        transfer.character_id
+    } else {
+        presented
+    };
     if character != transfer.character_id {
         let owned = asura_db::login::characters(&world.pool, transfer.account_id)
             .await

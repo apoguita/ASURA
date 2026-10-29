@@ -719,12 +719,28 @@ async fn answer_login(
     // The order GWPS sends, which the client expects (`AuthSrv_HandlePortalAccountLogin`):
     // the characters, the stored settings, the friend-list terminator, the account info, and finally
     // the answer to the request.
+    //
+    // A session can name a character that no longer exists: deleting a character leaves its id in
+    // `session.char_id`, and every travel then names a ghost - measured 2026-10-28, after five
+    // characters were deleted the travel went out for `59935da2-...` and the world answered "the
+    // character named by the transfer is gone". Only an id still on the account is kept.
     let selected = resolved
         .character
+        .filter(|id| characters.iter().any(|character| character.id == *id))
         .or_else(|| characters.first().map(|character| character.id));
     // The reference falls back the same way when a session records no character: the first character
     // on the account is what a travel would put in a map, and refusing to pick one leaves the client
     // at character select with a travel it cannot complete.
+    if let Some(selected) = selected {
+        if resolved.character != Some(selected) {
+            match db_login::select_character(pool, session_id, selected).await {
+                Ok(_) => eprintln!(
+                    "auth: the session named a character that is gone; it now names {selected}"
+                ),
+                Err(err) => eprintln!("auth: could not record the session's character: {err}"),
+            }
+        }
+    }
     session.character = selected;
     let mut replies = Vec::with_capacity(characters.len() + 4);
     for character in &characters {
