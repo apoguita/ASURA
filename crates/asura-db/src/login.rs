@@ -109,12 +109,26 @@ pub async fn select_character(pool: &PgPool, session: Uuid, character: Uuid) -> 
 /// The `account_id` in the `WHERE` is what makes the reference's rule
 /// (`AuthSrv_HandleDeleteCharacter` matches the name against *that account's* characters) hold at the
 /// storage layer too: a wrong account id deletes nothing rather than someone else's character.
+///
+/// The session that named the character stops naming it, in the same transaction. A deleted character
+/// left behind in `session.char_id` makes every travel go out for an id that no longer exists, and the
+/// world answers "the character named by the transfer is gone" - measured 2026-10-28, after five
+/// characters were deleted by hand.
 pub async fn delete_character(pool: &PgPool, account: Uuid, character: Uuid) -> sqlx::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("UPDATE session SET char_id = NULL WHERE char_id = $1")
+        .bind(character)
+        .execute(&mut *tx)
+        .await?;
+
     let done = sqlx::query("DELETE FROM characters WHERE account_id = $1 AND id = $2")
         .bind(account)
         .bind(character)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+
+    tx.commit().await?;
     Ok(done.rows_affected() > 0)
 }
 

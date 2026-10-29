@@ -333,3 +333,51 @@ async fn selecting_a_character_records_it_on_the_live_session_only() {
 
     db::remove_account(&pool, &name).await.expect("cleanup");
 }
+
+#[tokio::test]
+async fn deleting_a_character_stops_the_session_naming_it() {
+    let Some(pool) = pool().await else {
+        return skip();
+    };
+    let name = account_name("delete");
+    let seeded = db::seed_identity(
+        &pool,
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        &name,
+        "Asura Test",
+        MAP,
+    )
+    .await
+    .expect("seed identity");
+
+    assert!(db::select_character(&pool, seeded.session, seeded.character)
+        .await
+        .expect("select"));
+    assert_eq!(
+        db::find_session(&pool, seeded.portal_user, seeded.session)
+            .await
+            .expect("query")
+            .expect("resolves")
+            .character,
+        Some(seeded.character)
+    );
+
+    assert!(db::delete_character(&pool, seeded.account, seeded.character)
+        .await
+        .expect("delete"));
+
+    // The row is gone and the session no longer names it: a travel for this session cannot go out
+    // for a character that does not exist.
+    assert_eq!(
+        db::find_session(&pool, seeded.portal_user, seeded.session)
+            .await
+            .expect("query")
+            .expect("the session still resolves")
+            .character,
+        None,
+        "the deleted character is not named by the session any more"
+    );
+
+    db::remove_account(&pool, &name).await.expect("cleanup");
+}
