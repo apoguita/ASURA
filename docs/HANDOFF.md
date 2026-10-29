@@ -372,6 +372,10 @@ success looks like, the everyday supervisor commands, the rolling deploy, the cl
 troubleshooting table. It is the only place those instructions live now; this section keeps only the
 rules behind them:
 
+- **The project is run natively on this machine**: `asura-supervisor` (host path). `docker/` is an
+  optional bundle that exists as an offer; it is not used to drive the project (owner's instruction,
+  2026-10-28). Do not reach for it to start, test or demo the stack.
+
 - **It is quiet by default, and that is a rule now**: `-Trace` prints every packet, and the packet log is
   off unless asked for, because a world tick every 500 ms is three lines a second forever and it buries the
   lines that matter. What is *always* printed is the events — `auth: login ok for …`, `auth: travel to map

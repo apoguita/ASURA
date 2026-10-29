@@ -29,8 +29,11 @@ signatures and overwrites the bytes in place.
 
 ## Requirements
 
-- **Windows** — the target is a Windows executable (`Gw.exe`); the script patches a PE image.
 - **Python 3** and **`pefile`**: `pip install pefile`.
+- **The patcher runs on Windows and Linux.** It rewrites a Windows executable, but the tool is pure
+  Python and `pefile`, with no Windows API calls. It was run in a Linux container (`python:3-slim`)
+  against the rig's `Gw.exe` and produced a byte-identical `Gw.custom.exe` to the Windows run.
+- **A Windows machine** to run the patched client; a Linux machine is enough to build it.
 - The game's own **`Gw.exe`** (the Client archive is not in this repository; it is the same file the
   game installs).
 
