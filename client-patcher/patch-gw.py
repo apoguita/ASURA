@@ -1,8 +1,19 @@
+#!/usr/bin/env python3
+# Patches a Windows Gw.exe into Gw.custom.exe. Runs on Windows and Linux: it reads and writes a PE
+# image and calls no Windows API, so the platform only matters for where the file lives. The client
+# itself still runs on Windows; this script does not.
 import os
 import sys
-import pefile
 import struct
 import argparse
+
+try:
+    import pefile
+except ImportError:
+    sys.exit(
+        'patch-gw.py needs the pefile module: install it with `pip install pefile` '
+        '(or `pip3 install pefile` on Linux)'
+    )
 
 def reverse_endian(data):
     return data[::-1]

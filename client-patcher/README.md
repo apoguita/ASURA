@@ -39,9 +39,19 @@ signatures and overwrites the bytes in place.
 
 ## Build the patched client
 
+Windows:
+
 ```powershell
 pip install pefile
 python client-patcher/patch-gw.py "F:\GW\GW1\Gw.exe" client-patcher/keys.txt --output "F:\GW\GW1\Gw.custom.exe"
+```
+
+Linux (same script, same output — patch a copy of the game's `Gw.exe`, then copy `Gw.custom.exe` to
+the Windows rig):
+
+```bash
+pip3 install pefile
+python3 client-patcher/patch-gw.py /path/to/Gw.exe client-patcher/keys.txt --output /path/to/Gw.custom.exe
 ```
 
 Then stage the **portal DLL** next to it (`portal.dll`, next to `Gw.custom.exe`). That DLL is the
