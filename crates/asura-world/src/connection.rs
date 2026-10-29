@@ -365,17 +365,24 @@ pub async fn handle_connection(
             .broadcast_all(&farewell(player.GetPlayerNumber(), player.GetAgentID()));
     }
 
-    if let Err(err) = db_game::record_position(
-        &world.pool,
-        player.character,
-        player.instance.map.map_id,
-        left.0,
-        left.1,
-        left_plane as i16,
-    )
-    .await
-    {
-        eprintln!("world: could not save the position of the leaving player: {err}");
+    // A creation instance is not a place, so it is not a position: a character made there has been
+    // written with the outpost it starts in (`creation::handle_confirm`), and a connection that
+    // arrives in the creation map without making a character is one whose client still believes it is
+    // there. Saving this map would overwrite the outpost with the instance and strand the character -
+    // measured 2026-10-28: every character that entered map 0 came back to map 0 on the next login.
+    if player.instance.map.map_type != MAP_TYPE_CHARACTER_CREATION {
+        if let Err(err) = db_game::record_position(
+            &world.pool,
+            player.character,
+            player.instance.map.map_id,
+            left.0,
+            left.1,
+            left_plane as i16,
+        )
+        .await
+        {
+            eprintln!("world: could not save the position of the leaving player: {err}");
+        }
     }
 
     // The player left. The slot goes back to the pool now rather than when a reaper notices: the

@@ -122,7 +122,33 @@ pub async fn answer(
     // selected character".)
     let (Some(account_id), Some(character_id)) = (account_id, character_id) else {
         eprintln!("auth: travel to map {map_id} refused: no account or character is selected");
-        return Ok(request_frames(STATUS_NETWORK_ERROR));
+        return Ok(request_frames(STATUS_NETWORK_ERROR));    };
+
+    // A character that exists belongs in the map its row names. The client can still name the creation
+    // instance as a destination: its own idea of where it is comes from the travel that made the
+    // character. Entering the creation instance is `map_type 11`; the mistaken request is type 0, and
+    // both were measured on 2026-10-28 - `travel to map 0 (type 11, ...)` to make a character, then
+    // `travel to map 0 (type 0, ...)` after the confirm, with the client on a loading screen that
+    // never ends.
+    //
+    // The numbers are the client's own: it asks for map 0 and calls the creation instance type 11
+    // (`crates/asura-db/migrations/0016_creation_instance_again.sql` has the row this reads).
+    const CREATION_MAP: i32 = 0;
+    const MAP_TYPE_CHARACTER_CREATION: u32 = 11;
+    let map_id = if map_id == CREATION_MAP && request.map_type != MAP_TYPE_CHARACTER_CREATION {
+        match asura_db::game::position(pool, character_id).await {
+            Ok(Some(position)) if position.map_id != CREATION_MAP => {
+                eprintln!(
+                    "auth: the client named the creation instance as a place; placing it in map {} \
+                     instead, which is where the character's row says it is",
+                    position.map_id
+                );
+                position.map_id
+            }
+            _ => map_id,
+        }
+    } else {
+        map_id
     };
 
     let candidates = placement::find_worlds(pool, map_id, world_max_age_secs(), MAX_CANDIDATES)
