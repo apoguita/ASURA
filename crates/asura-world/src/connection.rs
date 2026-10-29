@@ -158,12 +158,19 @@ pub async fn handle_connection(
     // What must still hold is the reference's own rule (`AuthSrv_DoPostHandshake`): the character must
     // belong to the account the transfer was issued for. Anything else is refused, and the refusal
     // names both ids so a mismatch is readable instead of inferred.
-    // A character-creation connection presents **no** character - the uuid is all zeroes, because the
-    // character is what is about to be made. Measured 2026-10-28: with the client on the creation
-    // screen the version message carried 00000000-..., and the account check below refused it. A nil
-    // uuid means "the transfer's character", which is what the creation screen shows.
+    // A character-creation connection presents **no** character of its own - the character is what is
+    // about to be made - and the client's idea of it can be a character that has just been deleted.
+    // Measured 2026-10-28: the version message carried 00000000-... after one delete and the deleted
+    // character's own uuid after another, and both were refused here.
+    //
+    // What must hold is the reference's own rule (`AuthSrv_DoPostHandshake`): the character played must
+    // belong to the account the transfer was issued for. So a presented character is used only if it is
+    // on that account; anything else - nil, deleted, or someone else's - falls back to the character the
+    // transfer itself names, which is on the account by construction. That is not a widening: a client
+    // cannot reach a character this way that it could not reach before, it can only be served the one
+    // its own token was issued for.
     let presented = Uuid::from_bytes_le(game_version.character);
-    let character = if presented.is_nil() {
+    let mut character = if presented.is_nil() {
         transfer.character_id
     } else {
         presented
@@ -176,20 +183,18 @@ pub async fn handle_connection(
             .any(|candidate| candidate.id == character);
         if !owned {
             eprintln!(
-                "world: token {:#010X} is for account {}, and character {} is not on it (the \
-                 transfer named {})",
+                "world: token {:#010X} is for account {}, and character {} is not on it; using the \
+                 one the transfer names ({})",
                 game_version.player_token, transfer.account_id, character, transfer.character_id
             );
-            return Err(GameError::UnknownTransfer {
-                map_token: game_version.map_token,
-                player_token: game_version.player_token,
-            });
+            character = transfer.character_id;
+        } else {
+            eprintln!(
+                "world: token {:#010X} named character {} but the client entered with {}; using the \
+                 client's, which is on the same account",
+                game_version.player_token, transfer.character_id, character
+            );
         }
-        eprintln!(
-            "world: token {:#010X} named character {} but the client entered with {}; using the \
-             client's, which is on the same account",
-            game_version.player_token, transfer.character_id, character
-        );
     }
 
     let map_id = transfer.map_id;

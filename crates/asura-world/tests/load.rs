@@ -621,7 +621,7 @@ async fn a_token_nobody_issued_is_closed_without_a_word() {
 }
 
 #[tokio::test]
-async fn a_character_that_is_not_the_one_transferred_is_refused() {
+async fn a_character_that_is_not_the_one_transferred_is_not_played() {
     if skip() {
         return;
     }
@@ -629,7 +629,10 @@ async fn a_character_that_is_not_the_one_transferred_is_refused() {
         return;
     };
 
-    // A real token, but the wrong character: the pair is right and the identity is not.
+    // A real token, but a character uuid that is on no account at all - the shape a client presents
+    // after the character it was showing has been deleted (measured 2026-10-28). The connection is
+    // accepted, and what it plays is the character the **transfer** names: the token, not the uuid,
+    // is the credential, and the character always comes from the transfer's own account.
     let version = GameVersion {
         version: 39112,
         h0008: 1,
@@ -641,9 +644,10 @@ async fn a_character_that_is_not_the_one_transferred_is_refused() {
         h0038: 0,
         h003c: 0,
     };
+    let connected = connect_properly(harness.address, &version).await;
     assert!(
-        connect_properly(harness.address, &version).await.is_none(),
-        "the token names a character, and a different one is not accepted"
+        connected.is_some(),
+        "a token whose character is gone is still a token: the transfer's character is played"
     );
 
     placement::remove_world(&harness.pool, harness.world_id)
