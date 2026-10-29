@@ -131,19 +131,22 @@ pub async fn answer(
     // `travel to map 0 (type 0, ...)` after the confirm, with the client on a loading screen that
     // never ends.
     //
-    // The numbers are the client's own: it asks for map 0 and calls the creation instance type 11
-    // (`crates/asura-db/migrations/0016_creation_instance_again.sql` has the row this reads).
+    // The map comes from the character's **row** (`characters.map_id`, read through `settings`), not
+    // from its saved position: a position can still name the creation map from before the world
+    // stopped saving that instance, and then the substitution would hand back the map it is trying to
+    // avoid. The numbers are the client's own: it asks for map 0, and it calls the creation instance
+    // type 11 (`crates/asura-db/migrations/0016_creation_instance_again.sql` has the row this reads).
     const CREATION_MAP: i32 = 0;
     const MAP_TYPE_CHARACTER_CREATION: u32 = 11;
     let map_id = if map_id == CREATION_MAP && request.map_type != MAP_TYPE_CHARACTER_CREATION {
-        match asura_db::game::position(pool, character_id).await {
-            Ok(Some(position)) if position.map_id != CREATION_MAP => {
+        match asura_db::game::settings(pool, character_id).await {
+            Ok(Some(settings)) if i32::from(settings.last_outpost) != CREATION_MAP => {
                 eprintln!(
                     "auth: the client named the creation instance as a place; placing it in map {} \
                      instead, which is where the character's row says it is",
-                    position.map_id
+                    settings.last_outpost
                 );
-                position.map_id
+                i32::from(settings.last_outpost)
             }
             _ => map_id,
         }
