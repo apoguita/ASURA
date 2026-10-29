@@ -134,20 +134,32 @@ pub fn creation_inventory(creation: Creation) -> Inventory {
 /// not known. It is a real map this world hosts, so a new character enters a map instead of waiting
 /// on a loading screen for one that does not exist.
 ///
-/// **A stand-in, not a measurement.** Only Factions has been measured (map 212). When another
-/// campaign's outpost is captured it gets its own `map_config` row and its own arm in
-/// [`starting_outpost`]; the id does not belong in this constant.
+/// **A stand-in, not a measurement.** A campaign not named in [`starting_outpost`] lands here, and
+/// the log says so. An id that came from nowhere is worse than an id that is visibly a stand-in.
 const STARTER_OUTPOST_STANDIN: i32 = 148;
 
 /// The outpost a new character of a campaign starts in.
 ///
-/// Measured: a Factions creation (campaign 2) was redirected to map 212, blob 156969 at
-/// (-2132, 1054) plane 0 (`recordings/client/feature/character_creation/
-/// character_creation-live-necro_factions.jsonl`, the `0x01A6`, `0x0099` and `0x0196` after the
-/// confirm). Every other campaign falls back to [`STARTER_OUTPOST_STANDIN`] and says so in the log.
+/// Two of these are measurements, two are the client's own names matched to campaign numbers this
+/// server has seen in a creation request:
+///
+/// * **Factions, campaign 2, measured**: a live creation was redirected to map 212, blob 156969 at
+///   (-2132, 1054) plane 0 (`recordings/client/feature/character_creation/
+///   character_creation-live-necro_factions.jsonl`, the `0x01A6`, `0x0099` and `0x0196` after the
+///   confirm). The client calls it **Monastery Overlook**.
+/// * **Prophecies, campaign 1**: measured as campaign 1 in the world log (`created character ...
+///   campaign 1 profession 3`); its outpost is Ascalon City pre-Searing, 148, which was already in
+///   the catalogue and is the map every one of those characters has loaded since.
+/// * **Nightfall (campaign 3)** and **Eye of the North (campaign 4)**: their outposts are now in the
+///   catalogue (449 Kamadan Jewel of Istan, 642 Eye of the North outpost) and the campaign numbers are
+///   the client's own ordering, one after Factions. Not yet seen in a creation request - the world log
+///   prints `campaign N` on every creation, so the first Nightfall character tells us if that is right.
 fn starting_outpost(campaign: u8) -> i32 {
     match campaign {
-        2 => 212,
+        1 => 148, // Prophecies: Ascalon City (pre-Searing)
+        2 => 212, // Factions: Monastery Overlook, measured
+        3 => 449, // Nightfall: Kamadan, Jewel of Istan
+        4 => 642, // Eye of the North outpost
         _ => STARTER_OUTPOST_STANDIN,
     }
 }
@@ -431,7 +443,7 @@ pub async fn handle_confirm(
     // campaign is put in Ascalon City, which is the Prophecies starting outpost and is already in the
     // catalogue; the log says when that stand-in was used, so it is never mistaken for a measurement.
     let outpost = starting_outpost(creation.campaign);
-    if outpost == STARTER_OUTPOST_STANDIN && creation.campaign != 2 {
+    if !(1..=4).contains(&creation.campaign) {
         eprintln!(
             "world: campaign {} has no measured starting outpost; {name:?} is put in map {} \
              (Ascalon City) as a stand-in - add the campaign's own map when it is captured",
