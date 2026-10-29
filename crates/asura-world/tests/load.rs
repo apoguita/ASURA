@@ -32,7 +32,7 @@ use asura_protocol::client::handshake;
 use asura_protocol::client::peer::ReferenceClient;
 use asura_protocol::client::Frame;
 use asura_protocol::game;
-use asura_world::{serve, MapEntry, World};
+use asura_world::{serve, MapEntry, World, MAP_TYPE_CHARACTER_CREATION};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -1047,14 +1047,19 @@ async fn the_default_map_list_is_the_whole_catalogue_and_tp_reaches_it() {
         ids.len()
     );
 
-    // Every catalogue map is servable: a blob to hand the client and a name to list.
+    // Every catalogue map that a client loads is servable: a blob to hand it and a name to list. The
+    // character-creation instance is the exception, measured: it sends no spawn point and no blob at
+    // all, only the load head, the player-data block and `CHAR_CREATION_START`
+    // (`creation::handle_confirm`, `connection.rs` #5).
     let mut maps = Vec::new();
     for map_id in &ids {
         let configured = asura_db::game::spawn_map(&harness.pool, *map_id)
             .await
             .expect("read the map")
             .unwrap_or_else(|| panic!("map {map_id} is in the catalogue"));
-        assert!(configured.map_file_id > 0, "map {map_id} has a blob");
+        if configured.map_type != MAP_TYPE_CHARACTER_CREATION {
+            assert!(configured.map_file_id > 0, "map {map_id} has a blob");
+        }
         maps.push(MapEntry {
             map_id: *map_id,
             map_file_id: u32::try_from(configured.map_file_id).expect("a file id"),
@@ -1074,10 +1079,21 @@ async fn the_default_map_list_is_the_whole_catalogue_and_tp_reaches_it() {
         .iter()
         .filter(|target| hosted.contains(&target.map_id))
         .count();
+    // A hosted map the alias table does not name still gets a row, from its own name. A creation
+    // instance gets none: it is not a place (`chat::maps_answer`).
+    let hosted_without_alias = maps
+        .iter()
+        .filter(|map| map.map_type != MAP_TYPE_CHARACTER_CREATION)
+        .filter(|map| {
+            !asura_world::travel_targets::TRAVEL_TARGETS
+                .iter()
+                .any(|target| target.map_id == map.map_id)
+        })
+        .count();
     assert_eq!(
         answer.table.len(),
-        hosted_aliases + 1,
-        "a header and one row per alias of a hosted map"
+        hosted_aliases + hosted_without_alias + 1,
+        "a header and one row per hosted map: one per alias, plus the maps the table does not name"
     );
     assert!(
         hosted_aliases >= 20,

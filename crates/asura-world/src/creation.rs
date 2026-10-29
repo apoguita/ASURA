@@ -464,9 +464,13 @@ pub async fn handle_confirm(
                     // The client reconnects naming the map it believes it is in, and that belief came
                     // from the transfer, which named the creation instance: without this it dials back
                     // into the creation screen and waits there forever (measured in this server's own
-                    // capture, 2026-10-28). Live sends `MAP_UPDATE_CURRENT` just after the success,
-                    // with the map the new character is in.
-                    game::map_update_current_redirect(outpost as u32),
+                    // capture, 2026-10-28, and again after the first attempt with the wrong shape).
+                    //
+                    // The **login** shape, five bytes: `map_update_current_redirect` is the
+                    // four-byte-header generation (a `u16` zero, then two dwords) and this client
+                    // parses two-byte headers, so it ignored that one and kept dialling map 0
+                    // (`docs/03-protocol.md` #5e).
+                    game::map_update_current(outpost as u16),
                 ],
                 trace,
             )
