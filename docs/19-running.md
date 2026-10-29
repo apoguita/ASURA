@@ -99,6 +99,12 @@ seeded accounts (`user1@example.com` / `user2@example.com` / `user3@example.com`
 not check the password). What a good session looks like on the wire is in `recordings/`
 (`recordings/README.md`).
 
+Optional and off by default: patching with `--detach` plus `client-patcher/hosts-redirect.py enable`
+points the client's baked-in ArenaNet hostnames back at this machine, so our services answer them and
+nothing leaves the machine. The hosts block is machine-wide and removed with
+`hosts-redirect.py disable`; `status` says what is on now. Default off, the client connects live —
+that is a working configuration, not a broken one.
+
 ## Linux
 
 `docs/17-running-on-linux.md`: the same supervisor commands; the client stays on Windows; the Linux host has not had a live run recorded yet, and the runbook says so. A world registered at a second address (the multi-machine proof) is `docs/18-multi-machine.md`.

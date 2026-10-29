@@ -6,6 +6,8 @@ rewrites them so the client can talk to a server we control. It is the first ste
 client-facing test, and it lives here as first-class tooling, not as a buried utility.
 
 - **`patch-gw.py`** — the patcher. Reads a keys file, writes `Gw.custom.exe`.
+- **`hosts-redirect.py`** — the optional companion: puts the client's ArenaNet hostnames into the
+  machine's hosts file (or takes them back out), so the patch and the runtime lookups agree.
 - **`keys.txt`** — the DH parameters that go into the client. **They are the server's parameters**:
   `prime` and `server_private` are the two constants in
   `crates/asura-protocol/src/client/handshake.rs` (`PRIME_MODULUS_DECIMAL`,
@@ -18,7 +20,7 @@ client-facing test, and it lives here as first-class tooling, not as a buried ut
 |---|---|
 | Diffie–Hellman constants in `.text`/`.rdata` | the client and the server must run the same key exchange; the client carries a copy of the parameters |
 | `CreateMutexA` code and mutex name (`AN-Mutex-Window` → `AN-Futex`) | without it the client refuses to start when another copy is running, which kills every two-client test |
-| optional: the seven baked-in ArenaNet hostnames | **off by default, and it breaks login when used** — kept because the experiment is recorded in the script. The client needs the real endpoints at startup; `-authsrv 127.0.0.1` is what actually redirects the auth handshake |
+| optional (`--detach`): the seven baked-in ArenaNet hostnames | **off by default** — the client resolves those names normally and connects live, which is a working configuration. Turned on *and* paired with the hosts redirect below, those names resolve to this machine and our services answer them; see "Optional: detaching the client from ArenaNet" |
 
 What it does **not** touch: the auth address — the client takes that from its command line
 (`Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1`). It does not decompile anything; it finds byte
@@ -57,6 +59,38 @@ Log in as one of the seeded accounts (`user1@example.com`, `user2@example.com`,
 Success is the client reaching the character list and entering an outpost. If it fails, the verdict
 is the auth service's trace: set `ASURA_TRACE=1` before starting the stack and read the log
 (`docs/HANDOFF.md`, the real client is the test).
+
+## Optional: detaching the client from ArenaNet
+
+Two switches, both **off by default**, and they belong together:
+
+1. Patch with `--detach` (or a subset with `--detach-only` / `--detach-keep`):
+   ```powershell
+   python client-patcher/patch-gw.py "F:\GW\GW1\Gw.exe" client-patcher/keys.txt --output "F:\GW\GW1\Gw.custom.exe" --detach
+   ```
+2. Point those names at this machine, from an elevated shell (the hosts file needs administrator
+   rights on Windows):
+   ```powershell
+   python client-patcher/hosts-redirect.py enable
+   ```
+
+With both on, the client's lookups for `Auth1`, `File1`–`File6`, `Diag`, `icmp`, `bug` and
+`account.arena.net` resolve to this machine and **our services answer them** — the auth service and
+the web gate are the servers at those addresses, so nothing leaves the machine.
+
+The hosts block is machine-wide: while it is in, *any* client on this machine resolving those names is
+redirected, a retail one included. That is why it is a switch, not a permanent edit — and it is
+reversible by design:
+
+```powershell
+python client-patcher/hosts-redirect.py status     # what is on now (default: disabled)
+python client-patcher/hosts-redirect.py disable    # remove exactly that block, everything else untouched
+```
+
+The first `enable` copies the original hosts file to `<hosts>.asura-backup`; `disable` removes only
+the marked block and leaves every other entry byte for byte alone. Off (the default), those names
+resolve the normal way and the client connects live — that configuration works; the switch exists to
+take the client off ArenaNet when you want that, not to fix a broken default.
 
 ## Provenance
 

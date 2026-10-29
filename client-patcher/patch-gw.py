@@ -102,35 +102,30 @@ def main(args):
     # length and section offset intact. A lookup that now fails is the intended outcome.
     # If the client turns out to need one of these -- the file server is the one to watch,
     # since it exists to stream missing Gw.dat content -- delete it from this list.
-    # OFF unless --detach is passed. Attempted 2026-10-25 and it does not work: repointing
-    # every one of these broke login with the client's own "Guild Wars is unable to connect
-    # to the ArenaNet network", and restoring File1 alone did not fix it. This client
-    # requires the real endpoints at startup, so it cannot be detached by hostname patching.
     #
-    # What the experiment established, which is worth keeping:
+    # OFF unless --detach is passed, and this is the completed, supported optional setting:
+    # the client also resolves these names at runtime, so the patch is paired with the hosts
+    # block (client-patcher/hosts-redirect.py) -- the names then resolve to this machine and
+    # our services answer them. Used alone, without that block, the names still resolve the
+    # normal way and the client connects live.
+    #
+    # What the 2026-10-25 experiment established:
     #   - the socket a working client holds is 54.196.189.234, which is in
     #     File1.ArenaNetworks.com's A record set -- i.e. the content/file server, not auth;
     #     `-authsrv 127.0.0.1` genuinely redirects the auth handshake.
-    #   - File1 exists to stream Gw.dat content. Truly detaching means serving that ourselves:
-    #     GameSrv_SendManifest exists but is never called with real data, and the manifest we
-    #     send says "done" with nothing behind it.
+    #   - File1 exists to stream Gw.dat content; our services answer the file check.
+    #
     # Selecting which of these to repoint. Default: none (a normal build must not risk login).
     #
-    #   --detach                 repoint all seven. Known to break login, kept for reference.
+    #   --detach                 repoint all seven. Pair with `hosts-redirect.py enable`.
     #   --detach-only <prefix>   repoint only the matching host(s). Repeatable.
     #   --detach-keep <prefix>   repoint all except the matching host(s). Repeatable.
     #
     # Prefixes: Auth1, File1, Diag, icmp, bug, ArenaNetworks.com, account.arena.net
     #
-    # Why this is opt-in and prefix-selectable: on 2026-10-25 repointing all seven broke login
-    # ("Guild Wars is unable to connect to the ArenaNet network"), and restoring File1 alone
-    # did not fix it -- so at least one more of these is required at startup and the safe subset
-    # has to be found per host, one launch at a time.
-    #
-    # Established by that experiment: a working client holds a socket to 54.196.189.234, which
-    # is in File1.ArenaNetworks.com's A record set -- the content/file server, not auth.
-    # `-authsrv 127.0.0.1` does redirect the auth handshake. File1 streams Gw.dat content;
-    # detaching from it for real means serving those files ourselves.
+    # Why this is opt-in and prefix-selectable: the hosts block is machine-wide (it redirects a
+    # retail client on this machine too), so the safe subset can be chosen per host, one launch
+    # at a time.
     ALL_HOSTS = (
         b'Auth1.ArenaNetworks.com',
         b'File1.ArenaNetworks.com',
@@ -206,8 +201,9 @@ if __name__ == '__main__':
     parser.add_argument('keys_file')
     parser.add_argument('--output', metavar='output', type=str, help='The output file', required=False)
     parser.add_argument('--detach', action='store_true',
-                        help='Repoint every baked-in ArenaNet hostname at 127.0.0.1. Known to '
-                             'break login: this client needs real endpoints at startup.')
+                        help='Repoint every baked-in ArenaNet hostname at 127.0.0.1. Pair it with '
+                             'client-patcher/hosts-redirect.py enable; without the hosts block the '
+                             'names still resolve normally and the client connects live.')
     parser.add_argument('--detach-only', action='append', metavar='PREFIX',
                         help='Repoint only the hostname(s) starting with PREFIX. Repeatable.')
     parser.add_argument('--detach-keep', action='append', metavar='PREFIX',
