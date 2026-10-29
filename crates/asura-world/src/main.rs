@@ -222,7 +222,11 @@ async fn main() -> ExitCode {
         match db_game::spawn_map(&pool, *map_id).await {
             Ok(Some(configured)) => {
                 let map_file_id = u32::try_from(configured.map_file_id).unwrap_or(0);
-                if map_file_id == 0 {
+                // A character-creation instance is the one hostable map that loads no blob: measured on a
+                // live creation, it sends no spawn point and no map file id at all, only the load head,
+                // the player-data block and `CHAR_CREATION_START`. Every other map needs one, because
+                // the client is told which blob to load.
+                if map_file_id == 0 && configured.map_type != MAP_TYPE_CHARACTER_CREATION {
                     eprintln!(
                         "asura-world: map {map_id} has no map_file_id; a client cannot load it"
                     );
