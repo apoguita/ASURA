@@ -39,6 +39,7 @@ maps what to reuse as knowledge, what to port, and what to leave behind.
 | `GmMapDataImport.c`, `FaArchive.c`, `GmPaths.c`, `GmItem.c`, … | **world server** (stays C), untouched. |
 | `Db.c`, `DbSchema.h` | **database**: ported from SQLite to PostgreSQL and split into `auth` / `game` / `content`, owned by `asura-db`. Character writes move from a connection per instance to a pooled async queue in each world server. |
 | `GmCommands.c` | **world server**, plus the map list it carries is the input for outpost prebuild. |
+| `tools/patch-gw.py`, `keys.txt` | **`client-patcher/`** in this repository, verbatim: the client patcher and the DH parameters the server copied. Nothing client-facing runs without them. |
 | `tools/`, `captures/` | test material for the port: packet traces to diff against. |
 
 ## What must not be inherited

@@ -88,7 +88,16 @@ If it is not running, `start` stops with a clear database error instead of prete
 
 ## The client
 
-The game client is Windows-only and lives in the rig, not here (`docs/06-reference-session.md`). Launch it against the web gate, e.g. `-portal 127.0.0.1`, and log in as one of the seeded accounts (`user1@example.com` / `user2@example.com` / `user3@example.com`; the web gate does not check the password). What a good session looks like on the wire is in `recordings/` (`recordings/README.md`).
+The game client is Windows-only. The stock `Gw.exe` cannot talk to this server: it is patched first
+with `client-patcher/patch-gw.py` and the keys in `client-patcher/keys.txt`, which are the same DH
+parameters `crates/asura-protocol/src/client/handshake.rs` uses — the patched `Gw.custom.exe` and the
+server agree on the handshake only as a pair. The patcher's README (`client-patcher/README.md`) has
+the exact commands, the `portal.dll` step and what each patch changes.
+
+Launch the patched client against the web gate, e.g. `-portal 127.0.0.1`, and log in as one of the
+seeded accounts (`user1@example.com` / `user2@example.com` / `user3@example.com`; the web gate does
+not check the password). What a good session looks like on the wire is in `recordings/`
+(`recordings/README.md`).
 
 ## Linux
 

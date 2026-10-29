@@ -76,6 +76,10 @@ the database, and the supervisor's cross-platform setup commands).
 **The game client is Windows-only** — the client rig, its patching and its hooks are Windows work, so a
 Linux machine is a server host.
 
+**The client patcher is in `client-patcher/`** — `patch-gw.py` plus `keys.txt`, the DH parameters that
+match the server's handshake. The stock `Gw.exe` cannot talk to this server; `Gw.custom.exe` is built
+with that folder, and its README has the commands.
+
 **A Docker bundle lives in `docker/`** (`docker compose -f docker/compose.yml up -d --build`): two
 containers, PostgreSQL and one machine container running the supervisor, with the client reaching the
 same `127.0.0.1:6112` and `6601`. It is the optional second runner; `docs/19-running.md` describes it.
@@ -91,6 +95,7 @@ empty on purpose.
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | environment status and the next tasks |
 | [`docs/19-running.md`](docs/19-running.md) | **how to run it** — what you need once, the one command, what success looks like, troubleshooting |
 | [`docs/17-running-on-linux.md`](docs/17-running-on-linux.md) | **the Linux runbook** — the same supervisor commands on a Linux server host |
+| [`client-patcher/README.md`](client-patcher/README.md) | **the client patcher** — how `Gw.custom.exe` is built, and the keys that match the server |
 | [`docs/02-architecture.md`](docs/02-architecture.md) | the components and travel, in more detail |
 | [`docs/03-protocol.md`](docs/03-protocol.md) | the protocol facts: framing, key exchange, login, travel, the game connection |
 | [`docs/01-scope.md`](docs/01-scope.md) | the boundary: what each service owns and what it explicitly does not |

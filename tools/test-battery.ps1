@@ -187,8 +187,9 @@ foreach ($entry in $crates) {
 # --- 8. the real client ---------------------------------------------------------------------------
 Write-Step 8 "the real client (by hand)"
 Write-Host "    Nothing here can launch it or read its window; these are the steps to follow:"
-Write-Host "      asura-supervisor start      # the stack, watched; the log is the verdict"
-Write-Host "      F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1"
+Write-Host "      1. the client is patched first: client-patcher/README.md (Gw.exe -> Gw.custom.exe)"
+Write-Host "      2. asura-supervisor start      # the stack, watched; the log is the verdict"
+Write-Host "      3. F:\GW\GW1\Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1"
 Write-Host "    the trace in that console is the verdict:"
 Write-Host "      'travel to map 146 placed on world 8001'   the auth service placed the travel"
 Write-Host "      'joined map 146'                            the client presented its tokens"

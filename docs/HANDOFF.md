@@ -310,7 +310,7 @@ transaction, so `count(lease) <= leased <= capacity` holds at every commit and t
 | cargo on PATH | **not** on PATH in a fresh shell | use `C:\Users\Apo\.cargo\bin\cargo.exe`, or add that directory to PATH permanently |
 | **PostgreSQL** | installed, 16.15, service **Running**, and **provisioned** | role `asura`, database `asura`, **9 migrations applied / 11 tables** (`account`, `bag`, `characters`, `item`, `lease`, `map_config`, `schema_version`, `session`, `transfer`, `world`, `world_pool`); credentials in `.env` (gitignored) |
 | psql | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | not on PATH |
-| client rig (Reforged + stealth hooks) | present from the PreSearing work | `asura-supervisor start`, then the client; the trace is the verdict |
+| client rig (Reforged + stealth hooks) | present from the PreSearing work | `asura-supervisor start`, then the client; the trace is the verdict. The client is patched by `client-patcher/patch-gw.py` with `client-patcher/keys.txt` (the server's own DH constants) |
 
 **Database is ready.** `ASURA_DATABASE_URL` is in `.env` (gitignored, never committed). Every migration
 is applied; `crates/asura-db/tests/placement.rs` verified the pool invariants against the live database —
