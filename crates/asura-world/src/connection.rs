@@ -314,8 +314,18 @@ pub async fn handle_connection(
 
     // ---- 5. the load block ------------------------------------------------------------------
     // The reference sends these four the moment it has the connection, without waiting to be asked.
+    //
+    // A creation instance is not loaded, it is a conversation: measured from a live creation
+    // (`recordings/client/feature/character_creation/character_creation-live-necro_factions.jsonl`),
+    // the server sends `INSTANCE_LOAD_HEAD` and `CHAR_CREATION_START` and then nothing until the
+    // client asks for the player block (`0x8089`, answered in `creation.rs`). The map-load head, the
+    // player name and the load info belong to the map path and are not sent here.
     let block = match &world.replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Load) => replay.load.clone(),
+        _ if player.creation.is_some() => vec![
+            game::instance_load_head_default(),
+            game::char_creation_start(),
+        ],
         _ => load_block(&player.instance.map, player.GetName(), player.GetAgentID()),
     };
     send(&mut stream, &mut session, block, trace).await?;
