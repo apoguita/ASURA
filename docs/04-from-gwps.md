@@ -40,7 +40,7 @@ maps what to reuse as knowledge, what to port, and what to leave behind.
 | `Db.c`, `DbSchema.h` | **database**: ported from SQLite to PostgreSQL and split into `auth` / `game` / `content`, owned by `asura-db`. Character writes move from a connection per instance to a pooled async queue in each world server. |
 | `GmCommands.c` | **world server**, plus the map list it carries is the input for outpost prebuild. |
 | `tools/patch-gw.py`, `keys.txt` | **`client-patcher/`** in this repository, verbatim: the client patcher and the DH parameters the server copied. Nothing client-facing runs without them. |
-| `tools/hosts-gwps.ps1` | **`client-patcher/hosts-redirect.py`**: the optional hosts-file companion of `--detach`, ported to Python so it is one command on Windows and Linux — the names the client looks up resolve to this machine and our services answer them. |
+| `tools/hosts-gwps.ps1` | **`client-patcher/hosts-redirect.py`**: the hosts-file companion of the patcher, ported to Python so it is one command on Windows and Linux — every baked-in hostname resolves to this machine except the optional `File1` (the content/file server), exactly mirroring the patcher's `--file-server` setting. |
 | `tools/`, `captures/` | test material for the port: packet traces to diff against. |
 
 ## What must not be inherited

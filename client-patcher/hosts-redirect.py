@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """Point the client's baked-in ArenaNet hostnames at our server, or put them back.
 
-This is the companion of `patch-gw.py --detach`. The patcher rewrites the hostnames inside the
-executable, but the client also resolves them at runtime, so the machine's hosts file is what makes
-*our* service the one that answers for names like `Auth1.ArenaNetworks.com` and the file servers.
+The patcher (patch-gw.py) repoints the hostname strings inside the executable, but the client also
+resolves those names at runtime, so the machine's hosts file is what makes *this* machine the one that
+answers them. The set must match the patch exactly: by default every baked-in hostname is redirected
+EXCEPT one -- File1.ArenaNetworks.com, the content/file server, which is the optional address and
+stays live unless `--file-server` asks for it.
 
-Default state is OFF: the client resolves those names normally and connects live, which is a working
-configuration. Turning it on is a deliberate, machine-wide test setting: while the block is present,
-ANY client on this machine that resolves these names is redirected to the target address, including a
-retail game. That is why enable/disable/status exist and why every other line of the file is left
-byte for byte alone.
-
-  python client-patcher/hosts-redirect.py status     what is on now (default)
-  python client-patcher/hosts-redirect.py enable     add the block (elevated shell on Windows)
-  python client-patcher/hosts-redirect.py disable    remove the block, everything else untouched
+  python client-patcher/hosts-redirect.py status              what is on now
+  python client-patcher/hosts-redirect.py enable              all hostnames except File1
+  python client-patcher/hosts-redirect.py enable --file-server   all of them, the optional one included
+  python client-patcher/hosts-redirect.py disable             remove the block, everything else untouched
 
 Options: --hosts PATH (default: the operating system's hosts file), --target ADDRESS (default
-127.0.0.1 — an address our server answers on).
+127.0.0.1 -- an address our server answers on).
+
+Turning it on is a deliberate, machine-wide test setting: while the block is present, ANY client on
+this machine that resolves these names is redirected to the target address, including a retail game.
+That is why enable/disable/status exist and why every other line of the file is left byte for byte
+alone. Off (the default), the names resolve normally and the client connects live.
 
 Ported from GWPS `tools/hosts-gwps.ps1` (same block, same reversibility), as Python so it is the same
 command on Windows and Linux.
@@ -24,30 +26,27 @@ command on Windows and Linux.
 
 import argparse
 import os
-import re
 import shutil
 import sys
-import time
 
 BEGIN = '# --- ASURA private server ---'
 END = '# --- end ASURA ---'
 
-# The names the client is known to look up. The File* family is covered as a small range rather than
-# one-by-one: the client was observed using more than one file server, and a name that does not exist
-# is simply never queried -- while a missing entry for one it does use is a live socket.
+# The baked-in hostnames, the same set the patcher repoints. `bug` carries a port in the executable's
+# string; the hosts file takes the name only.
 HOSTNAMES = (
     'Auth1.ArenaNetworks.com',
     'File1.ArenaNetworks.com',
-    'File2.ArenaNetworks.com',
-    'File3.ArenaNetworks.com',
-    'File4.ArenaNetworks.com',
-    'File5.ArenaNetworks.com',
-    'File6.ArenaNetworks.com',
     'Diag.ArenaNetworks.com',
-    'icmp.arenanetworks.com',
     'bug.arenanetworks.com',
+    'icmp.arenanetworks.com',
+    'ArenaNetworks.com',
     'account.arena.net',
 )
+
+# The one optional address: the content/file server. It is redirected only when asked for, and pairs
+# with `patch-gw.py --file-server`.
+FILE_SERVER = 'File1.ArenaNetworks.com'
 
 
 def default_hosts_path() -> str:
@@ -63,49 +62,75 @@ def read(path: str) -> str:
 
 
 def write(path: str, content: str) -> None:
-    # The hosts file is machine-wide and may be ANSI; keep the bytes otherwise as they were.
     with open(path, 'wb') as f:
         f.write(content.encode('utf-8', errors='surrogateescape'))
 
 
-def enabled(content: str) -> bool:
-    return any(line.strip() == BEGIN for line in content.splitlines())
-
-
-def block(target: str) -> str:
-    lines = [BEGIN, '# client-patcher/hosts-redirect.py - remove with the disable action']
-    lines += [f'{target} {name}' for name in HOSTNAMES]
-    lines.append(END)
-    return '\r\n'.join(lines)
+def block_lines(content: str) -> list:
+    """The hostname lines of the block currently in the file (empty when there is no block)."""
+    names = []
+    inside = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped == BEGIN:
+            inside = True
+            continue
+        if stripped == END:
+            break
+        if inside and stripped and not stripped.startswith('#'):
+            names.append(stripped)
+    return names
 
 
 def status(path: str) -> None:
     content = read(path)
-    if enabled(content):
-        print('enabled: those hostnames resolve to this machine (retail clients are redirected too)')
-    else:
-        print('disabled (default): those hostnames resolve normally and the client connects live')
-
-
-def enable(path: str, target: str) -> None:
-    content = read(path)
-    if enabled(content):
-        print('already enabled')
+    names = block_lines(content)
+    if not names:
+        print('disabled (default): every name resolves normally and the client connects live')
         return
+    optional = 'file server (File1) included' if any(FILE_SERVER in n for n in names) else \
+        'file server (File1) stays live, the optional address'
+    print(f'enabled: {len(names)} hostname(s) resolve to this machine; {optional}')
+    for line in names:
+        print(f'  {line}')
+
+
+def enable(path: str, target: str, file_server: bool) -> None:
+    content = read(path)
+    names = list(HOSTNAMES) if file_server else [n for n in HOSTNAMES if n != FILE_SERVER]
     backup = path + '.asura-backup'
     if not os.path.exists(backup):
         shutil.copyfile(path, backup)
         print(f'backed up the original to {backup}')
-    newline = '\r\n' if '\r\n' in content else '\n'
-    if not content.endswith(newline):
-        content += newline
-    write(path, content + newline + block(target) + newline)
-    print(f'enabled: {len(HOSTNAMES)} hostname(s) resolve to {target} (block added to {path})')
+    # Replace the block if one is present, so the setting can be changed in place.
+    kept = []
+    skipping = False
+    for line in content.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped == BEGIN:
+            skipping = True
+            continue
+        if stripped == END:
+            skipping = False
+            continue
+        if not skipping:
+            kept.append(line)
+    base = ''.join(kept)
+    newline = '\r\n' if '\r\n' in base else '\n'
+    if not base.endswith(newline) and base:
+        base += newline
+    if base:
+        base += newline
+    lines = [BEGIN, '# client-patcher/hosts-redirect.py - remove with the disable action']
+    lines += [f'{target} {name}' for name in names]
+    lines.append(END)
+    write(path, base + newline.join(lines) + newline)
+    print(f'enabled: {len(names)} hostname(s) resolve to {target} (block written to {path})')
 
 
 def disable(path: str) -> None:
     content = read(path)
-    if not enabled(content):
+    if not block_lines(content):
         print('already disabled')
         return
     kept = []
@@ -131,6 +156,9 @@ def main() -> int:
                         help='the hosts file to edit (default: the operating system\'s)')
     parser.add_argument('--target', default='127.0.0.1',
                         help='the address the hostnames resolve to (default 127.0.0.1)')
+    parser.add_argument('--file-server', action='store_true',
+                        help='also redirect the optional address, File1.ArenaNetworks.com '
+                             '(pair with patch-gw.py --file-server)')
     args = parser.parse_args()
 
     if not os.path.exists(args.hosts):
@@ -141,7 +169,7 @@ def main() -> int:
         if args.action == 'status':
             status(args.hosts)
         elif args.action == 'enable':
-            enable(args.hosts, args.target)
+            enable(args.hosts, args.target, args.file_server)
         else:
             disable(args.hosts)
     except PermissionError:

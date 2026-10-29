@@ -99,11 +99,12 @@ seeded accounts (`user1@example.com` / `user2@example.com` / `user3@example.com`
 not check the password). What a good session looks like on the wire is in `recordings/`
 (`recordings/README.md`).
 
-Optional and off by default: patching with `--detach` plus `client-patcher/hosts-redirect.py enable`
-points the client's baked-in ArenaNet hostnames back at this machine, so our services answer them and
-nothing leaves the machine. The hosts block is machine-wide and removed with
-`hosts-redirect.py disable`; `status` says what is on now. Default off, the client connects live —
-that is a working configuration, not a broken one.
+The patcher repoints every baked-in ArenaNet hostname by default, with one exception: the optional
+address, `File1.ArenaNetworks.com` (the content/file server), stays live. Redirecting it too is a pair
+— patch with `--file-server` and run `client-patcher/hosts-redirect.py enable --file-server` — and
+then that address resolves to this machine and our service answers it. The hosts block is
+machine-wide and removed with `hosts-redirect.py disable`; `status` says what is on now, name by
+name. Both settings default off, and off is a working configuration.
 
 ## Linux
 
