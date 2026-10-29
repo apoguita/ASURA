@@ -2123,12 +2123,14 @@ async fn a_character_is_created_in_a_creation_instance() {
     // 3. a profession change: Prophecies Ranger (campaign 1, profession 2).
     say(&mut stream, &mut client, 0x8060, &[1, 2]).await;
     let changed = read_until(&mut stream, &mut client, game::PLAYER_UPDATE_PROFESSION).await;
-    // `GameSrv_SendItemsInBag` sends the *unnamed* form for bag slots, not the named one the inventory
-    // stream uses (`GmItem.c:111-127`).
+    // The **named** creator, which is what live sends on this path: five `0x0161` after every
+    // `0x0060` in `recordings/client/feature/character_creation/character_creation-live-necro_factions.jsonl`.
+    // An item created without its name makes the creation screen assert `ptr->IsDetailHigh()`
+    // (`ItCliApi.cpp(698)`, measured 2026-10-28) the moment it asks for the details.
     assert!(
         changed
             .iter()
-            .any(|frame| frame.header == game::CREATE_UNNAMED_ITEM),
+            .any(|frame| frame.header == game::CREATE_NAMED_ITEM),
         "the new profession's equipment follows the profession"
     );
 

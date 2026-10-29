@@ -130,6 +130,44 @@ pub fn creation_inventory(creation: Creation) -> Inventory {
     Inventory { bags, items }
 }
 
+/// Ascalon City (pre-Searing): where a new character is put when its campaign's starting outpost is
+/// not known. It is a real map this world hosts, so a new character enters a map instead of waiting
+/// on a loading screen for one that does not exist.
+///
+/// **A stand-in, not a measurement.** Only Factions has been measured (map 212). When another
+/// campaign's outpost is captured it gets its own `map_config` row and its own arm in
+/// [`starting_outpost`]; the id does not belong in this constant.
+const STARTER_OUTPOST_STANDIN: i32 = 148;
+
+/// The outpost a new character of a campaign starts in.
+///
+/// Measured: a Factions creation (campaign 2) was redirected to map 212, blob 156969 at
+/// (-2132, 1054) plane 0 (`recordings/client/feature/character_creation/
+/// character_creation-live-necro_factions.jsonl`, the `0x01A6`, `0x0099` and `0x0196` after the
+/// confirm). Every other campaign falls back to [`STARTER_OUTPOST_STANDIN`] and says so in the log.
+fn starting_outpost(campaign: u8) -> i32 {
+    match campaign {
+        2 => 212,
+        _ => STARTER_OUTPOST_STANDIN,
+    }
+}
+
+/// The equipped bag's items for a choice: what the creation screen shows, and therefore what has to be
+/// taken off the client before another set is sent into the same slots.
+fn equipped_items(creation: Creation) -> Vec<db_inventory::Item> {
+    let inventory = creation_inventory(creation);
+    let equipped_bag = inventory
+        .bags
+        .iter()
+        .find(|bag| bag.bag_type == 2)
+        .map(|bag| bag.bag_id);
+    inventory
+        .items
+        .into_iter()
+        .filter(|item| item.bag_id == equipped_bag)
+        .collect()
+}
+
 /// The equipped set as rows the confirm writes, owning their slices.
 pub fn creation_equipment_rows(creation: Creation) -> Vec<db_inventory::NewItem> {
     let equipped_bag = db_inventory::seed::BAGS
@@ -269,16 +307,32 @@ pub async fn handle_change_profession(
     if frame.body.len() < 2 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 4 }));
     }
+    let previous = creation;
     creation.campaign = frame.body[0];
     creation.profession = frame.body[1];
     player.creation = Some(creation);
 
     let agent_id = player.agent_id;
     let inventory = creation_inventory(creation);
-    let mut frames = vec![
-        game::update_unlocked_skills(&[]),
-        game::player_update_profession(agent_id, creation.profession, 0, 0),
-    ];
+    let mut frames = Vec::new();
+    // The client still holds the set the previous change put there, and it asserts if an item is
+    // created into a slot it thinks is occupied - `Assertion: !bagParent->GetItem(slot)`,
+    // `ItCliInv.cpp(105)`, build 39112, measured 2026-10-28 as the crash the moment "select campaign"
+    // opened. The reference takes the old pieces off the client with `ITEM_REMOVE` before it sends the
+    // new ones (`0x014D x5` in
+    // `recordings/client/feature/character_creation/character_creation-live-necro_factions.jsonl`,
+    // right after the profession moved); this server renumbers its item ids per set, so it clears the
+    // equipped bag on every change.
+    for item in equipped_items(previous) {
+        frames.push(game::item_remove(ITEM_STREAM, item.id as u32));
+    }
+    frames.push(game::update_unlocked_skills(&[]));
+    frames.push(game::player_update_profession(
+        agent_id,
+        creation.profession,
+        0,
+        0,
+    ));
     // `GameSrv_SendBagItems` for the equipped bag: each item, then where it sits.
     let equipped_bag = inventory
         .bags
@@ -290,9 +344,11 @@ pub async fn handle_change_profession(
         .iter()
         .filter(|item| item.bag_id == equipped_bag)
     {
-        // GameSrv_SendItemsInBag sends the *unnamed* form here, not the named one the
-        // inventory stream uses (GmItem.c:111-127).
-        frames.push(game::create_unnamed_item(&named_item(item)));
+        // The **named** creator: live sends `CREATE_NAMED_ITEM` on this path, 180-184 bytes with the
+        // item's name and its modifiers (the five `0x0161` after each `0x0060` in the capture above).
+        // The unnamed form leaves the client an item it holds without a name, and the creation screen
+        // asserts `ptr->IsDetailHigh()` (`ItCliApi.cpp(698)`) when it asks for the details.
+        frames.push(game::create_named_item(&named_item(item)));
         if let (Some(bag), Some(slot)) = (item.bag_id, item.slot) {
             frames.push(game::item_move_to_location(
                 ITEM_STREAM,
@@ -370,11 +426,23 @@ pub async fn handle_confirm(
         // `CHAR_CREATION_CHANGE_PROF`, and its confirm leaves the field zero.
         secondary_profession: 0,
     };
+    // Where the character starts, which is not where it was made. A live creation redirects a Factions
+    // character to map 212 (`crates/asura-db/migrations/0017_starter_outpost.sql`). Every other
+    // campaign is put in Ascalon City, which is the Prophecies starting outpost and is already in the
+    // catalogue; the log says when that stand-in was used, so it is never mistaken for a measurement.
+    let outpost = starting_outpost(creation.campaign);
+    if outpost == STARTER_OUTPOST_STANDIN && creation.campaign != 2 {
+        eprintln!(
+            "world: campaign {} has no measured starting outpost; {name:?} is put in map {} \
+             (Ascalon City) as a stand-in - add the campaign's own map when it is captured",
+            creation.campaign, STARTER_OUTPOST_STANDIN
+        );
+    }
     match db_inventory::create_character(
         &world.pool,
         player.account_id,
         &name,
-        player.instance.map.map_id,
+        outpost,
         traits,
         &equipped,
     )
@@ -386,12 +454,20 @@ pub async fn handle_confirm(
                 equipped.len(),
                 creation.campaign,
                 creation.profession,
-                player.instance.map.map_id
+                outpost
             );
             send(
                 stream,
                 session,
-                vec![game::char_creation_success(character.to_bytes_le(), &name, &[])],
+                vec![
+                    game::char_creation_success(character.to_bytes_le(), &name, &[]),
+                    // The client reconnects naming the map it believes it is in, and that belief came
+                    // from the transfer, which named the creation instance: without this it dials back
+                    // into the creation screen and waits there forever (measured in this server's own
+                    // capture, 2026-10-28). Live sends `MAP_UPDATE_CURRENT` just after the success,
+                    // with the map the new character is in.
+                    game::map_update_current_redirect(outpost as u32),
+                ],
                 trace,
             )
             .await?;
