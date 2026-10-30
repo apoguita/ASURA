@@ -347,7 +347,7 @@ pub fn import_graph(
 /// The reference's catalogue names some blobs with bit 31 set (`0x8005EA96` for The Northlands)
 /// while a client archive may bind the plain logical id (`0x5EA96`) - the bit is the archive's
 /// "replacement pending" flag, not part of the map's identity (`docs/03-roadmap.md`,
-/// `docs/10-rurik-comparison.md`). So: the configured id, then the plain one, then the flagged one,
+/// `docs/adr/0011-rurik-is-a-source.md`). So: the configured id, then the plain one, then the flagged one,
 /// and the caller logs when a substitution happened.
 ///
 /// Returns the id that answered and its bytes. `Ok(None)` means none of the three is in the
