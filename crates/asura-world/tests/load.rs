@@ -2393,7 +2393,6 @@ async fn an_idle_pair_keeps_its_rhythm_and_its_count() {
 /// The window is `ASURA_SOAK_SECONDS` (default 600) so the mechanism can be exercised in a minute; the
 /// verdict is the same either way -- after a tenth of the window to let the allocator settle, the working set
 /// must not grow by more than [`SOAK_GROWTH_LIMIT`].
-#[cfg(windows)]
 const SOAK_GROWTH_LIMIT: u64 = 8 * 1024 * 1024;
 
 /// This process's working set in bytes, or `None` where there is no such measurement.
