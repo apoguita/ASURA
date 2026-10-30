@@ -351,9 +351,11 @@ async fn deleting_a_character_stops_the_session_naming_it() {
     .await
     .expect("seed identity");
 
-    assert!(db::select_character(&pool, seeded.session, seeded.character)
-        .await
-        .expect("select"));
+    assert!(
+        db::select_character(&pool, seeded.session, seeded.character)
+            .await
+            .expect("select")
+    );
     assert_eq!(
         db::find_session(&pool, seeded.portal_user, seeded.session)
             .await
@@ -363,9 +365,11 @@ async fn deleting_a_character_stops_the_session_naming_it() {
         Some(seeded.character)
     );
 
-    assert!(db::delete_character(&pool, seeded.account, seeded.character)
-        .await
-        .expect("delete"));
+    assert!(
+        db::delete_character(&pool, seeded.account, seeded.character)
+            .await
+            .expect("delete")
+    );
 
     // The row is gone and the session no longer names it: a travel for this session cannot go out
     // for a character that does not exist.

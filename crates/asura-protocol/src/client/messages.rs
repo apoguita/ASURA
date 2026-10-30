@@ -621,10 +621,10 @@ pub fn account_info(
     writer.u16(FEATURES.len() as u16); // n_unk4
     writer.bytes.extend_from_slice(&FEATURES);
     writer.bytes.push(eula_accepted); // eula_accepted
-                           // `unk5` **is** on the wire, and getting this wrong is what desynchronised a real client:
-                           // the `03 00` after the eula byte is the first half of this dword, not the next
-                           // message's header. Measured: the reference reply is 812 bytes in total -
-                           // 10 + 102 + 599 + 10 + 81 + 10 - and this is the 81.
+                                      // `unk5` **is** on the wire, and getting this wrong is what desynchronised a real client:
+                                      // the `03 00` after the eula byte is the first half of this dword, not the next
+                                      // message's header. Measured: the reference reply is 812 bytes in total -
+                                      // 10 + 102 + 599 + 10 + 81 + 10 - and this is the 81.
     writer.u32(3); // unk5
     Frame::new(tables::AUTH_SMSG_ACCOUNT_INFO, writer.into_body())
 }
@@ -862,7 +862,10 @@ mod tests {
 
         // The EULA version sits between the 8 feature bytes and `unk5`: 4 + 4 + 4 + 8 + 8 + 16 + 16
         // + 4 + 2 + 8 = 74 bytes before it, and `unk5` (a dword) is all that follows.
-        assert_eq!(frame.body[74], 26, "the accepted version is the byte we send");
+        assert_eq!(
+            frame.body[74], 26,
+            "the accepted version is the byte we send"
+        );
         assert_eq!(&frame.body[75..79], &[3, 0, 0, 0], "unk5 after it");
         assert_eq!(
             account_info(9, account, None, 0).body[74],

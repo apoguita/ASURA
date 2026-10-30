@@ -122,7 +122,8 @@ pub async fn answer(
     // selected character".)
     let (Some(account_id), Some(character_id)) = (account_id, character_id) else {
         eprintln!("auth: travel to map {map_id} refused: no account or character is selected");
-        return Ok(request_frames(STATUS_NETWORK_ERROR));    };
+        return Ok(request_frames(STATUS_NETWORK_ERROR));
+    };
 
     // A character that exists belongs in the map its row names. The client can still name the creation
     // instance as a destination: its own idea of where it is comes from the travel that made the
