@@ -63,6 +63,18 @@ pub async fn spawn_map(pool: &PgPool, map_id: i32) -> sqlx::Result<Option<SpawnM
     Ok(row.map(spawn_map_from_row))
 }
 
+/// Every spawn point a map holds, in the reference's order (`GmMapsConfig.h`: `spawnpoints[]`), index 0
+/// first. The world spawns a character at index 0, which is what `GameSrv.c:1075` does; the rest are the
+/// capture's, kept because a map entered from a different portal has more than one.
+pub async fn spawn_points(pool: &PgPool, map_id: i32) -> sqlx::Result<Vec<(f32, f32, i16)>> {
+    sqlx::query_as::<_, (f32, f32, i16)>(
+        "SELECT x, y, plane FROM map_spawn WHERE map_id = $1 ORDER BY idx",
+    )
+    .bind(map_id)
+    .fetch_all(pool)
+    .await
+}
+
 /// Every map the catalogue describes, in id order.
 ///
 /// What a world hosts when it is not told otherwise: the reference pre-spawns one server per configured
