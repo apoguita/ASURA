@@ -1,6 +1,6 @@
 # ascii-check.ps1 - fail if any source or document holds a non-ASCII byte.
 #
-# The rule is docs/HANDOFF.md, "The encoding rule: every file is ASCII". Windows PowerShell 5.1
+# The rule is AGENTS.md #5, "Every file is ASCII". Windows PowerShell 5.1
 # reads a BOM-less file as ANSI, so a UTF-8 em dash comes back as mojibake and the file is written
 # back corrupted. ASCII is the one encoding every tool here agrees on, so it is checked.
 #

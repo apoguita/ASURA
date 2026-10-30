@@ -2,10 +2,12 @@
 
 State of the project as of the last commit, so a new session can begin without re-reading everything.
 
-**Read "The answering rule" below before answering the owner.** It is a binding rule of this project,
-not advice about style: an answer that fails its gate is rewritten, not sent.
+**The binding rules of this repository are `AGENTS.md`.** This document holds the evidence behind them:
+the incident ledger, what each rule cost, what is built, and where the next session starts. It states
+no rule of its own. Where a rule is quoted here, `AGENTS.md` is what binds, and this file records why
+the rule exists.
 
-## The objective: the packet stream is the specification
+## Why the objective exists, in the owner's words
 
 Verbatim, from the owner of this repository (2026-10-28):
 
@@ -19,28 +21,13 @@ Verbatim, from the owner of this repository (2026-10-28):
 
 (Transcribed to ASCII: the one non-ASCII character the owner typed reads as `?`.)
 
-**This is the top rule. Every rule below serves it.**
+A guideline the owner had to defend repeatedly is kept here as provenance. The rule it produces is
+`AGENTS.md` #1; the rule that governs how work is scoped around it is `AGENTS.md` #2.
 
-- **This is reverse engineering, not server development.** The deliverable is the packet stream. For
-  every exchange: the same headers, in the same order, at the same sizes, with the same field layout
-  and the same values the reference puts in those fields, produced by the same trigger. Anything else
-  is not the job.
-- **Nothing is improved or patched unless the owner asks for it - in that session, by name.** A packet
-  whose content looks wrong is reproduced exactly as the reference sends it, and reported. A faithful
-  copy is a known quantity and can be corrected later; a corrected copy hides what the live server
-  actually does.
-- **No tampering with the 1:1 objective.** No extra messages, no missing messages, no reordering, no
-  "safer" variant, no message the reference never sends, nothing removed because it looks redundant.
-  A deviation is a defect in the work, never a design choice.
-- **Decoding and naming is part of the objective, not a side effect.** Every handled packet is aimed
-  at: its header, direction, size, field layout and inferred function, named from evidence (a capture,
-  the client's reaction, the reference's own code) with the evidence written next to the name, in the
-  message table and, once understood, in `docs/03-protocol.md`. A name that is a guess is written as a
-  guess; an unhandled packet is listed as unhandled, never implied to be absent.
-- **"Works" means the client behaves as it does against the live server.** A green test is not the
-  proof of parity; the client is.
+## Why the answering rule exists
 
-## The answering rule: plain, short, decided
+The rule and its six-check gate are `AGENTS.md` #4. What follows is the owner's words that produced it,
+and the session that proved a gate was needed.
 
 Verbatim, from the owner of this repository (2026-10-28):
 
@@ -52,55 +39,23 @@ Verbatim, from the owner of this repository (2026-10-28):
 
 > "i alwways have to ask two or three times and tyour answers are never direct"
 
-The rule was written once already, as seven bullets under "Working directive", and it was ignored. It
-is now a top rule with a gate, because a rule that lives halfway down a file is a rule that gets found
-after the damage. It governs every answer to the owner: chat, a report, a commit message, the status
-lines of a run. It is not per session and not per command.
-
-**The shape of a compliant answer.**
-
-1. The first sentence is the answer. Not background, not a restatement of the question, not the list
-   of sources I consulted.
-2. Then the few facts it rests on, one claim per sentence, each with `file:line`, a command, or a
-   number.
-3. Then what to do, as numbered steps a person can run or apply.
-4. If there is a real fork, name the branch I would take and why, in one line. A menu with no decision
-   is a failed answer, not a balanced one.
-
-**The gate, before sending.** All six, or the answer is rewritten rather than shipped.
-
-- Is sentence one the answer? No -> rewrite.
-- Does it name a file, a command, or a number? No -> rewrite.
-- Would a shorter answer carry the same information? Yes -> cut it.
-- Is a sentence there to sound thorough? Yes -> delete it.
-- Does it end with an action or a question, rather than an offer to explain more? No -> rewrite.
-- Is every word either the owner's or plain English? No -> replace it.
-
-**Words that do not appear in an answer.** They are what made answers vague: `consider`, `may`,
-`might`, `could` (when it means will or should), `it is worth noting`, `importantly`, `note that`,
-`in order to`, `leverage`, `attest`, `afford`, `instrument` as a metaphor, `frame`, `ladder`,
-`surface` as a verb, `nuanced`, `robust`, `holistic`, `option 1` / `option 2` with no recommendation,
-`let me walk you through`, `to be clear`, `as I said`. Restating a rule in different words in the same
-answer is also a defect: one claim, one sentence, once.
+It was written once already, as seven bullets under "Working directive", and it was ignored. It then
+became a gate with six checks rather than a paragraph, because a rule that lives halfway down a file
+is a rule that gets found after the damage.
 
 **The evidence, 2026-10-28.** In one session the owner asked three times how to test the EULA. The
 first two answers were a list of evidence sources and a five-rung method. The answer needed was one
 sentence - the byte we send is 24, the client answers 26 - then four `file:line` facts and three
 commands. Wrong form cost three of the owner's turns, which is the cost this rule exists to stop.
 
-**Corrections replace text.** When the owner corrects a fact, the correction replaces what the file
-said. It is never appended beside the old text, here or in an answer.
+## Why the encoding rule exists
 
-## The encoding rule: every file is ASCII
+The rule and its check are `AGENTS.md` #5.
 
 Verbatim, from the owner of this repository (2026-10-28):
 
 > "remove all mojibake and make a rule never to write outside tha scii character set, this is a
 > common ocurrence"
-
-Every file this project writes is ASCII: source, comments, documents, commit messages, scripts,
-config, test expectations. No em dashes, no arrows, no smart quotes, no box drawing, no section
-signs, no single-character ellipsis. Write `-`, `->`, `=>`, `"`, `'`, `...`, `#`.
 
 **Why, with this repository's own evidence.** Windows PowerShell 5.1 reads a BOM-less file as
 ANSI, so a UTF-8 em dash arrives as a three-character mojibake sequence and the file is written
@@ -109,35 +64,20 @@ back with the corruption built in. A `Get-Content` / `Set-Content` round trip di
 the damage then spread every time a file was moved, copied or reformatted. ASCII cannot be
 corrupted by an ANSI read: it is the one encoding every tool in this stack agrees on.
 
-**Enforcement.** `tools/ascii-check.ps1` scans the tree and exits non-zero on a non-ASCII byte;
-run it before a commit that touches prose or comments. The one exception is `recordings/`: those
-hold bytes captured from a live client, evidence rather than writing, and are never edited.
+The mojibake that existed before this rule was removed in one pass (`tools/to-ascii.py`).
 
-The mojibake that existed before this rule was removed in one pass (`tools/to-ascii.py`); a
-non-ASCII character in a new edit is a defect in the work.
+## Why the dependency rule exists
 
-## The dependency rule: our code takes none, a tool may use one
-
-No external project is a dependency of this repository's code. `Cargo.toml` names none, no test
-calls one, and every service builds, starts and runs with that project absent from the machine.
-That is what "no external source in this project" means here: the deliverable stands alone.
-
-A **tool** in `tools/` may use another project's library to measure something. It is an
-instrument, not a source, and three requirements keep the line:
-
-- **it fails closed**: the library absent is a message and a non-zero exit, never a build error;
-- **nothing outside `tools/` mentions it**: no crate, test, config, CI job or supervisor start path
-  imports, executes or requires it;
-- **what crosses back is bytes**: a recording under `recordings/`, never code and never a name.
-
-The vocabulary is ours as well. A module is named after the game's noun, a doc comment states the
-shape as this server's, and nothing in `crates/` describes the code as a copy of another project's
-file or class. A port is finished when the words are ours too.
+The rule is `AGENTS.md` #6. The line it draws, stated once: a **tool** is an instrument, not a source,
+and three requirements keep it that way - it fails closed, nothing outside `tools/` mentions it, and
+what crosses back is bytes under `recordings/`.
 
 **Check**, and both halves are true today: no file under `crates/` names another project's file or
 class; and `cargo build --workspace` succeeds on a machine where that project is not installed.
 
-## The test rule: one targeted run, and the client is the judge
+## Why the test rule exists
+
+The rule, its command and its guard are `AGENTS.md` #3.
 
 Verbatim, from the owner of this repository (2026-10-28):
 
@@ -146,35 +86,8 @@ Verbatim, from the owner of this repository (2026-10-28):
 >
 > "we cannot sustain such extreme testing each time a minor feature requires a change"
 
-This is a standing rule, not an opinion to trade against a coverage argument. It was already written
-here and was broken anyway (ledger row 7), so it now sits before the ledger and carries a tool:
-`tools/test-touched.ps1` prints the scoped run for the files that changed and refuses the whole
-suite without a stated justification.
-
-- **The acceptance test is a real client doing the thing.** Unit tests and integration suites do not
-  prove a feature works; they only keep what already worked from breaking. A change is finished when
-  the live client behaves, not when the suite is green.
-- **Test what the change touched, nothing else.** A change to the wire form of one message runs that
-  message's tests plus whatever crate must compile. It does not run the workspace, the battery, or
-  every suite because a suite exists.
-- **Never build new scaffolding for a small change.** No new harness, fixture, oracle or captured-byte
-  comparison unless the absence of one would let a *regression* slip through that the live client
-  would not catch on its own.
-- **The standing suites are a regression net, run when the change reaches shared machinery** (framing,
-  the generated tables, schema or migrations, start-up) **or immediately before a commit that claims a
-  milestone.** They are not run per edit, per fix, or per message.
-- **A test that encodes superseded behaviour is updated or deleted in the same change** - never
-  extended, never worked around, and never the reason to keep an old behaviour alive.
-- **Time budget:** for a minor feature, testing must stay smaller than the implementation. If the
-  testing is about to take longer than the change, stop and let the live client decide.
-- When a run is needed anyway, it is one targeted invocation (`cargo test -p <crate> --test <name>`
-  with a name filter), and its result is reported in one line - not a narrative of every test.
-
-**The enforcement.** `tools/test-touched.ps1` is how a run starts: it reads what changed, prints
-the one targeted command per touched crate, and runs it with `-Run`. A whole-suite run needs
-`-WholeSuite -Justification "..."` - milestone, or shared machinery - and that justification is
-the same sentence the commit carries. The ten-minute soak cannot start by accident: it needs
-`ASURA_SOAK=1` on top of `#[ignore]`.
+It was already written here, with a tool beside it, and it was broken anyway (ledger row 7). That is
+why it now leads a rule file that is read before the first edit, instead of sitting in a handoff body.
 
 ## NOTICE: six times invented on top of the instruction, and two existing rules ignored (7, 8)
 
@@ -208,25 +121,10 @@ explanation, and an explanation is not an instruction. **The reference is the im
 starting point for improvements, and a measurement - or an explanation - is not a licence to change
 behaviour.**
 
-Rules that follow, and that are binding for any later session:
+These eight are why `AGENTS.md` #2 exists, and why the rule it states is short enough to hold in a
+single read.
 
-- **Do exactly the command.** Not the command plus what seems needed, not the command behind a flag,
-  not the command with a "safer" variant. If the owner says port it, port it; if the owner says fix X,
-  change X and nothing else.
-- **No inventing around the reference.** No filters, no clamps, no message-shape changes, no extra
-  messages, no thresholds, no "defensive" rewrites. The reference's code is the specification; if it
-  has a defect, that defect is the specification until the owner says otherwise.
-- **An explanation is not an instruction.** When the owner explains how something in the game works,
-  that is context for understanding the reference - nothing is to be changed because of it. Changing
-  behaviour from an explanation is incident #6 in the ledger.
-- **A measurement is evidence, not permission.** Capture it, report it, wait. A capture has been used
-  six times already to justify a deviation that broke something.
-- **Restore first, discuss second.** When something that used to work stops working, the first commit is
-  a restore of the last known-good behaviour, never a new theory.
-- **One change, one subject.** A port, a fix and an "improvement" never travel in the same commit, so a
-  regression can be attributed and reverted without an argument.
-
-### Why it keeps happening, and what is required to stop it
+### Why it keeps happening
 
 Verbatim, from the owner of this repository (2026-10-27):
 
@@ -252,51 +150,28 @@ watched for:
    mechanism working. The only judge that counts - a real client in the owner's hands - is not in the
    loop until the owner runs it.
 
-What is therefore **required before any behaviour change**, in this order:
-
-- **Write the one-sentence pre-flight statement**: *what changes, in which message or code path, and why
-  it is not simply copying the reference.* If that sentence contains anything the owner did not ask for,
-  stop and ask instead of doing it. Asking is one turn; a regression is one of the owner's sessions.
-- **Name the source of truth** being copied (`file:line` in the reference, or the captured bytes) and
-  quote it. "I believe" is not a source.
-- **Touch one subject.** If a second improvement appears while working, it goes in the report, not the
-  commit.
-- **Leave the behaviour reproducible**: the reference's path/bytes are what run, and any divergence is
-  written next to the code with the measurement that forced it.
-- **Report, do not decide**, when the reference's own behaviour looks wrong: the owner decides, and the
-  decision is recorded in the ledger above.
+The stop is the pre-flight sentence in `AGENTS.md` #2: one sentence naming what changes, in which
+message or code path, and why it is not simply copying the reference.
 
 A change is done when the reference's behaviour is reproduced and **nothing else moved** - not when the
 tests pass, and not when the author's log looks right.
 
-*Rows 7 and 8 are not behaviour bugs: the rules existed and were ignored. That is why they now lead
-this file - row 7 with a tool that refuses the run, row 8 with a gate every answer passes or is
-rewritten - instead of trusting the reader to scroll.*
+*Rows 7 and 8 are not behaviour bugs: the rules existed and were ignored. That is why they became
+rules in `AGENTS.md` with tools attached - row 7 a script that refuses the run, row 8 a gate every
+answer passes or is rewritten - instead of paragraphs a reader has to scroll to.*
 
-## Working directive: the user's command is the requirement
+## Why the command-is-the-requirement rule exists
+
+The rule is `AGENTS.md` #2.
 
 Verbatim, from the owner of this repository (2026-10-27):
 
 > "If I ask you to port a feature as the source, you port the feature as the source."
 
-- **The user's instruction is the specification.** It is not a suggestion to be weighed against my own
-  analysis, measurements, preferences, or what I think is "correct". When the two disagree, the user's
-  command wins and the disagreement is reported, not acted on.
-- **A port is a port.** "Port feature X as the source" means: the reference implementation IS the
-  target. Port its behaviour, its message bytes, its field order, its sizes, and its order of
-  operations - verbatim. Do not "fix", "modernise", "improve" or "correct" the source. If the source
-  looks wrong to me, that is a reason to say so, never licence to ship something else.
-- **Never re-decide a decision the user has already made** (e.g. "do not gate the server under any
-  tag or key, the server must work as is"; "we need parity at least with GWPS"; "if it works on GWPS,
-  make it work here"). If evidence suggests the chosen direction is wrong, present the evidence and
-  wait for the user - do not silently substitute my own choice.
-- **"Works" means the user's definition**, not mine: a *real client* does the thing (logs in, loads
-  the map, teleports) exactly as it does on the reference. Unit tests passing is not "works".
-- Any deviation is a defect in the work, not a design choice. When in doubt, ask one short question.
-
-**How to answer the owner: plainly.** This moved to the top of this file, under "The answering rule",
-with a gate and a list of constructions that do not appear. It is the first rule for a reason, and it
-is broken in the same session it was written in (ledger row 8).
+Two pieces of the original wording are kept because they name the failure precisely: the instruction
+"is not a suggestion to be weighed against my own analysis, measurements, preferences, or what I think
+is correct", and a port means the reference implementation **is** the target - its behaviour, message
+bytes, field order, sizes and order of operations, verbatim.
 
 **The incident this rule exists because of** (`/tp`, 2026-10-27, commit `e0f671c`). The user asked
 from the first message for the teleport to be ported from GWPS, whose code works. I instead sent my
@@ -304,11 +179,6 @@ own inferred `0x01A6` layout: 46 bytes in *my* dword order -> client error `007`
 captured order -> client error `005`. The feature only worked once GWPS's **own struct** was copied
 verbatim (`GameMsg.h:659`: 46 bytes, two-byte header, `map_token, region, player_token,
 is_explorable, map_id`). The port target was named by the user all along.
-
-## Testing
-
-The testing rule has moved to the top of this file, under "The test rule", so it is read before
-any edit rather than found halfway down. Its enforcement is `tools/test-touched.ps1`.
 
 ## Where this stands
 
@@ -519,13 +389,13 @@ harness -- the reference runs a process per map and watches that process. Same q
 The "how do I run this" page is **`docs/19-running.md`** - what you need once, the one command, what
 success looks like, the everyday supervisor commands, the rolling deploy, the client, CI, and a
 troubleshooting table. It is the only place those instructions live now; this section keeps only the
-rules behind them:
+operational facts behind them:
 
-- **The project is run natively on this machine**: `asura-supervisor` (host path). `docker/` is an
-  optional bundle that exists as an offer; it is not used to drive the project (owner's instruction,
-  2026-10-28). Do not reach for it to start, test or demo the stack.
+- **The project runs natively on this machine**: `asura-supervisor`, host path, and it is the one start
+  path on both operating systems (`AGENTS.md` #7). `docker/` exists as an offer and does not drive the
+  project.
 
-- **It is quiet by default, and that is a rule now**: `-Trace` prints every packet, and the packet log is
+- **The run is quiet by default**: `-Trace` prints every packet, and the packet log is
   off unless asked for, because a world tick every 500 ms is three lines a second forever and it buries the
   lines that matter. What is *always* printed is the events - `auth: login ok for ...`, `auth: travel to map
   146 placed on world 8001 ...`, `world: ... joined map 146 ... with 6 bag(s) and 9 item(s)`, a saved position, a
@@ -564,10 +434,6 @@ services - there is no code that can run on SIGKILL).
 
 (No network is needed for either once dependencies are cached. If `cargo` cannot reach crates.io,
 the sandbox token may be blocking TLS - run it from a normal shell, or with full access.)
-
-Scripts in this repository stay ASCII-only (see "The encoding rule" above). Windows PowerShell
-5.1 reads a BOM-less file as ANSI, where a UTF-8 em dash decodes to a smart quote and breaks the
-parse at a line far from the cause.
 
 ## Decisions already made (do not re-litigate without reading these)
 
@@ -740,9 +606,9 @@ Two PowerShell traps are fixed in the scripts and worth not re-introducing:
   `$ErrorActionPreference = "Stop"` treats as fatal, so repeated or idempotent runs aborted. Each
   script runs native programs with the preference relaxed and judges them by exit code alone; psql
   takes its options before the database URI.
-- **Never rewrite a UTF-8 markdown file with `Get-Content`/`Set-Content`.** Windows PowerShell reads it
-  as ANSI and writes back a different encoding, which turned every em dash in this file into mojibake
-  once already. Use the file tools, or `-Encoding utf8` with `[System.IO.File]::ReadAllText`.
+- A `Get-Content`/`Set-Content` round trip on a UTF-8 markdown file reads it as ANSI and writes back a
+  different encoding, which turned every em dash in this file into mojibake once already. The rule for
+  that is `AGENTS.md` #5.
 
 ## Definition of done for the first session (met)
 
@@ -776,10 +642,3 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
   character the session already points at; choosing one is the next login-path message.
 - **No CI.** Tests run locally first, and `tools/test-battery.ps1` is the one command that stands in for
   it (10 steps, PASS/FAIL each, and the last one is a human with a game client).
-
-## Reading order for a fresh session
-
-`docs/HANDOFF.md` (this file) -> `MILESTONES.md` (the feature list and whether a client proved it) ->
-`docs/01-scope.md` -> `docs/02-architecture.md` -> `docs/03-protocol.md` -> `docs/roadmap.md` -> the ADR
-that matches the question you have. `docs/00-glossary.md` defines every term if something reads as
-jargon.

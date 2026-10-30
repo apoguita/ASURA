@@ -92,7 +92,8 @@ empty on purpose.
 
 | document | what it settles |
 |---|---|
-| [`docs/HANDOFF.md`](docs/HANDOFF.md) | **the binding rules** - including "The answering rule", which governs every answer to the owner - then environment status and the next tasks |
+| [`AGENTS.md`](AGENTS.md) | **the binding rules** - the objective, the answering gate, the test rule, the encoding rule. The only place a rule is stated |
+| [`docs/HANDOFF.md`](docs/HANDOFF.md) | **the evidence behind those rules** - the incident ledger, what each rule cost, environment status, and where the next session starts |
 | [`MILESTONES.md`](MILESTONES.md) | **the feature list** - one line per feature, and whether a real client proved it |
 | [`docs/19-running.md`](docs/19-running.md) | **how to run it** - what you need once, the one command, what success looks like, troubleshooting |
 | [`docs/17-running-on-linux.md`](docs/17-running-on-linux.md) | **the Linux runbook** - the same supervisor commands on a Linux server host |

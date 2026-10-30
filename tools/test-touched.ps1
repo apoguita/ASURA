@@ -1,7 +1,7 @@
 # test-touched.ps1 - run only the tests the changed files justify.
 #
-# The rule is docs/HANDOFF.md, "The test rule: one targeted run, and the client is the judge". It
-# lives before the incident ledger because it was already written once and was ignored: a session
+# The rule is AGENTS.md #3, "Testing: one targeted run, and the client is the judge". It
+# carries a tool because it was already written once and was ignored: a session
 # ran the whole world socket suite four times for a change that needed two tests.
 #
 # So the run starts here. This script reads what changed, prints the one targeted command per
@@ -29,7 +29,7 @@ try {
     if ($WholeSuite) {
         if ([string]::IsNullOrWhiteSpace($Justification)) {
             Write-Host "test-touched: the whole suite needs a reason."
-            Write-Host "  The rule (docs/HANDOFF.md, The test rule): the standing suites run when the"
+            Write-Host "  The rule (AGENTS.md #3): the standing suites run when the"
             Write-Host "  change reaches shared machinery (framing, the generated tables, schema,"
             Write-Host "  start-up) or before a commit that claims a milestone - not because a suite"
             Write-Host "  exists. Pass -Justification and put the same sentence in the commit."

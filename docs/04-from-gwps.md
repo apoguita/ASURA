@@ -7,10 +7,11 @@
 > (`docs/adr/0005-gwps-reference-only.md`).
 
 > **But when the user says "port it from GWPS", GWPS is copied verbatim.** That is a standing
-> directive, not a design discussion: `docs/HANDOFF.md` # "Working directive". The user has the
+> directive, not a design discussion: `AGENTS.md` #2. The user has the
 > final say on what a feature must do; a port follows the source's code and bytes exactly, even
 > where this document's own reasoning would choose otherwise. The `/tp` incident
-> (`docs/HANDOFF.md`, same section) is the worked example: GWPS's exact struct is what worked.
+> (`docs/HANDOFF.md`, "Why the command-is-the-requirement rule exists") is the worked example:
+> GWPS's exact struct is what worked.
 
 GWPS is not being thrown away. It is the working reference: every protocol fact, every client
 quirk, and every "this made the client fail with error 007" was discovered there. This document
