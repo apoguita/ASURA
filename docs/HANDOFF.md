@@ -448,6 +448,7 @@ the sandbox token may be blocking TLS - run it from a normal shell, or with full
 | GWPS is reference only; instance creation is settled by an experiment in this stack | `docs/adr/0005-gwps-reference-only.md` |
 | AzerothCore is the design authority (structure); deviations are recorded | `docs/adr/0006-azerothcore-is-the-reference.md` |
 | The one rule: never send a client to something that is not already answering | `docs/02-architecture.md` |
+| **The exploration grid is now sent** (`0x008B` `MAP_INIT_START` + `0x008A` `CARTOGRAPHY_DATA`, continent 1's measured 64 x 128 all-unexplored grid), because the client's map surfaces size their world-map texture from it and asserted without it (build 39112, `GmMapView.cpp(1731)`, 2026-10-29). It goes **immediately after `INSTANCE_LOAD_INFO`** - a live server sends the pair 0.58-0.73 s into the load, once per instance - and only continent 1's dimensions are measured; a map on another continent gets no grid rather than a guessed one. **Confirmed on a live client 2026-10-30: both the mission map (U) and the world map (M) open** | `docs/03-protocol.md` 11.4, `crates/asura-world/src/cartography.rs`, `docs/adr/0011-rurik-is-a-source.md` |
 
 ## Where the next session starts
 

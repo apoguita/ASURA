@@ -69,6 +69,26 @@ pub const READY_FOR_MAP_SPAWN: u16 = crate::packets::game::GAME_SMSG_READY_FOR_M
 /// `GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST` (`0x0094`): five counted lists of dwords.
 pub const MAP_UPDATE_UNLOCKED_LIST: u16 = crate::packets::game::GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST;
 
+/// `GAME_SMSG_MAP_INIT_START` (`0x008B`, 14 bytes): the exploration grid's dimensions and how many
+/// compressed bytes the `0x008A` messages that follow carry.
+///
+/// Unnamed in the generated table (three dwords is all it records); the name is the client's own
+/// handler, `OnMsgSrvMapInitStart`, and the shape is measured - `{dims.x, dims.y, compressed
+/// byte count}`, three dwords. See [`map_init_start`].
+pub const MAP_INIT_START: u16 = 0x008B;
+/// `GAME_SMSG_CARTOGRAPHY_DATA` (`0x008A`, 262 bytes): one slice of the exploration grid.
+pub const CARTOGRAPHY_DATA: u16 = crate::packets::game::GAME_SMSG_CARTOGRAPHY_DATA;
+/// The blob bytes one [`CARTOGRAPHY_DATA`] message carries: 256, so 64 dwords.
+///
+/// **The reference's shape is the one this client frames to.** A `u16` count then the fixed 64-dword
+/// array, 260 bytes per message, and the count says how many dwords arrived. A live capture reports
+/// the same message at 132 bytes with a `u32` count (`character_creation-live-necro_factions.jsonl`,
+/// seq 1056), and sending that shape here desynchronises this client - it answers `007` at map load,
+/// measured 2026-10-30. So the capture and the framing disagree, and the client settles it.
+pub const CARTOGRAPHY_DATA_BYTES: usize = 256;
+/// The dwords that payload holds.
+pub const CARTOGRAPHY_DATA_SLOTS: usize = CARTOGRAPHY_DATA_BYTES / 4;
+
 /// `GAME_SMSG_ITEM_STREAM_CREATE` (`0x0144`): 5 bytes.
 pub const ITEM_STREAM_CREATE: u16 = crate::packets::game::GAME_SMSG_ITEM_STREAM_CREATE;
 /// `GAME_SMSG_INVENTORY_CREATE_BAG` (`0x013F`): 13 bytes.
@@ -877,6 +897,47 @@ pub fn map_update_unlocked_list(lists: [&[u32]; 5]) -> crate::client::Frame {
     let mut builder = Builder::new(MAP_UPDATE_UNLOCKED_LIST);
     for list in lists {
         builder = builder.dwords(list);
+    }
+    builder.frame()
+}
+
+/// `GAME_SMSG_MAP_INIT_START`: the exploration grid's dimensions, and how many compressed bytes the
+/// [`cartography_data`] messages that follow will carry.
+///
+/// **The client has no other source for these dimensions.** It stores them, replaces the whole
+/// per-continent grid with what arrives, and asserts `dims.x % 32 == 0` when it decompresses. A
+/// server that never sends this leaves the dimensions at zero, and the map surfaces then fail their
+/// own consistency check the first time a player opens a map: client build 39112,
+/// `Assertion: worldMapDims.x == mapDims.x * DXT_BLOCK_SIZE`, `GmMapView.cpp(1731)`, measured
+/// 2026-10-29 against this server.
+///
+/// The reference's shape is the one this client frames to: a two-byte header, then three dwords, 14
+/// bytes. A live capture reports 16 (a four-byte header), and sending 16 desynchronises this client -
+/// `007` at map load, measured 2026-10-30 - so the capture and the framing disagree and the client
+/// settles it.
+pub fn map_init_start(dims_x: u32, dims_y: u32, byte_count: u32) -> crate::client::Frame {
+    Builder::new(MAP_INIT_START)
+        .u32(dims_x)
+        .u32(dims_y)
+        .u32(byte_count)
+        .frame()
+}
+
+/// `GAME_SMSG_CARTOGRAPHY_DATA`: a slice of the compressed grid - a `u16` count and the fixed 64-dword
+/// array, 260 bytes, with the count saying how many dwords arrived.
+pub fn cartography_data(blob: &[u8]) -> crate::client::Frame {
+    let bytes = &blob[..blob.len().min(CARTOGRAPHY_DATA_BYTES)];
+    let dwords = bytes.len().div_ceil(4);
+    let mut builder = Builder::new(CARTOGRAPHY_DATA).u16(dwords as u16);
+    for slot in 0..CARTOGRAPHY_DATA_SLOTS {
+        let at = slot * 4;
+        let mut word = [0u8; 4];
+        for (index, byte) in word.iter_mut().enumerate() {
+            if let Some(source) = bytes.get(at + index) {
+                *byte = *source;
+            }
+        }
+        builder = builder.u32(u32::from_le_bytes(word));
     }
     builder.frame()
 }

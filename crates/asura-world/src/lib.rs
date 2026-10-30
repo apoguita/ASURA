@@ -84,8 +84,13 @@ pub use travel::*;
 pub use world::*;
 
 pub use agent::*;
+pub use cartography::*;
 pub use chat::*;
 pub use dispatch::*;
+
+/// The exploration grid the client's map surfaces draw from: the `0x008B` + `0x008A` pair, which
+/// this server sent nothing of until a live client asserted its map view without it.
+pub mod cartography;
 
 /// One agent's position, and the reference's rules for believing a client about it.
 pub mod agent;
@@ -418,8 +423,45 @@ mod tests {
             game::INSTANCE_LOAD_FINISH
         );
         assert!(
+            frames
+                .iter()
+                .all(|frame| frame.header != game::MAP_INIT_START),
+            "the exploration grid belongs to the load block, not here"
+        );
+        assert!(
             frames.len() > 20,
             "the block is the reference's twenty-odd messages"
+        );
+    }
+
+    #[test]
+    fn the_load_block_carries_the_exploration_grid_after_the_instance_info() {
+        let frames = load_block(&test_map(), "Asura", AGENT_ID);
+        let info = frames
+            .iter()
+            .position(|frame| frame.header == game::INSTANCE_LOAD_INFO)
+            .expect("the instance's identity");
+        let announced = frames
+            .iter()
+            .position(|frame| frame.header == game::MAP_INIT_START)
+            .expect("the grid's dimensions are announced");
+        let streamed = frames
+            .iter()
+            .position(|frame| frame.header == game::CARTOGRAPHY_DATA)
+            .expect("the grid is streamed");
+        assert_eq!(
+            info + 1,
+            announced,
+            "a live server sends the pair right after INSTANCE_LOAD_INFO, 0.58-0.73 s into the load"
+        );
+        assert!(
+            announced < streamed,
+            "the announcement comes before the data it sizes"
+        );
+        assert_eq!(
+            frames[announced].len(),
+            14,
+            "three dwords after the header: the two dimensions and the byte count"
         );
     }
 

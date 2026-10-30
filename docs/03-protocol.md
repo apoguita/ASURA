@@ -541,8 +541,62 @@ answers whatever arrives, in whatever order.
   map list, `INSTANCE_LOADED` (the player's team token), skills and attributes, factions, the load
   time, `PLAYER_CREATE` (`0x0059`, `25 + 2n`), `WORLD_CREATE_AGENT` (`0x0020`, **99 bytes, fixed**),
   the agent's health/energy/level/effects/equipment/cape, `WORLD_UPDATE_CONTROLLED_AGENT`, the party
-  (create/add/end + pointer), and finally **`INSTANCE_LOAD_FINISH` (`0x018E`, 2 bytes)** - the message
-  that takes the client off the loading screen.
+  (create/add/end + pointer), the exploration grid below, and finally **`INSTANCE_LOAD_FINISH`
+  (`0x018E`, 2 bytes)** - the message that takes the client off the loading screen.
+
+#### The exploration grid: `0x008B` then `0x008A` (added 2026-10-29, the map-view assertion)
+
+The client keeps one bit per 32-unit cell, **per continent**, and the server is the only source of the
+grid's dimensions. A server that sends none leaves them at zero, and the map surfaces then fail their
+own consistency check the first time the player opens a map with U or M: client build 39112,
+
+```
+Assertion: worldMapDims.x == mapDims.x * DXT_BLOCK_SIZE
+P:\Code\Gw\Ui\Game\Map\GmMapView.cpp(1731)
+```
+
+measured 2026-10-29 against this server. `mapDims` is the served grid; `worldMapDims` is the
+continent's own map art, which the client already holds, and `DXT_BLOCK_SIZE` is 4.
+
+Both messages carry a **game header** - the opcode and a zero `u16`, four bytes - and both were
+measured byte for byte from a live client
+(`recordings/client/feature/character_creation/character_creation-live-necro_factions.jsonl`,
+seq 1055 and 1056):
+
+| # | message | header | wire | layout |
+|---|---|---|---|---|
+| 1 | `MAP_INIT_START` | `0x008B` | **16** | game header, then `{dims.x(u32), dims.y(u32), compressed byte count(u32)}` |
+| 2 | `CARTOGRAPHY_DATA` | `0x008A` | **132** | game header, then a `u32` count of the dwords that follow, then a fixed 124-byte payload; `count * 4` bytes are the blob, the rest is zero |
+
+The captured pair was `8b 00 00 00 | 00 01 00 00 | c0 00 00 00 | 2c 00 00 00` - 256 x 192 cells, 44
+bytes - and `8a 00 00 00 | 0b 00 00 00` plus 44 bytes of blob in the same 132-byte message. A
+two-byte header, a `u16` count, or a 14-byte `0x008B` each desynchronise the client, which then reads
+the following message's header out of the middle of this one (client error `007`, measured twice,
+2026-10-29).
+
+The grid is cut into **bands of 16 scanlines**, and each band is a `u16` byte length followed by a
+two-state run-length encoding: runs alternate polarity starting with **zeros** (unexplored), a run's
+length is the sum of consecutive `0xFF` bytes up to and including the first byte that is not `0xFF`,
+and every run after the first is one longer than its bytes say. **A band with nothing explored needs
+no bytes at all**: its length is `0`, and the client fills it with unexplored cells. The width must
+be a multiple of 32 - the client asserts it while decompressing - and the height a multiple of 16,
+because the band format has no partial band.
+
+A live server sends the pair **0.58-0.73 s into the load, immediately after `INSTANCE_LOAD_INFO`,
+once per instance** - not at the end of the block. Sending it later is the same as not sending it: the
+map view still asserts. (Our first attempt had the messages right and the position wrong, which cost a
+session; the timing comes from Rurik's capture corpus, `docs/adr/0011-rurik-is-a-source.md`.)
+
+What this server sends is a grid with **nothing explored**
+(`crates/asura-world/src/cartography.rs`): Tyria's measured 64 x 128 cells, 8 empty bands, 16 bytes,
+one `0x008A`. The bits are a character's progress and this schema keeps none, so "nothing" is both the
+honest value and what a fresh character has.
+
+Open: the dimensions of the other continents. The live client sent 256 x 192 from a character-creation
+instance and 64 x 128 from a Tyria outpost, so the grid is per continent. Only Tyria's 64 x 128 is
+measured here - a 26-byte blob in the capture - and a map on another continent keeps the assertion it
+had before this pair existed. The assertion compares `dims.x * 4` with the continent's own world-map
+art, so the width is the number that matters: 64 cells is a 256-texel world map.
 
 ### 11.5 The client's own messages, and the one that moves an item
 

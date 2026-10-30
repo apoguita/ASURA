@@ -416,22 +416,45 @@ async fn a_placed_client_is_loaded_into_its_map() {
     };
 
     // ---- the load block, which the world sends without being asked ---------------------------
-    let frames = read_until(&mut stream, &mut client, game::INSTANCE_LOAD_INFO).await;
+    let frames = read_until(&mut stream, &mut client, game::CARTOGRAPHY_DATA).await;
     let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
     assert_eq!(
-        headers,
-        vec![
+        &headers[..6],
+        &[
             game::INSTANCE_LOAD_HEAD,
             game::INSTANCE_PLAYER_DATA_START,
             game::INSTANCE_LOAD_PLAYER_NAME,
             game::INSTANCE_LOAD_INFO,
+            game::MAP_INIT_START,
+            game::CARTOGRAPHY_DATA,
         ],
-        "the reference's four messages, in its order"
+        "the four messages, then the exploration grid right after INSTANCE_LOAD_INFO"
     );
     assert_eq!(frames[0].len(), 6, "INSTANCE_LOAD_HEAD");
     assert_eq!(frames[1].len(), 2, "INSTANCE_PLAYER_DATA_START");
     assert_eq!(frames[2].len(), 2 + 2 + 2 * 10, "a ten-unit name");
     assert_eq!(frames[3].len(), 16, "INSTANCE_LOAD_INFO");
+    let grid_start = &frames[4];
+    assert_eq!(
+        grid_start.len(),
+        16,
+        "MAP_INIT_START: a game header and three dwords"
+    );
+    assert_eq!(
+        u32::from_le_bytes([
+            grid_start.body[2],
+            grid_start.body[3],
+            grid_start.body[4],
+            grid_start.body[5]
+        ]),
+        64,
+        "Tyria's measured grid width"
+    );
+    assert_eq!(
+        frames[5].len(),
+        132,
+        "CARTOGRAPHY_DATA: the fixed 132-byte message"
+    );
 
     // The name the client is told is the character's own, in UTF-16 little endian.
     let name = &frames[2].body;

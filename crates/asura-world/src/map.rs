@@ -402,9 +402,15 @@ pub fn spawn_block(map: &MapEntry, standing: Standing) -> Vec<Frame> {
     )]
 }
 
-/// The four messages a world server sends without being asked, the moment it has the connection.
+/// The four messages a world server sends without being asked, the moment it has the connection,
+/// followed by the exploration grid.
+///
+/// The grid's two messages come right after `INSTANCE_LOAD_INFO`, because that is where a live server
+/// sends them: 0.58-0.73 s into the load, once per instance. The client's map surfaces size their
+/// world-map texture from the dims they carry and assert `worldMapDims.x == mapDims.x * 4` on the
+/// first M press without them (`GmMapView.cpp(1731)`, client build 39112, 2026-10-29).
 pub fn load_block(map: &MapEntry, name: &str, agent_id: u32) -> Vec<Frame> {
-    vec![
+    let mut frames = vec![
         game::instance_load_head_default(),
         game::instance_player_data_start(),
         game::instance_load_player_name(name),
@@ -416,7 +422,11 @@ pub fn load_block(map: &MapEntry, name: &str, agent_id: u32) -> Vec<Frame> {
             0, // language: the reference's default
             0, // is_observer
         ),
-    ]
+    ];
+    frames.extend(crate::cartography::init_frames(
+        crate::cartography::grid_for(map.map_id),
+    ));
+    frames
 }
 
 /// The reference's `MapId_Count`: the sentinel the first manifest `DONE` carries, meaning "every map
