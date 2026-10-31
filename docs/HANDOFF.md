@@ -471,10 +471,12 @@ Owner, 2026-11-01 (the decision row above). Four stages, in order, and only the 
   reproduced message for message.
 - **Stage 2 - 1:1 with the game.** The rule is written (`docs/03-protocol.md` 5e): nothing between the wire
   and a handler is shaped by GWPS's arrangement. This is held, not reached.
-- **Stage 3 - naming.** Every header named with its evidence, so no row is `Unnamed`. It starts with the 33
-  headers a real session used that the table cannot name (`docs/24-stream-parity.md`), then the 249 game
-  rows still unnamed in `crates/asura-protocol/src/packets.rs`. A recording under `recordings/` or a
-  `file:line` in the reference is what turns a guess into a name.
+- **Stage 3 - naming.** Every header named with its evidence, so no row is `Unnamed`. Fourteen of the 32
+  headers a real session used are named (`23de10e`, `d17a60a`); the eighteen that remain, with the shape
+  each capture proves and the one action that names it, are `docs/28-headers-to-name.md`. That page also
+  records why the rest cannot be finished offline: the catalogue of this lineage leaves them unnamed and
+  the reference never sends them. After the 18, the 306 game rows no capture contains need a stimulus
+  instead, one opcode at a time.
 - **Stage 4 - stream parity.** Every message of a flow answered, or ignored with a written reason. The
   ledgers are `docs/23-initialization-protocol.md` (the set and order an instance sends) and
   `docs/21-surrounding-packets.md` (what a live stream carries and this tree drops). Today 78 of the 148
