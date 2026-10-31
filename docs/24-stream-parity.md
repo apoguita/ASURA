@@ -1,6 +1,7 @@
 # 24 - Stream parity: every message a live client exchanged, and what we do with it
 
-Status: a generated ledger. Regenerated from the committed captures, never hand-maintained.
+Status: maintained by hand from the committed captures. Its generator was retired with the rest of the
+parity tooling (`docs/16-implementation-plan.md`); a capture that adds a header adds a row here.
 
 The owner's rule, 2026-10-31: "100% replicate the stream without discriminating a single message, even
 if that has nothing to do with our task". So every header a live capture contains is listed with what this
@@ -8,6 +9,13 @@ tree does about it, and no row is dropped because a feature does not need it.
 
 Header values are written with the direction bit set the way the wire carries it (`0x80xx` from the client,
 `0x00xx` from the server); the sniffer records the client's without it, which the script adds back.
+
+**`sizes seen` is the client's message-struct size, never a wire size** (`docs/03-protocol.md` 5e). It
+runs 2 bytes over the wire on every fixed message (`0x001E` 8 against 6, `0x0186` 4 against 2) and much
+further where the struct pads (`0x000A` 240 against 140, `0x000B` 324 against 88). The column says "what
+the client held": it is a count and a shape, not a length to send. The wire size per header is
+`crates/asura-protocol/src/packets.rs`, and the wire forms to copy are
+`recordings/gwps/world/load-stream.log` and the sessions under `recordings/asura/`.
 
 | header | direction | live count | sizes seen | our name | our status |
 |---|---|---|---|---|---|

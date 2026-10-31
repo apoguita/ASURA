@@ -452,7 +452,8 @@ the sandbox token may be blocking TLS - run it from a normal shell, or with full
 | AzerothCore is the design authority (structure); deviations are recorded | `docs/adr/0006-azerothcore-is-the-reference.md` |
 | The one rule: never send a client to something that is not already answering | `docs/02-architecture.md` |
 | **The exploration grid is now sent** (`0x008B` `MAP_INIT_START` + `0x008A` `CARTOGRAPHY_DATA`, continent 1's measured 64 x 128 all-unexplored grid), because the client's map surfaces size their world-map texture from it and asserted without it (build 39112, `GmMapView.cpp(1731)`, 2026-10-29). It goes **immediately after `INSTANCE_LOAD_INFO`** - a live server sends the pair 0.58-0.73 s into the load, once per instance - and only continent 1's dimensions are measured; a map on another continent gets no grid rather than a guessed one. **Confirmed on a live client 2026-10-30: both the mission map (U) and the world map (M) open** | `docs/03-protocol.md` 11.4, `crates/asura-world/src/cartography.rs`, `docs/adr/0011-rurik-is-a-source.md` |
-| **One client, one protocol.** The rig patches addresses and DH constants, not the client, so every message has one size and one field layout - taken from the captures. A size difference between our table and a capture is **our** framing defect, never evidence of a second protocol generation (owner, 2026-10-31; this cost three wrong turns in one session). A message with counted fields is framed structurally, never by a fixed number | `docs/03-protocol.md` 5e (correction), `docs/24-stream-parity.md` |
+| **One client, one protocol, two observation layers.** The rig patches addresses and DH constants, not the client, so every message has one wire size and one wire field layout. **Those come from a wire**: `recordings/gwps/world/load-stream.log`, a `--capture` run under `recordings/asura/`, or a frame a client accepted. A sniffer capture under `recordings/client/` is the client's message struct - four-byte header, native-width fields, zero padding, even pointers - and is evidence of a header, a count, an order, a name and a trigger, never of a size (owner, 2026-11-01, after the attempt that corrected ~30 messages to the struct layer). A size difference between our table and a sniffer capture is not a defect; between our table and a wire capture it is ours. A message with counted fields is framed structurally, never by a fixed number | `docs/03-protocol.md` 5e, `docs/21-surrounding-packets.md`, `docs/27-packet-parity-attempt.md` |
+| **The stages, from the owner (2026-11-01).** Stage 1 was parity with GWPS and it is closed. Stage 2 is 1:1 correspondence with the **game**: a message is handled the way the client and the game need it, with no GWPS-shaped middle layer and no derived step between the wire and the handler - the reference's arrangement is stage-1 history, not a specification. Stage 3 is naming: no header stays `Unnamed`, and every name carries its evidence. Stage 4 is stream parity: every message of a flow is answered or deliberately ignored with a reason, and nothing is dropped | this document, "Where the next session starts"; `docs/24-stream-parity.md`, `docs/23-initialization-protocol.md` |
 | **The code keeps `Player`** for the character, because the protocol's own messages say `PLAYER` (owner's ruling, 2026-10-30); *character* stays the game's noun in the documents. One word, two concepts - the character, and the `player_id` a party message carries | `docs/22-world-model.md` |
 | **Every load places the character in the last outpost it visited** - including a load into an instance - and a *disconnect* is the one exception, to be implemented separately. Travel therefore has to be recorded rather than inferred: a travel into an explorable must not overwrite the last outpost (owner's ruling, 2026-10-31). Also recorded there: each instance has several entry spawn points chosen at random, a separate set for arriving from an explorable, and quest-driven placement - this world sends one fixed spawn per instance and has neither of the other two | `docs/22-world-model.md`, "Spawn points, and the outpost rule" |
 | **No server-side travel policy.** The client decides where a character may go and the server carries the decision out; the unlocked-instance bitmap is the data it decides with (owner's ruling, 2026-10-30: "the game itself should decide if we can travel or not ... we should simply send the data"). A world refuses a travel only when it cannot serve the instance or has no free seat - never because of the destination's kind, since an outpost and the explorable it exits to can share one map blob | `docs/22-world-model.md`, `crates/asura-world/src/travel.rs` (`handle_party_travel`) |
@@ -461,6 +462,28 @@ the sandbox token may be blocking TLS - run it from a normal shell, or with full
 
 M4 is delivered - a real client logs in, travels, and stands in a map (`git log`, `4f610a8`) - and it now
 carries an inventory and comes back where it logged out.
+
+### The staging, and where this tree stands in it
+
+Owner, 2026-11-01 (the decision row above). Four stages, in order, and only the first is closed:
+
+- **Stage 1 - GWPS parity. Closed.** Auth dispatch 15/15, game dispatch 18/18, and one login's stream is
+  reproduced message for message.
+- **Stage 2 - 1:1 with the game.** The rule is written (`docs/03-protocol.md` 5e): nothing between the wire
+  and a handler is shaped by GWPS's arrangement. This is held, not reached.
+- **Stage 3 - naming.** Every header named with its evidence, so no row is `Unnamed`. It starts with the 33
+  headers a real session used that the table cannot name (`docs/24-stream-parity.md`), then the 249 game
+  rows still unnamed in `crates/asura-protocol/src/packets.rs`. A recording under `recordings/` or a
+  `file:line` in the reference is what turns a guess into a name.
+- **Stage 4 - stream parity.** Every message of a flow answered, or ignored with a written reason. The
+  ledgers are `docs/23-initialization-protocol.md` (the set and order an instance sends) and
+  `docs/21-surrounding-packets.md` (what a live stream carries and this tree drops). Today 78 of the 148
+  headers a real session used are neither sent nor acted on.
+
+The last client run on `main` is the reverted state `e96a909`, and none has been run on it since: the newest
+served session in `logs/` is the attempt's build (2026-10-31 16:26). `docs/27-packet-parity-attempt.md`
+records that the `007` predates the attempt, so the next session's first client run is a measurement rather
+than a confirmation.
 
 1. **Verify the baseline** (3 minutes): `cargo test --workspace --offline` -> **175 passing**, of which 16
    are live-database tests in `asura-db` (login, placement, inventory, migrations) and 6 drive real

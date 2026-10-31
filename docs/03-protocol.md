@@ -34,9 +34,10 @@ So a message's size is a property of its header alone. That table is
 rather than trusted. Framing then has only two failure modes: a header that is not in the table
 (refuse, as the original server does), and a body that has not arrived yet (wait).
 
-The one nuance for later: some **game** messages carry a four-byte header - the u16 header plus a
-u16 the captures always show as zero (`TYPE_MSG_HEADER_GAME`). It is opt-in per message in the
-reference, because turning it on globally broke login. The auth family does not use it.
+One nuance, and it is a trap: the reference's field vocabulary defines a four-byte header - the u16
+header plus a zero u16 (`TYPE_MSG_HEADER_GAME`) - but **no row of either family uses it**
+(`crates/asura-protocol/src/packets.rs`, `FieldKind::MsgHeaderGame`). The four-byte headers a sniffer
+capture shows are the client's own struct, not this field; section 5e says why.
 
 The whole stream is ARC4-encrypted after the key exchange.
 
@@ -320,56 +321,70 @@ where to go. Two fixed-size messages, and one row for each in the generated tabl
   for a port nothing is listening on is worse than either: the client leaves character select and dies
   on a connect timeout.
 
-### 5e. Which wire the client on this server speaks (measured 2026-10-28)
+### 5e. One client, one protocol, two observation layers (corrected 2026-11-01)
 
-**CORRECTION, 2026-10-31 - read this before the section below.** There is **one client and one
-protocol.** The rig patches connection addresses and the Diffie-Hellman constants; it does not change the
-client or its wire. So every message the client sends has **one** size and **one** field layout, and the
-live captures under `recordings/client/` are the specification for both - not one of two possible readings.
+**There is one client, one protocol and one wire.** What differs between the captures is the layer the
+bytes were read at, and only one of those layers is on a wire:
 
-The paragraphs below were written when two wire shapes appeared to exist: a two-byte header here, a
-four-byte header in the captures. That reading is withdrawn. What was really happening is the one failure
-this project keeps paying for: **our table declared a size, the framer trusted it, and the capture recorded
-what we consumed rather than what arrived** - `0x800A` declared 140 bytes against a 240-byte message,
-`0x800B` 88 against 324, `0x017C` 6 against 20, `0x019A` 16 against 32, `0x0196` 26 against 36, `0x0020`
-99 against 116. A truncated message leaves its tail in the buffer, the tail is framed as whatever its
-first two bytes name, and the connection is out of position until the leftovers happen to realign.
+| layer | what it holds | who reads it |
+|---|---|---|
+| the client's message struct | a four-byte header (the u16 id and a zero u16), fields at their native width (a u32 where the wire carries a u16), zero padding out to the struct's size, and pointers | the client only. `tools/sniff-capture.py:514` records `entry.size` and `entry.data` from it, which is why every `recordings/client/` file is struct-shaped |
+| the wire | a two-byte header and the packed fields, nothing else - what `pack_msg` writes and `unpack_msg` consumes | both ends: GWPS's send log, and this tree's `--capture` and `ASURA_TRACE` runs |
+| the table | each header's wire size and field layout | `crates/asura-protocol/src/packets.rs` |
 
-The rules that replace the section below:
+Four measurements, each one checkable:
 
-- a message's size and field layout come from the client's own bytes, as the captures record them;
-- a message carrying counted fields is framed **structurally** (the count is on the wire), never by a
-  fixed number;
-- an unexplained size difference is **our** defect until proven otherwise, never evidence of a second
-  protocol generation;
-- a row whose declared size disagrees with the capture is corrected, and the capture is cited in the row.
+- **The server that works with this client writes the short form** (`recordings/gwps/world/load-stream.log`,
+  `GWPS_TRACE=1`, 2026-10-26): `SEND 0x017C 6 bytes : 7C 01 3F 3F 00 00`, `0x019A` 16 bytes, `0x001E`
+  6 bytes, `0x017D` 14 for a five-character name. This tree's rows carry the same 6, 16 and 6, and a
+  session that loaded, walked, chatted, travelled and left has the same bytes at the socket
+  (`recordings/asura/world/live-client-session-20261027-223528.jsonl`, seq 1-4).
+- **The same header through the sniffer is the struct** (`recordings/client/feature/maps/pre-searing-load-3.jsonl`,
+  seq 3): `0x017C` at 20 bytes, `7c01 0000 | 3f000000 | 3f000000 | 00000000 00000000` - the extra header
+  word, the two ids widened to u32, and eight zero bytes. A `0x000B` in that file is 324 bytes and holds
+  absolute addresses (`58fb0806`, `d2ea4001`), which are never on a wire.
+- **The deltas are that header word and nothing else**: client-to-server `0x003D` is 28 through the
+  sniffer and 26 at this server's socket, `0x003E` 16 against 14, `0x8047` 16 against 14, `0x001E` 8
+  against 6, `0x0186` 4 against 2. `docs/21-surrounding-packets.md:28-30` measured the same thing: a
+  live row 2 bytes larger than ours is the four-byte header, one 17 larger (`0x0020`) is struct padding.
+- **One binary in every capture**: sha256 `dc78cf7f...`, `F:\GW\GW1\Gw.exe`, 10494656 bytes, in the
+  header record of every file under `recordings/client/`. There is no second client and no second
+  protocol generation.
 
-The measurements below stay as history - what a client did on a given day - and no conclusion is drawn
-from them about a second dialect.
+The rules:
 
+- **A wire size comes from a wire**: `recordings/gwps/world/load-stream.log`, a `--capture` run under
+  `recordings/asura/`, or a frame a client accepted under `ASURA_TRACE`. A sniffer capture is evidence
+  of a header, a count, an order, a name and a trigger, and never of a size or a field layout.
+- **A counted field is framed structurally** (the count is on the wire), never by a fixed number.
+- **The size in `packets.rs` is the reference's `max_size`**: an upper bound for a counted layout, never
+  a length to pad a body out to.
+- **A row a wire capture disagrees with is corrected, and the wire capture is cited in the row.** A row
+  only a sniffer capture disagrees with is not a defect; correcting it breaks a working stream, which is
+  what `docs/27-packet-parity-attempt.md` records.
 
-There are two wire shapes for the same message set, and **this client parses only one of them**. Measured,
-not inferred - three runs of the real client against this server:
+Two earlier readings of this section are withdrawn, and both cost a session. The first held that one
+message set had two wire shapes and this client parsed only one of them; the second held that the
+difference was this tree's framing swallowing its own remainder (`0x017C` 6 bytes against 20 read as us
+being short, where we were exact). Neither was a second protocol: the first read the struct as the wire,
+and the second read a sniffer size as a wire size.
+
+What still stands, and stands because the client was sent the bytes rather than read in a buffer, is
+this - movement is where this tree has paid most, so the measurements are kept with it:
 
 | what was sent | what the client did |
 |---|---|
-| `0x001E` **8 bytes** (`1e 00 00 00` + elapsed) as in the retail capture | connection accepted, load block played, then **error 007** about 300 ms after the spawn. Server log: `joined map 148` -> `move[spawn]` -> `socket: early eof`, 3 ticks sent |
+| `0x001E` **8 bytes** (`1e 00 00 00` + elapsed), the struct shape | load block played, then **error 007** about 300 ms after the spawn. Server log: `joined map 148` -> `move[spawn]` -> `socket: early eof`, 3 ticks sent |
 | `0x001E` **6 bytes** (`1e 00` + elapsed) | loads and plays |
-| click answered with `0x002B` (16 B) + `0x0029` **24 B** (trap and plane as dwords), retail layout | **the client crashed** on the first click |
+| click answered with `0x002B` (16 B) + `0x0029` **24 B** (trap and plane as dwords), the struct shape | **the client crashed** on the first click |
 
-So the retail capture (`recordings/client/feature/movement/movement-sniff.log`, a `Gw.exe` on live servers) describes the **four-byte
-header** generation of the protocol: `1e 00 00 00` ticks, `29 00 00 00 | agent | x | y | trap | plane`,
-`25 00 00 00` directions, `2b 00 00 00` speed. The client used against this server - the build GWPS is
-patched onto and the one that has always worked here - parses **two-byte headers** with the reference's own
-sizes: a 6-byte tick, an 18-byte `0x0029` (`agent, x, y, plane u16, current_plane u16`), `0x0028` for a
-stop, `0x002C` for a position, and it has no `0x0025` or `0x002B` at all.
-
-The consequence is the rule this project follows for the wire: **the shapes are the reference's, because
-that is what this client parses.** The retail capture stays the authority on *behaviour* (what a click, a
-manual walk and a cancel mean, and what the server does with the agent's copy), and it is kept in the
-protocol crate as builders and tests (`agent_move_to_point_live` and friends) so the difference is recorded
-rather than remembered. Sending the retail shapes to this client is not a parity improvement; it is a
-disconnect (`007`) or a crash.
+So the client parses **two-byte headers** with the reference's own sizes: a 6-byte tick, an 18-byte
+`0x0029` (`agent, x, y, plane u16, current_plane u16`), `0x0028` for a stop, `0x002C` for a position, and
+it has no `0x0025` or `0x002B` at all. The captures stay the authority on *behaviour* - what a click, a
+manual walk and a cancel mean, and what the server does with the agent's copy - and those behaviour shapes
+are kept in the protocol crate as builders and tests (`agent_move_to_point_live` and friends) so the
+difference is recorded rather than remembered. Sending a capture's shape to this client is not a parity
+improvement; it is a disconnect (`007`) or a crash.
 
 **One path, two planes: the client asserts.** A walk whose first waypoint is on a different plane from the
 agent crashed the client with `Assertion: pos.y >= worldDims.y0`, `P:\Code\Engine\Agent\agint.h(929)` - the

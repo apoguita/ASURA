@@ -59,6 +59,10 @@ sources in this table are what shorten the distance to it.
 ## Consequences
 - `docs/03-protocol.md`'s exploration-grid section now cites Eden for what the map view does with the
   grid, and a capture or a crash for what our server sends.
-- The remaining open question - where `worldMapDims` itself comes from, and whether the instance
-  messages (`0x017C`, `0x019A`, `0x0196`) are read in their wide or narrow form - is answerable from
-  Eden's `docs/re/` and Rurik's `schema/messages.json` before any further client run.
+- Where `worldMapDims` itself comes from stays open, and is answerable from Eden's `docs/re/` and Rurik's
+  `schema/messages.json` before a further client run.
+- The instance messages (`0x017C`, `0x019A`, `0x0196`) are settled on the wire and open only on the client:
+  the form to send is the narrow one - `recordings/gwps/world/load-stream.log` has `0x017C` at 6 bytes,
+  `0x019A` 16, `0x0196` 26 and `0x0020` 99, and a session with those loaded, walked and travelled - while the
+  wide form a sniffer capture shows is the client's own struct (`docs/03-protocol.md` 5e). Whether the client
+  tolerates the wide form on the wire is unmeasured; nothing sends it, so nothing needs it.

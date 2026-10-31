@@ -19,7 +19,10 @@ candidate.
 
 The source for the sequence is a live load, not the reference's C: `GAME_SMSG_*` order and content are
 read from `recordings/client/feature/maps/pre-searing-load-3.jsonl` (instance 148, a real client against a
-live server) and cross-checked against today's own run in `logs/world-8001.log`.
+live server) and cross-checked against today's own run in `logs/world-8001.log`. **Order, count and trigger
+are what that file is read for**; a size in it is the client's message struct and never a wire size, so no
+size and no field layout comes from it (`docs/03-protocol.md` 5e) - those come from a wire capture, and a
+message added here is built at the size `crates/asura-protocol/src/packets.rs` declares.
 
 ## The live sequence, in order
 

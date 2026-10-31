@@ -55,6 +55,12 @@ this list into a decision: **it is our link to the client.**
 
 ## Consequences
 
+- **What the sniffer reports is the client's message buffer, not the wire.** Its `size` and `data` are the
+  struct the client reads into and writes from: a four-byte header, native-width fields, zero padding, and
+  in one case absolute pointers. A size or a field layout read there is the client's bookkeeping; the wire
+  size comes from a capture of the socket (`recordings/gwps/world/load-stream.log`, a `--capture` run under
+  `recordings/asura/`) - `docs/03-protocol.md` 5e. What the sniffer uniquely knows is a header, a count, an
+  order, a name and a trigger.
 - **The questions left to our own readers are the ones that need the client closed.** A message's wire
   shape from the client's format tables, the assert table read as a catalogue rather than used as an
   anchor, which build a byte pattern was measured on, and one handler's disassembly. Nothing in the
