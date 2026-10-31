@@ -53,8 +53,8 @@ size). Counts are sightings in the committed captures, per file.
 | `0x00CF` | 10 | doors 9 | two dwords: 10, then 25, 1 or 0 | `0x009F` and `0x009B` / `0x00A3` | press an adrenal skill on a warrior |
 | `0x00D0` | 6 | doors 1 | one dword, 10 | `0x0025`, `0x0029` and the tick stream | the same press; the source reading ties the trio to adrenaline spends |
 | `0x0107` | 83 | doors 15 | ends in the same block `0x0020` ends with (scale 1.0, 250.0, 1.0, 12.0, name) | always immediately before a `0x0020` create | something appearing in front of the player: a monster spawn or a summoned body |
-| `0x011F` | 138 | 20 in each of three loads | mostly zero dwords, a masked name run, then 0x28, 0xF0, 0x3F, 0x3F, 2, 0x16, 0x5F | `0x0118` `GUILD_PLAYER_ROLE` and `0x012E`; followed by `0x012F` | open the guild window, then the party window |
-| `0x012F` | 562 | 1 per load | zeros, one 0xF1, then a counted string run | after the twenty `0x011F` rows, before `0x0127` | the same windows; it is that block's tail |
+| `0x011F` | 138 | 20 in each of three loads | mostly zero dwords, a masked name run, then 0x28, 0xF0, 0x3F, 0x3F, 2, 0x16, 0x5F | `0x0118` `GUILD_PLAYER_ROLE` and `0x012E`; followed by `0x012F` | a load capture paired with a dump of `guild_context`/`party_context` right after it: the block is built at init, so a window opened afterwards reads what is already there and proves nothing (`docs/29-initialization-capture.md`) |
+| `0x012F` | 562 | 1 per load | zeros, one 0xF1, then a counted string run | after the twenty `0x011F` rows, before `0x0127` | the same dump: it is that block's tail |
 | `0x015B` | 10 | character_creation 25 | two identical dwords, an item id twice | between `0x0161` and `0x015A`, per item | one pass through the character-creation screen |
 | `0x0168` | 6 | doors 6 | two words (0x31 / 0x81, 0x26 / 0x106) | after an item `0x0161`, before a `0x0020` create | a kill whose drop the player sees |
 | `0x0194` | 6 | doors 9, login-to-portal 2 | one dword, always 0 | after `0x016E` and `0x018E` `INSTANCE_LOAD_FINISH` | a load into a new instance with the filter on this header |

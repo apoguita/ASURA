@@ -475,8 +475,12 @@ Owner, 2026-11-01 (the decision row above). Four stages, in order, and only the 
   headers a real session used are named (`23de10e`, `d17a60a`); the eighteen that remain, with the shape
   each capture proves and the one action that names it, are `docs/28-headers-to-name.md`. That page also
   records why the rest cannot be finished offline: the catalogue of this lineage leaves them unnamed and
-  the reference never sends them. After the 18, the 306 game rows no capture contains need a stimulus
-  instead, one opcode at a time.
+  the reference never sends them. **The initialization phase is the first target** and it is two names
+  wide: one load carries 54 server-to-client headers, 32 of them already sent here, 20 named but never
+  sent, and only `0x011F` and `0x012F` unnamed. Whether the 20 can be filled depends on what the client's
+  structures hold after a load, which is `docs/29-initialization-capture.md`: one sniffer capture plus
+  `tools/context-dump.py` at four moments. After the 18, the 306 game rows no capture contains need a
+  stimulus instead, one opcode at a time.
 - **Stage 4 - stream parity.** Every message of a flow answered, or ignored with a written reason. The
   ledgers are `docs/23-initialization-protocol.md` (the set and order an instance sends) and
   `docs/21-surrounding-packets.md` (what a live stream carries and this tree drops). Today 78 of the 148
