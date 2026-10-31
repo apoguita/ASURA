@@ -129,6 +129,10 @@ pub const DEFAULT_UNLOCKED_PROFESSIONS: u32 = 2;
 /// which places the agent where the character actually is (`WORLD_CREATE_AGENT`), and `inventory`, which
 /// says what the agent is wearing (`UPDATE_AGENT_VISUAL_EQUIPMENT`) - the nine ids read out of the
 /// equipped-items bag, because they belong to *this* character's items.
+// The block is built from the character's whole row-side state, and every argument is one of those facts
+// rather than a value computed here; a struct around them would only rename the call site. The same
+// allowance is used where this pattern already exists (`asura_db::inventory`, `asura_protocol::game`).
+#[allow(clippy::too_many_arguments)]
 pub fn player_block(
     name: &str,
     standing: Standing,
@@ -137,6 +141,7 @@ pub fn player_block(
     player_id: u32,
     agent_id: u32,
     traits: db_game::Traits,
+    unlocked: &[u32],
 ) -> Vec<Frame> {
     let mut frames = Vec::with_capacity(30);
 
@@ -165,16 +170,23 @@ pub fn player_block(
         frames.push(game::account_feature(feature, param1, param2));
     }
 
-    // The unlocked-map list. The three bitmaps a character can have progress in are sent at their
-    // **full length, zero-filled**, because that is what the reference sends for a character with no
-    // progress: 31 words each for the two hard-mode lists, and nothing for the two normal-mode ones.
+    // The unlocked-map list. The two hard-mode bitmaps are sent at their **full length, zero-filled**,
+    // because that is what the reference sends for a character with no mission progress: 31 words each.
     // An empty list is not the same message - it is an array the client can index past the end of.
+    //
+    // **The fifth list is the instance bitmap, and it is the one that has to be right.** The client's
+    // world context holds five arrays in this order - missions completed, mission bonuses, missions
+    // completed hard, bonuses hard, unlocked instances - and reads an instance's unlock as bit
+    // `map_id % 32` of word `map_id / 32` in the fifth (`docs/22-world-model.md`). This server used to
+    // send the fifth list empty, which is an unlocked array of length zero: every instance read as
+    // locked, and the world map had nothing to offer. `unlocked` is the character's reached instances
+    // (`map::unlock_bitmap`), and the instance it is standing in is always among them.
     frames.push(game::map_update_unlocked_list([
         &[][..],
         &[],
         UNLOCKED_MAP_ZEROS,
         UNLOCKED_MAP_ZEROS,
-        &[],
+        unlocked,
     ]));
     frames.push(game::instance_loaded(PLAYER_TEAM_TOKEN));
 

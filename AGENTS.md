@@ -139,6 +139,7 @@ sentence, once.
 | portal HTTP service | `crates/asura-webgate/` |
 | service supervision | `crates/asura-supervisor/`, `config/services.toml` |
 | the whole path in one command, no client needed | `.\tools\test-battery.ps1` |
+| **our link to the client**: its state, its archive (the DAT reader), what it sends and receives (the sniffer) | Py4GW Stealth, by hand. `docs/adr/0013-py4gw-stealth-is-our-link-to-the-client.md` |
 | cargo is not on PATH in a fresh shell | `C:\Users\Apo\.cargo\bin\cargo.exe` |
 
 - `docker/` is an optional bundle. It does not drive this project (owner's instruction, 2026-10-28).

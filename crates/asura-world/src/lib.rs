@@ -127,6 +127,8 @@ pub mod map_data;
 /// waypoint reduction that turns the chosen chain into a walk. `tools/parity-path.py --check` compares it
 /// against the reference's own code, case by case and bit for bit.
 pub mod pathfind;
+/// The travel doorways of each instance, measured from the client's own map data.
+pub mod portals;
 
 /// The path finder's fixed-point lookup tables, generated from `GmPaths.c` by `tools/gen-path-tables.py`.
 pub mod path_tables;
@@ -214,6 +216,29 @@ fn wire_u32(value: i32) -> u32 {
 
 /// A fresh `u32` for a player token. The auth service mints the same kind
 /// (`AuthSrv_HandleRequestGameInstance`; `crates/asura-auth/src/travel.rs:178` sends the field.
+/// Milliseconds since this process started, for a log line that has to be placed in time.
+///
+/// The world's log carries no clock, and a delay measured by eye is not a measurement: the load block's own
+/// line now carries this stamp, so the gap between two runs, or between two loads, is arithmetic.
+pub fn mark_redirect(player_token: u32) {
+    if let Ok(mut slot) = last_redirect().lock() {
+        *slot = Some((player_token, std::time::Instant::now()));
+    }
+}
+
+fn last_redirect() -> &'static std::sync::Mutex<Option<(u32, std::time::Instant)>> {
+    static LAST: std::sync::OnceLock<std::sync::Mutex<Option<(u32, std::time::Instant)>>> =
+        std::sync::OnceLock::new();
+    LAST.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+pub fn stamp_ms() -> u128 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis()
+}
 fn random_u32() -> Result<u32, GameError> {
     let mut bytes = [0u8; 4];
     getrandom::getrandom(&mut bytes)
@@ -364,6 +389,7 @@ mod tests {
             PLAYER_ID,
             AGENT_ID,
             traits,
+            crate::map::UNLOCKED_MAP_ZEROS,
         );
         let created = frames
             .iter()
@@ -390,6 +416,7 @@ mod tests {
             PLAYER_ID,
             AGENT_ID,
             db_game::Traits::default(),
+            crate::map::UNLOCKED_MAP_ZEROS,
         );
         let created = fallback
             .iter()
@@ -417,6 +444,7 @@ mod tests {
             PLAYER_ID,
             AGENT_ID,
             db_game::Traits::default(),
+            crate::map::UNLOCKED_MAP_ZEROS,
         );
         assert_eq!(
             frames.last().expect("a block").header,
@@ -480,6 +508,90 @@ mod tests {
         assert_eq!(last[3..5], 146u16.to_le_bytes(), "and it names the map");
     }
 
+    /// The instance bitmap is addressed the way the client addresses it: instance `n` is bit `n % 32` of
+    /// word `n / 32` (read from the client's world context, `docs/22-world-model.md`). A test rather than a
+    /// comment, because the whole world map depends on the address: an off-by-one here reads as either
+    /// "everywhere is locked" or "the wrong instance is open".
+    #[test]
+    fn the_unlock_bitmap_puts_each_instance_at_the_bit_the_client_reads() {
+        let bitmap = map::unlock_bitmap(&[148, 145, 0, 991, 992, -1]);
+
+        assert_eq!(
+            bitmap.len(),
+            map::UNLOCKED_MAP_ZEROS.len(),
+            "31 words: the width the reference sends, and instances 0 to 991"
+        );
+        // 145 and 148 share word 4, so each bit is asked for on its own rather than the whole word.
+        assert_eq!(
+            bitmap[148 / 32] & (1 << (148 % 32)),
+            1 << (148 % 32),
+            "instance 148 is bit 20 of word 4"
+        );
+        assert_eq!(
+            bitmap[145 / 32] & (1 << (145 % 32)),
+            1 << (145 % 32),
+            "instance 145 is bit 17 of the same word"
+        );
+        assert_eq!(bitmap[0], 1, "instance 0 is bit 0 of word 0");
+        assert_eq!(
+            bitmap[991 / 32] & (1 << (991 % 32)),
+            1 << (991 % 32),
+            "991 is the last addressable instance"
+        );
+        let set: u32 = bitmap.iter().map(|word| word.count_ones()).sum();
+        assert_eq!(
+            set, 4,
+            "992 is past the last word and -1 is not an instance"
+        );
+    }
+
+    /// The instance table the client is given: the batches a live load carried, each framed at the row's
+    /// own layout (a `u8` count then `{u16 instance, u32 value}` pairs), and the same walker that frames
+    /// a client message consumes exactly the bytes the builder wrote.
+    #[test]
+    fn the_instance_table_carries_what_the_capture_holds_and_frames_as_its_row_says() {
+        let batches: usize = game::instance_table::INSTANCE_TABLE.len();
+        assert_eq!(batches, 10, "the live load carried ten of these");
+
+        let pairs: usize = game::instance_table::INSTANCE_TABLE
+            .iter()
+            .map(|batch| batch.len())
+            .sum();
+        assert_eq!(
+            pairs, 137,
+            "137 of the live table's 147 pairs: every recorded message was four bytes short, and the \
+             ten values that were cut are absent rather than invented"
+        );
+        assert_eq!(
+            game::instance_table::INSTANCE_TABLE[0][0],
+            (148, 0xBB14_F539),
+            "the first pair is the instance the capture was taken in"
+        );
+
+        for batch in game::instance_table::INSTANCE_TABLE {
+            let frame = game::instance_table(batch);
+            let bytes = frame.encode();
+            assert_eq!(
+                bytes.len(),
+                2 + 1 + batch.len() * 6,
+                "a u8 count then {} pairs",
+                batch.len()
+            );
+            assert_eq!(
+                bytes[2] as usize,
+                batch.len(),
+                "the count is the number of pairs"
+            );
+            let (_, used) =
+                Frame::decode_game_message(&bytes, false).expect("the walker frames the table");
+            assert_eq!(
+                used,
+                bytes.len(),
+                "the row's layout and the builder agree byte for byte"
+            );
+        }
+    }
+
     #[test]
     fn the_player_block_carries_the_name_in_the_two_messages_that_name_a_character() {
         let frames = player_block(
@@ -490,6 +602,7 @@ mod tests {
             PLAYER_ID,
             AGENT_ID,
             db_game::Traits::default(),
+            crate::map::UNLOCKED_MAP_ZEROS,
         );
         let named: Vec<u16> = frames
             .iter()

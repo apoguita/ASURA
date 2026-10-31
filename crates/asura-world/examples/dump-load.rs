@@ -67,6 +67,7 @@ fn main() {
         asura_world::PLAYER_ID,
         asura_world::AGENT_ID,
         traits,
+        asura_world::map::UNLOCKED_MAP_ZEROS,
     ));
 }
 

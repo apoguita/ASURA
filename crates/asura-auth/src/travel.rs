@@ -139,6 +139,11 @@ pub async fn answer(
     // type 11 (`crates/asura-db/migrations/0016_creation_instance_again.sql` has the row this reads).
     const CREATION_MAP: i32 = 0;
     const MAP_TYPE_CHARACTER_CREATION: u32 = 11;
+    /// MapType_MainTown: the outpost kind the base rule sends a character back to.
+    const MAP_TYPE_MAIN_TOWN: i32 = 0;
+    /// Where a character with no history enters: Ascalon City, the Prophecies starting outpost, which is the
+    /// one `creation::starting_outpost` picks for a campaign character (`0017_starter_outpost.sql`).
+    const DEFAULT_OUTPOST: i32 = 148;
     let map_id = if map_id == CREATION_MAP && request.map_type != MAP_TYPE_CHARACTER_CREATION {
         match asura_db::game::settings(pool, character_id).await {
             Ok(Some(settings)) if i32::from(settings.last_outpost) != CREATION_MAP => {
@@ -155,6 +160,40 @@ pub async fn answer(
         map_id
     };
 
+    // **The base rule** (`docs/22-world-model.md`, "Spawn points, and the outpost rule"): entering the game
+    // places the character in the last outpost it visited, even when the client asks for the instance it was
+    // standing in. A client that logged out inside an explorable asks for the explorable; the answer is the
+    // outpost, which is the same shape as the creation-instance substitution above and the behaviour a live
+    // server shows. A disconnect is the exception the owner deferred, and this path cannot see one: a
+    // reconnect after a travel names a map the world has already decided, and a request for an outpost is
+    // answered as asked.
+    let map_id = match asura_db::game::spawn_map(pool, map_id).await {
+        Ok(Some(placed)) if placed.map_type != MAP_TYPE_MAIN_TOWN => {
+            match asura_db::game::settings(pool, character_id).await {
+                Ok(Some(settings)) => {
+                    // A character that has never been placed in an outpost has no last outpost to return
+                    // to, and that is the first entry of a new character: the answer is the default
+                    // outpost rather than the explorable it was asked for.
+                    let remembered = i32::from(settings.last_outpost);
+                    let outpost = if remembered == CREATION_MAP {
+                        DEFAULT_OUTPOST
+                    } else {
+                        remembered
+                    };
+                    if outpost != map_id {
+                        eprintln!(
+                            "auth: map {map_id} is not an outpost (type {}); placing the character in its \
+                             last outpost, map {outpost}, instead",
+                            placed.map_type
+                        );
+                    }
+                    outpost
+                }
+                _ => map_id,
+            }
+        }
+        _ => map_id,
+    };
     let candidates = placement::find_worlds(pool, map_id, world_max_age_secs(), MAX_CANDIDATES)
         .await
         .map_err(ConnectionError::Database)?;

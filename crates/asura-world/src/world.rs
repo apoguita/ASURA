@@ -103,6 +103,42 @@ pub async fn handle_request_players(
     trace: bool,
 ) -> Result<bool, GameError> {
     let replay = world.replay.as_ref();
+    // The load block's own cost, measured. The first instance a fresh process serves is the one that warms
+    // every cache behind it, so these numbers are what separates a server-side delay from a client-side
+    // one: a block built in single-digit milliseconds cannot be why a client's load drags.
+    let load_started = Instant::now();
+    // The instance the character is standing in is reached, so it is unlocked - that is the whole rule
+    // (`docs/22-world-model.md`): the walk sets the bit, the bit never gates the walk. The creation
+    // instance is not a place a character "reaches", so it sets nothing.
+    let here = player.instance.map.map_id;
+    // The last outpost this character stood in, kept for the base rule (docs/22-world-model.md): a travel
+    // into an explorable must not overwrite it, which is why only an outpost is written here.
+    if player.instance.map.map_type == MAP_TYPE_MAIN_TOWN {
+        if let Err(err) = db_game::remember_outpost(&world.pool, player.character, here).await {
+            eprintln!("world: could not remember the outpost {here}: {err}");
+        }
+    }
+    if player.instance.map.map_type != MAP_TYPE_CHARACTER_CREATION {
+        match db_game::unlock_instance(&world.pool, player.character, here).await {
+            Ok(true) => eprintln!(
+                "world: {:?} unlocked instance {here}: first arrival",
+                player.name
+            ),
+            Ok(false) => {}
+            Err(err) => eprintln!("world: could not record the arrival in instance {here}: {err}"),
+        }
+    }
+    // The bitmaps the client is given: the character's own reached instances, and the one it is in even
+    // if the database could not be read - a client told it is nowhere can offer nowhere.
+    let unlocked = match db_game::unlocked_instances(&world.pool, player.character).await {
+        Ok(instances) => crate::map::unlock_bitmap(&instances),
+        Err(err) => {
+            eprintln!("world: could not read the reached instances, sending this one only: {err}");
+            crate::map::unlock_bitmap(&[here])
+        }
+    };
+    let unlocked_at = load_started.elapsed();
+    let block_started = Instant::now();
     let mut block = match replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Players) => {
             replay.players.clone()
@@ -115,9 +151,18 @@ pub async fn handle_request_players(
             player.player_id,
             player.agent_id,
             player.traits,
+            &unlocked,
         ),
     };
     let others = player.instance.others(player.player_id);
+    eprintln!(
+        "world: [+{} ms] load block for instance {here}: {} frame(s); reached list {} ms, block {} ms, total {} ms",
+        crate::stamp_ms(),
+        block.len(),
+        unlocked_at.as_millis(),
+        block_started.elapsed().as_millis(),
+        load_started.elapsed().as_millis()
+    );
     for peer in &others {
         block.extend(introduction(peer));
     }

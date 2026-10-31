@@ -14,6 +14,10 @@ use crate::*;
 /// The district number the reference always answers with (`AuthSrv_HandleRequestGameInstance`).
 pub const DISTRICT_NUMBER: u32 = 1;
 
+/// The effect word a live server sets on the travelling agent just before a redirect
+/// (`captures/zone-ref2-012225.jsonl` seq 971: `f1 00 00 00 | 43 00 00 00 | 00 01 00 00`).
+pub const TRAVEL_EFFECT: u32 = 0x100;
+
 /// Load a catalogue map this world was **not** started with - the `--on-demand` experiment.
 ///
 /// Off unless `--on-demand` (`World::load_on_demand`): the reference pre-spawns one server per
@@ -82,6 +86,35 @@ pub async fn load_map_on_demand(
         graph_done.as_millis()
     );
     Ok(Some(entry))
+}
+
+/// A travel the **client** announced: `GAME_CMSG_TRAVEL_INIT` (`0x80C1`), the portal touch.
+///
+/// Ten bytes on the wire, two agent ids and nothing else (the row's fields; the capture in
+/// `recordings/client/feature/movement/movement-sniff.log` seq 1651 shows the same message with a
+/// four-byte header, `3a 00 00 00 | 00 00 00 00` after it, and seq 1652 shows the client sending
+/// `INTERACT_LIVING` for that same agent 0x3A in the same millisecond - so the first id is the travel
+/// object the player used, and the second was zero).
+///
+/// **It names an agent, not a map**, so the destination is this server's knowledge, not the client's:
+/// the object it names leads somewhere only because a row says so. This world has no portal table yet
+/// and no non-player agent to touch (it sends exactly one agent, the player), so this arm names the
+/// touch and starts no transfer - it is the measurement that has to come first. The line below is
+/// what the next live touch writes: which agent, in which map, for which player. A portal row keyed
+/// by that map and agent is what turns this into the same redirect `/tp` already sends
+/// (`docs/03-protocol.md` 5e).
+pub fn handle_travel_init(frame: &Frame, player: &Player, _trace: bool) -> Result<bool, GameError> {
+    if frame.body.len() < 8 {
+        return Err(GameError::Framing(FrameError::Incomplete { needed: 10 }));
+    }
+    let agent = u32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]);
+    let other = u32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]);
+    eprintln!(
+        "world: {:?} touched a travel object in map {} '{}': TRAVEL_INIT agent {agent:#010X}, \
+         second {other:#010X}; no portal row names that agent, so no travel starts",
+        player.name, player.instance.map.map_id, player.instance.map.name,
+    );
+    Ok(true)
 }
 
 /// `/tp <alias>` and `/teleport <alias>`: `GameSrv_HandleTeleportCommand` (`GmCommands.c:155-216`).
@@ -162,23 +195,221 @@ pub async fn teleport(
         }
     };
     if target.map_id == player.instance.map.map_id {
-        // `GmCommands.c:198-202`.
+        // `GmCommands.c:198-202`. **The command's own refusal, not a travel policy**: the client-driven
+        // requests (`0x80B1`, `0x80C1`) are carried out without this check, because there the client has
+        // already decided and a second opinion is a gate (docs/22-world-model.md, "No server-side travel
+        // policy"). A typed alias that names the instance the character stands in is the reference's
+        // "You are already here." and nothing more.
         eprintln!("world: You are already here.");
         return Ok(true);
     }
+    begin_transfer(stream, session, world, player, target, trace).await
+}
+
+/// The client's own request, from the world map: `GAME_CMSG_PARTY_TRAVEL` (`0x80B1`).
+///
+/// **The client decides where it may go; this server carries the decision out.** That is the whole
+/// policy (`docs/22-world-model.md`): the unlocked-instance bitmap is what a client uses to offer a
+/// destination, and a server that second-guesses it blocks legitimate travel - an outpost and the
+/// explorable it exits to can share one map blob, so a rule about "which kinds of instance you may
+/// travel to" refuses travel the game itself allows.
+///
+/// The wire, measured from this client's own sends (`logs/world-8001.log`, `world <- 0x80B1 (9 bytes)`):
+///
+/// ```text
+/// B1 80 | 94 00 | 02 | 00 00 | 00 | 01      destination 148
+/// B1 80 | A6 00 | 02 | 00 00 | 00 | 01      destination 166
+/// ```
+///
+/// so the destination instance is a `u16` first, then three bytes this server does not interpret. The
+/// retail client sends the same request with a 32-bit instance id
+/// (`captures/zone-ref2-012225.jsonl`: `b1 00 00 00 | a4 00 00 00 | ... | 01 00 00 00`), which is the
+/// other build of the protocol (`docs/03-protocol.md` 5e) - the field is the same one either way.
+pub async fn handle_party_travel(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    frame: &Frame,
+    world: &World,
+    player: &mut Player,
+    trace: bool,
+) -> Result<bool, GameError> {
+    if frame.body.len() < 2 {
+        return Err(GameError::Framing(FrameError::Incomplete { needed: 9 }));
+    }
+    let map_id = i32::from(u16::from_le_bytes([frame.body[0], frame.body[1]]));
+    eprintln!(
+        "world: {:?} asked for instance {map_id} from the world map in map {}",
+        player.name, player.instance.map.map_id
+    );
+    let Some(destination) = resolve_instance(world, map_id).await? else {
+        // A statement about this server, not about the client's rights: it has no row, no blob, or a
+        // type this world does not host.
+        eprintln!("world: instance {map_id} cannot be served by this world; the travel is refused");
+        return Ok(true);
+    };
+    begin_transfer(stream, session, world, player, destination, trace).await
+}
+
+/// The instance a travel names, demand-loaded when this world hosts it only on demand.
+///
+/// `None` means this server cannot serve it at all.
+async fn resolve_instance(world: &World, map_id: i32) -> Result<Option<MapEntry>, GameError> {
+    if let Some(map) = world.map(map_id) {
+        return Ok(Some(map));
+    }
+    if !world.load_on_demand {
+        return Ok(None);
+    }
+    load_map_on_demand(world, map_id)
+        .await
+        .map_err(GameError::Database)
+}
+
+/// A doorway was reached: the third trigger of the same cycle.
+///
+/// `/tp`, the world map's request (`0x80B1`) and this one all end in [`begin_transfer`]. This is the trigger
+/// a live server works out for itself: a real crossing contains **no client message at all**
+/// (`docs/03-protocol.md` 5f, `login-to-portal-20261031-003720.jsonl`), so the world compares the position
+/// it is already being sent with the doorways of the instance it is hosting (`crate::portals`).
+///
+/// A doorway whose destination is not recorded fires nothing and says so, naming the coordinates. That line
+/// is the measurement which fills the next row - and it is why an unmeasured doorway is safer than a guess.
+pub async fn portal_reached(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    world: &World,
+    player: &mut Player,
+    trace: bool,
+) -> Result<bool, GameError> {
+    let (x, y) = player.standing().position;
+    portal_at_position(stream, session, world, player, x, y, trace).await
+}
+
+/// A doorway reached by a **walk that is only being asked for**: `0x803E` `MOVE_TO_COORD` names the
+/// coordinate the click sends the character toward (`crates/asura-world/src/agent.rs`), and it arrives
+/// before the walk does. Without this, a click that lands the character inside a doorway can end with its
+/// last position report outside `portals::REACH`, and no crossing fires until the player moves again - the
+/// way back that only worked once the portal was touched a second time (measured 2026-10-31).
+pub async fn portal_target_reached(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    frame: &Frame,
+    world: &World,
+    player: &mut Player,
+    trace: bool,
+) -> Result<bool, GameError> {
+    if frame.body.len() < 8 {
+        return Ok(true);
+    }
+    let x = f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]);
+    let y = f32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]);
+    portal_at_position(stream, session, world, player, x, y, trace).await
+}
+
+/// A crossing decided from the player's **own step**: where the character stood before this report and where
+/// it stands after it.
+///
+/// This is the rule a doorway wants, and the only one: the segment between two consecutive positions is the
+/// movement the client actually performed, so a step taken through a door crosses it, a click that names a
+/// place beyond a door does not fire early, and nothing depends on where a report happened to stop. The
+/// doorway still carries the destination; a door without one does nothing and says so.
+pub async fn portal_crossed(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    world: &World,
+    player: &mut Player,
+    from: (f32, f32),
+    to: (f32, f32),
+    trace: bool,
+) -> Result<bool, GameError> {
+    if player.moved {
+        return Ok(true);
+    }
+    let instance = player.instance.map.map_id;
+    match crate::portals::portal_along(instance, from, to) {
+        Some(portal) => {
+            portal_at_position(stream, session, world, player, portal.x, portal.y, trace).await
+        }
+        None => Ok(true),
+    }
+}
+/// The crossing, for a doorway reached at `(x, y)`.
+async fn portal_at_position(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    world: &World,
+    player: &mut Player,
+    x: f32,
+    y: f32,
+    trace: bool,
+) -> Result<bool, GameError> {
+    // A crossing already in flight owns this connection: its seat belongs to the destination and the
+    // client is about to reconnect, so a further position report from inside the doorway must not start a
+    // second one. Without this a walk into a door can send two redirects, and a client given two
+    // reconnects takes its time to settle.
+    if player.moved {
+        return Ok(true);
+    }
+    let instance = player.instance.map.map_id;
+    let Some(portal) = crate::portals::portal_at(instance, x, y) else {
+        return Ok(true);
+    };
+    // The landing point recorded for this door - per door, not per instance. It is written as the
+    // character's position in the destination before the redirect, so the connection the client opens
+    // stands where the live server put it, instead of on the instance's configured spawn.
+    if let (Some(to_instance), Some((ax, ay))) = (portal.to_instance, portal.arrive) {
+        if let Err(err) =
+            db_game::record_position(&world.pool, player.character, to_instance, ax, ay, 0).await
+        {
+            eprintln!("world: could not write the landing point for instance {to_instance}: {err}");
+        }
+    }
+    let Some(to_instance) = portal.to_instance else {
+        eprintln!(
+            "world: {:?} is standing in a travel portal of instance {instance} at ({:.0}, {:.0}); \
+             no destination is recorded for that doorway",
+            player.name, portal.x, portal.y
+        );
+        return Ok(true);
+    };
+    eprintln!(
+        "world: {:?} reached the portal at ({:.0}, {:.0}) in instance {instance}: crossing to {to_instance}",
+        player.name, portal.x, portal.y
+    );
+    let Some(destination) = resolve_instance(world, to_instance).await? else {
+        eprintln!(
+            "world: instance {to_instance} cannot be served by this world; the crossing is refused"
+        );
+        return Ok(true);
+    };
+    begin_transfer(stream, session, world, player, destination, trace).await
+}
+
+/// The cycle itself: the seat on the destination, the transfer row, and the pair that sends the client
+/// on its way.
+///
+/// Every trigger ends here - `/tp`, the world map's request (`0x80B1`) and, once this world has a portal
+/// table, a crossing (`0x80C1`) - because the reference has one cycle and not one per trigger.
+async fn begin_transfer(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    world: &World,
+    player: &mut Player,
+    destination: MapEntry,
+    trace: bool,
+) -> Result<bool, GameError> {
+    let to_map = destination.map_id;
 
     // The seat on the destination. `reserve` gives up this session's current lease in the same
     // transaction, which is exactly a transfer's accounting: one seat, moved.
-    let Some(world_id) = placement::reserve(
-        &world.pool,
-        world.world_id,
-        target.map_id,
-        player.session_id,
-    )
-    .await
-    .map_err(GameError::Database)?
+    let Some(world_id) = placement::reserve(&world.pool, world.world_id, to_map, player.session_id)
+        .await
+        .map_err(GameError::Database)?
     else {
-        eprintln!("world: {} has no free seat; /tp refused", target.label());
+        eprintln!(
+            "world: {} ({to_map}) has no free seat; the travel is refused",
+            destination.label()
+        );
         return Ok(true);
     };
 
@@ -187,7 +418,7 @@ pub async fn teleport(
         &world.pool,
         player_token,
         world_id,
-        target.map_id,
+        to_map,
         player.session_id,
         player.account_id,
         player.character,
@@ -196,38 +427,73 @@ pub async fn teleport(
     .map_err(GameError::Database)?;
 
     let std::net::SocketAddr::V4(public) = world.public else {
-        eprintln!("world: /tp needs an IPv4 advertised address; refused");
+        eprintln!("world: a travel needs an IPv4 advertised address; refused");
         return Ok(true);
     };
     // `GameSrv.c:1394-1403`: the flag describes the **destination**. 1 for an explorable area, 0 for an
     // outpost, and getting it from the source map produced client error 005.
-    let is_explorable = match target.map_type {
+    let is_explorable = match destination.map_type {
         1 | 4 | 6 => 1,
         _ => 0,
     };
+    crate::mark_redirect(player_token);
+    eprintln!(
+        "world: [+{} ms] redirect for map {to_map} (player token {player_token:#010X})",
+        crate::stamp_ms()
+    );
     let frames = vec![
+        // Four messages before the redirect and four after it, in the order and at the sizes a live
+        // server sends them (`captures/zone-ref2-012225.jsonl`, one travel, seq 971 to 982):
+        //
+        //   0x00F1 agent effect   `f1 00 00 00 | 43 00 00 00 | 00 01 00 00`   the player's agent, word 0x100
+        //   0x0028 stop moving    `28 00 00 00 | 43 00 00 00`                  the walk is over
+        //   0x01A6 redirect       host[24], then the five fields
+        //   0x0099 map update     the same millisecond, the twelve-byte form
+        //   0x00B0 party size     `b0 00 00 00 | 00 00 00 00 | 01 00 00 00`
+        //   0x00B1 party          `b1 00 00 00 | 0b 00 00 00 | 00 00 00 00`   player 0x0B, leader 0
+        //   0x005A player destroy `5a 00 00 00 | 0b 00 00 00`
+        //   0x0021 agent remove   `21 00 00 00 | 3b 00 00 00`
+        //
+        // The last four withdraw the travelling body from the instance it is leaving, which is what the
+        // capture shows happening in the same millisecond as the redirect. The capture's own numbers are
+        // not ours to reuse, so they are this connection's: its player id and its agent id. Its agent id
+        // differs from the one its own position updates name, so that instance had a second body; this
+        // world has one, and withdraws that one.
+        // **Experiment 2026-10-31: the effect and the stop are withheld.** They are what a live server
+        // sends before a redirect, but the first crossing of a session costs 5149 ms here against 355 ms on
+        // live while later crossings cost 813 ms, and the wait sits between our redirect and the client's
+        // dial-back. If a crossing without them lands in under a second, this pair is what the client sits
+        // on - a state it enters and leaves on a message it never gets.
+        game::agent_update_effects(player.agent_id, TRAVEL_EFFECT),
+        game::agent_stop_moving(player.agent_id),
         game::transfer_game_server_info(
             public.ip().octets(),
             public.port(),
             world_id as u32,
             0, // region: the reference sends its district's region, and this server has no regions
-            target.map_id as u32,
+            to_map as u32,
             is_explorable,
             player_token,
         ),
-        game::map_update_current_redirect(target.map_id as u32),
+        game::map_update_current_redirect(to_map as u32),
     ];
     send(stream, session, frames, trace).await?;
     // From here the session's seat belongs to the connection the client is about to open, so its own
     // teardown must not hand it back (see the release at the end of `handle_connection`).
     player.moved = true;
+    // **Experiment 2026-10-31, second half: close the old connection ourselves, the instant the redirect is
+    // on the wire.** The first crossing of a session costs ~5100 ms here against 355 ms on live, and the
+    // wait sits between our redirect and the client's dial-back; withholding the effect pair changed
+    // nothing, so the next candidate is that the client waits for this socket to be closed rather than
+    // closing it. Returning `false` finishes the session, which closes it.
     eprintln!(
-        "world: {:?} teleporting: map {} -> map {} '{}', player token {player_token:#010X}, \
+        "world: {:?} travelling: map {} -> map {} '{}', player token {player_token:#010X}, \
          redirect to {public}",
         player.name,
         player.instance.map.map_id,
-        target.map_id,
-        target.label()
+        to_map,
+        destination.label()
     );
+
     Ok(true)
 }

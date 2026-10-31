@@ -547,6 +547,56 @@ async fn the_character_settings_come_back_from_the_row_the_creation_wrote() {
         .expect("clean up");
 }
 
+/// Reaching an instance is what unlocks it, and this row is the record: the first arrival writes it, a
+/// second arrival writes nothing, and the reached instances read back. The bitmap those rows become is
+/// `asura_world::map::unlock_bitmap`, unit-tested there; this proves the store the world map depends on.
+#[tokio::test]
+async fn an_instance_is_unlocked_by_arriving_once() {
+    let Some(pool) = pool().await else {
+        return skip();
+    };
+    let (name, character) = character(&pool, "unlock").await;
+
+    assert!(
+        db_game::unlocked_instances(&pool, character)
+            .await
+            .expect("read")
+            .is_empty(),
+        "a character that has just been created has reached nothing"
+    );
+    assert!(
+        db_game::unlock_instance(&pool, character, MAP)
+            .await
+            .expect("unlock"),
+        "the first arrival is the one that records it"
+    );
+    assert!(
+        !db_game::unlock_instance(&pool, character, MAP)
+            .await
+            .expect("a second arrival"),
+        "arriving again records nothing new"
+    );
+    assert_eq!(
+        db_game::unlocked_instances(&pool, character)
+            .await
+            .expect("read"),
+        vec![MAP]
+    );
+
+    db_game::unlock_instance(&pool, character, 148)
+        .await
+        .expect("a second instance");
+    let mut reached = db_game::unlocked_instances(&pool, character)
+        .await
+        .expect("read");
+    reached.sort_unstable();
+    assert_eq!(reached, vec![MAP, 148], "both, and only those");
+
+    asura_db::login::remove_account(&pool, &name)
+        .await
+        .expect("clean up");
+}
+
 /// The account id behind a username, for a test that needs to create a character on it.
 async fn account_of(pool: &PgPool, username: &str) -> Uuid {
     sqlx::query_scalar("SELECT id FROM account WHERE username = $1")

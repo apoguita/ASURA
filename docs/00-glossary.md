@@ -18,6 +18,10 @@ are disposable: restarting one loses a session, not the database.
 **Control plane** - shorthand for everything that is not simulation: auth, identity, registry,
 placement. It spans the auth service and the registry tables, not one process.
 
+**Simulator** - the half of a world server that populates an instance's agent array and advances it:
+enemies, gadgets, items, and the characters standing in it. In this tree it is `asura-world`, and today
+it populates exactly one agent, the character.
+
 **Registry** - the `world` table: one row per world server with its address, port, flags, population
 and last heartbeat. Worlds write their own row; the auth service reads it. Modelled on AzerothCore's
 `realmlist`.
@@ -40,15 +44,35 @@ world servers in one program. It stays as the working reference.
 
 ### Maps and players
 
-**Map** - a place in the game: Ascalon City, Lakeside County.
+**The game's nouns are the ones to use, and `docs/22-world-model.md` is where they are defined.** The
+entries below keep the sense this project has used; where the owner's model says a word means something
+else, the owner's sense comes first and the entry says so.
 
-**Outpost / town** - a map everyone shares. All players in Ascalon City see each other.
+**Account** - the login. It holds the characters and the account's own unlocks. The auth service owns it
+(`account`, `session`), and it is never a place and never an agent. See `docs/22-world-model.md`.
 
-**Explorable** - a map a single party shares privately. Two parties in Lakeside County are in two
+**Character** - a body with levels, skills, armour, items and attributes that stands in an instance. The
+client's own messages call it **PLAYER** (`GAME_SMSG_PLAYER_CREATE`), and this tree's code calls it
+`Player` (`crates/asura-world/src/player.rs`); both are the game's wire, the noun is *character*. A
+character is not the login, and it is not the `player_id` a party message carries.
+
+**Agent** - anything inside an instance that is not a prop: enemies, characters, gadgets, items. The
+character is an agent. The **agent array** is the per-instance list of them, which the instance's
+simulator populates. **An instance is not an agent.**
+
+**Prop** - the half of an instance that is scenery: geometry the client draws and the agent array never
+lists.
+
+**Map** (the game's word is **instance**) - a place in the game: Ascalon City, Lakeside County.
+
+**Outpost / town** - an instance everyone shares. All characters in Ascalon City see each other.
+
+**Explorable** - an instance a single party shares privately. Two parties in Lakeside County are in two
 separate copies and do not meet.
 
-**Instance** - one running copy of a map. Three solo players in Lakeside = three instances. A
-shared outpost with fifty players = one instance.
+**Instance** - has two senses, and the game's comes first: (1) a map - the thing a travel moves a
+character between, and the thing an unlock bit is set for; (2) this project's older sense, one running
+copy of a map. Three solo characters in Lakeside = three copies; the map is one instance.
 
 **District** - a numbered copy of the *same* map, used when a shared map is full. Ascalon City 1, 2,
 3... are separate instances of the same outpost.
@@ -59,8 +83,16 @@ shared outpost with fifty players = one instance.
 
 ### Movement
 
-**Travel / hop** - moving a player from one map to another, as the game does when you walk through
+**Travel / hop** - moving a character from one instance to another, as the game does when you walk through
 a portal. The client disconnects, is told where to go, and reconnects.
+
+**Portal** - the crossing between two instances, inside one of them. It is a **prop** with a position and
+a portal model, read from the instance's own map data, not an agent (`docs/22-world-model.md`).
+
+**Unlock** - one bit per instance in a bitmap that starts all zero, set when the character reaches that
+instance. Reaching is what unlocks; the bit never gates the walk. The world map's fast travel is the
+functionality the bits allow. Which bitmap, and whether it belongs to the account or the character, is
+open (`docs/22-world-model.md`, questions 1 and 2).
 
 **Redirect** - the message that tells the client where to go: an address, a port, a map, and a key.
 Until the client receives one, it does not move.

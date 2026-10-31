@@ -322,6 +322,32 @@ where to go. Two fixed-size messages, and one row for each in the generated tabl
 
 ### 5e. Which wire the client on this server speaks (measured 2026-10-28)
 
+**CORRECTION, 2026-10-31 - read this before the section below.** There is **one client and one
+protocol.** The rig patches connection addresses and the Diffie-Hellman constants; it does not change the
+client or its wire. So every message the client sends has **one** size and **one** field layout, and the
+live captures under `recordings/client/` are the specification for both - not one of two possible readings.
+
+The paragraphs below were written when two wire shapes appeared to exist: a two-byte header here, a
+four-byte header in the captures. That reading is withdrawn. What was really happening is the one failure
+this project keeps paying for: **our table declared a size, the framer trusted it, and the capture recorded
+what we consumed rather than what arrived** - `0x800A` declared 140 bytes against a 240-byte message,
+`0x800B` 88 against 324, `0x017C` 6 against 20, `0x019A` 16 against 32, `0x0196` 26 against 36, `0x0020`
+99 against 116. A truncated message leaves its tail in the buffer, the tail is framed as whatever its
+first two bytes name, and the connection is out of position until the leftovers happen to realign.
+
+The rules that replace the section below:
+
+- a message's size and field layout come from the client's own bytes, as the captures record them;
+- a message carrying counted fields is framed **structurally** (the count is on the wire), never by a
+  fixed number;
+- an unexplained size difference is **our** defect until proven otherwise, never evidence of a second
+  protocol generation;
+- a row whose declared size disagrees with the capture is corrected, and the capture is cited in the row.
+
+The measurements below stay as history - what a client did on a given day - and no conclusion is drawn
+from them about a second dialect.
+
+
 There are two wire shapes for the same message set, and **this client parses only one of them**. Measured,
 not inferred - three runs of the real client against this server:
 
@@ -363,7 +389,130 @@ So the world hands the client the reference's path minus any **leading** waypoin
 (`client_walk` in `asura-world`), and the client walks the straight segment across the slope itself. The
 The dump's own list is unchanged and still checked by `path_dump.rs`; only what reaches the wire is filtered.
 
+### 5f. The two travels a client performs (`0x80C1`, `0x80B1`) and who starts them
+
+**Measured 2026-10-31, and it corrects the first half of this section: a portal crossing is started by
+the SERVER, not announced by the client.** In
+`recordings/client/feature/travel/login-to-portal-20261031-003720.jsonl` a real client walked out of an
+outpost into an explorable and the crossing contained **no client message at all**:
+
+| t | direction | message | what it is |
+|---|---|---|---|
+| 32.754 | client -> server | `0x003E` `MOVE_TO_COORD` (16 bytes, two floats) | the player walking toward the portal |
+| 37.524 | server -> client | `0x00F1`, `0x0028` | the travelling agent, effect `0x100`, then a stop |
+| 37.574 | server -> client | `0x01A6` | the redirect: map id **146**, `is_explorable` 1, region `0xFE` |
+| 37.625 | server -> client | `0x0099` | the destination |
+| 37.981 | server -> client | `0x017C`, `0x0186`, `0x019A` (map 146) | the new instance's load begins |
+| 37.982 | client -> server | `0x0091` | its item request |
+
+Zero `0x00C1` in that file. So the world is what decides that the player reached a portal and sends the
+same eight-message stream `/tp` and the world map produce (`docs/03` 5f, the eight messages below). The
+implementation therefore needs a **portal table**: for each instance, the travel portals' positions and
+which instance each leads to - read from the instance's own props, which is where the client draws them
+from (`docs/22-world-model.md`, answer 3).
+
+The `0x00C1` messages seen in `captures/zone-ref2-012225.jsonl` are therefore **not** the crossing; they
+are the client asking about instances, and what they are owed is still open.
+
+**The world map's request** (`0x80B1`) is the travel the client does start, and this world answers it
+(`travel::handle_party_travel`).
+
+| message | header | wire size | fields after the header | what it means |
+|---|---|---|---|---|
+| `GAME_CMSG_TRAVEL_INIT` | `0x80C1` | 10 | `portal, zero` - two dwords | a client's question about an instance, not a crossing (measured above) |
+| `GAME_CMSG_PARTY_TRAVEL` | `0x80B1` | 9 | `map_id` as a `u16`, then three bytes | the player chose an instance on the world map |
+
+**The world clock and this client's own form of `0x80B1`** (`logs/world-8001.log`, a real session:
+`world <- 0x80B1 (9 bytes): B1 80 94 00 02 00 00 00 01`):
+
+```
+B1 80 | 94 00 | 02 | 00 00 | 00 | 01      instance 148
+B1 80 | A6 00 | 02 | 00 00 | 00 | 01      instance 166
+```
+
+The destination instance is the first `u16`; the `02` and the trailing `01` were constant across every
+send. The retail build carries the same request with a 32-bit instance id
+(`b1 00 00 00 | a4 00 00 00 | ... | 01 00 00 00`), so this is one field in two framings, not two messages.
+**This world answers it** (`travel::handle_party_travel`): the instance is resolved, and the travel is the
+same cycle as `/tp` - reserve, transfer row, `0x01A6` then `0x0099`.
+
+**The eight messages of one travel**, in the order and at the sizes a live server sends them
+(`captures/zone-ref2-012225.jsonl`, seq 971 to 982; the same eight in every one of that file's eight
+travels):
+
+| # | message | wire size | what it carries |
+|---|---|---|---|
+| 1 | `0x00F1` `AGENT_UPDATE_EFFECTS` | 10 | the travelling agent, effect word `0x100` |
+| 2 | `0x0028` `AGENT_STOP_MOVING` | 6 | the same agent; the walk is over |
+| 3 | `0x01A6` `TRANSFER_GAME_SERVER_INFO` | 46 | where to reconnect, and with what |
+| 4 | `0x0099` `MAP_UPDATE_CURRENT` | 12 | the destination, in the redirect form |
+| 5 | `0x00B0` `PLAYER_UPDATE_PARTY_SIZE` | 12 | `{0, 1}` in the capture |
+| 6 | `0x00B1` `PLAYER_UPDATE_PARTY` | 12 | the travelling player, leader `0` |
+| 7 | `0x005A` `PLAYER_DESTROY` | 8 | the travelling player |
+| 8 | `0x0021` `WORLD_REMOVE_AGENT` | 8 | and their agent |
+
+This world sends all eight, from one `begin_transfer` (`crates/asura-world/src/travel.rs`), for every
+trigger - `/tp`, `0x80B1`, and `0x80C1` once a portal table exists. The last four withdraw the travelling
+body from the instance it is leaving; the capture's own ids are not ours to reuse, so they are this
+connection's player id and agent id.
+
+**The client's instance table** (`0x01A0`) goes out in the load block, ten batches of
+`{u16 instance, u32 value}` pairs, which is the message set a live load carries
+(`docs/21-surrounding-packets.md`, "The map table", and `game::instance_table` for the data and where it
+came from).
+
+Measured in `captures/zone-ref2-012225.jsonl` (the reference checkout's own raw capture of a real client,
+not committable - it holds names and UUIDs), 2839 records, 94 of them client-to-server:
+
+* **`0x00C1` fifteen times**, always twelve bytes in the client's struct form and `{small number, 0}`:
+  `{2, 0}` at t=26.507, `{7, 0}` at 35.903, `{3, 0}` at 40.265, `{0, 0}` after each. The numbers are
+  small (0, 2, 3, 7, 24) while the instances travelled to in the same file are 145, 146, 164 and 165, so
+  **the first dword is not a map id**: it names a portal of the instance the character is standing in,
+  and where that portal leads is the server's knowledge, not the client's.
+* **`0x00B1` twice**, twenty-four bytes in the client's form:
+  `b1 00 00 00 | a4 00 00 00 | 00 x4 | 01 00 00 00` - **the destination instance id, first**. At t=20.615
+  it named 164 and the redirect four records later went to 164. That is the world-map fast travel.
+* Each travel the server then answers is the pair this document already describes: `0x01A6` (52 bytes,
+  host[24], `map_token, region, map_id, is_explorable, player_token, 0`) immediately followed by `0x0099`
+  (12 bytes, the destination), then the new connection's `0x017C`, `0x019A`, `0x0196`. Eight redirects in
+  the file, `is_explorable = 1` on all eight, destinations 145, 146, 164.
+* Immediately before each redirect the server sends `0x00F1` `GAME_SMSG_AGENT_UPDATE_EFFECTS` for the
+  player's own agent with a dword of `0x100`, and then `0x0028` `AGENT_STOP_MOVING`. So the sequence a
+  portal crossing produces is: the walk, the client's `0x80C1`, the player's effect, the stop, the
+  redirect.
+
+Two more facts this capture settles, both of which cost a session if forgotten:
+
+* **`0x00B1` is two different messages, one per direction**, and only the direction bit tells them apart:
+  client-to-server it is the travel request above; server-to-client it is `PLAYER_UPDATE_PARTY`, twelve
+  bytes, sent 29 times in the same file.
+* **The reference never handled either one.** `docs/09-parity-audit.md` section 2 lists its 18 game
+  handlers and neither is among them, which is why its `/tp` has the documented race: a redirect arrives
+  in a map the client never asked to leave.
+
+**What this means for this server.** Both are the cycle `/tp` already implements
+(`crates/asura-world/src/travel.rs`: reserve the destination's seat, write the transfer row, send `0x01A6`
+then `0x0099`), reached from a different trigger:
+
+* `0x80B1` names the destination itself, so it is a direct call with the client's map id.
+* `0x80C1` names a portal of the current instance, so it needs a **portal table**: which portal of which
+  instance leads to which instance. The portal is a prop, read from the instance's own map data in the
+  order that data lists it (`docs/22-world-model.md`), so the number the client sends and a table built
+  from the archive are the same ordering, and the table can be derived offline, like the path graphs.
+
+**What this world does with `0x80C1` today.** `travel::handle_travel_init`
+(`crates/asura-world/src/travel.rs`) names the touch as an event and starts nothing:
+
+```
+world: "name" touched a travel object in map 148 'Ascalon City (pre-Searing)': TRAVEL_INIT agent
+       0x0000003A, second 0x00000000; no portal row names that agent, so no travel starts
+```
+
+That line is the measurement a portal table is built from - which portal, in which instance - and it is
+printed without `ASURA_TRACE`, because it is the event, not a packet.
+
 ## 6. Traps that cost real time in GWPS
+
 
 | trap | what happens | rule |
 |---|---|---|

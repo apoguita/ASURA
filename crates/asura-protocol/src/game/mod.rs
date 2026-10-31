@@ -20,6 +20,7 @@
 
 /// The unlockable PvP item table, generated from the reference: 387 `(id, params)` pairs the client
 /// builds its item table from. Data rather than protocol, which is why it is generated and not typed.
+pub mod instance_table;
 pub mod pvp_items;
 
 /// `GAME_SMSG_INSTANCE_LOAD_HEAD` (`0x017C`): 6 bytes. The first message a client receives on the
@@ -180,6 +181,8 @@ pub const AGENT_PROPERTY_UPDATE_FLOAT: u16 =
     crate::packets::game::GAME_SMSG_AGENT_PROPERTY_UPDATE_FLOAT;
 /// `GAME_SMSG_AGENT_INITIAL_EFFECTS` (`0x00F0`): 10 bytes.
 pub const AGENT_INITIAL_EFFECTS: u16 = crate::packets::game::GAME_SMSG_AGENT_INITIAL_EFFECTS;
+/// `GAME_SMSG_AGENT_UPDATE_EFFECTS` (`0x00F1`): 10 bytes.
+pub const AGENT_UPDATE_EFFECTS: u16 = crate::packets::game::GAME_SMSG_AGENT_UPDATE_EFFECTS;
 /// `GAME_SMSG_UPDATE_AGENT_VISUAL_EQUIPMENT` (`0x006E`): 42 bytes.
 pub const UPDATE_AGENT_VISUAL_EQUIPMENT: u16 =
     crate::packets::game::GAME_SMSG_UPDATE_AGENT_VISUAL_EQUIPMENT;
@@ -891,6 +894,25 @@ pub fn transfer_game_server_info(
         .frame()
 }
 
+/// `GAME_SMSG_0x01A0`, the client's instance table: which instances exist, and one value each.
+///
+/// Unnamed in the reference's own table, which is why it is addressed by its header here. A live server
+/// sends it in batches during a load - ten of them for the load of instance 148
+/// (`recordings/client/feature/maps/pre-searing-load-3.jsonl`) - and the data is `game::instance_table`.
+pub const INSTANCE_TABLE: u16 = 0x01A0;
+
+/// One batch of [`INSTANCE_TABLE`]: a `u8` count and that many `{u16 instance, u32 value}` pairs.
+///
+/// The row's own layout is a counted nested list with a capacity of 16 per message, which is the batch
+/// size a live server sends; fifteen pairs is 2 + 1 + 90 bytes on the wire.
+pub fn instance_table(batch: &[(u16, u32)]) -> crate::client::Frame {
+    let mut builder = Builder::new(INSTANCE_TABLE).u8(batch.len() as u8);
+    for (instance, value) in batch {
+        builder = builder.u16(*instance).u32(*value);
+    }
+    builder.frame()
+}
+
 /// `GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST`: five counted lists - completed missions and bonuses on
 /// normal and hard mode, and the unlocked maps.
 pub fn map_update_unlocked_list(lists: [&[u32]; 5]) -> crate::client::Frame {
@@ -1194,6 +1216,18 @@ pub fn agent_property_update_float(
 /// `GAME_SMSG_AGENT_INITIAL_EFFECTS`: the effect bitmask an agent starts with.
 pub fn agent_initial_effects(agent_id: u32, effects: u32) -> crate::client::Frame {
     Builder::new(AGENT_INITIAL_EFFECTS)
+        .u32(agent_id)
+        .u32(effects)
+        .frame()
+}
+
+/// `GAME_SMSG_AGENT_UPDATE_EFFECTS` (`0x00F1`): the effect word an agent now carries.
+///
+/// A live server sends it for the travelling player immediately before a redirect
+/// (`captures/zone-ref2-012225.jsonl` seq 971: `f1 00 00 00 | 43 00 00 00 | 00 01 00 00`, the player's own
+/// agent and the word `0x100`), and this world sends the same pair of messages in the same order.
+pub fn agent_update_effects(agent_id: u32, effects: u32) -> crate::client::Frame {
+    Builder::new(AGENT_UPDATE_EFFECTS)
         .u32(agent_id)
         .u32(effects)
         .frame()

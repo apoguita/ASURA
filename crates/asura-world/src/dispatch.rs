@@ -29,13 +29,31 @@ pub async fn answer(
 
         0x803E => agent::handle_move_to_coord(stream, session, &frame, world, player, trace).await,
 
-        0x803D => agent::handle_position_update(&frame, player, trace),
+        0x803D => {
+            let answer = agent::handle_position_update(&frame, player, trace);
+
+            travel::portal_reached(stream, session, world, player, trace).await?;
+            answer
+        }
 
         0x8028 => {
             agent::handle_cancel_movement(stream, session, &frame, world, player, trace).await
         }
 
-        0x8047 => agent::handle_last_position(&frame, player, trace),
+        0x8047 => {
+            let answer = agent::handle_last_position(&frame, player, trace);
+            travel::portal_reached(stream, session, world, player, trace).await?;
+            answer
+        }
+
+        // The client's own travel announcement: the player touched a travel object. Named rather than
+        // left to the fallthrough, because the line it prints is the measurement a portal table is
+        // built from - see `travel::handle_travel_init` for what it carries and what is still missing.
+        0x80C1 => travel::handle_travel_init(&frame, player, trace),
+
+        // The world map's request. The client has already decided which instance it wants; this carries
+        // the decision out with the same cycle `/tp` uses.
+        0x80B1 => travel::handle_party_travel(stream, session, &frame, world, player, trace).await,
 
         0x8064 => chat::handle_chat_message(stream, session, &frame, world, player, trace).await,
 

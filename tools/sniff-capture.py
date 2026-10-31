@@ -548,6 +548,21 @@ def run_capture(args) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"--- note: disconnect reported {exc}", file=sys.stderr)
 
+
+    # The inventory goes into the file as well as the console: a capture that carries its own header
+    # counts means nobody has to re-read it, or remember the console, to know what it holds. One record at
+    # the end; a reader that does not know the kind sees an unknown record kind and skips it.
+    if counts:
+        write_record(handle, {
+            "record": "summary",
+            "seconds": round(time.time() - started, 3),
+            "packets": captured,
+            "headers": [
+                {"seen": key, "count": counts[key]}
+                for key in sorted(counts, key=lambda k: counts[k], reverse=True)
+            ],
+            "raw": bool(args.raw),
+        })
     print(f"--- {captured} packet(s) in {time.time() - started:.1f}s -> {out}")
     if counts:
         print("--- by header:")

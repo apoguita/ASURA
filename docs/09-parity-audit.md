@@ -172,9 +172,10 @@ evidence, none of which is a guess:
   the *destination*, not the source" was found (`GameSrv.c:1394-1403`).
 - **`MAP_UPDATE_CURRENT` (`0x0099`, 12 bytes)** follows in the same millisecond, in 10 of 10 captured
   transitions (`GameSrv.c:1429-1432`).
-- **A real client-announced travel begins with `TRAVEL_INIT` (`0x00C1`, 12 bytes, client -> server)**,
-  which GWPS's `/tp` skips. That is its documented race: the redirect arrives in a map the client never
-  asked to leave, and under latency the hop can fail (`docs/08-gm-commands.md`).
+- **A real client-announced travel begins with `TRAVEL_INIT` (`0x80C1`, 10 bytes on the wire,
+  client -> server, two agent ids)** - the message `docs/03-protocol.md` 5f measures; GWPS's `/tp` skips
+  it, that is its documented race: the redirect arrives in a map the client never asked to leave, and
+  under latency the hop can fail (`docs/08-gm-commands.md`).
 
 Sources: `captures/zone-ref-005829.jsonl` seq 42 and 424 (raw, gitignored), `docs/08-gm-commands.md`
 ("What a teleport actually does", "Known limitation"), `code/OpenTyria/GameSrv.c:1360-1435`,

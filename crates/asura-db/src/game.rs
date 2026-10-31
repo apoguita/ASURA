@@ -189,15 +189,19 @@ pub async fn settings(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Set
     // The casts are not decoration: `smallint` and `integer` decode into different Rust types, and a
     // database that has one of each (a development database that has had migrations applied by hand) is
     // not worth a runtime error. Everything comes back as `int` and is narrowed below.
-    let row: Option<(i32, i64, i32, i32, bool, i32, i32)> = sqlx::query_as(
-        "SELECT map_id, appearance, campaign::int, level::int, is_pvp, secondary_profession::int,
-                helm_status::int
+    // One row, decoded in one go. The tuple is wide because the row is, and a struct for it would be used
+    // once and named nowhere else.
+    #[allow(clippy::type_complexity)]
+    let row: Option<(i32, i32, i64, i32, i32, bool, i32, i32)> = sqlx::query_as(
+        "SELECT last_outpost::int, map_id, appearance, campaign::int, level::int, is_pvp,
+                secondary_profession::int, helm_status::int
            FROM characters WHERE id = $1",
     )
     .bind(character)
     .fetch_optional(pool)
     .await?;
-    let Some((map_id, appearance, campaign, level, is_pvp, secondary, helm)) = row else {
+    let Some((last_outpost, _map_id, appearance, campaign, level, is_pvp, secondary, helm)) = row
+    else {
         return Ok(None);
     };
 
@@ -216,7 +220,9 @@ pub async fn settings(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Set
     }
 
     Ok(Some(Settings {
-        last_outpost: u16::try_from(map_id).unwrap_or(0),
+        // The outpost the character was last *placed* in. It is not `map_id`, which records the map it was
+        // last in - explorables included (docs/22-world-model.md, the outpost rule).
+        last_outpost: u16::try_from(last_outpost).unwrap_or(0),
         appearance: appearance as u32,
         campaign: campaign as u8,
         level: level as u8,
@@ -286,6 +292,51 @@ pub async fn record_position(
     .execute(pool)
     .await?;
     Ok(done.rows_affected() > 0)
+}
+
+/// Record the last **outpost** a character was placed in.
+///
+/// The owner's base rule (docs/22-world-model.md, "Spawn points, and the outpost rule"): a character that
+/// enters the game - at character select, not on a reconnect - is moved to the last outpost it visited.
+/// `characters.last_outpost` is that memory, and it is written only when the placement is an outpost, so a
+/// travel into an explorable cannot overwrite it.
+pub async fn remember_outpost(pool: &PgPool, character: Uuid, map_id: i32) -> sqlx::Result<bool> {
+    let done = sqlx::query("UPDATE characters SET last_outpost = $2 WHERE id = $1")
+        .bind(character)
+        .bind(map_id as i16)
+        .execute(pool)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+/// Mark one instance as reached by one character.
+///
+/// The owner's model (`docs/22-world-model.md`): arriving sets the bit. Idempotent - a character that has
+/// already been here keeps the timestamp of its first arrival, which is the only thing the row records.
+/// `Ok(true)` means this call is the one that unlocked it.
+pub async fn unlock_instance(pool: &PgPool, character: Uuid, map_id: i32) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "INSERT INTO instance_unlock (character_id, map_id) VALUES ($1, $2)
+         ON CONFLICT (character_id, map_id) DO NOTHING",
+    )
+    .bind(character)
+    .bind(map_id)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// Every instance this character has reached, in the order it reached them.
+///
+/// The bitmap those rows become is built by `asura_world::map::unlock_bitmap`, because the addressing is
+/// the client's, not the database's.
+pub async fn unlocked_instances(pool: &PgPool, character: Uuid) -> sqlx::Result<Vec<i32>> {
+    let rows: Vec<(i32,)> = sqlx::query_as(
+        "SELECT map_id FROM instance_unlock WHERE character_id = $1 ORDER BY unlocked_at, map_id",
+    )
+    .bind(character)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(map_id,)| map_id).collect())
 }
 
 /// Every map the database knows, so a world server can publish a pool for each of them at startup.

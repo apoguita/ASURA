@@ -435,25 +435,50 @@ async fn a_placed_client_is_loaded_into_its_map() {
     assert_eq!(frames[2].len(), 2 + 2 + 2 * 10, "a ten-unit name");
     assert_eq!(frames[3].len(), 16, "INSTANCE_LOAD_INFO");
     let grid_start = &frames[4];
+    // 14, not the capture's 16: a live capture reports a four-byte header there, and sending 16
+    // desynchronises this client - error 007 at map load, measured 2026-10-30. The client settles it, and
+    // `game::map_init_start`'s own documentation records the measurement.
     assert_eq!(
         grid_start.len(),
-        16,
+        14,
         "MAP_INIT_START: a game header and three dwords"
     );
+    // The three dwords of the 14-byte form: the header is two bytes, so the dimensions start the body.
     assert_eq!(
         u32::from_le_bytes([
+            grid_start.body[0],
+            grid_start.body[1],
             grid_start.body[2],
-            grid_start.body[3],
-            grid_start.body[4],
-            grid_start.body[5]
+            grid_start.body[3]
         ]),
         64,
         "Tyria's measured grid width"
     );
     assert_eq!(
+        u32::from_le_bytes([
+            grid_start.body[4],
+            grid_start.body[5],
+            grid_start.body[6],
+            grid_start.body[7]
+        ]),
+        128,
+        "and its height"
+    );
+    // The grid an empty map sends is four dwords (an all-unexplored 64 x 128 grid compresses to 16
+    // bytes), and the message carries a `u16` count of exactly that many; the remaining slots of the
+    // 260-byte message are zero padding. A test client that frames a counted message by its count
+    // therefore sees 2 + 2 + 16, while the wire holds 260 - the client this server is measured against
+    // reads the fixed array and pads, which is why the frame is sent that way
+    // (`game::cartography_data`).
+    assert_eq!(
         frames[5].len(),
-        132,
-        "CARTOGRAPHY_DATA: the fixed 132-byte message"
+        20,
+        "CARTOGRAPHY_DATA: a count of four dwords, then the padding this client ignores"
+    );
+    assert_eq!(
+        u16::from_le_bytes([frames[5].body[0], frames[5].body[1]]),
+        4,
+        "the count says how many dwords are meaningful"
     );
 
     // The name the client is told is the character's own, in UTF-16 little endian.
@@ -1696,6 +1721,126 @@ async fn a_teleport_redirects_to_the_target_map_and_keeps_its_seat() {
     );
 
     drop(moved_stream);
+    placement::remove_world(&harness.pool, harness.world_id)
+        .await
+        .expect("remove the world");
+    harness.stop();
+}
+
+/// The world map's request (`0x80B1`): the client names the instance it wants and this server carries the
+/// decision out with the cycle `/tp` uses - the same seat, the same transfer row, the same two messages.
+///
+/// The bytes are a real client's own (`logs/world-8001.log`: `world <- 0x80B1 (9 bytes): B1 80 94 00 02 00
+/// 00 00 01`), with the instance swapped for this harness's destination. There is deliberately no policy
+/// here about *which* instances may be named: the client decides, and an outpost and the explorable it
+/// exits to can share one map blob, so a server-side rule about "which kinds of instance" refuses travel
+/// the game itself allows (`docs/22-world-model.md`).
+#[tokio::test]
+async fn the_world_map_request_travels_to_the_instance_it_names() {
+    if skip() {
+        return;
+    }
+    let Some(harness) = Harness::start().await else {
+        return;
+    };
+
+    let version = harness.version(harness.player_token);
+    let Some((mut stream, mut client)) = connect_properly(harness.address, &version).await else {
+        panic!("the world refused a token the auth service had just issued");
+    };
+    ask(&mut stream, &mut client, 0x8088, 2).await;
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_SPAWN_POINT).await;
+    ask(&mut stream, &mut client, 0x8090, 19).await;
+    read_until(&mut stream, &mut client, game::INSTANCE_LOAD_FINISH).await;
+
+    // The destination instance, then the three bytes this client always sends with it.
+    let mut body = (harness.other_map_id as u16).to_le_bytes().to_vec();
+    body.extend_from_slice(&[0x02, 0x00, 0x00, 0x00, 0x01]);
+    say(&mut stream, &mut client, 0x80B1, &body).await;
+
+    // Everything a travel puts on the wire, read raw: the twelve-byte `0x0099` a redirect carries is not
+    // the table's five-byte form, so the stream is scanned rather than framed.
+    // The travel's own first message is a `0x00F1` carrying the effect word, so that pair is what the
+    // scan looks for: a tick may sit in front of it, and `0x5A`/`0x21` occur by chance inside other
+    // bodies, so they cannot be the signal that the travel has arrived.
+    let effect_frame = |plain: &[u8]| -> Option<usize> {
+        (0..plain.len().saturating_sub(10)).find(|&at| {
+            plain[at] == 0xF1
+                && plain[at + 1] == 0x00
+                && plain[at + 6..at + 10] == [0x00, 0x01, 0x00, 0x00]
+        })
+    };
+    // The eight messages of one travel, in the order and at the sizes a live server sends them
+    // (`captures/zone-ref2-012225.jsonl`, seq 971 to 982):
+    let travel: &[(u16, usize)] = &[
+        (0x00F1, 10),
+        (0x0028, 6),
+        (0x01A6, 46),
+        (0x0099, 12),
+        (0x00B0, 12),
+        (0x00B1, 12),
+        (0x005A, 8),
+        (0x0021, 8),
+    ];
+    let whole: usize = travel.iter().map(|(_, size)| size).sum();
+
+    let mut plain: Vec<u8> = Vec::new();
+    let mut buffer = [0u8; 8192];
+    let start = loop {
+        let read = tokio::time::timeout(TIMEOUT, stream.read(&mut buffer))
+            .await
+            .expect("read before the timeout")
+            .expect("read");
+        assert!(
+            read > 0,
+            "the world closed the connection before the travel"
+        );
+        let mut chunk = buffer[..read].to_vec();
+        client.decrypt(&mut chunk);
+        plain.extend_from_slice(&chunk);
+        if let Some(at) = effect_frame(&plain) {
+            if plain.len() >= at + whole {
+                break at;
+            }
+        }
+    };
+
+    let mut at = start;
+    for (header, size) in travel {
+        assert!(
+            plain.len() >= at + size,
+            "the stream ended before the {header:#06X} of the travel"
+        );
+        let found = u16::from_le_bytes([plain[at], plain[at + 1]]);
+        assert_eq!(
+            found, *header,
+            "at byte {at}: expected {header:#06X}, found {found:#06X}"
+        );
+        at += size;
+    }
+
+    // And the redirect names the instance the client asked for.
+    let dword = |at: usize, bytes: &[u8]| {
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+    };
+    let transfer = start + 16;
+    assert_eq!(
+        dword(transfer + 42, &plain),
+        harness.other_map_id as u32,
+        "the instance the client named is the destination"
+    );
+    assert_eq!(
+        dword(transfer + 38, &plain),
+        0,
+        "is_explorable describes the destination, and this one is an outpost"
+    );
+    assert_eq!(
+        dword(transfer + 46 + 4, &plain),
+        harness.other_map_id as u32,
+        "and the 0x0099 that follows names the same destination"
+    );
+
+    drop(stream);
     placement::remove_world(&harness.pool, harness.world_id)
         .await
         .expect("remove the world");
