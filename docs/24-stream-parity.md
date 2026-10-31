@@ -55,7 +55,7 @@ the client held": it is a count and a shape, not a length to send. The wire size
 | 0x006B | S -> C | 13 | 12 | GAME_SMSG_POST_PROCESS | Known |
 | 0x006D | S -> C | 312 | 16 | GAME_SMSG_NPC_UPDATE_WEAPONS | Known |
 | 0x006E | S -> C | 61 | 44 | GAME_SMSG_UPDATE_AGENT_VISUAL_EQUIPMENT | Emitted |
-| 0x006F | S -> C | 1 | 16 | - | Unnamed |
+| 0x006F | S -> C | 1 | 16 | GAME_SMSG_UPDATE_AGENT_VISUAL_EQUIPMENT_SLOT | Observed |
 | 0x007C | S -> C | 32 | 8 | - | Unnamed |
 | 0x007D | S -> C | 33 | 8 | - | Unnamed |
 | 0x008A | S -> C | 33 | 132 | GAME_SMSG_CARTOGRAPHY_DATA | Emitted |
@@ -78,7 +78,7 @@ the client held": it is a count and a shape, not a length to send. The wire size
 | 0x00AE | S -> C | 3 | 12 | GAME_SMSG_AGENT_UPDATE_MODEL | Known |
 | 0x00B0 | S -> C | 82 | 12 | GAME_SMSG_PLAYER_UPDATE_PARTY_SIZE | Emitted |
 | 0x00B1 | S -> C | 80 | 12 | GAME_SMSG_PLAYER_UPDATE_PARTY | Emitted |
-| 0x00B5 | S -> C | 32 | 4 | - | Unnamed |
+| 0x00B5 | S -> C | 32 | 4 | GAME_SMSG_PREFERENCES_BLOB | Inferred |
 | 0x00B6 | S -> C | 33 | 12 | GAME_SMSG_PLAYER_UPDATE_UNLOCKED_PROFESSIONS | Emitted |
 | 0x00B7 | S -> C | 37 | 20 | GAME_SMSG_PLAYER_UPDATE_PROFESSION | Emitted |
 | 0x00BA | S -> C | 7 | 4 | GAME_SMSG_MISSION_STREAM_START | Known |
@@ -105,7 +105,7 @@ the client held": it is a count and a shape, not a length to send. The wire size
 | 0x0118 | S -> C | 12 | 28 | GAME_SMSG_GUILD_PLAYER_ROLE | Known |
 | 0x011A | S -> C | 18 | 124 | GAME_SMSG_TOWN_ALLIANCE_OBJECT | Known |
 | 0x011B | S -> C | 1 | 12 | GAME_SMSG_TOWN_ALLIANCE_COMMIT | Inferred |
-| 0x011C | S -> C | 9 | 4 | - | Unnamed |
+| 0x011C | S -> C | 9 | 4 | GAME_SMSG_TOWN_ALLIANCE_END | Inferred |
 | 0x011F | S -> C | 60 | 136 | - | Unnamed |
 | 0x0121 | S -> C | 43 | 160 | GAME_SMSG_GUILD_GENERAL_INFO | Known |
 | 0x0127 | S -> C | 45 | 272 | GAME_SMSG_GUILD_PLAYER_INFO | Known |
