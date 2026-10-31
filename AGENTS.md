@@ -7,6 +7,33 @@ session. It is deliberately short: the detail, the evidence and the incident led
 The owner's words, 2026-10-28: "reproduce faithfully the packet stream of the live server/client".
 Every rule below serves that one sentence.
 
+## The sources, in the order they answer
+
+Five projects outside this repository are read here, and none is a dependency (`# 6`). The `first` column
+is the source that answers the question; the `then` column is the cross-check.
+
+| the question | first | then | governed by |
+|---|---|---|---|
+| what the **running client** does: its state, its archive, what it sends and receives | **Py4GW Stealth**, by hand - 32-bit Python, elevated, `tools/sniff-capture.py`, `tools/gen-portal-table.py` | a client-side capture under `recordings/client/` | `docs/adr/0013-py4gw-stealth-is-our-link-to-the-client.md` |
+| what the **client does with** what we send: asserts, codecs, enums, map dimensions | Eden | a crash log read by hand | `docs/adr/0012-eden-is-a-source.md` |
+| what our **server must send**, byte for byte | a wire capture: `recordings/gwps/`, `recordings/asura/` | GWPS's own C source | `docs/03-protocol.md`, `docs/adr/0010-gwps-is-the-floor.md` |
+| what **Rurik** measured, and what is left to port | `docs/20-rurik-gap.md` | Rurik's `studies/` | `docs/adr/0011-rurik-is-a-source.md` |
+| **structure**: processes, where state lives, instances, the database | AzerothCore's tree | `docs/02-architecture.md` | `docs/adr/0006-azerothcore-is-the-reference.md` |
+
+- **Py4GW Stealth comes first for anything about the client.** It reads the archive through the client's
+  own open-file, image and `AMET` code, and it reads what the client sends and receives at the handler
+  table pointer and the send wrapper the client itself uses. No other source here sees the client
+  running, so a question that needs the client running is answered there and not by a document.
+- Its packages carry no licence grant, so what crosses back is a measurement in our words with our
+  recording named beside it - never a file, an offset, a byte pattern or a table.
+- A wire size comes from a wire capture, never from the sniffer: the sniffer reports the client's message
+  struct, which is the client's own bookkeeping (`docs/03-protocol.md` 5e).
+- **The real client in the owner's hands outranks all five.** Where a source and the live client
+  disagree, the client wins and the disagreement is reported, not split.
+- The table is a reading order, not a licence: every fact taken from a source is restated in our words
+  with our own recording, crash log or test named beside it. Where a source is the only witness, the
+  sentence says so.
+
 ## 1. The objective: the packet stream is the specification
 
 - This is reverse engineering, not server development. The deliverable is the packet stream: the same
@@ -139,7 +166,7 @@ sentence, once.
 | portal HTTP service | `crates/asura-webgate/` |
 | service supervision | `crates/asura-supervisor/`, `config/services.toml` |
 | the whole path in one command, no client needed | `.\tools\test-battery.ps1` |
-| **our link to the client**: its state, its archive (the DAT reader), what it sends and receives (the sniffer) | Py4GW Stealth, by hand. `docs/adr/0013-py4gw-stealth-is-our-link-to-the-client.md` |
+| the sources: what answers a client, a server or a structure question | "The sources, in the order they answer", above |
 | cargo is not on PATH in a fresh shell | `C:\Users\Apo\.cargo\bin\cargo.exe` |
 
 - `docker/` is an optional bundle. It does not drive this project (owner's instruction, 2026-10-28).
@@ -157,7 +184,9 @@ environment state and what is built. Read it before deciding that something is m
 
 Reading order for a fresh session: `docs/HANDOFF.md` -> `MILESTONES.md` -> `docs/01-scope.md` ->
 `docs/02-architecture.md` -> `docs/03-protocol.md` -> `docs/roadmap.md` -> the ADR that matches the
-question. `docs/00-glossary.md` defines every term.
+question. For anything about the client, that ADR is
+`docs/adr/0013-py4gw-stealth-is-our-link-to-the-client.md`, and it is read before the documents rather
+than after them. `docs/00-glossary.md` defines every term.
 
 When this file and `docs/HANDOFF.md` disagree, this file is newer and wins.
 

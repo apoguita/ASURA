@@ -101,6 +101,14 @@ READERS = (
 #: A context nests a little and never deeply; a cap keeps a cyclic struct from hanging the dump.
 MAX_DEPTH = 6
 
+#: Elements kept per array. The true length is recorded beside them, so a table larger than this is
+#: a count with its head, never a silent truncation.
+MAX_ELEMENTS = 64
+
+#: Fields kept per element when the element has no dict view and has to be probed attribute by
+#: attribute. A ceiling, so one deeply nested record cannot crowd out the arrays beside it.
+MAX_FIELDS_PER_ELEMENT = 48
+
 #: Strings are hashed to this many hex characters. Eight is enough to tell two hundred agents
 #: apart and short enough to read in a diff.
 HASH_HEX = 8
@@ -130,14 +138,125 @@ def flatten(value, depth: int = 0):
     if isinstance(value, (list, tuple)):
         return [flatten(item, depth + 1) for item in value]
     if isinstance(value, dict):
-        return {str(key): flatten(item, depth + 1) for key, item in value.items()}
+        out = {}
+        for key, item in value.items():
+            name = str(key)
+            # A buffer pointer is an address, not a measurement: it moves every run and says
+            # nothing about the structure. The size and capacity beside it are the measurement.
+            if name in ("m_buffer",) or name.endswith("_ptr") or name.endswith("_address"):
+                out[name] = "pointer"
+            else:
+                out[name] = flatten(item, depth + 1)
+        return out
     # An object the library did not turn into a dict: name it and keep its repr's shape, not its
     # content, because the content may be a pointer or a name.
     return {"object": type(value).__name__}
 
 
+def probe_one(name: str, context):
+    """What this object can be asked for, and how big the arrays it holds are.
+
+    Written for the pass after the first dump: `to_dict()` gives a context's scalars but shows an
+    array as its container header. This records the public attribute names, and the size of every
+    attribute that looks like an array view, so the element reader can be written against names
+    that exist rather than names I assumed.
+    """
+    record = {"record": "probe", "name": name, "class": type(context).__name__}
+    attrs = [attr for attr in dir(context) if not attr.startswith("_")]
+    record["attrs"] = attrs
+    sizes = {}
+    for attr in attrs:
+        try:
+            value = getattr(context, attr)
+        except Exception as error:  # noqa: BLE001 - a property that raises is worth naming
+            sizes[attr] = f"raised {type(error).__name__}"
+            continue
+        size = getattr(value, "size", None) if not callable(value) else None
+        if isinstance(size, int):
+            sizes[attr] = {"size": size, "view": type(value).__name__}
+    record["arrays"] = sizes
+    return record
+
+
+def element_fields(element):
+    """One element of one array, with its strings hashed and its pointers dropped.
+
+    Three routes, in order of how much the library tells us: the element's own ``to_dict``, its
+    field iterator, and finally its public attributes read one by one. The last one is what makes
+    an element whose struct has no dict view (a travel portal, a spawn point) still measurable
+    instead of a bare type name.
+    """
+    for extract in (
+        lambda: element.to_dict(),
+        lambda: dict(element.iter_fields()),
+    ):
+        try:
+            return flatten(extract())
+        except Exception:  # noqa: BLE001 - try the next route
+            continue
+        finally:
+            pass
+    probed = {}
+    for attr in dir(element):
+        if attr.startswith("_"):
+            continue
+        try:
+            value = getattr(element, attr)
+        except Exception:  # noqa: BLE001 - a property that raises is simply absent
+            continue
+        if callable(value):
+            continue
+        if isinstance(value, (int, float, bool, str, type(None))):
+            probed[attr] = flatten(value)
+        elif isinstance(value, (list, tuple)) and len(value) <= 32:
+            probed[attr] = flatten(list(value))
+        if len(probed) >= MAX_FIELDS_PER_ELEMENT:
+            break
+    return probed or {"object": type(element).__name__}
+
+
+def element_arrays(context):
+    """Every array a context exposes, with its length and the elements themselves.
+
+    `to_dict()` shows an array as its container header - a buffer pointer, a capacity and a size -
+    which names the array but not what is in it. The element reads live on the context's own
+    views (`worldcontext.agent_name_info`, `guildcontext.player_roster`,
+    `agentarray.GetAgentArray()` and their siblings); this walks them, records each one's true
+    length, and keeps the first `MAX_ELEMENTS` so one large table cannot bury the rest.
+    """
+    out = {}
+    for attr in dir(context):
+        if attr.startswith("_"):
+            continue
+        try:
+            value = getattr(context, attr)
+        except Exception:  # noqa: BLE001 - a property that raises is not the dump's end
+            continue
+        if callable(value):
+            continue
+        elements = None
+        try:
+            if hasattr(value, "to_list"):
+                elements = list(value.to_list())
+            elif isinstance(value, (list, tuple)) and value and not isinstance(value[0], (int, float, str)):
+                elements = list(value)
+        except Exception:  # noqa: BLE001 - an array view that will not convert is recorded as absent
+            continue
+        if elements is None:
+            continue
+        if not elements:
+            out[attr] = {"length": 0}
+            continue
+        out[attr] = {
+            "length": len(elements),
+            "kept": min(len(elements), MAX_ELEMENTS),
+            "elements": [element_fields(item) for item in elements[:MAX_ELEMENTS]],
+        }
+    return out
+
+
 def dump_one(name: str, context):
-    """One JSON-ready record for one context."""
+    """One JSON-ready record for one context: its scalars, and the elements of every array."""
     record = {"record": "context", "name": name, "class": type(context).__name__}
     try:
         fields = context.to_dict()
@@ -148,6 +267,9 @@ def dump_one(name: str, context):
     record["state"] = "read"
     record["field_count"] = len(fields)
     record["fields"] = {str(key): flatten(value) for key, value in fields.items()}
+    arrays = element_arrays(context)
+    if arrays:
+        record["arrays"] = arrays
     return record
 
 
@@ -271,6 +393,7 @@ def run_dump(args) -> int:
                 "client": {"pid": target.get("pid"), "name": target.get("name")},
                 "connection": "read-only",
                 "names": "hashed",
+                "mode": "probe" if args.probe else "dump",
             }) + "\n")
 
             for name, expr in READERS:
@@ -292,10 +415,14 @@ def run_dump(args) -> int:
                     empty += 1
                     print(f"  {name:<20} none")
                     continue
-                record = dump_one(name, context)
+                record = probe_one(name, context) if args.probe else dump_one(name, context)
                 handle.write(json.dumps(record) + "\n")
                 read += 1
-                print(f"  {name:<20} {record.get('class', '?'):<28} {record.get('field_count', 0):>3} fields")
+                if args.probe:
+                    print(f"  {name:<20} {record.get('class', '?'):<28} {len(record.get('arrays', {})):>3} array(s)"
+                          f" of {len(record.get('attrs', []))} attr(s)")
+                else:
+                    print(f"  {name:<20} {record.get('class', '?'):<28} {record.get('field_count', 0):>3} fields")
             handle.write(json.dumps({
                 "record": "summary", "read": read, "empty": empty, "failed": failed,
             }) + "\n")
@@ -359,6 +486,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--label", default=None, help="what moment this dump is, e.g. after-load-148")
     parser.add_argument("--only", default=None, help="comma-separated context names to read")
     parser.add_argument("--out", default=None, help="write here instead of recordings/asura/world/")
+    parser.add_argument("--probe", action="store_true",
+                        help="record each context public attribute names and the size of its arrays")
     return run_dump(parser.parse_args(argv))
 
 
