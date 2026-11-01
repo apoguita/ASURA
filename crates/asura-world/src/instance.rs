@@ -347,6 +347,9 @@ pub fn introduction(peer: &PeerView) -> Vec<Frame> {
             direction: (1.0, 0.0),
             speed_base: game::PLAYER_SPEED_BASE,
             player_team_token: PLAYER_TEAM_TOKEN,
+            // The party window draws this level from `GAME_SMSG_WORLD_CREATE_AGENT`; a peer's
+            // character level is not carried on the connection yet, so it is set rather than left 0.
+            level: 1,
         }),
     ]
 }

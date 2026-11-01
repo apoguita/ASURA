@@ -272,6 +272,8 @@ pub fn player_block(
         direction: (1.0, 0.0),
         speed_base: game::PLAYER_SPEED_BASE,
         player_team_token: PLAYER_TEAM_TOKEN,
+        // The agent's level, which the party window draws: the character row's own level.
+        level: traits.level as u8,
     }));
     // Health and energy in the reference's order, then the regeneration rate and the public level.
     // The reference's own values, read off its send log: energy 25, health 400, regeneration 0.0 and
