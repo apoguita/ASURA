@@ -134,6 +134,10 @@ pub const HARD_MODE_UNLOCKED: u16 = crate::packets::game::GAME_SMSG_HARD_MODE_UN
 /// `GAME_SMSG_CHARACTER_UPDATE_FACTIONS` (`0x00E9`): 62 bytes.
 pub const CHARACTER_UPDATE_FACTIONS: u16 =
     crate::packets::game::GAME_SMSG_CHARACTER_UPDATE_FACTIONS;
+/// `GAME_SMSG_CHAR_VISIBILITY_FLAGS` (`0x00EF`): 10 bytes - the inventory panel's per-slot display mode.
+pub const CHAR_VISIBILITY_FLAGS: u16 = crate::packets::game::GAME_SMSG_CHAR_VISIBILITY_FLAGS;
+/// `GAME_SMSG_PLAYER_UPDATE_FLAGS` (`0x003C`): 12 bytes - a player's flags word, written under a mask.
+pub const PLAYER_UPDATE_FLAGS: u16 = crate::packets::game::GAME_SMSG_PLAYER_UPDATE_FLAGS;
 
 /// `GAME_SMSG_PVP_UPDATE_UNLOCKED_SKILLS` (`0x001D`): `4 + 4n`.
 pub const PVP_UPDATE_UNLOCKED_SKILLS: u16 =
@@ -1006,6 +1010,26 @@ pub fn character_update_factions(
         .frame()
 }
 
+/// `GAME_SMSG_CHAR_VISIBILITY_FLAGS`: two dwords, a value and the mask it applies under. A live load
+/// sends `FFFFFFFF, FFFFFFFF` once, immediately after `GAME_SMSG_CHARACTER_UPDATE_FACTIONS` (header
+/// `00EF` in `recordings/asura/world/load-layers-20261031.jsonl`, captured in `ef000000 | ffffffff |
+/// ffffffff`). Uninitialized, the inventory panel's per-slot display mode stays blank for every slot.
+pub fn char_visibility_flags(value: u32, mask: u32) -> crate::client::Frame {
+    Builder::new(CHAR_VISIBILITY_FLAGS).u32(value).u32(mask).frame()
+}
+
+/// `GAME_SMSG_PLAYER_UPDATE_FLAGS`: one player's flags word as a masked read-modify-write - a u16
+/// player id, the value, and the mask. A live load sends it once per player with mask 7, right after
+/// the visibility flags: `3c000000 | 01000000 | 00000000 | 07000000` (header `003C` in the same
+/// capture). The player record's flags are what the world view and the attribute panel read.
+pub fn player_update_flags(player_id: u16, value: u32, mask: u32) -> crate::client::Frame {
+    Builder::new(PLAYER_UPDATE_FLAGS)
+        .u16(player_id)
+        .u32(value)
+        .u32(mask)
+        .frame()
+}
+
 /// `GAME_SMSG_PVP_UPDATE_UNLOCKED_SKILLS`: the skills unlocked for PvP.
 pub fn pvp_update_unlocked_skills(skills: &[u32]) -> crate::client::Frame {
     Builder::new(PVP_UPDATE_UNLOCKED_SKILLS)
@@ -1768,6 +1792,21 @@ mod tests {
         let frame = character_update_factions(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         assert_eq!(wire(&frame), 62);
         assert_eq!(frame.body().len(), 60, "fifteen dwords");
+    }
+
+    #[test]
+    fn the_two_player_state_messages_are_the_captured_bytes() {
+        // Copied from a live load, not designed: the visibility flags as `ef000000 | ffffffff |
+        // ffffffff` and the player flags as `3c000000 | 01000000 | 00000000 | 07000000`
+        // (recordings/asura/world/load-layers-20261031.jsonl, headers 00EF and 003C).
+        let visibility = char_visibility_flags(0xFFFF_FFFF, 0xFFFF_FFFF);
+        assert_eq!(visibility.bytes(), &[0xEF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+
+        let flags = player_update_flags(1, 0, 7);
+        assert_eq!(
+            flags.bytes(),
+            &[0x3C, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00]
+        );
     }
 
     #[test]

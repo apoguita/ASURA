@@ -209,6 +209,12 @@ pub fn player_block(
     frames.push(game::character_update_factions(
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ));
+    // A live load sends these two immediately after the faction block, once per player: the visibility
+    // flags and the player's own flags word (`recordings/asura/world/load-layers-20261031.jsonl`,
+    // headers 00EF then 003C). Without them the client's player record carries no flags and its
+    // inventory display-mode column has nothing for any slot - the structures exist but stay empty.
+    frames.push(game::char_visibility_flags(0xFFFF_FFFF, 0xFFFF_FFFF));
+    frames.push(game::player_update_flags(player_id as u16, 0, 7));
     frames.push(game::agent_update_attributes(agent_id, &[0; 42]));
     frames.push(game::world_update_load_time(
         started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32,
