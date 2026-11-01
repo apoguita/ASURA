@@ -123,6 +123,7 @@ pub mod game;
 /// **Every packet, one table.** Both protocol families, one row per header, with the fact columns
 /// (header, index, size, name, layout) and the two columns a session maintains (status, evidence).
 /// The single source for what a message is: nothing else in the tree lists a header.
+pub mod msg;
 pub mod packets;
 
 /// The per-message trace switch both services read (`ASURA_TRACE`).

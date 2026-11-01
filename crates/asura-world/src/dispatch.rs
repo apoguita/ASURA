@@ -7,6 +7,8 @@
 //!
 //! A header with no arm is framed and ignored - named in the trace, never guessed at.
 
+use asura_protocol::msg;
+
 use crate::*;
 
 /// Answer one client message. `Ok(false)` finishes the session.
@@ -19,28 +21,28 @@ pub async fn answer(
     trace: bool,
 ) -> Result<bool, GameError> {
     match frame.header {
-        0x8091 => item::handle_request_items(stream, session, world, player, trace).await,
+        msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_ITEMS => item::handle_request_items(stream, session, world, player, trace).await,
 
-        0x8088 => map::handle_request_spawn(stream, session, world, player, trace).await,
+        msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_SPAWN => map::handle_request_spawn(stream, session, world, player, trace).await,
 
-        0x8090 => world::handle_request_players(stream, session, world, player, trace).await,
+        msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_PLAYERS => world::handle_request_players(stream, session, world, player, trace).await,
 
-        0x800D => connection::handle_ping_request(stream, session, trace).await,
+        msg::GAME_CMSG_PING_REQUEST => connection::handle_ping_request(stream, session, trace).await,
 
-        0x803E => agent::handle_move_to_coord(stream, session, &frame, world, player, trace).await,
+        msg::GAME_CMSG_MOVE_TO_COORD => agent::handle_move_to_coord(stream, session, &frame, world, player, trace).await,
 
-        0x803D => {
+        msg::GAME_CMSG_POSITION_UPDATE => {
             let answer = agent::handle_position_update(&frame, player, trace);
 
             travel::portal_reached(stream, session, world, player, trace).await?;
             answer
         }
 
-        0x8028 => {
+        msg::GAME_CMSG_CANCEL_MOVEMENT => {
             agent::handle_cancel_movement(stream, session, &frame, world, player, trace).await
         }
 
-        0x8047 => {
+        msg::GAME_CMSG_LAST_POS_BEFORE_MOVE_CANCELED => {
             let answer = agent::handle_last_position(&frame, player, trace);
             travel::portal_reached(stream, session, world, player, trace).await?;
             answer
@@ -49,40 +51,40 @@ pub async fn answer(
         // The client's own travel announcement: the player touched a travel object. Named rather than
         // left to the fallthrough, because the line it prints is the measurement a portal table is
         // built from - see `travel::handle_travel_init` for what it carries and what is still missing.
-        0x80C1 => travel::handle_travel_init(&frame, player, trace),
+        msg::GAME_CMSG_TRAVEL_INIT => travel::handle_travel_init(&frame, player, trace),
 
         // The world map's request. The client has already decided which instance it wants; this carries
         // the decision out with the same cycle `/tp` uses.
-        0x80B1 => travel::handle_party_travel(stream, session, &frame, world, player, trace).await,
+        msg::GAME_CMSG_PARTY_TRAVEL => travel::handle_party_travel(stream, session, &frame, world, player, trace).await,
 
-        0x8064 => chat::handle_chat_message(stream, session, &frame, world, player, trace).await,
+        msg::GAME_CMSG_SEND_CHAT_MESSAGE => chat::handle_chat_message(stream, session, &frame, world, player, trace).await,
 
         // The client is going away.
-        0x8008 => Ok(false),
+        msg::GAME_CMSG_DISCONNECT => Ok(false),
 
-        0x8089 => creation::handle_request_player(stream, session, player, trace).await,
+        msg::GAME_CMSG_CHAR_CREATION_REQUEST_PLAYER => creation::handle_request_player(stream, session, player, trace).await,
 
-        0x808A => creation::handle_request_armors(stream, session, trace).await,
+        msg::GAME_CMSG_CHAR_CREATION_REQUEST_ARMORS => creation::handle_request_armors(stream, session, trace).await,
 
-        0x8060 => creation::handle_change_profession(stream, session, &frame, player, trace).await,
+        msg::GAME_CMSG_CHAR_CREATION_CHANGE_PROF => creation::handle_change_profession(stream, session, &frame, player, trace).await,
 
-        0x808B => creation::handle_confirm(stream, session, &frame, world, player, trace).await,
+        msg::GAME_CMSG_CHAR_CREATION_CONFIRM => creation::handle_confirm(stream, session, &frame, world, player, trace).await,
 
-        0x802C => item::handle_drop_item(&frame, world, player).await,
+        msg::GAME_CMSG_DROP_ITEM => item::handle_drop_item(&frame, world, player).await,
 
-        0x8072 => item::handle_item_move(stream, session, &frame, world, player, trace).await,
+        msg::GAME_CMSG_ITEM_MOVE => item::handle_item_move(stream, session, &frame, world, player, trace).await,
 
-        0x8030 => item::handle_equip_item(stream, session, &frame, world, player, trace).await,
+        msg::GAME_CMSG_EQUIP_ITEM => item::handle_equip_item(stream, session, &frame, world, player, trace).await,
 
-        0x804F => item::handle_unequip_item(),
+        msg::GAME_CMSG_UNEQUIP_ITEM => item::handle_unequip_item(),
 
         // The client answered one of our pings (`GAME_CMSG_PING_REPLY`, `0x8009`, 10 bytes). Nothing to
         // do: the reference discards it. Named rather than ignored, because a trace that says "ignored"
         // twenty-nine times reads like a bug.
-        0x8009 => Ok(true),
+        msg::GAME_CMSG_PING_REPLY => Ok(true),
 
         // `GAME_CMSG_HEARTBEAT` (`0x800C`, 2 bytes). The other keep-alive, likewise discarded.
-        0x800C => Ok(true),
+        msg::GAME_CMSG_HEARTBEAT => Ok(true),
 
         // A message this world can frame but does not act on. Framing already happened, so ignoring it
         // is safe and is what the reference does for most of them. The name is in the trace when the

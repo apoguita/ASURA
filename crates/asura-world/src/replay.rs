@@ -26,6 +26,7 @@
 use std::path::Path;
 
 use asura_protocol::client::Frame;
+use asura_protocol::msg;
 
 /// A block of messages the reference sent, ready to be sent again.
 pub type Block = Vec<Frame>;
@@ -165,9 +166,9 @@ impl Replay {
             }
             if let Some(header) = parse_recv(line) {
                 target = match header {
-                    0x8091 => Target::Items,
-                    0x8088 => Target::Spawn,
-                    0x8090 => Target::Players,
+                    msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_ITEMS => Target::Items,
+                    msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_SPAWN => Target::Spawn,
+                    msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_PLAYERS => Target::Players,
                     _ => target,
                 };
             }
