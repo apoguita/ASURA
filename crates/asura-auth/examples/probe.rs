@@ -118,15 +118,15 @@ async fn main() -> ExitCode {
         raw.extend_from_slice(&chunk);
 
         for frame in frame_stream(&raw.clone()) {
-            let name = tables::entry(frame.header)
+            let name = tables::entry(frame.header())
                 .and_then(|entry| entry.name)
                 .unwrap_or("unnamed");
             println!(
                 "{:#06X} {:<32} {} bytes  {}",
-                frame.header,
+                frame.header(),
                 name,
                 frame.len(),
-                hex(&frame.body)
+                hex(&frame.body())
             );
             printed += 1;
         }
@@ -143,7 +143,7 @@ async fn main() -> ExitCode {
         if login_sent {
             if let Some(response_at) = frame_stream(&raw.clone())
                 .iter()
-                .position(|frame| frame.header == tables::AUTH_SMSG_REQUEST_RESPONSE)
+                .position(|frame| frame.header() == tables::AUTH_SMSG_REQUEST_RESPONSE)
             {
                 if frame_stream(&raw.clone()).len() > response_at + 2 {
                     println!("# stopping: the login was answered");

@@ -393,11 +393,11 @@ mod tests {
             "both messages complete once the bytes arrive"
         );
         assert_eq!(
-            frames[0].header,
+            frames[0].header(),
             super::super::tables::AUTH_SMSG_CHARACTER_INFO
         );
         assert_eq!(
-            frames[1].header,
+            frames[1].header(),
             super::super::tables::AUTH_SMSG_FRIEND_STREAM_END
         );
     }

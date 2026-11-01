@@ -319,7 +319,7 @@ mod tests {
         .frame()];
         assert_eq!(frames.len(), 1);
         assert_eq!(
-            frames[0].header,
+            frames[0].header(),
             asura_protocol::client::tables::AUTH_SMSG_REQUEST_RESPONSE
         );
     }

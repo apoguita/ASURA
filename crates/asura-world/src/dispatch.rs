@@ -20,7 +20,7 @@ pub async fn answer(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    match frame.header {
+    match frame.header() {
         msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_ITEMS => item::handle_request_items(stream, session, world, player, trace).await,
 
         msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_SPAWN => map::handle_request_spawn(stream, session, world, player, trace).await,

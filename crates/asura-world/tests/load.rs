@@ -364,7 +364,7 @@ async fn read_until_count(
 ) -> Vec<Frame> {
     let mut frames: Vec<Frame> = Vec::new();
     let mut buffer = [0u8; 8192];
-    while frames.iter().filter(|frame| frame.header == header).count() < count {
+    while frames.iter().filter(|frame| frame.header() == header).count() < count {
         let read = tokio::time::timeout(TIMEOUT, stream.read(&mut buffer))
             .await
             .expect("read before the timeout")
@@ -417,7 +417,7 @@ async fn a_placed_client_is_loaded_into_its_map() {
 
     // ---- the load block, which the world sends without being asked ---------------------------
     let frames = read_until(&mut stream, &mut client, game::CARTOGRAPHY_DATA).await;
-    let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
+    let headers: Vec<u16> = frames.iter().map(|frame| frame.header()).collect();
     assert_eq!(
         &headers[..6],
         &[
@@ -446,20 +446,20 @@ async fn a_placed_client_is_loaded_into_its_map() {
     // The three dwords of the 14-byte form: the header is two bytes, so the dimensions start the body.
     assert_eq!(
         u32::from_le_bytes([
-            grid_start.body[0],
-            grid_start.body[1],
-            grid_start.body[2],
-            grid_start.body[3]
+            grid_start.body()[0],
+            grid_start.body()[1],
+            grid_start.body()[2],
+            grid_start.body()[3]
         ]),
         64,
         "Tyria's measured grid width"
     );
     assert_eq!(
         u32::from_le_bytes([
-            grid_start.body[4],
-            grid_start.body[5],
-            grid_start.body[6],
-            grid_start.body[7]
+            grid_start.body()[4],
+            grid_start.body()[5],
+            grid_start.body()[6],
+            grid_start.body()[7]
         ]),
         128,
         "and its height"
@@ -476,13 +476,13 @@ async fn a_placed_client_is_loaded_into_its_map() {
         "CARTOGRAPHY_DATA: a count of four dwords, then the padding this client ignores"
     );
     assert_eq!(
-        u16::from_le_bytes([frames[5].body[0], frames[5].body[1]]),
+        u16::from_le_bytes([frames[5].body()[0], frames[5].body()[1]]),
         4,
         "the count says how many dwords are meaningful"
     );
 
     // The name the client is told is the character's own, in UTF-16 little endian.
-    let name = &frames[2].body;
+    let name = &frames[2].body();
     let units = u16::from_le_bytes([name[0], name[1]]) as usize;
     assert_eq!(units, "Asura Test".encode_utf16().count());
     let decoded: String = (0..units)
@@ -494,10 +494,10 @@ async fn a_placed_client_is_loaded_into_its_map() {
     // The agent in the load info is the one the world will place.
     assert_eq!(
         u32::from_le_bytes([
-            frames[3].body[0],
-            frames[3].body[1],
-            frames[3].body[2],
-            frames[3].body[3]
+            frames[3].body()[0],
+            frames[3].body()[1],
+            frames[3].body()[2],
+            frames[3].body()[3]
         ]),
         asura_world::AGENT_ID
     );
@@ -510,7 +510,7 @@ async fn a_placed_client_is_loaded_into_its_map() {
     // Two DONE frames, not one: the answer ends the bag list and then the stream, and under load the two
     // can arrive in separate reads.
     let frames = read_until_count(&mut stream, &mut client, game::INSTANCE_MANIFEST_DONE, 2).await;
-    let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
+    let headers: Vec<u16> = frames.iter().map(|frame| frame.header()).collect();
     let at = |header: u16| {
         headers
             .iter()
@@ -539,7 +539,7 @@ async fn a_placed_client_is_loaded_into_its_map() {
     );
     let map_update = frames
         .iter()
-        .find(|frame| frame.header == game::MAP_UPDATE_CURRENT)
+        .find(|frame| frame.header() == game::MAP_UPDATE_CURRENT)
         .expect("a map update");
     assert_eq!(
         map_update.len(),
@@ -547,7 +547,7 @@ async fn a_placed_client_is_loaded_into_its_map() {
         "the login shape, not the redirect's 12"
     );
     assert_eq!(
-        u16::from_le_bytes([map_update.body[0], map_update.body[1]]),
+        u16::from_le_bytes([map_update.body()[0], map_update.body()[1]]),
         harness.map_id as u16
     );
 
@@ -556,16 +556,16 @@ async fn a_placed_client_is_loaded_into_its_map() {
     let frames = read_until(&mut stream, &mut client, game::INSTANCE_LOAD_SPAWN_POINT).await;
     let spawn = frames
         .iter()
-        .find(|frame| frame.header == game::INSTANCE_LOAD_SPAWN_POINT)
+        .find(|frame| frame.header() == game::INSTANCE_LOAD_SPAWN_POINT)
         .expect("a spawn point");
     assert_eq!(spawn.len(), 26);
     assert_eq!(
-        u32::from_le_bytes([spawn.body[0], spawn.body[1], spawn.body[2], spawn.body[3]]),
+        u32::from_le_bytes([spawn.body()[0], spawn.body()[1], spawn.body()[2], spawn.body()[3]]),
         0x1B97D,
         "the map blob the client must stream"
     );
     assert_eq!(
-        f32::from_le_bytes([spawn.body[4], spawn.body[5], spawn.body[6], spawn.body[7]]),
+        f32::from_le_bytes([spawn.body()[4], spawn.body()[5], spawn.body()[6], spawn.body()[7]]),
         6602.0,
         "and where to stand, from the map's own config"
     );
@@ -573,7 +573,7 @@ async fn a_placed_client_is_loaded_into_its_map() {
     // ---- the players ------------------------------------------------------------------------
     ask(&mut stream, &mut client, 0x8090, 19).await;
     let frames = read_until(&mut stream, &mut client, game::INSTANCE_LOAD_FINISH).await;
-    let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
+    let headers: Vec<u16> = frames.iter().map(|frame| frame.header()).collect();
     let position = |header: u16| headers.iter().position(|candidate| *candidate == header);
     assert!(
         position(game::INSTANCE_LOAD_FINISH).is_some(),
@@ -597,7 +597,7 @@ async fn a_placed_client_is_loaded_into_its_map() {
     }
     let agent = frames
         .iter()
-        .find(|frame| frame.header == game::WORLD_CREATE_AGENT)
+        .find(|frame| frame.header() == game::WORLD_CREATE_AGENT)
         .expect("an agent");
     assert_eq!(agent.len(), 99, "the reference's fixed agent message");
 
@@ -606,7 +606,7 @@ async fn a_placed_client_is_loaded_into_its_map() {
     assert!(
         frames
             .iter()
-            .any(|frame| frame.header == game::WORLD_SIMULATION_TICK),
+            .any(|frame| frame.header() == game::WORLD_SIMULATION_TICK),
         "the world keeps time on its own"
     );
 
@@ -615,10 +615,10 @@ async fn a_placed_client_is_loaded_into_its_map() {
     let frames = read_until(&mut stream, &mut client, game::PING_REPLY).await;
     let reply = frames
         .iter()
-        .find(|frame| frame.header == game::PING_REPLY)
+        .find(|frame| frame.header() == game::PING_REPLY)
         .expect("a ping reply");
     assert_eq!(
-        u32::from_le_bytes([reply.body[0], reply.body[1], reply.body[2], reply.body[3]]),
+        u32::from_le_bytes([reply.body()[0], reply.body()[1], reply.body()[2], reply.body()[3]]),
         asura_world::PING_VALUE
     );
 
@@ -761,7 +761,7 @@ async fn a_drop_deducts_the_stack_and_says_nothing() {
         game::WORLD_CREATE_AGENT,
     ] {
         assert!(
-            !frames.iter().any(|frame| frame.header == forbidden),
+            !frames.iter().any(|frame| frame.header() == forbidden),
             "{forbidden:#06X} must not be sent by a drop: a live client crashed on two of these and \
              no capture of any of them exists"
         );
@@ -800,7 +800,7 @@ async fn a_drop_deducts_the_stack_and_says_nothing() {
     assert!(
         !frames
             .iter()
-            .any(|frame| frame.header == game::WORLD_CREATE_AGENT),
+            .any(|frame| frame.header() == game::WORLD_CREATE_AGENT),
         "an item nobody carries creates no agent"
     );
 
@@ -849,18 +849,18 @@ async fn an_item_can_be_moved_between_slots_and_the_server_agrees() {
     let echo = frames
         .iter()
         .rev()
-        .find(|frame| frame.header == game::ITEM_MOVE_TO_LOCATION)
+        .find(|frame| frame.header() == game::ITEM_MOVE_TO_LOCATION)
         .expect("an accepted move is echoed");
     assert_eq!(
-        u32::from_le_bytes([echo.body[2], echo.body[3], echo.body[4], echo.body[5]]),
+        u32::from_le_bytes([echo.body()[2], echo.body()[3], echo.body()[4], echo.body()[5]]),
         cupcake.id as u32
     );
     assert_eq!(
-        u16::from_le_bytes([echo.body[6], echo.body[7]]),
+        u16::from_le_bytes([echo.body()[6], echo.body()[7]]),
         1,
         "the bag the client asked for"
     );
-    assert_eq!(echo.body[8], 5, "and the slot");
+    assert_eq!(echo.body()[8], 5, "and the slot");
 
     let moved = db_inventory::load(&harness.pool, harness.character)
         .await
@@ -890,9 +890,9 @@ async fn an_item_can_be_moved_between_slots_and_the_server_agrees() {
     let snap_back = frames
         .iter()
         .rev()
-        .find(|frame| frame.header == game::ITEM_MOVE_TO_LOCATION)
+        .find(|frame| frame.header() == game::ITEM_MOVE_TO_LOCATION)
         .expect("a refusal puts the client's model back");
-    assert_eq!(snap_back.body[8], 5, "still in the slot it really is in");
+    assert_eq!(snap_back.body()[8], 5, "still in the slot it really is in");
     let unchanged = db_inventory::load(&harness.pool, harness.character)
         .await
         .expect("read the inventory");
@@ -936,10 +936,10 @@ async fn an_item_can_be_taken_off_and_worn_again() {
     let worn_ids = inventory.equipped_item_ids();
     let worn = frames
         .iter()
-        .find(|frame| frame.header == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
+        .find(|frame| frame.header() == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
         .expect("the visual equipment");
     assert_eq!(
-        u32::from_le_bytes([worn.body[4], worn.body[5], worn.body[6], worn.body[7]]),
+        u32::from_le_bytes([worn.body()[4], worn.body()[5], worn.body()[6], worn.body()[7]]),
         worn_ids[0],
         "the weapon slot holds the item the equipped bag says it does"
     );
@@ -976,14 +976,14 @@ async fn an_item_can_be_taken_off_and_worn_again() {
     let now_wearing = frames
         .iter()
         .rev()
-        .find(|frame| frame.header == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
+        .find(|frame| frame.header() == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
         .expect("taking the weapon off changes what the agent wears");
     assert_eq!(
         u32::from_le_bytes([
-            now_wearing.body[4],
-            now_wearing.body[5],
-            now_wearing.body[6],
-            now_wearing.body[7]
+            now_wearing.body()[4],
+            now_wearing.body()[5],
+            now_wearing.body()[6],
+            now_wearing.body()[7]
         ]),
         0,
         "the weapon slot is empty now"
@@ -1006,14 +1006,14 @@ async fn an_item_can_be_taken_off_and_worn_again() {
     let wearing_again = frames
         .iter()
         .rev()
-        .find(|frame| frame.header == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
+        .find(|frame| frame.header() == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
         .expect("equipping changes what the agent wears");
     assert_eq!(
         u32::from_le_bytes([
-            wearing_again.body[4],
-            wearing_again.body[5],
-            wearing_again.body[6],
-            wearing_again.body[7]
+            wearing_again.body()[4],
+            wearing_again.body()[5],
+            wearing_again.body()[6],
+            wearing_again.body()[7]
         ]),
         weapon.id as u32,
         "and the hammer is back in the weapon slot"
@@ -1221,7 +1221,7 @@ async fn maps_prints_its_table_and_puts_nothing_on_the_wire() {
         game::CHAT_MESSAGE_LOCAL,
     ] {
         assert!(
-            !frames.iter().any(|frame| frame.header == forbidden),
+            !frames.iter().any(|frame| frame.header() == forbidden),
             "{forbidden:#06X} must not be sent for /maps: the reference answers into its own log, and \
              sending chat crashed a live client here"
         );
@@ -1235,7 +1235,7 @@ async fn maps_prints_its_table_and_puts_nothing_on_the_wire() {
     assert!(
         !frames
             .iter()
-            .any(|frame| frame.header == game::CHAT_MESSAGE_CORE),
+            .any(|frame| frame.header() == game::CHAT_MESSAGE_CORE),
         "an unknown command answers in the log, not on the wire"
     );
 
@@ -1305,10 +1305,10 @@ async fn a_character_comes_back_where_it_left() {
     let frames = read_until(&mut stream, &mut client, game::INSTANCE_LOAD_SPAWN_POINT).await;
     let spawn = frames
         .iter()
-        .find(|frame| frame.header == game::INSTANCE_LOAD_SPAWN_POINT)
+        .find(|frame| frame.header() == game::INSTANCE_LOAD_SPAWN_POINT)
         .expect("a spawn point");
-    let x = f32::from_le_bytes([spawn.body[4], spawn.body[5], spawn.body[6], spawn.body[7]]);
-    let y = f32::from_le_bytes([spawn.body[8], spawn.body[9], spawn.body[10], spawn.body[11]]);
+    let x = f32::from_le_bytes([spawn.body()[4], spawn.body()[5], spawn.body()[6], spawn.body()[7]]);
+    let y = f32::from_le_bytes([spawn.body()[8], spawn.body()[9], spawn.body()[10], spawn.body()[11]]);
     assert_eq!(
         (x, y),
         walked,
@@ -1320,14 +1320,14 @@ async fn a_character_comes_back_where_it_left() {
     let frames = read_until(&mut stream, &mut client, game::INSTANCE_LOAD_FINISH).await;
     let agent = frames
         .iter()
-        .find(|frame| frame.header == game::WORLD_CREATE_AGENT)
+        .find(|frame| frame.header() == game::WORLD_CREATE_AGENT)
         .expect("an agent");
     assert_eq!(
         f32::from_le_bytes([
-            agent.body[10],
-            agent.body[11],
-            agent.body[12],
-            agent.body[13]
+            agent.body()[10],
+            agent.body()[11],
+            agent.body()[12],
+            agent.body()[13]
         ]),
         walked.0,
         "the agent stands where the spawn point says"
@@ -1440,9 +1440,9 @@ async fn a_second_player_is_introduced_to_the_first_and_withdrawn_again() {
     // Its own player is in the block, so the ids are a set: one for this client, one for the other.
     let players: Vec<u32> = everything
         .iter()
-        .filter(|frame| frame.header == game::PLAYER_CREATE)
+        .filter(|frame| frame.header() == game::PLAYER_CREATE)
         .map(|frame| {
-            u32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]])
+            u32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]])
         })
         .collect();
     assert_eq!(players.len(), 2, "two players: this one and the other");
@@ -1453,14 +1453,14 @@ async fn a_second_player_is_introduced_to_the_first_and_withdrawn_again() {
     let other_agent = everything
         .iter()
         .rev()
-        .find(|frame| frame.header == game::WORLD_CREATE_AGENT)
+        .find(|frame| frame.header() == game::WORLD_CREATE_AGENT)
         .expect("an agent for the other player");
     assert_eq!(
         u32::from_le_bytes([
-            other_agent.body[0],
-            other_agent.body[1],
-            other_agent.body[2],
-            other_agent.body[3]
+            other_agent.body()[0],
+            other_agent.body()[1],
+            other_agent.body()[2],
+            other_agent.body()[3]
         ]),
         asura_world::AGENT_ID,
         "and the first player's agent keeps agent id 1"
@@ -1470,13 +1470,13 @@ async fn a_second_player_is_introduced_to_the_first_and_withdrawn_again() {
     let introduced = read_until(&mut stream_a, &mut client_a, game::WORLD_CREATE_AGENT).await;
     let newcomer = introduced
         .iter()
-        .find(|frame| frame.header == game::PLAYER_CREATE)
+        .find(|frame| frame.header() == game::PLAYER_CREATE)
         .expect("the first client is told about the second player");
     let newcomer_id = u32::from_le_bytes([
-        newcomer.body[0],
-        newcomer.body[1],
-        newcomer.body[2],
-        newcomer.body[3],
+        newcomer.body()[0],
+        newcomer.body()[1],
+        newcomer.body()[2],
+        newcomer.body()[3],
     ]);
     assert_ne!(
         newcomer_id,
@@ -1486,13 +1486,13 @@ async fn a_second_player_is_introduced_to_the_first_and_withdrawn_again() {
     assert!(
         introduced
             .iter()
-            .any(|frame| frame.header == game::PLAYER_UPDATE_PARTY_SIZE),
+            .any(|frame| frame.header() == game::PLAYER_UPDATE_PARTY_SIZE),
         "with its party size, as the reference sends it"
     );
     assert!(
         introduced
             .iter()
-            .any(|frame| frame.header == game::PLAYER_UPDATE_PARTY),
+            .any(|frame| frame.header() == game::PLAYER_UPDATE_PARTY),
         "and its own party, as the reference sends it"
     );
     // And what it takes to draw them: `GameSrv_BroadcastPlayerEquippedItems` sends the equipped items in
@@ -1500,19 +1500,19 @@ async fn a_second_player_is_introduced_to_the_first_and_withdrawn_again() {
     assert!(
         introduced
             .iter()
-            .any(|frame| frame.header == game::CREATE_UNNAMED_ITEM),
+            .any(|frame| frame.header() == game::CREATE_UNNAMED_ITEM),
         "the newcomer's equipped items, unnamed"
     );
     assert!(
         introduced
             .iter()
-            .any(|frame| frame.header == game::UPDATE_AGENT_VISUAL_EQUIPMENT),
+            .any(|frame| frame.header() == game::UPDATE_AGENT_VISUAL_EQUIPMENT),
         "the newcomer's visual equipment"
     );
     assert!(
         introduced
             .iter()
-            .any(|frame| frame.header == game::AGENT_DISPLAY_CAPE),
+            .any(|frame| frame.header() == game::AGENT_DISPLAY_CAPE),
         "and its cape"
     );
 
@@ -1524,23 +1524,23 @@ async fn a_second_player_is_introduced_to_the_first_and_withdrawn_again() {
     let left = read_until(&mut stream_a, &mut client_a, game::WORLD_REMOVE_AGENT).await;
     let destroyed = left
         .iter()
-        .find(|frame| frame.header == game::PLAYER_DESTROY)
+        .find(|frame| frame.header() == game::PLAYER_DESTROY)
         .expect("the departure is announced");
     assert_eq!(
         // A four-byte game header, so the body opens with the header's upper half: the player id starts
         // at byte 2 of the body, not at byte 0.
         u32::from_le_bytes([
-            destroyed.body[2],
-            destroyed.body[3],
-            destroyed.body[4],
-            destroyed.body[5]
+            destroyed.body()[2],
+            destroyed.body()[3],
+            destroyed.body()[4],
+            destroyed.body()[5]
         ]),
         newcomer_id,
         "the player that left is the one named"
     );
     assert!(
         left.iter()
-            .any(|frame| frame.header == game::WORLD_REMOVE_AGENT),
+            .any(|frame| frame.header() == game::WORLD_REMOVE_AGENT),
         "and its agent is withdrawn, in the same push"
     );
 
@@ -1593,7 +1593,7 @@ async fn a_teleport_redirects_to_the_target_map_and_keeps_its_seat() {
     assert!(
         !after_refusals
             .iter()
-            .any(|frame| frame.header == game::TRANSFER_GAME_SERVER_INFO),
+            .any(|frame| frame.header() == game::TRANSFER_GAME_SERVER_INFO),
         "a refused /tp sends no redirect"
     );
 
@@ -1685,21 +1685,21 @@ async fn a_teleport_redirects_to_the_target_map_and_keeps_its_seat() {
     .await;
     let spawned = spawn
         .iter()
-        .find(|frame| frame.header == game::INSTANCE_LOAD_SPAWN_POINT)
+        .find(|frame| frame.header() == game::INSTANCE_LOAD_SPAWN_POINT)
         .expect("the spawn answer");
     // The spawn message carries the blob id first, and both maps here share one, so the position is
     // what says *which* map: the destination spawns at (1, 2) and the origin at (6602, 4485).
     let x = f32::from_le_bytes([
-        spawned.body[4],
-        spawned.body[5],
-        spawned.body[6],
-        spawned.body[7],
+        spawned.body()[4],
+        spawned.body()[5],
+        spawned.body()[6],
+        spawned.body()[7],
     ]);
     let y = f32::from_le_bytes([
-        spawned.body[8],
-        spawned.body[9],
-        spawned.body[10],
-        spawned.body[11],
+        spawned.body()[8],
+        spawned.body()[9],
+        spawned.body()[10],
+        spawned.body()[11],
     ]);
     assert_eq!(
         (x, y),
@@ -2043,19 +2043,19 @@ async fn a_travel_to_an_unhosted_map_is_loaded_on_demand() {
     .await;
     let spawned = spawn
         .iter()
-        .find(|frame| frame.header == game::INSTANCE_LOAD_SPAWN_POINT)
+        .find(|frame| frame.header() == game::INSTANCE_LOAD_SPAWN_POINT)
         .expect("the spawn answer");
     let x = f32::from_le_bytes([
-        spawned.body[4],
-        spawned.body[5],
-        spawned.body[6],
-        spawned.body[7],
+        spawned.body()[4],
+        spawned.body()[5],
+        spawned.body()[6],
+        spawned.body()[7],
     ]);
     let y = f32::from_le_bytes([
-        spawned.body[8],
-        spawned.body[9],
-        spawned.body[10],
-        spawned.body[11],
+        spawned.body()[8],
+        spawned.body()[9],
+        spawned.body()[10],
+        spawned.body()[11],
     ]);
     assert_eq!(
         (x, y),
@@ -2064,10 +2064,10 @@ async fn a_travel_to_an_unhosted_map_is_loaded_on_demand() {
     );
     assert_eq!(
         u32::from_le_bytes([
-            spawned.body[0],
-            spawned.body[1],
-            spawned.body[2],
-            spawned.body[3]
+            spawned.body()[0],
+            spawned.body()[1],
+            spawned.body()[2],
+            spawned.body()[3]
         ]),
         u32::try_from(configured.map_file_id).unwrap_or(0),
         "and its own map blob"
@@ -2209,19 +2209,19 @@ async fn a_connection_to_an_unhosted_map_is_loaded_on_demand() {
     let spawn = read_until(&mut stream, &mut client, game::INSTANCE_LOAD_SPAWN_POINT).await;
     let spawned = spawn
         .iter()
-        .find(|frame| frame.header == game::INSTANCE_LOAD_SPAWN_POINT)
+        .find(|frame| frame.header() == game::INSTANCE_LOAD_SPAWN_POINT)
         .expect("the spawn answer");
     let x = f32::from_le_bytes([
-        spawned.body[4],
-        spawned.body[5],
-        spawned.body[6],
-        spawned.body[7],
+        spawned.body()[4],
+        spawned.body()[5],
+        spawned.body()[6],
+        spawned.body()[7],
     ]);
     let y = f32::from_le_bytes([
-        spawned.body[8],
-        spawned.body[9],
-        spawned.body[10],
-        spawned.body[11],
+        spawned.body()[8],
+        spawned.body()[9],
+        spawned.body()[10],
+        spawned.body()[11],
     ]);
     assert_eq!(
         (x, y),
@@ -2262,24 +2262,24 @@ async fn a_character_is_created_in_a_creation_instance() {
     assert!(
         block
             .iter()
-            .any(|frame| frame.header == game::INVENTORY_CREATE_BAG),
+            .any(|frame| frame.header() == game::INVENTORY_CREATE_BAG),
         "the creation screen is given bags"
     );
     assert!(
         block
             .iter()
-            .any(|frame| frame.header == game::CREATE_NAMED_ITEM),
+            .any(|frame| frame.header() == game::CREATE_NAMED_ITEM),
         "and the starting equipment"
     );
     // The three int properties `GameSrv_SendPlayerHealthEnergy` sends on this path: energy 20, health 100,
     // and property 64 zero. Not the load path's 25/400/regen-float/level, which is a different block.
     let properties: Vec<(u32, u32)> = block
         .iter()
-        .filter(|frame| frame.header == game::AGENT_PROPERTY_UPDATE_INT)
+        .filter(|frame| frame.header() == game::AGENT_PROPERTY_UPDATE_INT)
         .map(|frame| {
             (
-                u32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
-                u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]]),
+                u32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]),
+                u32::from_le_bytes([frame.body()[8], frame.body()[9], frame.body()[10], frame.body()[11]]),
             )
         })
         .collect();
@@ -2295,7 +2295,7 @@ async fn a_character_is_created_in_a_creation_instance() {
     assert!(
         !block
             .iter()
-            .any(|frame| frame.header == game::AGENT_PROPERTY_UPDATE_FLOAT),
+            .any(|frame| frame.header() == game::AGENT_PROPERTY_UPDATE_FLOAT),
         "and no float property: the creation path sends none"
     );
 
@@ -2304,7 +2304,7 @@ async fn a_character_is_created_in_a_creation_instance() {
     let pvp = read_until(&mut stream, &mut client, game::PVP_ITEM_STREAM_END).await;
     assert!(
         pvp.iter()
-            .any(|frame| frame.header == game::PVP_UPDATE_UNLOCKED_SKILLS),
+            .any(|frame| frame.header() == game::PVP_UPDATE_UNLOCKED_SKILLS),
         "the unlocked-skill list"
     );
 
@@ -2318,7 +2318,7 @@ async fn a_character_is_created_in_a_creation_instance() {
     assert!(
         changed
             .iter()
-            .any(|frame| frame.header == game::CREATE_NAMED_ITEM),
+            .any(|frame| frame.header() == game::CREATE_NAMED_ITEM),
         "the new profession's equipment follows the profession"
     );
 
@@ -2338,10 +2338,10 @@ async fn a_character_is_created_in_a_creation_instance() {
     let created = read_until(&mut stream, &mut client, game::CHAR_CREATION_SUCCESS).await;
     let success = created
         .iter()
-        .find(|frame| frame.header == game::CHAR_CREATION_SUCCESS)
+        .find(|frame| frame.header() == game::CHAR_CREATION_SUCCESS)
         .expect("the character was written");
     // Little endian, which is what the reference writes (`uuid_enc_le`) and what the builder sent.
-    let character = Uuid::from_bytes_le(success.body[0..16].try_into().expect("sixteen bytes"));
+    let character = Uuid::from_bytes_le(success.body()[0..16].try_into().expect("sixteen bytes"));
 
     // The rows T6 asks for, read back through this repo's own queries: the character, its six bags, and
     // the profession's equipment in the equipped bag.
@@ -2493,11 +2493,11 @@ async fn an_idle_pair_keeps_its_rhythm_and_its_count() {
 
     let ticks = frames
         .iter()
-        .filter(|frame| frame.header == game::WORLD_SIMULATION_TICK)
+        .filter(|frame| frame.header() == game::WORLD_SIMULATION_TICK)
         .count();
     let pings = frames
         .iter()
-        .filter(|frame| frame.header == game::PING_REQUEST)
+        .filter(|frame| frame.header() == game::PING_REQUEST)
         .count();
     // Six seconds at a 500 ms tick is at least ten; the assertion allows for scheduling slack.
     assert!(
@@ -2512,7 +2512,7 @@ async fn an_idle_pair_keeps_its_rhythm_and_its_count() {
     // of anything else.
     let unexpected: Vec<u16> = frames
         .iter()
-        .map(|frame| frame.header)
+        .map(|frame| frame.header())
         .filter(|header| *header != game::WORLD_SIMULATION_TICK && *header != game::PING_REQUEST)
         .collect();
     assert!(
@@ -2713,7 +2713,7 @@ async fn a_ten_minute_idle_pair_keeps_its_rhythm() {
         {
             assert!(read > 0, "the world closed the first idle connection");
             for frame in client_a.receive_game(&buffer_a[..read]).expect("frames") {
-                match frame.header {
+                match frame.header() {
                     game::WORLD_SIMULATION_TICK => ticks += 1,
                     game::PING_REQUEST => pings += 1,
                     _ => {}
@@ -2910,20 +2910,20 @@ async fn a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path() {
     let answered = read_until(&mut stream_a, &mut client_a, game::AGENT_MOVE_TO_POINT).await;
     let move_to = answered
         .iter()
-        .find(|frame| frame.header == game::AGENT_MOVE_TO_POINT)
+        .find(|frame| frame.header() == game::AGENT_MOVE_TO_POINT)
         .expect("the walk is answered with a destination");
     let first = (
         f32::from_le_bytes([
-            move_to.body[4],
-            move_to.body[5],
-            move_to.body[6],
-            move_to.body[7],
+            move_to.body()[4],
+            move_to.body()[5],
+            move_to.body()[6],
+            move_to.body()[7],
         ]),
         f32::from_le_bytes([
-            move_to.body[8],
-            move_to.body[9],
-            move_to.body[10],
-            move_to.body[11],
+            move_to.body()[8],
+            move_to.body()[9],
+            move_to.body()[10],
+            move_to.body()[11],
         ]),
     );
     // The answer is the first sample of the reference's path: on the segment from the agent to the
@@ -2956,14 +2956,14 @@ async fn a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path() {
     let seen = read_until(&mut stream_b, &mut client_b, game::AGENT_MOVE_TO_POINT).await;
     let seen_at = seen
         .iter()
-        .find(|frame| frame.header == game::AGENT_MOVE_TO_POINT)
+        .find(|frame| frame.header() == game::AGENT_MOVE_TO_POINT)
         .expect("the other player sees the walk");
     assert_eq!(
         f32::from_le_bytes([
-            seen_at.body[4],
-            seen_at.body[5],
-            seen_at.body[6],
-            seen_at.body[7]
+            seen_at.body()[4],
+            seen_at.body()[5],
+            seen_at.body()[6],
+            seen_at.body()[7]
         ]),
         first.0,
         "and sees the same waypoint"
@@ -3014,19 +3014,19 @@ async fn a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path() {
     let observed = read_until(&mut stream_b, &mut client_b, game::AGENT_UPDATE_POSITION).await;
     let position = observed
         .iter()
-        .find(|frame| frame.header == game::AGENT_UPDATE_POSITION)
+        .find(|frame| frame.header() == game::AGENT_UPDATE_POSITION)
         .expect("the clamp is broadcast");
     let x = f32::from_le_bytes([
-        position.body[4],
-        position.body[5],
-        position.body[6],
-        position.body[7],
+        position.body()[4],
+        position.body()[5],
+        position.body()[6],
+        position.body()[7],
     ]);
     let y = f32::from_le_bytes([
-        position.body[8],
-        position.body[9],
-        position.body[10],
-        position.body[11],
+        position.body()[8],
+        position.body()[9],
+        position.body()[10],
+        position.body()[11],
     ]);
     let jumped = ((x - far.0).powi(2) + (y - far.1).powi(2)).sqrt();
     // The reference's budget: `speed_base * elapsed + POSITION_UPDATE_TOLERANCE`, with the elapsed time
@@ -3123,7 +3123,7 @@ async fn a_cancelled_walk_stops_the_servers_own_copy() {
     assert!(
         stopped
             .iter()
-            .any(|frame| frame.header == game::AGENT_STOP_MOVING),
+            .any(|frame| frame.header() == game::AGENT_STOP_MOVING),
         "the cancel is answered with a stop"
     );
 
@@ -3193,24 +3193,24 @@ async fn a_walk_the_finder_refuses_is_answered_with_the_agents_position() {
     assert!(
         !answered
             .iter()
-            .any(|frame| frame.header == game::AGENT_MOVE_TO_POINT),
+            .any(|frame| frame.header() == game::AGENT_MOVE_TO_POINT),
         "a refused walk must not promise a destination"
     );
     let position = answered
         .iter()
-        .find(|frame| frame.header == game::AGENT_UPDATE_POSITION)
+        .find(|frame| frame.header() == game::AGENT_UPDATE_POSITION)
         .expect("the refusal is a position");
     let x = f32::from_le_bytes([
-        position.body[4],
-        position.body[5],
-        position.body[6],
-        position.body[7],
+        position.body()[4],
+        position.body()[5],
+        position.body()[6],
+        position.body()[7],
     ]);
     let y = f32::from_le_bytes([
-        position.body[8],
-        position.body[9],
-        position.body[10],
-        position.body[11],
+        position.body()[8],
+        position.body()[9],
+        position.body()[10],
+        position.body()[11],
     ]);
     assert_eq!(
         (x, y),

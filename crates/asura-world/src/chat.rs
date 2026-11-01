@@ -198,7 +198,7 @@ pub async fn handle_chat_message(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    let body = &frame.body;
+    let body = &frame.body();
     if body.len() < 6 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 8 }));
     }

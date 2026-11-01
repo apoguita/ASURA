@@ -104,11 +104,11 @@ pub async fn load_map_on_demand(
 /// by that map and agent is what turns this into the same redirect `/tp` already sends
 /// (`docs/03-protocol.md` 5e).
 pub fn handle_travel_init(frame: &Frame, player: &Player, _trace: bool) -> Result<bool, GameError> {
-    if frame.body.len() < 8 {
+    if frame.body().len() < 8 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 10 }));
     }
-    let agent = u32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]);
-    let other = u32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]);
+    let agent = u32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]);
+    let other = u32::from_le_bytes([frame.body()[4], frame.body()[5], frame.body()[6], frame.body()[7]]);
     eprintln!(
         "world: {:?} touched a travel object in map {} '{}': TRAVEL_INIT agent {agent:#010X}, \
          second {other:#010X}; no portal row names that agent, so no travel starts",
@@ -233,10 +233,10 @@ pub async fn handle_party_travel(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    if frame.body.len() < 2 {
+    if frame.body().len() < 2 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 9 }));
     }
-    let map_id = i32::from(u16::from_le_bytes([frame.body[0], frame.body[1]]));
+    let map_id = i32::from(u16::from_le_bytes([frame.body()[0], frame.body()[1]]));
     eprintln!(
         "world: {:?} asked for instance {map_id} from the world map in map {}",
         player.name, player.instance.map.map_id
@@ -298,11 +298,11 @@ pub async fn portal_target_reached(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    if frame.body.len() < 8 {
+    if frame.body().len() < 8 {
         return Ok(true);
     }
-    let x = f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]);
-    let y = f32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]);
+    let x = f32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]);
+    let y = f32::from_le_bytes([frame.body()[4], frame.body()[5], frame.body()[6], frame.body()[7]]);
     portal_at_position(stream, session, world, player, x, y, trace).await
 }
 

@@ -1767,7 +1767,7 @@ mod tests {
     fn character_update_factions_is_fifteen_dwords_of_body() {
         let frame = character_update_factions(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         assert_eq!(wire(&frame), 62);
-        assert_eq!(frame.body.len(), 60, "fifteen dwords");
+        assert_eq!(frame.body().len(), 60, "fifteen dwords");
     }
 
     #[test]

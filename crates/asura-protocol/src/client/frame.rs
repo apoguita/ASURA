@@ -28,13 +28,19 @@ use super::tables;
 /// The header is two bytes. Everything after it is the body, whose length the table fixes.
 pub const HEADER_LEN: usize = 2;
 
-/// One message, already validated against the table.
+/// One message, already validated against the table: **its bytes, header first.**
+///
+/// There is no "fields plus a header that gets prepended". The header is the message's first two
+/// bytes, written by whoever builds the message, and no function adds it afterwards. That matters
+/// beyond tidiness: a body plus an encode step is two representations of one message, so every
+/// builder, capture comparison and test has to remember that one more header is coming, and the day
+/// someone forgets, a two-byte difference reads as a second protocol (`docs/03-protocol.md` 5e).
+/// With one representation there is nothing to remember: what a builder writes is what the wire
+/// carries, and a capture compares from byte zero.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Frame {
-    /// The wire header, direction bit included.
-    pub header: u16,
-    /// The fixed-size fields after the header: `expected_size - HEADER_LEN` bytes, exactly.
-    pub body: Vec<u8>,
+    /// The whole message: `[header u16][fields...]`, exactly as it goes on the wire.
+    bytes: Vec<u8>,
 }
 
 /// Why a byte stream is not (yet) a frame.
@@ -82,86 +88,104 @@ impl core::fmt::Display for FrameError {
 impl std::error::Error for FrameError {}
 
 impl Frame {
-    /// A frame from a header and a body, with the body taken as given.
-    pub fn new(header: u16, body: Vec<u8>) -> Self {
-        Frame { header, body }
+    /// A message from a header and its fields: the header is written here, once, as byte 0 and 1.
+    pub fn new(header: u16, fields: Vec<u8>) -> Self {
+        let mut bytes = Vec::with_capacity(HEADER_LEN + fields.len());
+        bytes.extend_from_slice(&header.to_le_bytes());
+        bytes.extend_from_slice(&fields);
+        Frame { bytes }
+    }
+
+    /// The header, read from the message.
+    pub fn header(&self) -> u16 {
+        u16::from_le_bytes([self.bytes[0], self.bytes[1]])
+    }
+
+    /// The fields, read from the message: a view, never a copy that could be re-headed.
+    pub fn body(&self) -> &[u8] {
+        &self.bytes[HEADER_LEN..]
+    }
+
+    /// The fields for a builder to write into, inside the message itself.
+    pub fn body_mut(&mut self) -> &mut [u8] {
+        &mut self.bytes[HEADER_LEN..]
+    }
+
+    /// The whole message: what goes on the wire, and what a capture holds.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Take ownership of the message bytes.
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.bytes
     }
 
     /// A correctly sized, all-zero message for a header - GWPS's `AuthConnection_BuildMsg`.
     ///
-    /// Every field is written explicitly by the caller afterwards; starting from the table's size
-    /// is what keeps a partially filled message from being the wrong length.
+    /// The header is written here, once. Every field is then written by the caller, inside the same
+    /// message: starting from the table's size is what keeps a partially filled message from being
+    /// the wrong length.
     pub fn zeros(header: u16) -> Result<Self, FrameError> {
         let expected = tables::expected_size(header).ok_or(FrameError::UnknownHeader { header })?;
-        Ok(Frame {
-            header,
-            body: vec![0; expected - HEADER_LEN],
-        })
+        let mut bytes = vec![0u8; expected];
+        bytes[..HEADER_LEN].copy_from_slice(&header.to_le_bytes());
+        Ok(Frame { bytes })
     }
 
-    /// The whole on-wire size of this frame.
+    /// The whole on-wire size of this message.
     pub fn len(&self) -> usize {
-        HEADER_LEN + self.body.len()
+        self.bytes.len()
     }
 
-    /// Whether the body is empty. No auth message is header-only, so this is always false for a
-    /// frame built by [`Frame::zeros`] or [`Frame::decode`]; it exists to satisfy `clippy`.
+    /// Whether the message carries no fields at all.
     pub fn is_empty(&self) -> bool {
-        self.body.is_empty()
+        self.body().is_empty()
     }
 
     /// Whether this header is client-to-server, which the `0x8000` direction bit decides.
     pub fn is_from_client(&self) -> bool {
-        self.header & tables::AUTH_CMSG_MASK != 0
+        self.header() & tables::AUTH_CMSG_MASK != 0
     }
 
     /// The size the table requires for this header, if the header is known.
     pub fn expected_size(&self) -> Option<usize> {
-        tables::expected_size(self.header)
+        tables::expected_size(self.header())
     }
 
-    /// Whether this frame's size is the one the table requires.
+    /// Whether this message's size is the one the table requires.
     ///
-    /// An unknown header is *not* expected: silence here would be how a mistyped constant reaches
-    /// a client and comes back as `007`.
+    /// An unknown header is *not* expected: silence here would be how a mistyped constant reaches a
+    /// client and comes back as `007`.
     pub fn size_is_expected(&self) -> bool {
         self.expected_size() == Some(self.len())
     }
 
-    /// Serialise to the wire: header, then the body, and nothing else.
-    ///
-    /// Deliberately infallible - it writes what it was given. Whether that is the *correct* size is
-    /// [`Frame::encode_validated`]'s question, asked separately so the two failures never blur.
+    /// The bytes to put on the wire: the message itself. Nothing is added to it.
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(self.len());
-        out.extend_from_slice(&self.header.to_le_bytes());
-        out.extend_from_slice(&self.body);
-        out
+        self.bytes.clone()
     }
 
-    /// Serialise, refusing a body whose size the table does not expect.
+    /// The same, refusing a message whose size the table does not expect.
     ///
-    /// This is the path server code should use for the messages it constructs. The sizes in
-    /// [`tables`] are not suggestions; a five-byte map update in the login batch is indistinguishable
-    /// from a working one until the client reports `007` (`docs/03-protocol.md`, section 6).
+    /// This is the path server code should use for the messages it constructs. The sizes in the table
+    /// are not suggestions; a five-byte map update in the login batch is indistinguishable from a
+    /// working one until the client reports `007` (`docs/03-protocol.md`, section 6).
     pub fn encode_validated(&self) -> Result<Vec<u8>, FrameError> {
         match self.expected_size() {
-            None => Err(FrameError::UnknownHeader {
-                header: self.header,
-            }),
+            None => Err(FrameError::UnknownHeader { header: self.header() }),
             Some(expected) if expected != self.len() => Err(FrameError::SizeMismatch {
-                header: self.header,
+                header: self.header(),
                 got: self.len(),
                 expected,
             }),
-            Some(_) => Ok(self.encode()),
+            Some(_) => Ok(self.bytes.clone()),
         }
     }
-
-    /// Take one frame off the front of `bytes`, and say how many bytes it used.
+    /// Take one message off the front of `bytes`, and say how many bytes it used.
     ///
     /// The header decides the size, so there are only three outcomes: unknown header (refuse), not
-    /// enough bytes yet (wait), or a frame. Note the consequence: a *fragment* that happens to start
+    /// enough bytes yet (wait), or a message. Note the consequence: a *fragment* that happens to start
     /// mid-stream is framed as whatever its first two bytes name, so a caller must only ever pass a
     /// buffer whose start it knows is a message boundary. The connection does that by keeping its
     /// buffer between reads.
@@ -181,8 +205,7 @@ impl Frame {
             return Err(FrameError::Incomplete { needed: expected });
         }
 
-        let body = bytes[HEADER_LEN..expected].to_vec();
-        Ok((Frame { header, body }, expected))
+        Ok((Frame { bytes: bytes[..expected].to_vec() }, expected))
     }
 
     /// Take one client-to-server message off the front of `bytes`, and say how many bytes it used.
@@ -205,8 +228,7 @@ impl Frame {
         let entry = tables::entry(header).ok_or(FrameError::UnknownHeader { header })?;
         let shapes: Vec<Shape> = entry.fields.iter().map(shape_of).collect();
         let position = walk(bytes, header, &shapes)?;
-        let body = bytes[HEADER_LEN..position].to_vec();
-        Ok((Frame { header, body }, position))
+        Ok((Frame { bytes: bytes[..position].to_vec() }, position))
     }
 
     /// Take one game message off the front of `bytes`, and say how many bytes it used.
@@ -231,8 +253,7 @@ impl Frame {
             game_tables::fields(header, from_client).ok_or(FrameError::UnknownHeader { header })?;
         let shapes: Vec<Shape> = fields.iter().map(shape_of).collect();
         let position = walk(bytes, header, &shapes)?;
-        let body = bytes[HEADER_LEN..position].to_vec();
-        Ok((Frame { header, body }, position))
+        Ok((Frame { bytes: bytes[..position].to_vec() }, position))
     }
 }
 
@@ -370,7 +391,7 @@ mod tests {
     fn a_frame_round_trips() {
         let frame = Frame::zeros(HEARTBEAT_SMSG).expect("known header");
         assert_eq!(frame.len(), 6);
-        assert_eq!(frame.body.len(), 4);
+        assert_eq!(frame.body().len(), 4);
 
         let bytes = frame.encode();
         assert_eq!(bytes.len(), 6, "no length field: header plus body only");
@@ -386,8 +407,8 @@ mod tests {
         // A request response is header, req_id, status -- 10 bytes, with nothing between the header
         // and the payload. If a length prefix ever appears here, this test is where it shows up.
         let mut frame = Frame::zeros(REQUEST_RESPONSE).expect("known header");
-        frame.body[..4].copy_from_slice(&7u32.to_le_bytes()); // req_id
-        frame.body[4..].copy_from_slice(&0u32.to_le_bytes()); // status
+        frame.body_mut()[..4].copy_from_slice(&7u32.to_le_bytes()); // req_id
+        frame.body_mut()[4..].copy_from_slice(&0u32.to_le_bytes()); // status
 
         assert_eq!(
             frame.encode(),
@@ -438,11 +459,11 @@ mod tests {
 
         let (decoded, used) = Frame::decode(&stream).expect("first frame");
         assert_eq!(used, first.len());
-        assert_eq!(decoded.header, HEARTBEAT_SMSG);
+        assert_eq!(decoded.header(), HEARTBEAT_SMSG);
 
         let (decoded, used) = Frame::decode(&stream[used..]).expect("second frame");
         assert_eq!(used, second.len());
-        assert_eq!(decoded.header, REQUEST_RESPONSE);
+        assert_eq!(decoded.header(), REQUEST_RESPONSE);
     }
 
     #[test]

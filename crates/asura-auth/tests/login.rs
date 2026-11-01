@@ -132,7 +132,7 @@ async fn login(
     let mut frames: Vec<Frame> = Vec::new();
     let mut buffer = [0u8; 8192];
     while !frames.iter().any(|frame: &Frame| {
-        frame.header == tables::AUTH_SMSG_REQUEST_RESPONSE
+        frame.header() == tables::AUTH_SMSG_REQUEST_RESPONSE
             && RequestResponse::decode(frame).is_ok_and(|reply| reply.request == REQUEST_ID)
     }) {
         let read = tokio::time::timeout(TIMEOUT, stream.read(&mut buffer))
@@ -172,7 +172,7 @@ async fn a_client_logs_in_and_receives_the_whole_login_batch() {
 
     // The characters come first, then the stored settings, the friend-list terminator, the account
     // info, and finally the answer to the request -- the order GWPS sends and the client expects.
-    let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
+    let headers: Vec<u16> = frames.iter().map(|frame| frame.header()).collect();
     assert_eq!(
         headers,
         vec![
@@ -193,12 +193,12 @@ async fn a_client_logs_in_and_receives_the_whole_login_batch() {
     );
     assert_eq!(frames[3].len(), 81, "so is the account info");
     assert_eq!(
-        &frames[3].body[28..44],
+        &frames[3].body()[28..44],
         &seeded.account.to_bytes_le(),
         "the account info names the account that just logged in"
     );
     assert_eq!(
-        &frames[3].body[44..60],
+        &frames[3].body()[44..60],
         &seeded.character.to_bytes_le(),
         "and the character: the session's last selection, or the first one"
     );
@@ -207,28 +207,28 @@ async fn a_client_logs_in_and_receives_the_whole_login_batch() {
     // the little-endian variant, which is the trap this asserts against.
     let character = &frames[0];
     let expected = seeded.character.to_bytes_le();
-    assert_eq!(&character.body[4..20], &expected);
+    assert_eq!(&character.body()[4..20], &expected);
     assert_eq!(
-        Uuid::from_bytes_le(character.body[4..20].try_into().expect("16 bytes")),
+        Uuid::from_bytes_le(character.body()[4..20].try_into().expect("16 bytes")),
         seeded.character
     );
 
     // The name count is a u16 at body offset 24, and the units follow immediately: the reference's
     // own layout, measured (`05 00 "Appok"`).
     let name_length =
-        u16::from_le_bytes(character.body[24..26].try_into().expect("2 bytes")) as usize;
+        u16::from_le_bytes(character.body()[24..26].try_into().expect("2 bytes")) as usize;
     assert_eq!(name_length, "Asura E2E".len());
     let units: Vec<u16> = (0..name_length)
         .map(|index| {
             let at = 26 + index * 2;
-            u16::from_le_bytes([character.body[at], character.body[at + 1]])
+            u16::from_le_bytes([character.body()[at], character.body()[at + 1]])
         })
         .collect();
     assert_eq!(String::from_utf16(&units).expect("utf-16"), "Asura E2E");
 
     // And the character's settings block is the reference's 62 bytes, not an empty field.
     let extended_length = u16::from_le_bytes(
-        character.body[26 + name_length * 2..28 + name_length * 2]
+        character.body()[26 + name_length * 2..28 + name_length * 2]
             .try_into()
             .expect("2 bytes"),
     );
@@ -242,7 +242,7 @@ async fn a_client_logs_in_and_receives_the_whole_login_batch() {
     // Warrior: outpost 146, an appearance word, five armour pieces. This seeded character has none of
     // those, and the login reply has to say so.
     let settings_at = 28 + name_length * 2;
-    let settings = &character.body[settings_at..settings_at + 62];
+    let settings = &character.body()[settings_at..settings_at + 62];
     let version = u16::from_le_bytes([settings[0], settings[1]]);
     let last_outpost = u16::from_le_bytes([settings[2], settings[3]]);
     let appearance = u32::from_le_bytes([settings[8], settings[9], settings[10], settings[11]]);
@@ -323,7 +323,7 @@ async fn a_pair_that_does_not_resolve_is_refused_with_the_clients_auth_error() {
         frames.len(),
         1,
         "a refusal is a single message: {headers:?}",
-        headers = frames.iter().map(|f| f.header).collect::<Vec<_>>()
+        headers = frames.iter().map(|f| f.header()).collect::<Vec<_>>()
     );
     let reply = peer::as_request_response(&frames[0]).expect("a request response");
     assert_eq!(reply.request, REQUEST_ID);
@@ -617,13 +617,13 @@ async fn the_computer_hash_is_answered_with_the_session_info_the_client_waits_fo
     let frames = client.receive(&buffer[..read]).expect("frames");
     assert_eq!(frames.len(), 1, "one answer to the hash");
     assert_eq!(
-        frames[0].header,
+        frames[0].header(),
         tables::AUTH_SMSG_SESSION_INFO,
         "the answer is AUTH_SMSG_SESSION_INFO"
     );
     assert_eq!(frames[0].len(), 10, "the session info is the table's size");
     assert_ne!(
-        frames[0].body[..4],
+        frames[0].body()[..4],
         [0u8; 4],
         "the salt is random, not a zero placeholder"
     );
@@ -691,7 +691,7 @@ async fn logging_in_does_not_spend_the_session() {
         assert_eq!(
             frames
                 .iter()
-                .filter(|frame| frame.header == tables::AUTH_SMSG_CHARACTER_INFO)
+                .filter(|frame| frame.header() == tables::AUTH_SMSG_CHARACTER_INFO)
                 .count(),
             1,
             "attempt {attempt} gets the character list"

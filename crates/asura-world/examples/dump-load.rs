@@ -77,7 +77,7 @@ fn dump(frames: &[Frame]) {
         let hex: Vec<String> = bytes.iter().map(|byte| format!("{byte:02X}")).collect();
         println!(
             "SEND 0x{:04X} {:3} bytes : {}",
-            frame.header,
+            frame.header(),
             bytes.len(),
             hex.join(" ")
         );

@@ -316,12 +316,12 @@ pub async fn handle_change_profession(
     let Some(mut creation) = player.creation else {
         return Ok(true);
     };
-    if frame.body.len() < 2 {
+    if frame.body().len() < 2 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 4 }));
     }
     let previous = creation;
-    creation.campaign = frame.body[0];
-    creation.profession = frame.body[1];
+    creation.campaign = frame.body()[0];
+    creation.profession = frame.body()[1];
     player.creation = Some(creation);
 
     let agent_id = player.agent_id;
@@ -388,7 +388,7 @@ pub async fn handle_confirm(
     let Some(creation) = player.creation else {
         return Ok(true);
     };
-    let body = &frame.body;
+    let body = &frame.body();
     if body.len() < 2 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 4 }));
     }

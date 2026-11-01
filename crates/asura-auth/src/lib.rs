@@ -347,7 +347,7 @@ async fn dispatch(
         trace_frame("<-", &frame);
     }
 
-    match frame.header {
+    match frame.header() {
         // GWPS `AuthSrv_SendComputerInfo`'s counterpart: the reference stores the reported name and
         // computer name on the connection and sends nothing. (`0x8001` never reaches here - it is
         // consumed structurally before framing; see `messages::decode_computer_info`.)
@@ -431,7 +431,7 @@ async fn dispatch(
             };
 
             let name =
-                messages::decode_change_character(&frame.body).map_err(ConnectionError::Message)?;
+                messages::decode_change_character(&frame.body()).map_err(ConnectionError::Message)?;
             let characters = db_login::characters(pool, account)
                 .await
                 .map_err(ConnectionError::Database)?;
@@ -489,7 +489,7 @@ async fn dispatch(
             if trace.on() {
                 eprintln!(
                     "auth <- access key, {} key unit(s) (the reference logs it and keeps nothing)",
-                    access_key_len(&frame.body)
+                    access_key_len(&frame.body())
                 );
             }
             send_frames(
@@ -515,7 +515,7 @@ async fn dispatch(
             let status = match session.account {
                 None => messages::STATUS_NETWORK_ERROR,
                 Some(account) => {
-                    let name = messages::decode_change_character(&frame.body)
+                    let name = messages::decode_change_character(&frame.body())
                         .map_err(ConnectionError::Message)?;
                     let characters = db_login::characters(pool, account)
                         .await
@@ -585,7 +585,7 @@ async fn dispatch(
         // nothing. A write that fails is logged and swallowed: the login already succeeded, and a
         // refusal now would only make the client ask again.
         tables::AUTH_CMSG_ACCEPT_EULA => {
-            let version = messages::decode_eula(&frame.body).map_err(ConnectionError::Message)?;
+            let version = messages::decode_eula(&frame.body()).map_err(ConnectionError::Message)?;
             if let Some(account) = session.account {
                 match db_account::record_eula(pool, account, i16::from(version)).await {
                     // Printed, not traced: "this account accepted the EULA" is an event, and the
@@ -602,7 +602,7 @@ async fn dispatch(
         // (`travel::answer`): the info message with an address, then the success response. The one
         // rule it exists to keep is that the client is never sent to a port nothing answers on.
         tables::AUTH_CMSG_REQUEST_GAME_INSTANCE => {
-            let request = messages::GameInstanceRequest::decode(&frame.body)
+            let request = messages::GameInstanceRequest::decode(&frame.body())
                 .map_err(ConnectionError::Message)?;
             let replies = travel::answer(
                 pool,
@@ -650,7 +650,7 @@ fn access_key_len(body: &[u8]) -> usize {
 /// `ask_server_response`, the settings updates, `request_game_instance`), so one helper reads it
 /// rather than five copies of the same four-byte dance.
 fn request_id(frame: &Frame) -> u32 {
-    let body = &frame.body;
+    let body = &frame.body();
     if body.len() < 4 {
         return 0;
     }
@@ -974,11 +974,11 @@ async fn read_until(
 
 /// One trace line: direction, header, name, size and the first bytes (`docs/03-protocol.md` #6).
 fn trace_frame(direction: &str, frame: &Frame) {
-    let name = tables::entry(frame.header)
+    let name = tables::entry(frame.header())
         .and_then(|entry| entry.name)
         .unwrap_or("unnamed");
     let preview: String = frame
-        .body
+        .body()
         .iter()
         .take(16)
         .map(|byte| format!("{byte:02x}"))
@@ -986,7 +986,7 @@ fn trace_frame(direction: &str, frame: &Frame) {
         .join(" ");
     eprintln!(
         "auth {direction} {:#06X} {name} {} bytes: {preview}",
-        frame.header,
+        frame.header(),
         frame.len()
     );
 }

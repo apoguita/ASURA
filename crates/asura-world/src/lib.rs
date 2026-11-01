@@ -285,7 +285,7 @@ mod tests {
         // The three load requests, at the sizes the reference's own table gives them. A bare-header
         // message is two bytes; the players request needs all nineteen.
         let (frame, used) = Frame::decode_game_message(&[0x88, 0x80], true).expect("frames");
-        assert_eq!((frame.header, used), (0x8088, 2));
+        assert_eq!((frame.header(), used), (0x8088, 2));
 
         assert!(matches!(
             Frame::decode_game_message(&[0x90, 0x80], true),
@@ -294,7 +294,7 @@ mod tests {
         let mut full = vec![0x90, 0x80];
         full.resize(19, 0);
         let (frame, used) = Frame::decode_game_message(&full, true).expect("frames");
-        assert_eq!((frame.header, used), (0x8090, 19));
+        assert_eq!((frame.header(), used), (0x8090, 19));
 
         let mut items = vec![0x91, 0x80];
         items.resize(4, 0);
@@ -320,7 +320,7 @@ mod tests {
         let mut message = vec![0x00, 0x80];
         message.resize(6, 0); // whatever the trade acknowledge body is; the point is the header
         let (frame, used) = Frame::decode_game_message(&message, true).expect("a game header");
-        assert_eq!(frame.header, 0x8000);
+        assert_eq!(frame.header(), 0x8000);
         assert!(
             used > 2,
             "a game message with a body, not the auth heartbeat"
@@ -393,14 +393,14 @@ mod tests {
         );
         let created = frames
             .iter()
-            .find(|frame| frame.header == game::PLAYER_CREATE)
+            .find(|frame| frame.header() == game::PLAYER_CREATE)
             .expect("a player create");
         assert_eq!(
             u32::from_le_bytes([
-                created.body[8],
-                created.body[9],
-                created.body[10],
-                created.body[11]
+                created.body()[8],
+                created.body()[9],
+                created.body()[10],
+                created.body()[11]
             ]),
             traits.appearance,
             "the appearance the character was created with"
@@ -420,14 +420,14 @@ mod tests {
         );
         let created = fallback
             .iter()
-            .find(|frame| frame.header == game::PLAYER_CREATE)
+            .find(|frame| frame.header() == game::PLAYER_CREATE)
             .expect("a player create");
         assert_eq!(
             u32::from_le_bytes([
-                created.body[8],
-                created.body[9],
-                created.body[10],
-                created.body[11]
+                created.body()[8],
+                created.body()[9],
+                created.body()[10],
+                created.body()[11]
             ]),
             game::Appearance::REFERENCE_DEFAULT.pack(),
             "an unrecorded appearance falls back to the reference's default"
@@ -447,13 +447,13 @@ mod tests {
             crate::map::UNLOCKED_MAP_ZEROS,
         );
         assert_eq!(
-            frames.last().expect("a block").header,
+            frames.last().expect("a block").header(),
             game::INSTANCE_LOAD_FINISH
         );
         assert!(
             frames
                 .iter()
-                .all(|frame| frame.header != game::MAP_INIT_START),
+                .all(|frame| frame.header() != game::MAP_INIT_START),
             "the exploration grid belongs to the load block, not here"
         );
         assert!(
@@ -467,15 +467,15 @@ mod tests {
         let frames = load_block(&test_map(), "Asura", AGENT_ID);
         let info = frames
             .iter()
-            .position(|frame| frame.header == game::INSTANCE_LOAD_INFO)
+            .position(|frame| frame.header() == game::INSTANCE_LOAD_INFO)
             .expect("the instance's identity");
         let announced = frames
             .iter()
-            .position(|frame| frame.header == game::MAP_INIT_START)
+            .position(|frame| frame.header() == game::MAP_INIT_START)
             .expect("the grid's dimensions are announced");
         let streamed = frames
             .iter()
-            .position(|frame| frame.header == game::CARTOGRAPHY_DATA)
+            .position(|frame| frame.header() == game::CARTOGRAPHY_DATA)
             .expect("the grid is streamed");
         assert_eq!(
             info + 1,
@@ -497,8 +497,8 @@ mod tests {
     fn the_manifest_has_six_messages_and_ends_on_the_map_itself() {
         let frames = manifest(146);
         assert_eq!(frames.len(), 6);
-        assert_eq!(frames[0].header, game::INSTANCE_MANIFEST_PHASE);
-        assert_eq!(frames[2].header, game::INSTANCE_MANIFEST_DONE);
+        assert_eq!(frames[0].header(), game::INSTANCE_MANIFEST_PHASE);
+        assert_eq!(frames[2].header(), game::INSTANCE_MANIFEST_DONE);
         let last = frames[5].encode();
         assert_eq!(last[0..2], [0x98, 0x01], "the last is a manifest DONE");
         assert_eq!(
@@ -607,10 +607,10 @@ mod tests {
         let named: Vec<u16> = frames
             .iter()
             .filter(|frame| {
-                frame.header == game::PLAYER_CREATE
-                    || frame.header == game::INSTANCE_LOAD_PLAYER_NAME
+                frame.header() == game::PLAYER_CREATE
+                    || frame.header() == game::INSTANCE_LOAD_PLAYER_NAME
             })
-            .map(|frame| frame.header)
+            .map(|frame| frame.header())
             .collect();
         assert_eq!(
             named,
@@ -627,23 +627,23 @@ mod tests {
     #[test]
     fn the_item_block_opens_with_the_stream_and_carries_the_capture() {
         let frames = items_block(&test_map(), &reference_inventory(), 0);
-        assert_eq!(frames[0].header, game::ITEM_STREAM_CREATE);
-        assert_eq!(frames[1].header, game::ITEM_SET_ACTIVE_WEAPON_SET);
+        assert_eq!(frames[0].header(), game::ITEM_STREAM_CREATE);
+        assert_eq!(frames[1].header(), game::ITEM_SET_ACTIVE_WEAPON_SET);
         assert_eq!(
-            frames.last().expect("a block").header,
+            frames.last().expect("a block").header(),
             game::INSTANCE_MANIFEST_DONE,
             "the answer ends with the download manifest, as the reference's does"
         );
         assert!(
             frames
                 .iter()
-                .any(|frame| frame.header == game::CREATE_NAMED_ITEM),
+                .any(|frame| frame.header() == game::CREATE_NAMED_ITEM),
             "the items are in it"
         );
         assert!(
             frames
                 .iter()
-                .any(|frame| frame.header == game::ITEM_MOVE_TO_LOCATION),
+                .any(|frame| frame.header() == game::ITEM_MOVE_TO_LOCATION),
             "and where they sit"
         );
     }
@@ -656,8 +656,8 @@ mod tests {
         let frames = inventory_block(&reference_inventory());
         let bags: Vec<u16> = frames
             .iter()
-            .filter(|frame| frame.header == game::INVENTORY_CREATE_BAG)
-            .map(|frame| u16::from_le_bytes([frame.body[4], frame.body[5]]))
+            .filter(|frame| frame.header() == game::INVENTORY_CREATE_BAG)
+            .map(|frame| u16::from_le_bytes([frame.body()[4], frame.body()[5]]))
             .collect();
         assert_eq!(bags, vec![1, 2, 6, 3, 4, 5]);
     }
@@ -667,12 +667,12 @@ mod tests {
         // A character whose bags have not been written yet: the client must not be told about items that
         // do not exist, and the block must still end where the loading screen ends.
         let frames = items_block(&test_map(), &Inventory::default(), 0);
-        assert_eq!(frames[0].header, game::ITEM_STREAM_CREATE);
+        assert_eq!(frames[0].header(), game::ITEM_STREAM_CREATE);
         assert!(!frames
             .iter()
-            .any(|frame| frame.header == game::CREATE_NAMED_ITEM));
+            .any(|frame| frame.header() == game::CREATE_NAMED_ITEM));
         assert_eq!(
-            frames.last().expect("a block").header,
+            frames.last().expect("a block").header(),
             game::INSTANCE_MANIFEST_DONE
         );
     }
@@ -722,16 +722,16 @@ mod tests {
         let frames = spawn_block(&map, standing);
         assert_eq!(frames.len(), 1);
         assert_eq!(
-            frames[0].header,
+            frames[0].header(),
             game::INSTANCE_LOAD_SPAWN_POINT,
             "the client is told the same coordinate the load info and the agent were built from"
         );
         assert_eq!(
             f32::from_le_bytes([
-                frames[0].body[4],
-                frames[0].body[5],
-                frames[0].body[6],
-                frames[0].body[7]
+                frames[0].body()[4],
+                frames[0].body()[5],
+                frames[0].body()[6],
+                frames[0].body()[7]
             ]),
             6700.0
         );
@@ -758,7 +758,7 @@ mod tests {
             game::chat_message_core("hello"),
             game::chat_message_local(PLAYER_ID, game::CHANNEL_ALL),
         ];
-        assert_eq!(frames[0].header, game::CHAT_MESSAGE_CORE);
+        assert_eq!(frames[0].header(), game::CHAT_MESSAGE_CORE);
         assert_eq!(
             frames[0].len(),
             2 + 2 + 2 * 5,
@@ -767,10 +767,10 @@ mod tests {
         assert_eq!(frames[1].len(), 10);
         assert_eq!(
             u32::from_le_bytes([
-                frames[1].body[4],
-                frames[1].body[5],
-                frames[1].body[6],
-                frames[1].body[7]
+                frames[1].body()[4],
+                frames[1].body()[5],
+                frames[1].body()[6],
+                frames[1].body()[7]
             ]),
             game::CHANNEL_ALL
         );
@@ -909,24 +909,24 @@ mod tests {
         //   `/stuck`                    -> `GameSrv_BroadcastAgentPosition`    (0x002C)
         // Sending the wrong one is the sort of parity bug that looks fine until someone compares traces.
         let stop = game::agent_stop_moving(1);
-        assert_eq!(stop.header, game::AGENT_STOP_MOVING);
+        assert_eq!(stop.header(), game::AGENT_STOP_MOVING);
         assert_eq!(stop.len(), 6, "header, then the agent id");
 
         let position = game::agent_update_position(1, (6602.0, 4485.0), 0);
-        assert_eq!(position.header, game::AGENT_UPDATE_POSITION);
+        assert_eq!(position.header(), game::AGENT_UPDATE_POSITION);
         assert_eq!(position.len(), 16, "header, agent id, two floats, plane");
         assert_eq!(
             f32::from_le_bytes([
-                position.body[4],
-                position.body[5],
-                position.body[6],
-                position.body[7]
+                position.body()[4],
+                position.body()[5],
+                position.body()[6],
+                position.body()[7]
             ]),
             6602.0,
             "the x coordinate follows the agent id"
         );
         assert_eq!(
-            u16::from_le_bytes([position.body[12], position.body[13]]),
+            u16::from_le_bytes([position.body()[12], position.body()[13]]),
             0,
             "and the plane is the last field"
         );

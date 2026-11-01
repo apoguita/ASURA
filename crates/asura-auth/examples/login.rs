@@ -157,32 +157,32 @@ async fn main() -> ExitCode {
         };
 
         for frame in frames {
-            let name = tables::entry(frame.header)
+            let name = tables::entry(frame.header())
                 .and_then(|entry| entry.name)
                 .unwrap_or("unnamed");
             eprintln!(
                 "login <- {:#06X} {name} ({} bytes)",
-                frame.header,
+                frame.header(),
                 frame.len()
             );
 
-            match frame.header {
+            match frame.header() {
                 tables::AUTH_SMSG_CHARACTER_INFO => {
                     characters += 1;
-                    eprintln!("           character: {}", read_character_name(&frame.body));
+                    eprintln!("           character: {}", read_character_name(&frame.body()));
                 }
                 tables::AUTH_SMSG_ACCOUNT_SETTINGS => {
                     let data = u32::from_le_bytes([
-                        frame.body[4],
-                        frame.body[5],
-                        frame.body[6],
-                        frame.body[7],
+                        frame.body()[4],
+                        frame.body()[5],
+                        frame.body()[6],
+                        frame.body()[7],
                     ]);
                     eprintln!("           stored settings: {data} bytes");
                 }
                 tables::AUTH_SMSG_ACCOUNT_INFO => {
                     let account =
-                        Uuid::from_bytes_le(frame.body[28..44].try_into().expect("16 bytes"));
+                        Uuid::from_bytes_le(frame.body()[28..44].try_into().expect("16 bytes"));
                     eprintln!("           account: {account}");
                 }
                 tables::AUTH_SMSG_REQUEST_RESPONSE => {

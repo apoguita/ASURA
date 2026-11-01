@@ -148,7 +148,7 @@ async fn log_in(
     let mut plaintext: Vec<Frame> = Vec::new();
     while !plaintext
         .iter()
-        .any(|frame| frame.header == tables::AUTH_SMSG_REQUEST_RESPONSE)
+        .any(|frame| frame.header() == tables::AUTH_SMSG_REQUEST_RESPONSE)
     {
         let read = tokio::time::timeout(TIMEOUT, stream.read(&mut buffer))
             .await
@@ -177,7 +177,7 @@ async fn travel(stream: &mut TcpStream, client: &mut ReferenceClient, map_id: u3
     let mut frames: Vec<Frame> = Vec::new();
     let mut buffer = [0u8; 8192];
     while !frames.iter().any(|frame| {
-        frame.header == tables::AUTH_SMSG_REQUEST_RESPONSE
+        frame.header() == tables::AUTH_SMSG_REQUEST_RESPONSE
             && RequestResponse::decode(frame).is_ok_and(|reply| reply.request == TRAVEL_REQUEST)
     }) {
         let read = tokio::time::timeout(TIMEOUT, stream.read(&mut buffer))
@@ -233,7 +233,7 @@ async fn a_travel_request_is_answered_with_a_reachable_world() {
     log_in(&mut stream, &mut client, seeded.portal_user, seeded.session).await;
     let frames = travel(&mut stream, &mut client, map_id as u32).await;
 
-    let headers: Vec<u16> = frames.iter().map(|frame| frame.header).collect();
+    let headers: Vec<u16> = frames.iter().map(|frame| frame.header()).collect();
     assert_eq!(
         headers,
         vec![
@@ -245,15 +245,15 @@ async fn a_travel_request_is_answered_with_a_reachable_world() {
 
     let info = &frames[0];
     assert_eq!(info.len(), 42, "the info message is 42 bytes");
-    assert_eq!(info.body.len(), 40);
+    assert_eq!(info.body().len(), 40);
 
     // req_id, map_token, map_id, host[24], player_token.
     let dword = |offset: usize| {
         u32::from_le_bytes([
-            info.body[offset],
-            info.body[offset + 1],
-            info.body[offset + 2],
-            info.body[offset + 3],
+            info.body()[offset],
+            info.body()[offset + 1],
+            info.body()[offset + 2],
+            info.body()[offset + 3],
         ])
     };
     assert_eq!(dword(0), TRAVEL_REQUEST, "the request id is echoed");
@@ -264,9 +264,9 @@ async fn a_travel_request_is_answered_with_a_reachable_world() {
     // The host blob: AF_INET little endian, port big endian, then the address bytes. It names the
     // **auth** address, because that is where a client dials its game connection (measured, not
     // assumed) and where this service routes it onwards.
-    assert_eq!(&info.body[12..14], &[0x02, 0x00], "AF_INET, little endian");
+    assert_eq!(&info.body()[12..14], &[0x02, 0x00], "AF_INET, little endian");
     assert_eq!(
-        &info.body[14..16],
+        &info.body()[14..16],
         &(harness.address.port()).to_be_bytes(),
         "the port is big endian, and it is the auth port"
     );
@@ -274,7 +274,7 @@ async fn a_travel_request_is_answered_with_a_reachable_world() {
         std::net::IpAddr::V4(v4) => v4.octets(),
         std::net::IpAddr::V6(_) => panic!("the test listener binds IPv4"),
     };
-    assert_eq!(&info.body[16..20], &advertised, "and the address itself");
+    assert_eq!(&info.body()[16..20], &advertised, "and the address itself");
 
     let reply = RequestResponse::decode(&frames[1]).expect("decodes");
     assert_eq!(
@@ -365,7 +365,7 @@ async fn a_map_nobody_publishes_is_refused_without_an_info_message() {
         1,
         "only the response, with no info message to act on"
     );
-    assert_eq!(frames[0].header, tables::AUTH_SMSG_REQUEST_RESPONSE);
+    assert_eq!(frames[0].header(), tables::AUTH_SMSG_REQUEST_RESPONSE);
     assert_eq!(
         RequestResponse::decode(&frames[0]).expect("decodes").status,
         asura_auth::travel::STATUS_NETWORK_ERROR,

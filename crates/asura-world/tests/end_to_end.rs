@@ -193,7 +193,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
         .await
         .expect("write the login");
     let frames = read_auth_frames(&mut auth_stream, &mut auth_client, |frame| {
-        frame.header == tables::AUTH_SMSG_REQUEST_RESPONSE
+        frame.header() == tables::AUTH_SMSG_REQUEST_RESPONSE
             && RequestResponse::decode(frame).is_ok_and(|reply| reply.request == LOGIN_REQUEST)
     })
     .await;
@@ -217,14 +217,14 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
         .await
         .expect("write the travel request");
     let frames = read_auth_frames(&mut auth_stream, &mut auth_client, |frame| {
-        frame.header == tables::AUTH_SMSG_REQUEST_RESPONSE
+        frame.header() == tables::AUTH_SMSG_REQUEST_RESPONSE
             && RequestResponse::decode(frame).is_ok_and(|reply| reply.request == TRAVEL_REQUEST)
     })
     .await;
 
     let info = frames
         .iter()
-        .find(|frame| frame.header == tables::AUTH_SMSG_GAME_SERVER_INFO)
+        .find(|frame| frame.header() == tables::AUTH_SMSG_GAME_SERVER_INFO)
         .expect("a travel that is placed is answered with GAME_SERVER_INFO");
     assert_eq!(info.len(), 42);
 
@@ -237,7 +237,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
     // ignored the port in this same message and dialled the address it was launched with), and it is
     // what the reference does, whose auth port receives game connections and hands them to a game
     // server. This service routes the connection onwards (`asura_auth::frontdoor`).
-    let host = &info.body[12..36];
+    let host = &info.body()[12..36];
     assert_eq!(&host[0..2], &[2, 0], "AF_INET");
     let port = u16::from_be_bytes([host[2], host[3]]);
     let ip = std::net::Ipv4Addr::new(host[4], host[5], host[6], host[7]);
@@ -251,10 +251,10 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
         "and that is a different socket from the world's own (the routing is not accidental)"
     );
 
-    let map_token = u32::from_le_bytes([info.body[4], info.body[5], info.body[6], info.body[7]]);
+    let map_token = u32::from_le_bytes([info.body()[4], info.body()[5], info.body()[6], info.body()[7]]);
     // req_id(4) + map_token(4) + map_id(4) + host(24) = 36, then the player token.
     let player_token =
-        u32::from_le_bytes([info.body[36], info.body[37], info.body[38], info.body[39]]);
+        u32::from_le_bytes([info.body()[36], info.body()[37], info.body()[38], info.body()[39]]);
     assert_eq!(map_token, world_id as u32, "the map token is the world id");
     assert_ne!(player_token, 0, "and a player token was issued");
 
@@ -295,7 +295,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
     // (a) the load block
     while !frames
         .iter()
-        .any(|frame| frame.header == game::INSTANCE_LOAD_INFO)
+        .any(|frame| frame.header() == game::INSTANCE_LOAD_INFO)
     {
         let read = tokio::time::timeout(TIMEOUT, game_stream.read(&mut buffer))
             .await
@@ -320,7 +320,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
 
     let mut saw_finish = frames
         .iter()
-        .any(|frame| frame.header == game::INSTANCE_LOAD_FINISH);
+        .any(|frame| frame.header() == game::INSTANCE_LOAD_FINISH);
     while !saw_finish {
         let read = tokio::time::timeout(TIMEOUT, game_stream.read(&mut buffer))
             .await
@@ -330,21 +330,21 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
         let arrived = game_client.receive_game(&buffer[..read]).expect("frames");
         saw_finish = arrived
             .iter()
-            .any(|frame| frame.header == game::INSTANCE_LOAD_FINISH);
+            .any(|frame| frame.header() == game::INSTANCE_LOAD_FINISH);
         frames.extend(arrived);
     }
 
     // The spawn point names the blob and the coordinate the map's config holds.
     let spawn = frames
         .iter()
-        .find(|frame| frame.header == game::INSTANCE_LOAD_SPAWN_POINT)
+        .find(|frame| frame.header() == game::INSTANCE_LOAD_SPAWN_POINT)
         .expect("a spawn point");
     assert_eq!(
-        u32::from_le_bytes([spawn.body[0], spawn.body[1], spawn.body[2], spawn.body[3]]),
+        u32::from_le_bytes([spawn.body()[0], spawn.body()[1], spawn.body()[2], spawn.body()[3]]),
         MAP_BLOB
     );
     assert_eq!(
-        f32::from_le_bytes([spawn.body[4], spawn.body[5], spawn.body[6], spawn.body[7]]),
+        f32::from_le_bytes([spawn.body()[4], spawn.body()[5], spawn.body()[6], spawn.body()[7]]),
         SPAWN.0
     );
 

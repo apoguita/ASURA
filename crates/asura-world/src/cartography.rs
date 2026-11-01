@@ -164,18 +164,18 @@ mod tests {
         let blob = unexplored_blob(TYRIA);
 
         let start = &frames[0];
-        assert_eq!(start.header, game::MAP_INIT_START);
+        assert_eq!(start.header(), game::MAP_INIT_START);
         assert_eq!(start.len(), 14, "three dwords after the header");
         assert_eq!(
-            u32::from_le_bytes([start.body[0], start.body[1], start.body[2], start.body[3]]),
+            u32::from_le_bytes([start.body()[0], start.body()[1], start.body()[2], start.body()[3]]),
             TYRIA.0
         );
         assert_eq!(
-            u32::from_le_bytes([start.body[4], start.body[5], start.body[6], start.body[7]]),
+            u32::from_le_bytes([start.body()[4], start.body()[5], start.body()[6], start.body()[7]]),
             TYRIA.1
         );
         assert_eq!(
-            u32::from_le_bytes([start.body[8], start.body[9], start.body[10], start.body[11]]),
+            u32::from_le_bytes([start.body()[8], start.body()[9], start.body()[10], start.body()[11]]),
             blob.len() as u32,
             "the byte count the client waits for"
         );
@@ -183,21 +183,21 @@ mod tests {
         // 16 bytes is one slice of the 260-byte message: a u16 dword count, then the fixed 64 slots.
         assert_eq!(frames.len(), 2, "the announcement and one slice");
         let slice = &frames[1];
-        assert_eq!(slice.header, game::CARTOGRAPHY_DATA);
+        assert_eq!(slice.header(), game::CARTOGRAPHY_DATA);
         assert_eq!(slice.len(), 260, "a u16 count and the fixed 64-slot array");
-        let count = u16::from_le_bytes([slice.body[0], slice.body[1]]);
+        let count = u16::from_le_bytes([slice.body()[0], slice.body()[1]]);
         assert_eq!(
             count,
             blob.len().div_ceil(4) as u16,
             "the dwords that count"
         );
         assert_eq!(
-            &slice.body[2..2 + blob.len()],
+            &slice.body()[2..2 + blob.len()],
             &blob[..],
             "the blob, then padding"
         );
         assert!(
-            slice.body[2 + blob.len()..].iter().all(|byte| *byte == 0),
+            slice.body()[2 + blob.len()..].iter().all(|byte| *byte == 0),
             "the rest of the fixed payload is zero"
         );
     }

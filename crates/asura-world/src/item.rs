@@ -479,7 +479,7 @@ pub async fn handle_drop_item(
     world: &World,
     player: &mut Player,
 ) -> Result<bool, GameError> {
-    let body = &frame.body;
+    let body = &frame.body();
     if body.len() < 5 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 7 }));
     }
@@ -503,7 +503,7 @@ pub async fn handle_item_move(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    let body = &frame.body;
+    let body = &frame.body();
     if body.len() < 7 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 9 }));
     }
@@ -540,7 +540,7 @@ pub async fn handle_equip_item(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    let body = &frame.body;
+    let body = &frame.body();
     if body.len() < 4 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 6 }));
     }

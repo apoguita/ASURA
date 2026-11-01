@@ -480,11 +480,11 @@ pub async fn run(
                     match Frame::decode_game_message(&session.plaintext, true) {
                         Ok((frame, used)) => {
                             session.plaintext.drain(..used);
-                            crate::capture::record("CToS", frame.header, &frame.encode());
+                            crate::capture::record("CToS", frame.header(), &frame.encode());
                             if trace {
                                 eprintln!(
                                     "world <- {:#06X} ({used} bytes): {}",
-                                    frame.header,
+                                    frame.header(),
                                     hex_preview(&frame.encode())
                                 );
                             }
@@ -529,9 +529,9 @@ pub async fn send(
 ) -> Result<(), GameError> {
     for frame in frames {
         let mut bytes = frame.encode();
-        crate::capture::record("StoC", frame.header, &bytes);
+        crate::capture::record("StoC", frame.header(), &bytes);
         if trace {
-            eprintln!("world -> {:#06X} ({} bytes)", frame.header, bytes.len());
+            eprintln!("world -> {:#06X} ({} bytes)", frame.header(), bytes.len());
         }
         session.established.outgoing.apply(&mut bytes);
         stream.write_all(&bytes).await?;

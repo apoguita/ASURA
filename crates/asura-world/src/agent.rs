@@ -511,15 +511,15 @@ pub async fn handle_move_to_coord(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    if frame.body.len() < 12 {
+    if frame.body().len() < 12 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
     }
     let destination = (
-        f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
-        f32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]),
+        f32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]),
+        f32::from_le_bytes([frame.body()[4], frame.body()[5], frame.body()[6], frame.body()[7]]),
     );
     let plane =
-        u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]]) as u16;
+        u32::from_le_bytes([frame.body()[8], frame.body()[9], frame.body()[10], frame.body()[11]]) as u16;
     let agent_id = player.GetAgentID();
     let instance = Arc::clone(&player.instance);
     let map_id = instance.map.map_id;
@@ -550,7 +550,7 @@ pub async fn handle_move_to_coord(
             } else {
                 ""
             },
-            frame.body.len() + 2
+            frame.body().len() + 2
         );
     }
 
@@ -666,15 +666,15 @@ pub fn handle_position_update(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    if frame.body.len() < 12 {
+    if frame.body().len() < 12 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
     }
     let position = (
-        f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
-        f32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]),
+        f32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]),
+        f32::from_le_bytes([frame.body()[4], frame.body()[5], frame.body()[6], frame.body()[7]]),
     );
     let plane =
-        u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]]) as u16;
+        u32::from_le_bytes([frame.body()[8], frame.body()[9], frame.body()[10], frame.body()[11]]) as u16;
     let now = Instant::now();
     let before = player.standing();
     let instance = Arc::clone(&player.instance);
@@ -713,7 +713,7 @@ pub fn handle_position_update(
                 standing.position.0,
                 standing.position.1,
                 standing.plane,
-                frame.body.len() + 2
+                frame.body().len() + 2
             );
             if adopted == Adopted::Accepted && plane != before.plane {
                 slot.move_stats.plane_changes += 1;
@@ -809,7 +809,7 @@ pub async fn handle_cancel_movement(
             } else {
                 " (no server-side walk was running)"
             },
-            frame.body.len() + 2
+            frame.body().len() + 2
         );
     }
     instance.broadcast(player.player_id, std::slice::from_ref(&stop));
@@ -825,15 +825,15 @@ pub fn handle_last_position(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    if frame.body.len() < 12 {
+    if frame.body().len() < 12 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
     }
     let position = (
-        f32::from_le_bytes([frame.body[0], frame.body[1], frame.body[2], frame.body[3]]),
-        f32::from_le_bytes([frame.body[4], frame.body[5], frame.body[6], frame.body[7]]),
+        f32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]),
+        f32::from_le_bytes([frame.body()[4], frame.body()[5], frame.body()[6], frame.body()[7]]),
     );
     let plane =
-        u32::from_le_bytes([frame.body[8], frame.body[9], frame.body[10], frame.body[11]]) as u16;
+        u32::from_le_bytes([frame.body()[8], frame.body()[9], frame.body()[10], frame.body()[11]]) as u16;
     let instance = Arc::clone(&player.instance);
     let Some(taken) = instance.with_slot(player.player_id, |slot| {
         slot.agent.adopt_correction(position, plane)

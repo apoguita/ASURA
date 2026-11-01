@@ -218,9 +218,9 @@ impl Writer {
 }
 
 fn expect(frame: &Frame, expected: u16) -> Result<(), MessageError> {
-    if frame.header != expected {
+    if frame.header() != expected {
         return Err(MessageError::UnexpectedHeader {
-            got: frame.header,
+            got: frame.header(),
             expected,
         });
     }
@@ -311,7 +311,7 @@ impl PortalAccountLogin {
     /// Read the message out of a received frame.
     pub fn decode(frame: &Frame) -> Result<Self, MessageError> {
         expect(frame, tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN)?;
-        let mut reader = Reader::new(&frame.body);
+        let mut reader = Reader::new(&frame.body());
         let request = reader.u32("req_id")?;
         let user_id = reader.array16(16, "user_id")?;
         let session_id = reader.array16(16, "session_id")?;
@@ -364,7 +364,7 @@ impl RequestResponse {
 
     pub fn decode(frame: &Frame) -> Result<Self, MessageError> {
         expect(frame, tables::AUTH_SMSG_REQUEST_RESPONSE)?;
-        let mut reader = Reader::new(&frame.body);
+        let mut reader = Reader::new(&frame.body());
         Ok(RequestResponse {
             request: reader.u32("req_id")?,
             status: reader.u32("status")?,
@@ -776,7 +776,7 @@ mod tests {
         ] {
             let bytes = frame.encode();
             let (decoded, used) = Frame::decode_client_message(&bytes)
-                .unwrap_or_else(|err| panic!("header {:#06X}: {err}", frame.header));
+                .unwrap_or_else(|err| panic!("header {:#06X}: {err}", frame.header()));
             assert_eq!(decoded, frame);
             assert_eq!(used, bytes.len());
         }
@@ -800,7 +800,7 @@ mod tests {
             !frame.size_is_expected(),
             "a client message is not the table's size, and must not be validated as if it were"
         );
-        assert!(frame.len() < tables::expected_size(frame.header).expect("known header"));
+        assert!(frame.len() < tables::expected_size(frame.header()).expect("known header"));
 
         let bytes = frame.encode();
         let (decoded, used) = Frame::decode_client_message(&bytes).expect("walks its layout");
@@ -817,7 +817,7 @@ mod tests {
         // The count is a u16 and the data is exactly that long: measured, `16 00 | req_id | 4f 02
         // <591 bytes>` - 599 bytes total, where the table's padded maximum is 2058.
         let frame = account_settings(0x1234);
-        let body = &frame.body;
+        let body = &frame.body();
         assert_eq!(
             u32::from_le_bytes([body[0], body[1], body[2], body[3]]),
             0x1234
@@ -843,32 +843,32 @@ mod tests {
         let frame = account_info(9, account, Some(character), 26);
 
         assert_eq!(
-            u32::from_le_bytes(frame.body[0..4].try_into().expect("4")),
+            u32::from_le_bytes(frame.body()[0..4].try_into().expect("4")),
             9
         );
         // req_id, h0006, h000A, then h000E and h0016 (8 each), then the two UUIDs.
-        assert_eq!(&frame.body[12..20], &[0x3F, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(&frame.body()[12..20], &[0x3F, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(
-            &frame.body[20..28],
+            &frame.body()[20..28],
             &[0x80, 0x3F, 0x42, 0x00, 0x83, 0x00, 0x0C, 0x02]
         );
-        assert_eq!(&frame.body[28..44], &account);
-        assert_eq!(&frame.body[44..60], &character);
+        assert_eq!(&frame.body()[28..44], &account);
+        assert_eq!(&frame.body()[44..60], &character);
 
         // With no character selected the reference sends zeroes rather than omitting the field.
         let empty = account_info(9, account, None, 26);
         assert_eq!(empty.len(), frame.len());
-        assert!(empty.body[44..60].iter().all(|byte| *byte == 0));
+        assert!(empty.body()[44..60].iter().all(|byte| *byte == 0));
 
         // The EULA version sits between the 8 feature bytes and `unk5`: 4 + 4 + 4 + 8 + 8 + 16 + 16
         // + 4 + 2 + 8 = 74 bytes before it, and `unk5` (a dword) is all that follows.
         assert_eq!(
-            frame.body[74], 26,
+            frame.body()[74], 26,
             "the accepted version is the byte we send"
         );
-        assert_eq!(&frame.body[75..79], &[3, 0, 0, 0], "unk5 after it");
+        assert_eq!(&frame.body()[75..79], &[3, 0, 0, 0], "unk5 after it");
         assert_eq!(
-            account_info(9, account, None, 0).body[74],
+            account_info(9, account, None, 0).body()[74],
             0,
             "a fresh account asks"
         );
@@ -949,8 +949,13 @@ mod tests {
             character_name: "A".to_string(),
             kind: String::new(),
         };
-        let mut frame = login.frame().expect("builds");
-        frame.body.truncate(frame.body.len() - 8);
+        let frame = login.frame().expect("builds");
+        // One message, one representation: a body that ends early is a message built eight bytes
+        // short, and it is refused because the table says what its fields must add up to.
+        let short = frame.body().len() - 8;
+        let mut message = frame.body().to_vec();
+        message.truncate(short);
+        let frame = super::super::Frame::new(frame.header(), message);
         assert!(matches!(
             PortalAccountLogin::decode(&frame),
             Err(MessageError::Truncated { .. })
@@ -984,7 +989,7 @@ mod tests {
         .expect("builds");
 
         // The charname count sits after req_id, user_id and session_id.
-        frame.body[36..40].copy_from_slice(&21u32.to_le_bytes());
+        frame.body_mut()[36..40].copy_from_slice(&21u32.to_le_bytes());
         assert_eq!(
             PortalAccountLogin::decode(&frame),
             Err(MessageError::TooLong {
@@ -1027,8 +1032,8 @@ mod tests {
 
         let (frame, used) = Frame::decode_client_message(CAPTURED_LOGIN).expect("frames");
         assert_eq!(used, 54, "the whole message, and no more");
-        assert_eq!(frame.header, tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN);
-        assert_eq!(frame.body.len(), 52);
+        assert_eq!(frame.header(), tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN);
+        assert_eq!(frame.body().len(), 52);
 
         let login = PortalAccountLogin::decode(&frame).expect("decodes");
         assert_eq!(login.request, 1);
@@ -1154,7 +1159,7 @@ mod tests {
         let bytes = frame.encode();
         assert_eq!(bytes.len(), 102);
         assert!(
-            bytes.len() < tables::expected_size(frame.header).expect("known header"),
+            bytes.len() < tables::expected_size(frame.header()).expect("known header"),
             "the wire is shorter than the table's maximum"
         );
 
@@ -1197,10 +1202,10 @@ mod tests {
         let rest = &CAPTURED_PREAMBLE[used..];
         assert_eq!(rest.len(), 22);
         let (hash, consumed) = Frame::decode(rest).expect("the hash frames by the table");
-        assert_eq!(hash.header, tables::AUTH_CMSG_SEND_COMPUTER_HASH);
+        assert_eq!(hash.header(), tables::AUTH_CMSG_SEND_COMPUTER_HASH);
         assert_eq!(consumed, 22);
         assert_eq!(
-            u32::from_le_bytes([hash.body[0], hash.body[1], hash.body[2], hash.body[3]]),
+            u32::from_le_bytes([hash.body()[0], hash.body()[1], hash.body()[2], hash.body()[3]]),
             39112,
             "the hash message carries the client's build number"
         );
@@ -1267,7 +1272,7 @@ mod tests {
             Frame::decode_client_message(&bytes).expect("fixed size, walks by the table");
         assert_eq!(used, 26);
         assert_eq!(
-            GameInstanceRequest::decode(&decoded.body).expect("decodes"),
+            GameInstanceRequest::decode(&decoded.body()).expect("decodes"),
             GameInstanceRequest {
                 request: 7,
                 map_type: 0,
@@ -1294,8 +1299,8 @@ mod tests {
         let bytes = frame.encode();
 
         assert_eq!(bytes.len(), 42, "the table says 42, and this message is 42");
-        assert_eq!(frame.header, tables::AUTH_SMSG_GAME_SERVER_INFO);
-        assert_eq!(frame.body.len(), 40);
+        assert_eq!(frame.header(), tables::AUTH_SMSG_GAME_SERVER_INFO);
+        assert_eq!(frame.body().len(), 40);
 
         // req_id, map_token, map_id, host, player_token - read as plain little-endian dwords either
         // side of the host blob.
