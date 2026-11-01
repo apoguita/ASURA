@@ -466,6 +466,15 @@ def run_capture(args) -> int:
                     "name": target.get("name"),
                     **identity,
                 },
+                # The layer this file is written in. The sniffer hooks the client's own receive and send
+                # paths, so a record holds the client's message *struct*: a four-byte header (the u16 id
+                # and a zero u16), every field widened to four bytes, and zero padding out to the
+                # struct's size. A wire capture - `asura-world --capture` - holds the packed frame with
+                # its two-byte header instead. The two are not interchangeable and the difference is not
+                # a second protocol (docs/03-protocol.md 5e), so the layer travels with the file and a
+                # reader takes the header length from here rather than assuming four.
+                "layer": "struct",
+                "header_len": 4,
                 "directions": args.dir,
                 "header_filter": sorted(headers) if headers else None,
                 "seconds": args.seconds,

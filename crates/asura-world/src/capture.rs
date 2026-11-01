@@ -1,15 +1,20 @@
 //! A server-side packet capture: every game message, both directions, as plaintext JSONL.
 //!
-//! The client-side sniffer (`tools/sniff-capture.py`) records what the client's socket carried,
-//! through an injected hook. This records the *same* messages from this side of the wire - they are
-//! identical bytes: this server encodes the plaintext frame and then ARC4-scrambles it on the way
-//! out, and it undoes the scramble on the way in. So a drift, a terrain jump or a load failure can
-//! be captured with no injected client, no elevated shell and nothing from another project.
+//! The client-side sniffer (`tools/sniff-capture.py`) records the client's *message struct*, through
+//! an injected hook: a four-byte header (the u16 id and a zero u16), every field widened to four
+//! bytes, and zero padding out to the struct's size. This capture records the other layer, the wire:
+//! the plaintext frame with its **two-byte** header and the packed fields, which is what this server
+//! hands ARC4 on the way out and reads back after unscrambling on the way in.
+//!
+//! The two layers are not interchangeable, and the difference between them is not a second protocol
+//! (`docs/03-protocol.md` 5e). So a record states which layer it is: a reader takes the header length
+//! from the file's own header record and never assumes it. Payload offsets in a struct-layer capture
+//! start four bytes in; in this one, two.
 //!
 //! One file, one JSON object per line, starting with a header record:
 //!
 //! ```text
-//! {"record":"capture","tool":"asura-world","started_at":"..."}
+//! {"record":"capture","tool":"asura-world","layer":"wire","header_len":2,"started_at":"..."}
 //! {"seq":1,"t":0.012,"direction":"StoC","header":153,"size":12,"data":"99000000a100000000000000"}
 //! {"seq":2,"t":0.498,"direction":"CToS","header":32829,"size":26,"data":"3d80000000000000..."}
 //! ```
@@ -17,7 +22,6 @@
 //! `t` is seconds since the capture started, so a capture lines up with the world log by time.
 //! Nothing is sanitised: this file never leaves the machine (it is gitignored), and the whole point
 //! is the payloads.
-
 use std::io::{BufWriter, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -47,7 +51,7 @@ pub fn install(path: &str) -> std::io::Result<()> {
     let mut writer = capture.writer.lock().unwrap_or_else(|err| err.into_inner());
     writeln!(
         writer,
-        "{{\"record\":\"capture\",\"tool\":\"asura-world\",\"started_at\":\"{}\"}}",
+        "{{\"record\":\"capture\",\"tool\":\"asura-world\",\"layer\":\"wire\",\"header_len\":2,\"started_at\":\"{}\"}}",
         chrono_like_now()
     )?;
     writer.flush()?;
