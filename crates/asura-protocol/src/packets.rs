@@ -2343,6 +2343,44 @@ pub mod game {
     pub fn fields(header: u16, from_client: bool) -> Option<&'static [Field]> {
         lookup(header, from_client).map(|entry| entry.fields)
     }
+
+    // The names below were given to their rows during the identification passes of 2026-11-01; the row
+    // carries the evidence, this block only saves a reader from typing the header.
+
+    /// `GAME_SMSG_AGENT_UPDATE_FLAGS` (`0x0026`).
+    pub const GAME_SMSG_AGENT_UPDATE_FLAGS: u16 = 0x0026;
+    /// `GAME_SMSG_UPDATE_AGENT_VISUAL_EQUIPMENT_SLOT` (`0x006F`).
+    pub const GAME_SMSG_UPDATE_AGENT_VISUAL_EQUIPMENT_SLOT: u16 = 0x006F;
+    /// `GAME_SMSG_MAP_INIT_START` (`0x008B`).
+    pub const GAME_SMSG_MAP_INIT_START: u16 = 0x008B;
+    /// `GAME_SMSG_MAP_MARKER` (`0x008D`).
+    pub const GAME_SMSG_MAP_MARKER: u16 = 0x008D;
+    /// `GAME_SMSG_AGENT_UPDATE_MORALE` (`0x009C`).
+    pub const GAME_SMSG_AGENT_UPDATE_MORALE: u16 = 0x009C;
+    /// `GAME_SMSG_PREFERENCES_BLOB` (`0x00B5`).
+    pub const GAME_SMSG_PREFERENCES_BLOB: u16 = 0x00B5;
+    /// `GAME_SMSG_CHAR_VISIBILITY_FLAGS` (`0x00EF`).
+    pub const GAME_SMSG_CHAR_VISIBILITY_FLAGS: u16 = 0x00EF;
+    /// `GAME_SMSG_GADGET_SET_FLAGS` (`0x0115`).
+    pub const GAME_SMSG_GADGET_SET_FLAGS: u16 = 0x0115;
+    /// `GAME_SMSG_TOWN_ALLIANCE_COMMIT` (`0x011B`).
+    pub const GAME_SMSG_TOWN_ALLIANCE_COMMIT: u16 = 0x011B;
+    /// `GAME_SMSG_TOWN_ALLIANCE_END` (`0x011C`).
+    pub const GAME_SMSG_TOWN_ALLIANCE_END: u16 = 0x011C;
+    /// `GAME_SMSG_LOCATION_TAG` (`0x012E`).
+    pub const GAME_SMSG_LOCATION_TAG: u16 = 0x012E;
+    /// `GAME_SMSG_ITEM_LOW_DETAIL` (`0x015E`).
+    pub const GAME_SMSG_ITEM_LOW_DETAIL: u16 = 0x015E;
+    /// `GAME_SMSG_LATENCY_ENABLE` (`0x016E`).
+    pub const GAME_SMSG_LATENCY_ENABLE: u16 = 0x016E;
+    /// `GAME_SMSG_INSTANCE_TABLE` (`0x01A0`).
+    pub const GAME_SMSG_INSTANCE_TABLE: u16 = 0x01A0;
+    /// `GAME_CMSG_COMPUTER_INFO` (`0x800A`).
+    pub const GAME_CMSG_COMPUTER_INFO: u16 = 0x800A;
+    /// `GAME_CMSG_COMPUTER_HASH` (`0x800B`).
+    pub const GAME_CMSG_COMPUTER_HASH: u16 = 0x800B;
+    /// `GAME_CMSG_INSTANCE_QUERY` (`0x8093`).
+    pub const GAME_CMSG_INSTANCE_QUERY: u16 = 0x8093;
 }
 
 #[cfg(test)]

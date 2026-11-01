@@ -26,7 +26,7 @@
 use std::path::Path;
 
 use asura_protocol::client::Frame;
-use asura_protocol::msg;
+use asura_protocol::packets::game as msg;
 
 /// A block of messages the reference sent, ready to be sent again.
 pub type Block = Vec<Frame>;

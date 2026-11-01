@@ -7,7 +7,7 @@
 //!
 //! A header with no arm is framed and ignored - named in the trace, never guessed at.
 
-use asura_protocol::msg;
+use asura_protocol::packets::game as msg;
 
 use crate::*;
 
@@ -98,6 +98,54 @@ pub async fn answer(
                 eprintln!("world: {other:#06X} {name} ignored");
             }
             Ok(true)
+        }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use asura_protocol::packets::{game as msg, lookup, Conn, Status};
+
+    /// A rename is only safe while the constant and the catalogue row still name the same message at
+    /// the same header. Every arm of [`answer`] is checked here against the row it claims to be, so a
+    /// constant that drifts from the catalogue fails a test instead of quietly dispatching the wrong
+    /// message.
+    #[test]
+    fn every_arm_names_the_message_the_catalogue_names() {
+        let arms: &[(u16, &str)] = &[
+            (msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_ITEMS, "GAME_CMSG_INSTANCE_LOAD_REQUEST_ITEMS"),
+            (msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_SPAWN, "GAME_CMSG_INSTANCE_LOAD_REQUEST_SPAWN"),
+            (msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_PLAYERS, "GAME_CMSG_INSTANCE_LOAD_REQUEST_PLAYERS"),
+            (msg::GAME_CMSG_PING_REQUEST, "GAME_CMSG_PING_REQUEST"),
+            (msg::GAME_CMSG_MOVE_TO_COORD, "GAME_CMSG_MOVE_TO_COORD"),
+            (msg::GAME_CMSG_POSITION_UPDATE, "GAME_CMSG_POSITION_UPDATE"),
+            (msg::GAME_CMSG_CANCEL_MOVEMENT, "GAME_CMSG_CANCEL_MOVEMENT"),
+            (msg::GAME_CMSG_LAST_POS_BEFORE_MOVE_CANCELED, "GAME_CMSG_LAST_POS_BEFORE_MOVE_CANCELED"),
+            (msg::GAME_CMSG_TRAVEL_INIT, "GAME_CMSG_TRAVEL_INIT"),
+            (msg::GAME_CMSG_PARTY_TRAVEL, "GAME_CMSG_PARTY_TRAVEL"),
+            (msg::GAME_CMSG_SEND_CHAT_MESSAGE, "GAME_CMSG_SEND_CHAT_MESSAGE"),
+            (msg::GAME_CMSG_DISCONNECT, "GAME_CMSG_DISCONNECT"),
+            (msg::GAME_CMSG_CHAR_CREATION_REQUEST_PLAYER, "GAME_CMSG_CHAR_CREATION_REQUEST_PLAYER"),
+            (msg::GAME_CMSG_CHAR_CREATION_REQUEST_ARMORS, "GAME_CMSG_CHAR_CREATION_REQUEST_ARMORS"),
+            (msg::GAME_CMSG_CHAR_CREATION_CHANGE_PROF, "GAME_CMSG_CHAR_CREATION_CHANGE_PROF"),
+            (msg::GAME_CMSG_CHAR_CREATION_CONFIRM, "GAME_CMSG_CHAR_CREATION_CONFIRM"),
+            (msg::GAME_CMSG_DROP_ITEM, "GAME_CMSG_DROP_ITEM"),
+            (msg::GAME_CMSG_ITEM_MOVE, "GAME_CMSG_ITEM_MOVE"),
+            (msg::GAME_CMSG_EQUIP_ITEM, "GAME_CMSG_EQUIP_ITEM"),
+            (msg::GAME_CMSG_UNEQUIP_ITEM, "GAME_CMSG_UNEQUIP_ITEM"),
+            (msg::GAME_CMSG_PING_REPLY, "GAME_CMSG_PING_REPLY"),
+            (msg::GAME_CMSG_HEARTBEAT, "GAME_CMSG_HEARTBEAT"),
+        ];
+        assert_eq!(arms.len(), 22, "an arm was added or removed without this table");
+        for (header, name) in arms {
+            let row = lookup(Conn::Game, *header, true)
+                .unwrap_or_else(|| panic!("{name} ({header:#06X}) is not a game client-to-server row"));
+            assert_eq!(
+                row.name,
+                Some(*name),
+                "{header:#06X} is named {:?} in the catalogue, not {name}",
+                row.name
+            );
+            assert_ne!(row.status, Status::Unnamed, "{name} must be a named row");
         }
     }
 }
