@@ -356,6 +356,8 @@ The rules:
 - **A wire size comes from a wire**: `recordings/gwps/world/load-stream.log`, a `--capture` run under
   `recordings/asura/`, or a frame a client accepted under `ASURA_TRACE`. A sniffer capture is evidence
   of a header, a count, an order, a name and a trigger, and never of a size or a field layout.
+- **A sniffer capture widens every field to four bytes**, so it can never settle a field's *width*: a one-byte
+  field and a four-byte field both read `01 00 00 00` there. Sizes and widths come from a wire capture only.
 - **A counted field is framed structurally** (the count is on the wire), never by a fixed number.
 - **The size in `packets.rs` is the reference's `max_size`**: an upper bound for a counted layout, never
   a length to pad a body out to.
