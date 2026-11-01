@@ -437,6 +437,7 @@ pub async fn handle_confirm(
         // The creation flow has no secondary profession: the reference sets one only through
         // `CHAR_CREATION_CHANGE_PROF`, and its confirm leaves the field zero.
         secondary_profession: 0,
+        level: 1,
     };
     // Where the character starts, which is not where it was made. A live creation redirects a Factions
     // character to map 212 (`crates/asura-db/migrations/0017_starter_outpost.sql`). Every other

@@ -380,6 +380,7 @@ mod tests {
             gold: 0,
             campaign: 1,
             secondary_profession: 0,
+            level: 1,
         };
         let frames = player_block(
             "Asura",

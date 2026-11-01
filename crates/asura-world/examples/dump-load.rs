@@ -58,6 +58,7 @@ fn main() {
         gold: 0,
         campaign: 1,
         secondary_profession: 0,
+        level: 1,
     };
     dump(&player_block(
         &name,

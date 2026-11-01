@@ -113,6 +113,9 @@ pub struct Traits {
     pub campaign: u8,
     /// The secondary profession, four bits on the wire.
     pub secondary_profession: u8,
+    /// The character's level (`characters.level`, migration 0009): one of the fifteen dwords
+    /// `GAME_SMSG_CHARACTER_UPDATE_FACTIONS` carries, and the number the client's own record shows.
+    pub level: u16,
 }
 
 impl Default for Traits {
@@ -127,28 +130,30 @@ impl Default for Traits {
             gold: 0,
             campaign: 0,
             secondary_profession: 0,
+            level: 1,
         }
     }
 }
 
 /// The traits of one character, or `None` if there is no such row.
 pub async fn traits(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Traits>> {
-    let row: Option<(i64, i32, i64, i32, i32, i32)> = sqlx::query_as(
+    let row: Option<(i64, i32, i64, i32, i32, i32, i32)> = sqlx::query_as(
         "SELECT appearance, primary_profession, unlocked_professions, gold, campaign::int,
-                secondary_profession::int
+                secondary_profession::int, level::int
            FROM characters WHERE id = $1",
     )
     .bind(character)
     .fetch_optional(pool)
     .await?;
     Ok(row.map(
-        |(appearance, profession, unlocked, gold, campaign, secondary)| Traits {
+        |(appearance, profession, unlocked, gold, campaign, secondary, level)| Traits {
             appearance: appearance as u32,
             profession: profession as u8,
             unlocked_professions: unlocked as u32,
             gold: gold as u32,
             campaign: campaign as u8,
             secondary_profession: secondary as u8,
+            level: level as u16,
         },
     ))
 }

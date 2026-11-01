@@ -513,6 +513,7 @@ async fn the_character_settings_come_back_from_the_row_the_creation_wrote() {
         gold: 0,
         campaign: 1,
         secondary_profession: 0,
+        level: 1,
     };
     let created = db::create_character(&pool, account, "Settings Subject Jr", MAP, traits, &[])
         .await

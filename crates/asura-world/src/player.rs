@@ -133,6 +133,9 @@ pub const DEFAULT_UNLOCKED_PROFESSIONS: u32 = 2;
 // rather than a value computed here; a struct around them would only rename the call site. The same
 // allowance is used where this pattern already exists (`asura_db::inventory`, `asura_protocol::game`).
 #[allow(clippy::too_many_arguments)]
+/// Morale is a percentage around 100, and 100 is the value a live load carries for a character with no
+/// morale modifier (`dump4-after`, `worldcontext.morale`). Sending 0 left the client's morale at zero.
+const MORALE_FULL: u32 = 100;
 pub fn player_block(
     name: &str,
     standing: Standing,
@@ -206,8 +209,26 @@ pub fn player_block(
     ));
     frames.push(game::skillbar_update(agent_id, &[0; 8], &[0; 8], 1));
     frames.push(game::update_unlocked_skills(&[]));
+    // The character record's own numbers, in the reference's order (`GameSrv_UpdatePlayerFactions`).
+    // This used to be thirteen zeros, and thirteen zeros is what the client showed: level 0,
+    // experience 0, morale 0. A live load leaves level 13, experience 68113 and morale 100 in the
+    // client's record for a level-13 character (`dump4-after`, worldcontext.level/experience/morale),
+    // and `characters.level` is where our level comes from. Experience and skill points have no column
+    // yet - a freshly created character has neither - so they go out as zero rather than as absent.
     frames.push(game::character_update_factions(
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,                          // experience: no column yet
+        0,                          // current kurzick
+        0,                          // total earned kurzick
+        0,                          // current luxon
+        0,                          // total earned luxon
+        0,                          // current imperial
+        0,                          // total earned imperial
+        u32::from(traits.level),    // level, from `characters.level`
+        MORALE_FULL,                // morale: 100 is the no-modifier value a live load carries
+        0,                          // current balthazar
+        0,                          // total earned balthazar
+        0,                          // current skill points
+        0,                          // total earned skill points
     ));
     // A live load sends these two immediately after the faction block, once per player: the visibility
     // flags and the player's own flags word (`recordings/asura/world/load-layers-20261031.jsonl`,
