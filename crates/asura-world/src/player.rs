@@ -278,8 +278,7 @@ pub fn player_block(
         direction: (1.0, 0.0),
         speed_base: game::PLAYER_SPEED_BASE,
         player_team_token: PLAYER_TEAM_TOKEN,
-        // The agent's level, which the party window draws: the character row's own level.
-        level: traits.level as u8,
+
     }));
     // The agent's own morale record, which the party panel's morale icon is drawn from. A live server
     // sends one per body at load with 100, the unmodified value; with the record left unset the client
@@ -303,10 +302,14 @@ pub fn player_block(
         agent_id,
         0.0,
     ));
+    // The agent's level, which the party window draws. It is not a field of the create message: it
+    // arrives as agent int-property 36 (`PublicLevel`), which is what the client stores in
+    // `AgentLiving.level` - measured on our own client as 0 while this sent 0, and Rurik's own reading
+    // gives property 36 as the level on this exact opcode (`studies/character/FINDINGS.md`).
     frames.push(game::agent_property_update_int(
         game::AGENT_PROPERTY_PUBLIC_LEVEL,
         agent_id,
-        0,
+        u32::from(traits.level),
     ));
     frames.push(game::agent_initial_effects(agent_id, 0));
     frames.push(game::update_agent_visual_equipment(

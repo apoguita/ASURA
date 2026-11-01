@@ -1169,11 +1169,7 @@ pub struct CreateAgent {
     pub model_id: u32,
     /// `AgentType_Living` (1) for a player, `AgentType_Item` (4) for a dropped item.
     pub agent_type: u8,
-    /// The agent's level, which is the field a live server varies per body: `5` for one NPC and `9`
-    /// for eleven others in one load (`recordings/client/feature/maps/pre-searing-load-3.jsonl`,
-    /// header `0020`). The party window draws it, which is how a hardcoded 5 was visible as everyone
-    /// being the same level.
-    pub level: u8,
+
     pub position: (f32, f32),
     pub plane: u16,
     pub direction: (f32, f32),
@@ -1193,7 +1189,7 @@ pub fn world_create_agent(agent: &CreateAgent) -> crate::client::Frame {
         .u32(agent.agent_id)
         .u32(agent.model_id)
         .u8(agent.agent_type)
-        .u8(agent.level)
+        .u8(5) // h000B
         .f32(agent.position.0)
         .f32(agent.position.1)
         .u16(agent.plane)
@@ -1605,7 +1601,7 @@ mod tests {
                 direction: (1.0, 0.0),
                 speed_base: 288.0,
                 player_team_token: 1,
-                level: 5,
+
             })),
             99
         );
