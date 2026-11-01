@@ -45,6 +45,29 @@ Non-tick messages of that load, grouped in the order they arrived; the counts ar
 | 13 | `0x01A0` (unnamed) | 10 | the instance table (`docs/21-surrounding-packets.md`) |
 | 14 | `0x006B` `POST_PROCESS`, `0x003E` `AGENT_ALLY_DESTROY`, `0x0021` `WORLD_REMOVE_AGENT`, `0x005A` `PLAYER_DESTROY` | 1 each | the tail |
 
+## The two layers, measured (2026-10-31)
+
+One run entered the same outpost twice, with a different-district load of that outpost between them
+(`recordings/asura/world/load-layers-20261031.jsonl`, five loads with their per-header counts). The
+district load carried **0 agent creates** and 260 messages, against 8 creates and 539 messages for the
+full load of the same map. That splits the initialization into two layers by measurement rather than
+by guess:
+
+| layer | what it is | sent on | headers |
+|---|---|---|---|
+| per character | items, titles, party, player flags, guild, the instance table | every load, a district change included | `0x0161`, `0x015E`?, `0x013E`, `0x013F`, `0x00F3`, `0x00F4`, `0x00B0`, `0x00B1`, `0x003C`, `0x0118`, `0x0121`, `0x01A0` |
+| per map population | every body in the instance and its streams | only when the world sends a population | `0x0020`, `0x0021`, `0x0025`, `0x0029`, `0x002B`, `0x0028`, `0x0048`, `0x0056`, `0x0057`, `0x0059`, `0x005A`, `0x006D`, `0x006E`, `0x008C`, `0x009B`, `0x00A6`, `0x00AA`, `0x00F0`, `0x00F1`, `0x0115`, `0x0107` |
+
+The same run measured the per-map shape of a load: 166 loaded with 8 creates and 538 messages, 162
+with 4 and 3 creates and 342 and 238 messages, and `0x008A` carried 132 bytes on every load but the
+session's first. `0x0196` carried a different position per map. So the population block is
+`population = creates` and it is per instance, never a constant to copy from one capture.
+
+What the client asks while this happens, in the same run: `0x8093` eight times, one per instance
+(`166, 145, 146, 148, 160, 161, 162, 164`) when the world map opened; `0x00B1` once, naming 166 as the
+chosen instance; `0x00C1` twice at a portal, `{1, 0}` then `{0, 0}`. None of the three is answered by
+this world today.
+
 ## What this world sends today, in order
 
 `load_block` then `items_block` then `player_block`, from `crates/asura-world/src/{map,item,player}.rs`:
