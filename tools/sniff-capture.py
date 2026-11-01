@@ -454,6 +454,14 @@ def run_capture(args) -> int:
     counts: dict[str, int] = {}
     seq = 0
     captured = 0
+    # The client's own clock, as the hook recorded it (`PacketLogEntry.tick`). `t` below is the tool's
+    # drain clock: it says when this loop read the entry, not when the packet crossed, so a burst that
+    # sat in Py4GW's ring carries one late stamp for all of it and a stall in this loop hides a gap.
+    # Measured 2026-11-01: a load whose client-side steps are 0.05 s apart and 4.97 s apart cannot be
+    # told from `t` alone once the ring is behind. The tick travels in every record so a reader can
+    # subtract the client's own numbers instead; the span is in the summary so its unit is readable.
+    first_tick: int | None = None
+    last_tick: int | None = None
 
     try:
         with open_capture(out) as handle:
@@ -475,6 +483,10 @@ def run_capture(args) -> int:
                 # reader takes the header length from here rather than assuming four.
                 "layer": "struct",
                 "header_len": 4,
+                # Two clocks, and only one of them is the packet's. `t` is when this loop drained the
+                # entry; `tick` is the client's own counter at the hook. Use `tick` for a gap.
+                "timing": ("'t' is the tool's drain clock; 'tick' is the client's own counter at the "
+                           "hook, so a gap between two records is a gap in the client's time"),
                 "directions": args.dir,
                 "header_filter": sorted(headers) if headers else None,
                 "seconds": args.seconds,
@@ -514,9 +526,14 @@ def run_capture(args) -> int:
                                 counts.get(f"{entry.direction} {header:#06x} {name}", 0) + 1
                             )
                             payload = sanitise(entry.direction, header, bytes(entry.data), names)
+                            tick = int(getattr(entry, "tick", 0) or 0)
+                            if first_tick is None:
+                                first_tick = tick
+                            last_tick = tick
                             write_record(handle, {
                                 "seq": seq,
                                 "t": round(time.time() - started, 3),
+                                "tick": tick,
                                 "direction": entry.direction,
                                 "header": header,
                                 "name": name,
@@ -540,6 +557,26 @@ def run_capture(args) -> int:
                     time.sleep(args.poll)
             except KeyboardInterrupt:
                 print("\n--- interrupted")
+
+            # The inventory goes into the file as well as the console: a capture that carries its own
+            # header counts means nobody has to re-read it, or remember the console, to know what it
+            # holds. It is written **inside** the `with` that owns the handle: placed after that
+            # block, every capture that held a packet ended in
+            # `ValueError: I/O operation on closed file` instead of its last record (measured
+            # 2026-11-01: a 344-packet capture of the patched client lost its summary that way).
+            if counts:
+                write_record(handle, {
+                    "record": "summary",
+                    "seconds": round(time.time() - started, 3),
+                    "packets": captured,
+                    "tick_first": first_tick,
+                    "tick_last": last_tick,
+                    "headers": [
+                        {"seen": key, "count": counts[key]}
+                        for key in sorted(counts, key=lambda k: counts[k], reverse=True)
+                    ],
+                    "raw": bool(args.raw),
+                })
     except Exception as exc:  # noqa: BLE001 - always disconnect before leaving
         print(f"capture failed: {exc}", file=sys.stderr)
         return 4
@@ -558,21 +595,11 @@ def run_capture(args) -> int:
             print(f"--- note: disconnect reported {exc}", file=sys.stderr)
 
 
-    # The inventory goes into the file as well as the console: a capture that carries its own header
-    # counts means nobody has to re-read it, or remember the console, to know what it holds. One record at
-    # the end; a reader that does not know the kind sees an unknown record kind and skips it.
-    if counts:
-        write_record(handle, {
-            "record": "summary",
-            "seconds": round(time.time() - started, 3),
-            "packets": captured,
-            "headers": [
-                {"seen": key, "count": counts[key]}
-                for key in sorted(counts, key=lambda k: counts[k], reverse=True)
-            ],
-            "raw": bool(args.raw),
-        })
     print(f"--- {captured} packet(s) in {time.time() - started:.1f}s -> {out}")
+    if first_tick is not None and last_tick is not None:
+        span = last_tick - first_tick
+        print(f"--- client tick {first_tick} -> {last_tick} (span {span}) over "
+              f"{time.time() - started:.1f}s: a gap in client time is a tick gap, not a 't' gap")
     if counts:
         print("--- by header:")
         for key in sorted(counts, key=lambda k: counts[k], reverse=True):

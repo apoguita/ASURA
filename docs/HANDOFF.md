@@ -187,6 +187,23 @@ is_explorable, map_id`). The port target was named by the user all along.
   the 12-byte `0x0099`, reconnects, and lands in the destination's spawn. `docs/03-protocol.md` #5
   records the port target and the two failed attempts that proved it (`007` from a wrong field order,
   `005` from a wrong frame size). `/maps` prints the reference's own table, one row per alias.
+- **A travel into an explorable waits 4.3 s, and the field that decides it is `is_explorable`** (measured
+  2026-10-31 on the patched client, one field moved and nothing else): 5138 ms with the field carrying the
+  destination's own kind against 849 ms with it forced to 0, over the same walk through the same portal; the
+  client's own clock agrees, 7.0 s against 0.90 s
+  (`recordings/client/feature/travel/explorable-flag-on-20261031-223636.jsonl`), and live spends 0.76 s on
+  that step with the same flag at 1 because its explorable is populated. **What the 4.3 s is spent on is an
+  open question**, and the list of what it is *not* is measured: the four withdrawer messages (restored, timed),
+  the world clock inside the load (gated, 0 ticks, same wait), the exploration grid and the instance table
+  (removed entirely with `ASURA_LOAD_EXTRA=off`, same wait), and the database (no stall in a 400-iteration
+  probe). The client asks for the players block - the one that carries a population - only *after* the wait, so
+  a population is what an explorable is missing before the flag can honestly say 1 (row 9 of `docs/23`), not
+  what the wait waits for. The measurement that names it is `tools/context-dump.py` taken inside the wait in
+  both modes. **The default is now `is_explorable` 0 for every travel** so that a crossing costs 849 ms
+  instead of 5138, and it announces an explorable as an outpost until the cause is found.
+  **Two wrong readings of this bug came from timing the client with the sniffer's `t` field, which is the
+  drain clock, not the packet's**: the record's own clock is its `tick`, and a gap read from `t` is a gap in
+  the tool's loop.
 - **Everything a run needs is in this repository.** The web gate is `crates/asura-webgate` (the
   reference's `tools/webgate.py`, ported, database-backed); the path graphs are **bundled** as
   `data/path-graphs.bin` (12 maps, 11.1 MB, measured 2026-10-27) and loaded automatically, so a
@@ -456,6 +473,7 @@ the sandbox token may be blocking TLS - run it from a normal shell, or with full
 | **The stages, from the owner (2026-11-01).** Stage 1 was parity with GWPS and it is closed. Stage 2 is 1:1 correspondence with the **game**: a message is handled the way the client and the game need it, with no GWPS-shaped middle layer and no derived step between the wire and the handler - the reference's arrangement is stage-1 history, not a specification. Stage 3 is naming: no header stays `Unnamed`, and every name carries its evidence. Stage 4 is stream parity: every message of a flow is answered or deliberately ignored with a reason, and nothing is dropped | this document, "Where the next session starts"; `docs/24-stream-parity.md`, `docs/23-initialization-protocol.md` |
 | **The code keeps `Player`** for the character, because the protocol's own messages say `PLAYER` (owner's ruling, 2026-10-30); *character* stays the game's noun in the documents. One word, two concepts - the character, and the `player_id` a party message carries | `docs/22-world-model.md` |
 | **Every load places the character in the last outpost it visited** - including a load into an instance - and a *disconnect* is the one exception, to be implemented separately. Travel therefore has to be recorded rather than inferred: a travel into an explorable must not overwrite the last outpost (owner's ruling, 2026-10-31). Also recorded there: each instance has several entry spawn points chosen at random, a separate set for arriving from an explorable, and quest-driven placement - this world sends one fixed spawn per instance and has neither of the other two | `docs/22-world-model.md`, "Spawn points, and the outpost rule" |
+| **A travel's `is_explorable` selects the client's loading path; it is not a label the client stores.** At 1 an explorable's load waits 4.3 s against an instance with no population (5138 ms against 849 ms with the field forced to 0, the same walk and destination, measured 2026-10-31 on the patched client). **This world now sends 0 for every travel** (`crates/asura-world/src/travel.rs`, `explorable_flag_for`), a recorded deviation from live taken so that travelling works, and it tells the client an explorable is an outpost; `ASURA_TRAVEL_EXPLORABLE=auto` restores the destination's own kind, which is what live sends and what the default becomes once an explorable carries the initialisation `docs/23` says it is missing. The wait's cause is open with its ruled-out list recorded there | `docs/23-initialization-protocol.md`, "The explorable"; `crates/asura-world/src/travel.rs` |
 | **No server-side travel policy.** The client decides where a character may go and the server carries the decision out; the unlocked-instance bitmap is the data it decides with (owner's ruling, 2026-10-30: "the game itself should decide if we can travel or not ... we should simply send the data"). A world refuses a travel only when it cannot serve the instance or has no free seat - never because of the destination's kind, since an outpost and the explorable it exits to can share one map blob | `docs/22-world-model.md`, `crates/asura-world/src/travel.rs` (`handle_party_travel`) |
 
 ## Where the next session starts

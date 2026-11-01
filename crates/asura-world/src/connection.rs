@@ -447,10 +447,12 @@ pub async fn run(
     inbox: &mut tokio::sync::mpsc::UnboundedReceiver<Vec<Frame>>,
     trace: bool,
 ) -> Result<(), GameError> {
-    // The unasked load block is out, so the instance's clock may start ticking this player. Gating
-    // here - not at join - is what keeps a tick out of the load block, and not at the players ask,
-    // because the reference's clock runs for a connected client whether it has asked anything yet.
-    player.instance.loaded(player.player_id);
+    // The instance's clock is **not** released here. It is released by the players block, whose last
+    // message is `INSTANCE_LOAD_FINISH` (`world::handle_request_players`), and the wire is why: in 36
+    // loads of five captures against live servers, not one `0x001E` reached a client between its spawn
+    // request and its players request, while this world sent 49 of them into exactly that window. The
+    // client is inside its loading screen there and does not read, so every tick written at it is work
+    // queued for the moment it comes back - a clock inside a load is a clock it was not built to take.
     let mut ping = tokio::time::interval(PING_INTERVAL);
     let mut buffer = [0u8; 8192];
 

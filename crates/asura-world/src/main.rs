@@ -450,6 +450,16 @@ async fn main() -> ExitCode {
              the cost"
         );
     }
+    eprintln!(
+        "asura-world: a travel's is_explorable: {}",
+        asura_world::explorable_flag_mode()
+    );
+    if asura_world::extra_load_messages_suppressed() {
+        eprintln!(
+            "asura-world: ASURA_LOAD_EXTRA is off: the unasked load block carries no exploration grid \
+             and no instance table (measurement only; a client's map surfaces need the grid)"
+        );
+    }
     if let Err(err) = serve(listener, world, trace.on()).await {
         eprintln!("asura-world: the listener stopped: {err}");
         return ExitCode::FAILURE;

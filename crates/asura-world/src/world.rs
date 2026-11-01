@@ -198,5 +198,10 @@ pub async fn handle_request_players(
         player.instance.broadcast(player.player_id, &mine);
     }
     send(stream, session, block, trace).await?;
+    // The load is over: the block's last message was `INSTANCE_LOAD_FINISH`. Only now may the instance's
+    // clock tick this player - measured, not assumed: 36 live loads carry no `0x001E` between the client's
+    // spawn request and this one, and this world used to send 49 into that window from the unasked block
+    // onwards (see `run`'s comment in connection.rs).
+    player.instance.loaded(player.player_id);
     Ok(true)
 }

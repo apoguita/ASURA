@@ -18,6 +18,54 @@ pub const DISTRICT_NUMBER: u32 = 1;
 /// (`captures/zone-ref2-012225.jsonl` seq 971: `f1 00 00 00 | 43 00 00 00 | 00 01 00 00`).
 pub const TRAVEL_EFFECT: u32 = 0x100;
 
+/// How a redirect's `is_explorable` is decided, and why the default is not the destination's kind.
+///
+/// A live server sends 1 for an explorable and 0 for an outpost (`doors-20261031-095754.jsonl`: 146 and
+/// 147 -> 1, 148 -> 0), and this world sent that too until 2026-10-31. At 1 an explorable's load against
+/// this world waits: 5138 ms from the redirect to the players block against 849 ms at 0, over the same
+/// walk through the same portal (`docs/23-initialization-protocol.md`, "The explorable"). The cause of
+/// that wait is open - the exploration grid and the instance table were ruled out on 2026-10-31 - so the
+/// default is the value that loads, and the faithful value is one variable away.
+///
+/// `ASURA_TRAVEL_EXPLORABLE`: unset or `0` sends 0 for every travel (the default); `1` sends 1; `auto`
+/// sends the destination's own kind, which is what a live server does and what the default becomes once
+/// an explorable carries the initialisation `docs/23` says it is missing.
+pub fn explorable_flag_for(map_type: i32) -> u32 {
+    match flag_mode() {
+        FlagMode::Zero => 0,
+        FlagMode::One => 1,
+        FlagMode::Auto => match map_type {
+            1 | 4 | 6 => 1,
+            _ => 0,
+        },
+    }
+}
+
+/// The switch's mode in words, for the startup line: a log always says which value travels.
+pub fn explorable_flag_mode() -> &'static str {
+    match flag_mode() {
+        FlagMode::Zero => "0 for every travel (default: an explorable is announced as an outpost)",
+        FlagMode::One => "1 for every travel",
+        FlagMode::Auto => "auto: the destination's own kind, which is what a live server sends",
+    }
+}
+
+#[derive(Clone, Copy)]
+enum FlagMode {
+    Zero,
+    One,
+    Auto,
+}
+
+fn flag_mode() -> FlagMode {
+    static MODE: std::sync::OnceLock<FlagMode> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("ASURA_TRAVEL_EXPLORABLE").ok().as_deref() {
+        Some("auto") => FlagMode::Auto,
+        Some("1") => FlagMode::One,
+        _ => FlagMode::Zero,
+    })
+}
+
 /// Load a catalogue map this world was **not** started with - the `--on-demand` experiment.
 ///
 /// Off unless `--on-demand` (`World::load_on_demand`): the reference pre-spawns one server per
@@ -430,15 +478,13 @@ async fn begin_transfer(
         eprintln!("world: a travel needs an IPv4 advertised address; refused");
         return Ok(true);
     };
-    // `GameSrv.c:1394-1403`: the flag describes the **destination**. 1 for an explorable area, 0 for an
-    // outpost, and getting it from the source map produced client error 005.
-    let is_explorable = match destination.map_type {
-        1 | 4 | 6 => 1,
-        _ => 0,
-    };
+    // The flag is 0 by default, not the destination's kind, and `explorable_flag_for` says why: at 1 an
+    // explorable's load waits 4.3 s here. `ASURA_TRAVEL_EXPLORABLE=auto` restores live's value.
+    let is_explorable = explorable_flag_for(destination.map_type);
     crate::mark_redirect(player_token);
     eprintln!(
-        "world: [+{} ms] redirect for map {to_map} (player token {player_token:#010X})",
+        "world: [+{} ms] redirect for map {to_map} (player token {player_token:#010X}, \
+         is_explorable {is_explorable})",
         crate::stamp_ms()
     );
     let frames = vec![
@@ -459,11 +505,12 @@ async fn begin_transfer(
         // not ours to reuse, so they are this connection's: its player id and its agent id. Its agent id
         // differs from the one its own position updates name, so that instance had a second body; this
         // world has one, and withdraws that one.
-        // **Experiment 2026-10-31: the effect and the stop are withheld.** They are what a live server
-        // sends before a redirect, but the first crossing of a session costs 5149 ms here against 355 ms on
-        // live while later crossings cost 813 ms, and the wait sits between our redirect and the client's
-        // dial-back. If a crossing without them lands in under a second, this pair is what the client sits
-        // on - a state it enters and leaves on a message it never gets.
+        //
+        // **All eight are sent, and that is the point of this list.** From 2026-10-31 this vec carried
+        // only the first four, while the comment above still described eight: a travel withdrew nothing
+        // from the map it left, `docs/03-protocol.md:461-475` said it should, and the test that pins the
+        // eight (`crates/asura-world/tests/load.rs:1775`) had been red since the experiment that cut them
+        // was never reverted. Restored 2026-11-01 against that test and that table.
         game::agent_update_effects(player.agent_id, TRAVEL_EFFECT),
         game::agent_stop_moving(player.agent_id),
         game::transfer_game_server_info(
@@ -476,16 +523,15 @@ async fn begin_transfer(
             player_token,
         ),
         game::map_update_current_redirect(to_map as u32),
+        game::player_update_party_size(player.player_id, 1),
+        game::player_update_party(player.player_id, 0),
+        game::player_destroy(player.player_id),
+        game::world_remove_agent(player.agent_id),
     ];
     send(stream, session, frames, trace).await?;
     // From here the session's seat belongs to the connection the client is about to open, so its own
     // teardown must not hand it back (see the release at the end of `handle_connection`).
     player.moved = true;
-    // **Experiment 2026-10-31, second half: close the old connection ourselves, the instant the redirect is
-    // on the wire.** The first crossing of a session costs ~5100 ms here against 355 ms on live, and the
-    // wait sits between our redirect and the client's dial-back; withholding the effect pair changed
-    // nothing, so the next candidate is that the client waits for this socket to be closed rather than
-    // closing it. Returning `false` finishes the session, which closes it.
     eprintln!(
         "world: {:?} travelling: map {} -> map {} '{}', player token {player_token:#010X}, \
          redirect to {public}",

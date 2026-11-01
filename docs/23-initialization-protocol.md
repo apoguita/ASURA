@@ -85,11 +85,78 @@ this world today.
 | 12 | **the agent array: 21 or 42 bodies with their per-agent streams** | **not sent - one agent, the player** |
 | 13 | quests, guild, titles | **not sent** |
 
+## The explorable: one field decides which load the client runs (measured 2026-10-31)
+
+`is_explorable` in the redirect is not a label a client stores. It selects **which load the client runs**, and
+an explorable's load is a different procedure from an outpost's. Measured on the patched client against this
+world, with one field moved and nothing else (`ASURA_TRAVEL_EXPLORABLE`,
+`crates/asura-world/src/travel.rs`), over the same walk through the same portal:
+
+| what the redirect carried | destination | redirect to the players block |
+|---|---|---|
+| `is_explorable 1` - the destination's own kind | 146 Lakeside County, explorable | **5138 ms** |
+| `is_explorable 0` - forced | 146, the same walk | **849 ms** |
+| `is_explorable 0` - forced | 148 Ascalon City, outpost | 849 ms |
+
+The client's own clock agrees: in `recordings/client/feature/travel/explorable-flag-on-20261031-223636.jsonl`
+the load with the flag at 1 spends **4984 ticks (7.0 s)** between its spawn request and its players request,
+and the crossing back into the outpost in the same file spends 640 ticks (0.90 s). The live figure for that
+step, over 36 loads in five captures, is 0.507-1.015 s, median 0.763 s.
+
+**Why the flag costs 4.3 s here and nothing on a live server.** What is measured is that the flag selects a
+load path, and that both of this world's paths are fed empties: 16 bytes of unexplored grid
+(`crates/asura-world/src/cartography.rs`), a party of one, no agents at all, no quests, guild or titles. What
+is **not** established is which of those empties the 4.3 s is spent on, and the wire argues against the
+obvious answer: the client asks for the players block - the message that carries the population - only
+*after* the wait (`0x0196` at tick 291072750, `0x8090` at 291077734 in the capture above), so the population
+cannot be what it waits for. It asks for nothing at all during the wait, and neither server sends anything
+in it. The wait is therefore inside the client's own load of the explorable, and the candidates are the
+structures it builds before it asks: the map view from the grid, and the place itself.
+
+A live server does not pay it: the same step there is 0.76 s with the same flag.
+
+**The experiment that names it, and it needs no data.** `tools/context-dump.py` reads the client's contexts
+without elevation. A dump taken before the crossing, one about a second after the spawn point (inside the
+wait) and one after the load, in both modes, is what tells the empties apart: whichever context is being
+worked on during the wait is the one the flag's path is waiting for. Until that is run this section names the
+path, not the cause.
+
+**What that makes this table.** Row 9 is no longer only an instance-completeness gap: it is what an explorable
+is missing before the flag can honestly say 1 again, together with rows 10 to 12 and the grid. It is not yet
+proven to be the cause of the 4.3 s - see the paragraph above - and the population work should not start until
+the context dump says which structure the wait is spent on.
+
+**The default, and what it costs.** `is_explorable` is sent as **0 for every travel**
+(`crates/asura-world/src/travel.rs`, `explorable_flag_for`). That removes the wait and tells the client an
+explorable is an outpost: no minimap for the map, no henchman or party behaviour, no explorable rules.
+`ASURA_TRAVEL_EXPLORABLE=auto` restores the destination's own kind, which is what a live server sends and what
+this default becomes once an explorable carries the initialisation this table says it is missing; `=1` forces
+1 for a measurement. So this is a recorded deviation from live, taken 2026-10-31 so that travelling works, and
+the world's startup line states which value a run used.
+
+**What was ruled out** (all measured 2026-10-31 on the patched client, one variable at a time, each with the
+5.1 s unchanged): the four withdrawer messages of the travel burst, restored and timed; the world clock running
+inside the load, 49 ticks before the gate and 0 after it; the exploration grid and the instance table, removed
+from the unasked block entirely (`ASURA_LOAD_EXTRA=off`, a measurement switch); and the database, which shows no
+stall (a 400-iteration probe, the slowest round trip 156 ms). The wait is therefore inside the client's own
+explorable load and its cause is still missing; the context dump named above is the measurement that finds it.
+
+**What is not settled.** Live does not treat the field as a pure function of the destination either:
+`recordings/client/feature/character_creation/maps-tour3.jsonl` carries 0, 1 and 0 for destination 29. So the
+field's live rule is measured only for the pre-Searing redirects, where it follows the kind. One destination,
+several visits, a live server is the measurement that closes it.
+
 ## The gap, and the order it is paid
+
+The order below is the order of *completeness*. The explorable's 4.3 s wait is not proven to sit in any of
+these rows - the section above says why, and the context dump is the measurement that names it - so the
+population work is aimed by that dump rather than by this list.
 
 1. **The agent array (live row 9).** The largest gap and the one that changes what the client builds for an
    instance: every body with its name, model, properties, weapons, profession, scale and effects. Source:
-   `pre-searing-load-3.jsonl`, message by message, 42 creatures in that outpost.
+   `pre-searing-load-3.jsonl`, message by message, 42 creatures in that outpost. **It is also the one an
+   explorable's load waits for**: with `is_explorable` at 1 and no agents the client falls back after 4.3 s
+   (the section above), so this row is now a travel requirement and not only an instance-completeness one.
 2. **Quests, guild and titles (rows 10 to 12).** Each is its own structure; a live instance sends them
    even for a character with none (empty lists and zero rows), because an unsent structure is not an empty
    one.

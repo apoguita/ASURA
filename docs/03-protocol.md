@@ -495,9 +495,15 @@ not committable - it holds names and UUIDs), 2839 records, 94 of them client-to-
   `b1 00 00 00 | a4 00 00 00 | 00 x4 | 01 00 00 00` - **the destination instance id, first**. At t=20.615
   it named 164 and the redirect four records later went to 164. That is the world-map fast travel.
 * Each travel the server then answers is the pair this document already describes: `0x01A6` (52 bytes,
-  host[24], `map_token, region, map_id, is_explorable, player_token, 0`) immediately followed by `0x0099`
-  (12 bytes, the destination), then the new connection's `0x017C`, `0x019A`, `0x0196`. Eight redirects in
-  the file, `is_explorable = 1` on all eight, destinations 145, 146, 164.
+  host[24], then `map_token, region, map_id, is_explorable, player_token, 0` in the client's own field order)
+  immediately followed by `0x0099` (12 bytes, the destination), then the new connection's `0x017C`, `0x019A`,
+  `0x0196`. **`is_explorable` follows the destination's kind**: 146 and 147 (explorables) carry 1 and 148 (an
+  outpost) carries 0, read from the redirects of `recordings/client/feature/travel/doors-20261031-095754.jsonl`
+  and `login-to-portal-20261031-003720.jsonl`; `recordings/client/feature/character_creation/maps-tour3.jsonl`
+  carries both values for destination 29, so the field is measured on these redirects rather than proven as a
+  rule. The eight redirects of the reference checkout's own capture all carry 1 because every one of them was
+  a crossing. What the field does to a load is `docs/23-initialization-protocol.md`, "The explorable": at 1,
+  against an instance with no population, the client waits 4.3 s before its players block.
 * Immediately before each redirect the server sends `0x00F1` `GAME_SMSG_AGENT_UPDATE_EFFECTS` for the
   player's own agent with a dword of `0x100`, and then `0x0028` `AGENT_STOP_MOVING`. So the sequence a
   portal crossing produces is: the walk, the client's `0x80C1`, the player's effect, the stop, the
@@ -543,6 +549,7 @@ printed without `ASURA_TRACE`, because it is the event, not a packet.
 | a length field written where the protocol has none | the client misreads the body as the next header: error `007` | there is no length field (`section 1`) |
 | `0x0099` size | 12 bytes in the login batch makes the client fail with 007; the same message is 12 bytes (5 in the login batch) | size per context, not per header |
 | `is_explorable` from the wrong map | error 005 after travel | always from the destination district |
+| `is_explorable` read as a label the client stores | it is a **path selector**: at 1 the client runs its explorable load, and against an instance this world does not fill that load waits 4.3 s before the players block (5138 ms against 849 ms with the field at 0, the same walk and destination) | this world sends **0 for every travel** since 2026-10-31 (`explorable_flag_for`); `ASURA_TRAVEL_EXPLORABLE=auto` sends the destination's own kind, which is live's value, and a slow explorable load is the explorable path asking for an instance this world does not fill - `docs/23-initialization-protocol.md`, "The explorable" |
 | settings upload not acknowledged | hang correlated 7/7 with unacknowledged uploads | always answer `AUTH_CMSG_SETTING_UPDATE` with a request response |
 | a transfer replayed from a stale queue | client lands in the previous destination | clear the queue after completing one |
 | constructing a server during the hop | loading screen forever, zero packets after | the one rule, `docs/02-architecture.md` |

@@ -2431,6 +2431,13 @@ async fn an_idle_pair_keeps_its_rhythm_and_its_count() {
     };
     // The load block arrives unasked; it is not part of the idle window, so it is consumed first.
     read_until(&mut stream_a, &mut client_a, game::INSTANCE_LOAD_INFO).await;
+    // The clock is released by the load's own end, `INSTANCE_LOAD_FINISH` (`world::handle_request_players`),
+    // so this client completes its load here - before the second one exists - and the idle window below is
+    // two loaded connections and nothing else. Measured 2026-11-01: a live load carries no `0x001E` between
+    // the client's spawn request and its players request, while this world used to tick a client that was
+    // still loading.
+    ask(&mut stream_a, &mut client_a, 0x8090, 19).await;
+    read_until(&mut stream_a, &mut client_a, game::INSTANCE_LOAD_FINISH).await;
 
     // A second player on the same map, the way the two-player test places one.
     let second = db::seed_identity(

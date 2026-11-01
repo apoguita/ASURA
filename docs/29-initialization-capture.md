@@ -21,6 +21,16 @@ Both resolve the library root the same way (`tools/sniff-capture.py:89`, `--py4g
 `game_thread=False`, which the library documents as the read-only connection, and refuses to fall
 back to the writing one.
 
+## A gap is read from `tick`, never from `t`
+
+Each record carries two clocks and only one of them is the packet's. `t` is stamped when this tool's
+drain loop reads the entry out of Py4GW's ring, so every record in one drain shares a late time, and a
+stall in the loop hides a gap. `tick` is the client's own counter at the hook, taken from the entry
+itself. **A duration is a difference of `tick`**, and the summary record carries `tick_first` and
+`tick_last` so the unit is read off the file: span over `seconds`. Two readings of one travel bug were
+wrong because they were taken from `t` (2026-10-31); the same file read from `tick` gave 7.0 s and
+0.90 s for two crossings the drain clock could not tell apart from a 0.05 s step.
+
 ## One command
 
 `.\tools\live-session.ps1 -Preset init` is the run below, driven: it relaunches itself elevated once,

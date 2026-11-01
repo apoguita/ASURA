@@ -423,6 +423,9 @@ pub fn load_block(map: &MapEntry, name: &str, agent_id: u32) -> Vec<Frame> {
             0, // is_observer
         ),
     ];
+    if extra_load_messages_suppressed() {
+        return frames;
+    }
     frames.extend(crate::cartography::init_frames(
         crate::cartography::grid_for(map.map_id),
     ));
@@ -434,6 +437,25 @@ pub fn load_block(map: &MapEntry, name: &str, agent_id: u32) -> Vec<Frame> {
         frames.push(game::instance_table(batch));
     }
     frames
+}
+
+/// `ASURA_LOAD_EXTRA=off`: leave the exploration grid and the instance table out of the unasked block.
+///
+/// A measurement switch, and it exists because those two are the only content this world sends into the
+/// window where an explorable load waits 4.3 s: `docs/23-initialization-protocol.md`, "The explorable".
+/// A live server sends neither pair in that window for the same map - its grid and its instance table
+/// arrive later in the players block, or not at all on a second load - so "the client chews on what we
+/// send early" is a hypothesis this switch can remove in one run. `off`, `0` or `none` suppresses them;
+/// anything else, or no variable, keeps today's block. It is not a behaviour to keep: without the grid a
+/// client's map surfaces fail their own assertion (`crates/asura-world/src/cartography.rs`).
+pub fn extra_load_messages_suppressed() -> bool {
+    static SUPPRESSED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SUPPRESSED.get_or_init(|| {
+        matches!(
+            std::env::var("ASURA_LOAD_EXTRA").ok().as_deref(),
+            Some("off" | "0" | "none")
+        )
+    })
 }
 
 /// The reference's `MapId_Count`: the sentinel the first manifest `DONE` carries, meaning "every map

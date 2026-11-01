@@ -25,13 +25,24 @@
 use std::io::{BufWriter, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// The longest a record may sit in the writer before it is flushed.
+///
+/// A capture is evidence and a server is usually killed to end a diagnostic session, so the last lines
+/// must reach the disk. Flushing **every** record was the first form of that rule and it is what a load
+/// pays for: the block a travel sends is about 425 frames, so one load was 850 synchronous write+flush
+/// syscalls inside the runtime, in the same task that is handing the client its map. A disk or a scanner
+/// that hesitates for a millisecond turns that into a second and a half of frames the client never sees.
+/// Time-bounded instead: at most this much is lost to a kill, and a busy load costs a few flushes.
+const FLUSH_EVERY: Duration = Duration::from_millis(200);
 
 /// One open capture: the file, when it started, and a sequence number shared by every connection.
 struct Capture {
     writer: Mutex<BufWriter<std::fs::File>>,
     start: Instant,
     seq: AtomicU64,
+    last_flush: Mutex<Instant>,
 }
 
 static CAPTURE: OnceLock<Option<Capture>> = OnceLock::new();
@@ -47,6 +58,7 @@ pub fn install(path: &str) -> std::io::Result<()> {
         writer: Mutex::new(BufWriter::new(file)),
         start: Instant::now(),
         seq: AtomicU64::new(0),
+        last_flush: Mutex::new(Instant::now()),
     };
     let mut writer = capture.writer.lock().unwrap_or_else(|err| err.into_inner());
     writeln!(
@@ -65,6 +77,20 @@ pub fn recording() -> bool {
     CAPTURE.get().map(Option::is_some).unwrap_or(false)
 }
 
+/// Put what is buffered on the disk now.
+///
+/// `record` flushes on a time bound so a live load does not pay a syscall per frame; this is for the
+/// moments that need the file complete - a reader about to parse it, and the tests that assert on it.
+pub fn flush() {
+    let Some(capture) = CAPTURE.get().and_then(|capture| capture.as_ref()) else {
+        return;
+    };
+    let mut writer = capture.writer.lock().unwrap_or_else(|err| err.into_inner());
+    let _ = writer.flush();
+    let mut last_flush = capture.last_flush.lock().unwrap_or_else(|err| err.into_inner());
+    *last_flush = Instant::now();
+}
+
 /// Record one message. `bytes` is the plaintext frame, header first.
 pub fn record(direction: &str, header: u16, bytes: &[u8]) {
     let Some(capture) = CAPTURE.get().and_then(|capture| capture.as_ref()) else {
@@ -79,9 +105,13 @@ pub fn record(direction: &str, header: u16, bytes: &[u8]) {
         bytes.len(),
         hex(bytes)
     );
-    // Flushed per record: a capture is evidence, and a server that is killed (the usual end of a
-    // diagnostic session) must leave its last line on disk rather than in a buffer.
-    let _ = writer.flush();
+    // Flushed on a time bound, not per record: see `FLUSH_EVERY`. The buffer flushes itself when it
+    // fills, so a burst is still one write per 8 KB rather than one per message.
+    let mut last_flush = capture.last_flush.lock().unwrap_or_else(|err| err.into_inner());
+    if last_flush.elapsed() >= FLUSH_EVERY {
+        let _ = writer.flush();
+        *last_flush = Instant::now();
+    }
 }
 
 /// A UTC timestamp without pulling a date crate: seconds since the Unix epoch, ISO-8601-ish.
@@ -116,6 +146,7 @@ mod tests {
             &[0x99, 0x00, 0x00, 0x00, 0x94, 0x00, 0x00, 0x00],
         );
         record("CToS", 0x803D, &[0x3d, 0x80, 0x00, 0x00]);
+        flush();
         let text = std::fs::read_to_string(&path).expect("read the capture");
         std::fs::remove_file(&path).ok();
 
