@@ -29,8 +29,11 @@
     .\tools\live-session.ps1 -Minutes 30
 #>
 param(
-    [int]$Minutes = 30,
-    [int]$DumpEverySeconds = 20,
+    [ValidateSet('init', 'identify')]
+    [string]$Preset = 'init',
+    [int]$Minutes = 20,
+    [int]$DumpEverySeconds = 0,
+    [string]$Only = '',
     [string]$OutDir = 'C:\Users\Apo\captures\session',
     [switch]$Elevated
 )
@@ -38,7 +41,16 @@ param(
 $ErrorActionPreference = 'Continue'
 
 # --- actions this run is for, in order: marker n belongs to item n -----------------------------
-$actions = @(
+$presets = @{
+    init = @(
+        'enter an outpost from character select',
+        'travel from that outpost to the explorable it exits to',
+        'come back to the outpost',
+        'change district inside that outpost',
+        'open the world map, then close it',
+        'walk to a portal and cross it'
+    )
+    identify = @(
     'toggle hard mode in an explorable (party panel)',
     'add one henchman in an outpost, then dismiss it',
     'accept one quest at a quest NPC',
@@ -53,8 +65,14 @@ $actions = @(
     'trigger a cinematic',
     'press one adrenal skill on a warrior with adrenaline',
     'travel to an outpost with a second player in it',
-    'talk to a merchant, buy nothing, then buy one thing'
-)
+        'talk to a merchant, buy nothing, then buy one thing'
+    )
+}
+$actions = $presets[$Preset]
+if ($DumpEverySeconds -le 0) { $DumpEverySeconds = if ($Preset -eq 'init') { 8 } else { 20 } }
+if (-not $Only -and $Preset -eq 'init') {
+    $Only = 'worldcontext,mapcontext,charcontext,partycontext,itemcontext,agentarray,accagentcontext,instanceinfo,missionmap,worldmap,serverregion'
+}
 
 function Test-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -65,8 +83,8 @@ function Test-Admin {
 if (-not (Test-Admin)) {
     $shell = (Get-Process -Id $PID).Path
     $quoted = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath,
-                '-Minutes', $Minutes, '-DumpEverySeconds', $DumpEverySeconds,
-                '-OutDir', $OutDir, '-Elevated')
+                '-Preset', $Preset, '-Minutes', $Minutes, '-DumpEverySeconds', $DumpEverySeconds,
+                '-Only', $Only, '-OutDir', $OutDir, '-Elevated')
     Write-Host 'asking for an elevated shell: approve the UAC prompt' -ForegroundColor Yellow
     Start-Process -FilePath $shell -Verb RunAs -ArgumentList $quoted
     exit 0
@@ -98,6 +116,7 @@ Say ('python: ' + $python.Source)
 $client = Get-Process | Where-Object { $_.ProcessName -match '^Gw' } | Select-Object -First 1
 if (-not $client) { Say 'no Guild Wars client is running' 'Red'; exit 3 }
 Say ('client: pid {0} {1}' -f $client.Id, $client.ProcessName)
+Say ('preset: {0}, dumps every {1}s' -f $Preset, $DumpEverySeconds)
 
 Write-Host ''
 Write-Host 'the actions, in order - press Enter after each one:' -ForegroundColor Cyan
@@ -123,7 +142,9 @@ try {
     while ((Get-Date) -lt $deadline) {
         $stamp = Get-Date -Format 'HHmmss'
         $out = Join-Path $dumpDir ('t' + $stamp + '.jsonl')
-        $read = & python tools\context-dump.py --label ('t' + $stamp) --out $out 2>&1
+                $onlyArgs = @()
+        if ($Only) { $onlyArgs = @('--only', $Only) }
+        $read = & python tools\context-dump.py --label ('t' + $stamp) --out $out @onlyArgs 2>&1
         $summary = ($read | Where-Object { $_ -match 'context\(s\) read' } | Select-Object -Last 1)
         if (-not $summary) { $summary = ($read | Select-Object -Last 1) }
         $dumps++

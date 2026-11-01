@@ -21,7 +21,19 @@ Both resolve the library root the same way (`tools/sniff-capture.py:89`, `--py4g
 `game_thread=False`, which the library documents as the read-only connection, and refuses to fall
 back to the writing one.
 
-## The run
+## One command
+
+`.\tools\live-session.ps1 -Preset init` is the run below, driven: it relaunches itself elevated once,
+starts the raw both-direction capture, dumps the structures on a cadence (eight seconds for this preset,
+and only the contexts an instance entry changes), prints the six actions, and records a `MARK` line
+every time Enter is pressed in its console.
+
+The six actions for this preset are the ones a client performs anyway and nobody has to stage: enter an
+outpost from character select, travel to the explorable it exits to, come back, change district, open
+the world map and close it, walk to a portal and cross it. Falls back to the manual steps below when a
+particular run needs a different shape.
+
+## The run, by hand
 
 Terminal A, elevated (the sniffer patches the client, the dump does not):
 
