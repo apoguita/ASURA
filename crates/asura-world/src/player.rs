@@ -275,6 +275,10 @@ pub fn player_block(
         // The agent's level, which the party window draws: the character row's own level.
         level: traits.level as u8,
     }));
+    // The agent's own morale record, which the party panel's morale icon is drawn from. A live server
+    // sends one per body at load with 100, the unmodified value; with the record left unset the client
+    // paints a morale penalty the character does not have.
+    frames.push(game::agent_update_morale(agent_id, MORALE_FULL));
     // Health and energy in the reference's order, then the regeneration rate and the public level.
     // The reference's own values, read off its send log: energy 25, health 400, regeneration 0.0 and
     // level 0 (it never sets `energy_per_sec` or `level` on a fresh agent).

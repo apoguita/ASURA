@@ -177,6 +177,8 @@ pub const WORLD_CREATE_AGENT: u16 = crate::packets::game::GAME_SMSG_WORLD_CREATE
 pub const WORLD_REMOVE_AGENT: u16 = crate::packets::game::GAME_SMSG_WORLD_REMOVE_AGENT;
 /// `GAME_SMSG_PLAYER_DESTROY` (`0x005A`): 6 bytes. A player left the map (`GmPlayer.c:314`).
 pub const PLAYER_DESTROY: u16 = crate::packets::game::GAME_SMSG_PLAYER_DESTROY;
+/// `GAME_SMSG_AGENT_UPDATE_MORALE` (`0x009C`): 10 bytes - an agent id and its morale percentage.
+pub const AGENT_UPDATE_MORALE: u16 = crate::packets::game::GAME_SMSG_AGENT_UPDATE_MORALE;
 /// `GAME_SMSG_AGENT_PROPERTY_UPDATE_INT` (`0x009F`): 14 bytes.
 pub const AGENT_PROPERTY_UPDATE_INT: u16 =
     crate::packets::game::GAME_SMSG_AGENT_PROPERTY_UPDATE_INT;
@@ -1218,6 +1220,14 @@ pub fn world_create_agent(agent: &CreateAgent) -> crate::client::Frame {
         .u16(0); // h0061
     builder.bytes.reserve(0);
     builder.frame()
+}
+
+/// `GAME_SMSG_AGENT_UPDATE_MORALE`: one agent's morale as a percentage, 100 being the unmodified value.
+/// A live server sends one per body at load - `9c000000 | 1f000000 | 64000000` for agent 0x1F
+/// (`recordings/client/feature/travel/doors-20261031-095754.jsonl`, header `009C`) - and the party
+/// panel draws its morale icon from this record rather than from the character's own morale field.
+pub fn agent_update_morale(agent_id: u32, morale: u32) -> crate::client::Frame {
+    Builder::new(AGENT_UPDATE_MORALE).u32(agent_id).u32(morale).frame()
 }
 
 /// `GAME_SMSG_AGENT_PROPERTY_UPDATE_INT`: one integer property of an agent.
