@@ -136,10 +136,6 @@ pub const CHARACTER_UPDATE_FACTIONS: u16 =
     crate::packets::game::GAME_SMSG_CHARACTER_UPDATE_FACTIONS;
 /// `GAME_SMSG_CHAR_VISIBILITY_FLAGS` (`0x00EF`): 10 bytes - the inventory panel's per-slot display mode.
 pub const CHAR_VISIBILITY_FLAGS: u16 = crate::packets::game::GAME_SMSG_CHAR_VISIBILITY_FLAGS;
-/// `GAME_SMSG_TITLE_RANK_DATA` (`0x00F3`): one title rank definition - three dwords and a counted name.
-pub const TITLE_RANK_DATA: u16 = crate::packets::game::GAME_SMSG_TITLE_RANK_DATA;
-/// `GAME_SMSG_TITLE_RANK_DISPLAY` (`0x00F4`): the title a player displays - a player id and a rank id.
-pub const TITLE_RANK_DISPLAY: u16 = crate::packets::game::GAME_SMSG_TITLE_RANK_DISPLAY;
 /// `GAME_SMSG_PLAYER_UPDATE_FLAGS` (`0x003C`): 12 bytes - a player's flags word, written under a mask.
 pub const PLAYER_UPDATE_FLAGS: u16 = crate::packets::game::GAME_SMSG_PLAYER_UPDATE_FLAGS;
 
@@ -1220,30 +1216,6 @@ pub fn world_create_agent(agent: &CreateAgent) -> crate::client::Frame {
         .u16(0); // h0061
     builder.bytes.reserve(0);
     builder.frame()
-}
-
-/// `GAME_SMSG_TITLE_RANK_DATA`: one title rank definition - `{rank id, 0, kind, name}` - in the layout
-/// the catalogue declares (three dwords and a counted `String16`).
-///
-/// The name is a *coded* name: the reference stores an encoded string the client decodes through its own
-/// text table, so a plain name here is a test value, not the real vocabulary. This exists so the title
-/// surfaces can be inspected at all; the real table is `docs/28-headers-to-name.md` work.
-pub fn title_rank_data(rank_id: u32, kind: u32, name: &str) -> crate::client::Frame {
-    Builder::new(TITLE_RANK_DATA)
-        .u32(rank_id)
-        .u32(0)
-        .u32(kind)
-        .text(name, 8)
-        .frame()
-}
-
-/// `GAME_SMSG_TITLE_RANK_DISPLAY`: the title a player shows, as a player id and a rank id. A live load
-/// sends one per player: `f4000000 | 01000000 | 06000000` for player 1 displaying rank 6.
-pub fn title_rank_display(player_id: u16, rank_id: u32) -> crate::client::Frame {
-    Builder::new(TITLE_RANK_DISPLAY)
-        .u16(player_id)
-        .u32(rank_id)
-        .frame()
 }
 
 /// `GAME_SMSG_AGENT_UPDATE_MORALE`: one agent's morale as a percentage, 100 being the unmodified value.

@@ -133,13 +133,6 @@ pub const DEFAULT_UNLOCKED_PROFESSIONS: u32 = 2;
 // rather than a value computed here; a struct around them would only rename the call site. The same
 // allowance is used where this pattern already exists (`asura_db::inventory`, `asura_protocol::game`).
 #[allow(clippy::too_many_arguments)]
-/// The one sample title this world reports, so the title window has something to show. Rank, kind and
-/// name are test values, not measurements: `Champion` is a name a player would recognise on screen, and
-/// it fits the declared `String16[8]` exactly.
-const SAMPLE_TITLE_RANK: u32 = 6;
-const SAMPLE_TITLE_KIND: u32 = 1;
-const SAMPLE_TITLE_NAME: &str = "Champion";
-
 /// Morale is a percentage around 100, and 100 is the value a live load carries for a character with no
 /// morale modifier (`dump4-after`, `worldcontext.morale`). Sending 0 left the client's morale at zero.
 const MORALE_FULL: u32 = 100;
@@ -249,12 +242,6 @@ pub fn player_block(
     // inventory display-mode column has nothing for any slot - the structures exist but stay empty.
     frames.push(game::char_visibility_flags(0xFFFF_FFFF, 0xFFFF_FFFF));
     frames.push(game::player_update_flags(player_id as u16, 0, 7));
-    // One sample title, so the title surfaces can be inspected at all. The real vocabulary is a coded
-    // name the client decodes through its own text table (docs/28-headers-to-name.md); this is a test
-    // value, hardcoded on purpose, and it is one row because a set of rows copied from a capture broke
-    // the load (docs/27 is the same lesson).
-    frames.push(game::title_rank_data(SAMPLE_TITLE_RANK, SAMPLE_TITLE_KIND, SAMPLE_TITLE_NAME));
-    frames.push(game::title_rank_display(player_id as u16, SAMPLE_TITLE_RANK));
     frames.push(game::agent_update_attributes(agent_id, &[0; 42]));
     frames.push(game::world_update_load_time(
         started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32,
