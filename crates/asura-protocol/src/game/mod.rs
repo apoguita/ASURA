@@ -1,5 +1,3 @@
-
-
 //! The game protocol: what a world server sends to a client that has just been placed in a map.
 //!
 //! `docs/03-protocol.md` section 11 records the order. This module owns the **messages**, one builder
@@ -19,8 +17,6 @@
 //! Everything here is server-to-client. The client-to-server messages a world server must *read* are
 //! framed by the generated game table ([`super::client::game_tables`]) through
 //! [`super::client::Frame::decode_game_message`].
-
-pub mod titles;
 
 /// The unlockable PvP item table, generated from the reference: 387 `(id, params)` pairs the client
 /// builds its item table from. Data rather than protocol, which is why it is generated and not typed.
@@ -138,10 +134,6 @@ pub const HARD_MODE_UNLOCKED: u16 = crate::packets::game::GAME_SMSG_HARD_MODE_UN
 /// `GAME_SMSG_CHARACTER_UPDATE_FACTIONS` (`0x00E9`): 62 bytes.
 pub const CHARACTER_UPDATE_FACTIONS: u16 =
     crate::packets::game::GAME_SMSG_CHARACTER_UPDATE_FACTIONS;
-/// `GAME_SMSG_TITLE_RANK_DATA` (`0x00F3`): one title rank definition; a live server sends the whole set.
-pub const TITLE_RANK_DATA: u16 = crate::packets::game::GAME_SMSG_TITLE_RANK_DATA;
-/// `GAME_SMSG_TITLE_RANK_DISPLAY` (`0x00F4`): the title a player displays, as (player id, rank id).
-pub const TITLE_RANK_DISPLAY: u16 = crate::packets::game::GAME_SMSG_TITLE_RANK_DISPLAY;
 /// `GAME_SMSG_CHAR_VISIBILITY_FLAGS` (`0x00EF`): 10 bytes - the inventory panel's per-slot display mode.
 pub const CHAR_VISIBILITY_FLAGS: u16 = crate::packets::game::GAME_SMSG_CHAR_VISIBILITY_FLAGS;
 /// `GAME_SMSG_PLAYER_UPDATE_FLAGS` (`0x003C`): 12 bytes - a player's flags word, written under a mask.
@@ -1224,22 +1216,6 @@ pub fn world_create_agent(agent: &CreateAgent) -> crate::client::Frame {
         .u16(0); // h0061
     builder.bytes.reserve(0);
     builder.frame()
-}
-
-/// `GAME_SMSG_TITLE_RANK_DATA`: one title rank definition, 28 bytes, copied from a live load
-/// (`crate::game::titles::TITLE_RANK_ROWS`). The client builds its title table from these rows; with
-/// none sent, `worldcontext.titles` and `title_tiers` stay absent rather than empty.
-pub fn title_rank_data(row: &[u8; 28]) -> crate::client::Frame {
-    Builder::new(TITLE_RANK_DATA).raw(row).frame()
-}
-
-/// `GAME_SMSG_TITLE_RANK_DISPLAY`: which title a player shows, as a player id and a rank id. A live
-/// load sends one per player: `f4000000 | 01000000 | 06000000` for player 1 displaying rank 6.
-pub fn title_rank_display(player_id: u32, rank_id: u32) -> crate::client::Frame {
-    Builder::new(TITLE_RANK_DISPLAY)
-        .u32(player_id)
-        .u32(rank_id)
-        .frame()
 }
 
 /// `GAME_SMSG_AGENT_UPDATE_MORALE`: one agent's morale as a percentage, 100 being the unmodified value.
