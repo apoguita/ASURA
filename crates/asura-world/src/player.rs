@@ -242,6 +242,13 @@ pub fn player_block(
     // inventory display-mode column has nothing for any slot - the structures exist but stay empty.
     frames.push(game::char_visibility_flags(0xFFFF_FFFF, 0xFFFF_FFFF));
     frames.push(game::player_update_flags(player_id as u16, 0, 7));
+    // The title rank vocabulary, which the client builds its title table from. A live load sends the
+    // whole set on every load (36 distinct rank ids across the committed captures, 931 sightings);
+    // this world sent none, so `worldcontext.titles` and `title_tiers` were absent rather than empty.
+    // The rows are copied from that capture - see `game::titles` for what their tail fields are.
+    for row in game::titles::TITLE_RANK_ROWS {
+        frames.push(game::title_rank_data(row));
+    }
     frames.push(game::agent_update_attributes(agent_id, &[0; 42]));
     frames.push(game::world_update_load_time(
         started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32,
