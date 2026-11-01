@@ -141,7 +141,7 @@ const MORALE_FULL: u32 = 100;
 /// that has never earned any reads 0 - but 0 and "the field was never written" look the same to the
 /// owner's eye, so this stays 1 until the column exists: a non-zero number is the proof that the
 /// message is carrying the field at all.
-const EXPERIENCE_TEST_VALUE: u32 = 1;
+const EXPERIENCE_TEST_VALUE: u32 = 500;
 pub fn player_block(
     name: &str,
     standing: Standing,
@@ -222,7 +222,7 @@ pub fn player_block(
     // and `characters.level` is where our level comes from. Experience and skill points have no column
     // yet - a freshly created character has neither - so they go out as zero rather than as absent.
     frames.push(game::character_update_factions(
-        EXPERIENCE_TEST_VALUE,      // experience: 1 until a column holds it, so the sheet shows it working
+        EXPERIENCE_TEST_VALUE,      // experience: 500 until a column holds it, so the sheet shows it working
         0,                          // current kurzick
         0,                          // total earned kurzick
         0,                          // current luxon
