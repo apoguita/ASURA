@@ -136,6 +136,12 @@ pub const DEFAULT_UNLOCKED_PROFESSIONS: u32 = 2;
 /// Morale is a percentage around 100, and 100 is the value a live load carries for a character with no
 /// morale modifier (`dump4-after`, `worldcontext.morale`). Sending 0 left the client's morale at zero.
 const MORALE_FULL: u32 = 100;
+
+/// The experience this world reports for a character. There is no column for it yet, and a character
+/// that has never earned any reads 0 - but 0 and "the field was never written" look the same to the
+/// owner's eye, so this stays 1 until the column exists: a non-zero number is the proof that the
+/// message is carrying the field at all.
+const EXPERIENCE_TEST_VALUE: u32 = 1;
 pub fn player_block(
     name: &str,
     standing: Standing,
@@ -216,7 +222,7 @@ pub fn player_block(
     // and `characters.level` is where our level comes from. Experience and skill points have no column
     // yet - a freshly created character has neither - so they go out as zero rather than as absent.
     frames.push(game::character_update_factions(
-        0,                          // experience: no column yet
+        EXPERIENCE_TEST_VALUE,      // experience: 1 until a column holds it, so the sheet shows it working
         0,                          // current kurzick
         0,                          // total earned kurzick
         0,                          // current luxon
