@@ -2380,6 +2380,8 @@ pub mod game {
     /// `GAME_CMSG_COMPUTER_HASH` (`0x800B`).
     pub const GAME_CMSG_COMPUTER_HASH: u16 = 0x800B;
     /// `GAME_CMSG_INSTANCE_QUERY` (`0x8093`).
+    /// `GAME_SMSG_PLAYER_UPDATE_FLAGS` (`0x003C`).
+    pub const GAME_SMSG_PLAYER_UPDATE_FLAGS: u16 = 0x003C;
     pub const GAME_CMSG_INSTANCE_QUERY: u16 = 0x8093;
 }
 
