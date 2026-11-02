@@ -78,7 +78,10 @@ Linux machine is a server host.
 
 **The client patcher is in `client-patcher/`** - `patch-gw.py` plus `keys.txt`, the DH parameters that
 match the server's handshake. The stock `Gw.exe` cannot talk to this server; `Gw.custom.exe` is built
-with that folder, and its README has the commands.
+with that folder, and its README has the commands. A plain build leaves every ArenaNet hostname live -
+only the auth and portal addresses come from the client's command line - and redirecting anything else
+is an operator's opt-in pair: the machine's hosts block and a file server. Without both, a repointed
+build cannot connect; `client-patcher/README.md`, "Read this first", is the checklist.
 
 **A Docker bundle lives in `docker/`** (`docker compose -f docker/compose.yml up -d --build`): two
 containers, PostgreSQL and one machine container running the supervisor, with the client reaching the

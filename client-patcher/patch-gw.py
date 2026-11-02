@@ -100,40 +100,35 @@ def main(args):
     with open(input_path, 'rb') as f:
         data = f.read()
 
-    # ---- repoint the baked-in ArenaNet hostnames at loopback -------------------
+    # ---- repoint the baked-in ArenaNet hostnames: opt-in only ------------------
     #
-    # The address this client actually uses comes from the command line
-    # (`Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1`), not from this patch. But the
-    # binary still carries the real hostnames for everything else, and on 2026-10-25 a
-    # patched client playing on GWPS was observed holding a live 6112 connection to an
-    # ArenaNet EC2 host -- so "fully detached" was not true, and a real server could push
-    # events into a client we are driving.
+    # The address this client actually dials comes from the command line
+    # (`Gw.custom.exe -authsrv 127.0.0.1 -portal 127.0.0.1`), not from this patch. So a plain run
+    # leaves every hostname alone: the client stays live for everything the command line does not
+    # cover, and that build connects (measured 2026-11-02, `Gw.custom.exe`).
     #
-    # Each string is rewritten in place as `127.0.0.1` padded with NULs, which keeps every
-    # length and section offset intact. A lookup that now fails is the intended outcome.
+    # Repointing is a separate, deliberate step, because only one of these strings changes where the
+    # client looks. `ArenaNetworks.com` at file offset 0x64EB40 is element 0 of the client's DNS
+    # base-name table (`s_dnsBaseNames`, next to `NCPlatform.net` and the assert
+    # `arrsize(s_dnsBaseNames)` named in `P:\Code\Base\Services\DnsName.cpp`). Names are composed at
+    # run time as `<leaf>.<base>`, so that one string decides every lookup at once, while the leaf
+    # strings below are inert: measured 2026-11-02, a build with the leaves repointed and the base
+    # whole connects, a build with the base repointed alone does not.
     #
-    # ALL of the baked-in hostnames are repointed by default, EXCEPT one: File1
-    # (File1.ArenaNetworks.com, the content/file server). File1 is the optional address --
-    # it stays live by default (the client streams Gw.dat content from it), and is repointed
-    # only with --file-server, paired with `hosts-redirect.py enable --file-server`. That
-    # pairing is what makes OUR service the one answering it (the auth service answers the
-    # file check); while it is off, File1 connects live and that is a working build.
+    # A base-repointed client needs its composed names answered, so `--detach` is a pair with the
+    # hosts block (`hosts-redirect.py enable --file-server`) and a file server for the content the
+    # client streams. Without that provisioning it cannot connect; that is a provisioning gap, not a
+    # patch verdict. The file check itself is answered by the auth service.
     #
-    # The client resolves the names at runtime as well, so the patch is paired with the
-    # hosts block (client-patcher/hosts-redirect.py) -- repointed names then resolve to this
-    # machine. A name that is patched but not in the hosts block still resolves normally.
+    # Each string is rewritten in place as `127.0.0.1` padded with NULs, which keeps every length and
+    # section offset intact.
     #
-    # What the 2026-10-25 experiment established:
-    #   - the socket a working client holds is 54.196.189.234, which is in
-    #     File1.ArenaNetworks.com's A record set -- i.e. the content/file server, not auth;
-    #     `-authsrv 127.0.0.1` genuinely redirects the auth handshake.
-    #   - File1 exists to stream Gw.dat content; our services answer the file check.
+    # Selection:
     #
-    # Selection, so the address set follows the hosts block exactly:
-    #
-    #   (default)                 every hostname EXCEPT File1 -- the optional address stays live
-    #   --file-server             also repoint File1 (pair with `hosts-redirect.py enable --file-server`)
-    #   --detach                  repoint all seven (--file-server included)
+    #   (default)                 nothing is repointed; the client stays live
+    #   --detach                  repoint all seven, the DNS base entry included (needs the hosts
+    #                             block and a file server)
+    #   --file-server             same set as --detach, named for the optional content address
     #   --detach-only <prefix>    repoint only the matching host(s). Repeatable.
     #   --detach-keep <prefix>    repoint all except the matching host(s). Repeatable.
     #
@@ -147,9 +142,6 @@ def main(args):
         b'ArenaNetworks.com',
         b'account.arena.net',
     )
-    # The one address whose redirection is optional: File1, the content/file server. It stays
-    # live unless --file-server (or --detach) asks otherwise.
-    FILE_SERVER = b'File1.ArenaNetworks.com'
 
     def matches(host, selects):
         name = host.decode().lower()
@@ -165,14 +157,15 @@ def main(args):
         print(f'[+] --detach-keep left out {len(ALL_HOSTS) - len(HOSTS)} host(s), repointing {len(HOSTS)}')
     elif getattr(args, 'detach', False):
         HOSTS = ALL_HOSTS
-        print('[+] --detach: repointing all of them')
+        print('[+] --detach: repointing all seven, the DNS base entry included; this build needs '
+              'the hosts block and a file server')
     elif getattr(args, 'file_server', False):
         HOSTS = ALL_HOSTS
-        print('[+] --file-server: repointing all of them, the optional address included')
+        print('[+] --file-server: repointing all seven, the optional content address included')
     else:
-        HOSTS = tuple(h for h in ALL_HOSTS if h != FILE_SERVER)
-        print(f'[+] default: repointing {len(HOSTS)} of {len(ALL_HOSTS)} host(s); '
-              f'File1.ArenaNetworks.com stays live (--file-server to include it)')
+        HOSTS = ()
+        print('[+] default: no hostname is repointed, the client stays live '
+              '(--detach repoints them all, and needs the hosts block and a file server)')
     REPLACEMENT = b'127.0.0.1'
 
     def is_host_char(b):
@@ -221,13 +214,13 @@ if __name__ == '__main__':
     parser.add_argument('keys_file')
     parser.add_argument('--output', metavar='output', type=str, help='The output file', required=False)
     parser.add_argument('--detach', action='store_true',
-                        help='Repoint all seven baked-in ArenaNet hostnames, the optional File1 '
-                             'included. Pair it with client-patcher/hosts-redirect.py enable '
-                             '--file-server.')
+                        help='Repoint all seven baked-in ArenaNet hostnames, the DNS base entry '
+                             'included. Needs client-patcher/hosts-redirect.py enable '
+                             '--file-server and a file server; without that provisioning the '
+                             'client cannot connect.')
     parser.add_argument('--file-server', action='store_true',
-                        help='Also repoint the optional address, File1.ArenaNetworks.com (the '
-                             'content/file server). Off by default: it stays live. Pair with '
-                             'hosts-redirect.py enable --file-server.')
+                        help='The same set as --detach, named for the optional content address '
+                             'File1.ArenaNetworks.com. Off by default: the client stays live.')
     parser.add_argument('--detach-only', action='append', metavar='PREFIX',
                         help='Repoint only the hostname(s) starting with PREFIX. Repeatable.')
     parser.add_argument('--detach-keep', action='append', metavar='PREFIX',

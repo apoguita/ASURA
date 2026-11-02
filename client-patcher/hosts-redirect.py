@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Point the client's baked-in ArenaNet hostnames at our server, or put them back.
+"""Send the client's ArenaNet hostnames to this machine, or put them back.
 
-The patcher (patch-gw.py) repoints the hostname strings inside the executable, but the client also
-resolves those names at runtime, so the machine's hosts file is what makes *this* machine the one that
-answers them. The set must match the patch exactly: by default every baked-in hostname is redirected
-EXCEPT one -- File1.ArenaNetworks.com, the content/file server, which is the optional address and
-stays live unless `--file-server` asks for it.
+A plain patched client is live: patch-gw.py rewrites the DH keys and the mutex and leaves every
+hostname alone, so the game resolves ArenaNet's servers and only the auth and portal addresses come
+from its command line. This script is the opt-in redirect, and it is the only thing that sends a name
+to this machine. A client built with `--detach` needs this block plus a file server answering File1's
+content; without both it cannot connect.
 
   python client-patcher/hosts-redirect.py status              what is on now
-  python client-patcher/hosts-redirect.py enable              all hostnames except File1
-  python client-patcher/hosts-redirect.py enable --file-server   all of them, the optional one included
+  python client-patcher/hosts-redirect.py enable              the six names, File1 staying live
+  python client-patcher/hosts-redirect.py enable --file-server   all seven, the content address included
   python client-patcher/hosts-redirect.py disable             remove the block, everything else untouched
 
 Options: --hosts PATH (default: the operating system's hosts file), --target ADDRESS (default

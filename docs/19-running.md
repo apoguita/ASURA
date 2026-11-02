@@ -104,12 +104,25 @@ seeded accounts (`user1@example.com` / `user2@example.com` / `user3@example.com`
 not check the password). What a good session looks like on the wire is in `recordings/`
 (`recordings/README.md`).
 
-The patcher repoints every baked-in ArenaNet hostname by default, with one exception: the optional
-address, `File1.ArenaNetworks.com` (the content/file server), stays live. Redirecting it too is a pair
-- patch with `--file-server` and run `client-patcher/hosts-redirect.py enable --file-server` - and
-then that address resolves to this machine and our service answers it. The hosts block is
-machine-wide and removed with `hosts-redirect.py disable`; `status` says what is on now, name by
-name. Both settings default off, and off is a working configuration.
+The patcher leaves every baked-in ArenaNet hostname alone by default: the client stays live, and only
+the auth and portal addresses come from its command line. That is the working configuration and the one
+the seeded accounts were proven against.
+
+Nothing else is redirected by a patch. A hostname reaches this machine only through the machine's hosts
+file, put there by an operator, and the content request is answered only by a file server someone
+installed. Both are deliberate and both are reversible:
+
+1. `python client-patcher/hosts-redirect.py enable --file-server` (elevated; machine-wide block)
+2. install the file server that answers `File1` content
+3. build the matching executable with `--detach`, which rewrites the seven hostnames, the DNS base
+   entry included
+
+All three or none: a `--detach` build with the block off, or without the file server, cannot connect -
+the client completes the auth handshake, receives the session info, then closes before the portal login
+(`0x8038`) and `logs/webgate.log` never grows. Say which build is running before every session with
+`python client-patcher/hosts-redirect.py status`; the block is machine-wide and removed with
+`hosts-redirect.py disable`. `client-patcher/README.md`, "Read this first", is the same checklist with
+the commands.
 
 ## Linux
 
@@ -166,6 +179,7 @@ Nothing else runs automatically. The test suite needs a live PostgreSQL database
 | `cannot listen on 127.0.0.1:7711 ... another supervisor is probably running` | a supervisor is already up | `cargo run -p asura-supervisor -- stop`, then `start` |
 | `could not bind 127.0.0.1:6113` | something else holds a port | `stop` waits for its ports to free; a leftover process needs killing once (`Get-NetTCPConnection -LocalPort 6113` on Windows names it) |
 | the client shows error `007` | the server and client disagree on a message | `ASURA_TRACE=1`, then compare the trace with a good session in `recordings/` |
+| the client closes shortly after the login screen appears, and `logs/auth.log` ends the session after the unnamed `0x8023` with no `AUTH_CMSG_PORTAL_ACCOUNT_LOGIN` | a repointed client without the provisioning: the hosts block is off, or there is no file server | `python client-patcher/hosts-redirect.py status`; enable the block and install the file server, or run a plain build, which is live |
 | registry rows say `STALE` | a service stopped publishing without leaving | `status` shows the state; the reaper frees orphaned pool leases; `stop`, then `start` |
 | `ASURA_DATABASE_URL is not configured` | there is no `.env`, or it is missing the URL | copy `.env.example` to `.env` and fill it in |
 | `cargo cannot reach crates.io` | no network, or a sandbox token blocking TLS | the stack runs offline once dependencies are cached; from a normal shell, or with network access allowed |
