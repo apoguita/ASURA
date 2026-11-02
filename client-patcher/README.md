@@ -74,6 +74,29 @@ Success is the client reaching the character list and entering an outpost. If it
 is the auth service's trace: set `ASURA_TRACE=1` before starting the stack and read the log
 (`docs/HANDOFF.md`, the real client is the test).
 
+## Diagnose a GUI or CLI patch
+
+Keep the original `Gw.exe` and the failing patched output. From the repository root:
+
+```powershell
+python .\client-patcher\diagnose-patch.py "C:\Program Files (x86)\Guild Wars\Gw.exe" "C:\Program Files (x86)\Guild Wars\Gw.custom.exe"
+```
+
+If a different patched executable logs in successfully, preserve it under a separate filename
+and add `--known-good "C:\path\to\Gw.working.exe"` to that command. Do not overwrite either
+patched file before comparing them.
+
+The diagnostic reads files only. It reports SHA-256 hashes, file sizes, x86 PE format, the DH
+keys against `keys.txt`, both mutex patches, each hostname's original/loopback setting, and
+changes outside the patcher's known regions. A known-good comparison reports differing bytes
+and hostname locations; a difference is not by itself proof of a bad patch, especially when
+the input client builds differ. Hostname selections are reported without changing or rejecting
+them. This script does not launch the game or test a connection.
+
+Exit 0 means the checked patch bytes match, exit 1 means a check failed, and exit 2 means an
+input or tool error. Send the output together with the GUI patch log, launch command and exact
+client error. For ports and running services, use `tools/diagnose-server.ps1` separately.
+
 ## Optional: the file-server address
 
 `File1.ArenaNetworks.com` is the file server. It is live by default. To send it to this machine
