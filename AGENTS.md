@@ -103,6 +103,9 @@ A test run starts here, not from a habit:
 Every answer to the owner passes this gate, or it is rewritten before it is sent. It covers chat, a
 report, a commit message and the status lines of a run.
 
+The gate governs answers that carry work. It does not govern **brainstorming mode**, defined at the end
+of this section, where a decision is the defect and the inventory is the answer.
+
 The shape of a compliant answer:
 
 1. The first sentence is the answer. Not background, not a restatement of the question, not the list
@@ -110,7 +113,7 @@ The shape of a compliant answer:
 2. Then the facts it rests on, one claim per sentence, each with a `file:line`, a command, or a number.
 3. Then what to do, as numbered steps a person can run or apply.
 4. If there is a real fork, name the branch taken and why, in one line. A menu with no decision is a
-   failed answer.
+   failed answer - outside brainstorming mode, where that sentence is reversed.
 
 The gate, all six:
 
@@ -127,6 +130,34 @@ should, `it is worth noting`, `importantly`, `note that`, `in order to`, `levera
 `holistic`, `option 1` / `option 2` with no recommendation, `let me walk you through`, `to be clear`,
 `as I said`. Restating a rule in different words in the same answer is also a defect: one claim, one
 sentence, once.
+
+### Brainstorming mode
+
+The owner opens this mode by asking for an evaluation, a brainstorm, or the options: "i need to evaluate
+this", "what setups am i unaware of". The mode governs that answer and every answer after it until the
+owner closes it by asking for a decision or naming the axis that matters.
+
+What this mode forbids:
+
+- **A final answer.** No decision, no `Fork taken:`, no numbered plan of what to do, and no
+  recommendation the owner did not ask for. An unasked recommendation is a design decision wearing an
+  evaluation's clothes, and it is the failure this mode exists to stop.
+- **A requirement invented from a goal.** "Users can contribute scripts" is context for what to compare,
+  not a requirement to derive and then satisfy. The owner's goals stay the owner's.
+- **One axis standing in for the evaluation.** Speed is one row of ten. The axes: embedding into Rust
+  (ABI, C toolchain, Linux cross-build), threading and per-map parallelism, memory per instance,
+  abortability and sandbox, determinism for replay, hot reload, debugger and tooling, library ecosystem,
+  deployment, author experience. An axis that was not measured is named as not measured, in the answer.
+- **A number used as a verdict.** A measurement is evidence (`# 2`). It becomes a decision only when the
+  owner reads it as one.
+- **The reference as an argument.** "The reference does it this way" settles a structural question. It
+  settles nothing about what the owner should choose.
+- **Solving a problem nobody has yet.** An evaluation that ends in an architecture for something not
+  built is not an evaluation.
+
+What the mode asks for instead: each candidate, its limits axis by axis, one claim per line with its
+evidence, the setups the owner has not listed, and the list of what is still not measured. It ends with
+the question that would sharpen it, never with a conclusion.
 
 ## 5. Every file is ASCII
 

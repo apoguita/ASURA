@@ -34,9 +34,9 @@ wrong because they were taken from `t` (2026-10-31); the same file read from `ti
 ## One command
 
 `.\tools\live-session.ps1 -Preset init` is the run below, driven: it relaunches itself elevated once,
-starts the raw both-direction capture, dumps the structures on a cadence (eight seconds for this preset,
-and only the contexts an instance entry changes), prints the six actions, and records a `MARK` line
-every time Enter is pressed in its console.
+starts the raw both-direction capture, dumps the structures on a cadence (ten seconds for this preset -
+`tools/live-session.ps1:78`, default documented at `:17` - and only the contexts an instance entry
+changes), prints the six actions, and records a `MARK` line every time Enter is pressed in its console.
 
 The six actions for this preset are the ones a client performs anyway and nobody has to stage: enter an
 outpost from character select, travel to the explorable it exits to, come back, change district, open
@@ -105,8 +105,9 @@ Then stop terminal A with Ctrl+C. Four dumps and one capture, in the order above
 
 ## What this does not settle
 
-- The 324 game rows no capture contains: they need a stimulus, one opcode at a time
-  (`docs/20-rurik-gap.md`, P1).
+- The 306 game rows no capture contains (of 323 unnamed game rows in
+  `crates/asura-protocol/src/packets.rs`): they need a stimulus, one opcode at a time
+  (`docs/20-rurik-gap.md`, P1; the arithmetic is `docs/28-headers-to-name.md`).
 - The map's population itself - which body stands where, with which model and name - is data, not
   protocol. The capture says what a live server sends for it; producing it for our own maps is the
   archive job, and the reason the agent array cannot simply be copied by hand.

@@ -18,14 +18,13 @@ without asking the author: *what does the auth service do?* and *what does a wor
 The skeleton follows AzerothCore's shape (auth service, world server, database domains, registry),
 not GWPS's single-process layout.
 
-Three crates, no sockets yet:
-
-- `asura` - the binary (config loading, logging, startup order, shutdown).
-- `asura-db` - the schema, migrations, and the queries both programs need.
-- `asura-db` - schema ownership and the queries the auth service needs.
+The workspace is now seven members (`Cargo.toml`): `asura-auth`, `asura-world`, `asura-webgate`,
+`asura-protocol`, `asura-db`, `asura-fakeworld`, `asura-supervisor`. M1's skeleton was smaller and this
+list has grown with each milestone; there is no `asura` binary.
 
 **Done when:** every world-link message round-trips byte-for-byte in a unit test, the protocol
-version mismatch path is tested, and `asura --version` starts and exits cleanly.
+version mismatch path is tested, and a service binary starts and exits cleanly against `--help` or the
+real entry point.
 
 **Test:** `cargo test`. Nothing depends on a client.
 
@@ -65,7 +64,8 @@ trace and compare every message. This is why the reference implementation stays 
 **Delivered 2026-10-26.** The patched client (build 39112) logged in against this service, took the
 EULA and reached character select. `docs/06-reference-session.md` records the whole session from both
 servers - every direction, header and size - and `asura-auth` reproduced it line for line up to the
-client's travel request, which it refuses because no world server exists: `REQUEST_GAME_INSTANCE`
+client's travel request, which at that point was refused because no world server existed (it is answered`r
+now, `docs/22-world-model.md`): `REQUEST_GAME_INSTANCE`
 (`0x8029`) needs `GAME_SERVER_INFO` (`0x0009`, 42 bytes: address, port, tokens) and then a second
 connection speaking the game protocol, which is M4.
 
@@ -78,9 +78,10 @@ protocol's own key derivation, pinned by fixtures **compiled from the reference'
 path, including the 591-byte settings blob and the 62-byte character settings block copied from a live
 reply; the login decision against the database; and the listener that puts them together with a
 per-message trace behind `ASURA_TRACE=1`. `crates/asura-auth/tests/login.rs` proves it over a socket
-without a game, `tools/m3-verify.ps1` runs the whole path in one command, and the comparison tools
-(`probe`, `tools/compare-replies.py`, `tools/inspect-reply.py`) are what settled the shapes when
-reading the reference was not enough.
+without a game, and `tools/m3-verify.ps1` runs the whole path in one command. `tools/inspect-reply.py`
+is still in the tree; the comparison tools it was used with (`probe`, `tools/compare-replies.py`) are
+retired with the parity tooling (`docs/16`) - they are what settled the shapes when reading the
+reference was not enough.
 
 ## M4 - End-to-end travel
 
@@ -134,9 +135,11 @@ refused - and `tests/end_to_end.rs` drives login -> travel -> the routed game co
 `INSTANCE_LOAD_FINISH` in one process. `tools/m4-verify.ps1` runs all of it, and
 `asura-supervisor start` starts the stack for the real client (`docs/19-running.md`).
 
-**How the last bugs were found, because the method is the durable part.** `tools/patch-gwps-full-trace.py`
-makes the reference dump whole messages (its own trace cut at 24 bytes, which hid every field that
-mattered); `tools/compare-load.py` diffs our stream against its trace by size, bytes **and order**;
+**How the last bugs were found, because the method is the durable part.** Three tools did it, and all
+three are retired with the parity tooling (`docs/16`), so this is the record and not a recipe:
+`tools/patch-gwps-full-trace.py`
+made the reference dump whole messages (its own trace cut at 24 bytes, which hid every field that
+mattered); `tools/compare-load.py` diffed our stream against its trace by size, bytes **and order**;
 `ASURA_WORLD_REPLAY` + `ASURA_WORLD_REPLAY_PICK` serve the reference's captured bytes per block, which
 is what separated "our payloads differ" from "our connection is wrong". The three bugs that survived
 every earlier guess were, in order:
@@ -145,9 +148,10 @@ every earlier guess were, in order:
    an *order* bug, invisible to a diff that matched messages by header;
 2. **an all-zero appearance word** (`PROFESSION_None`, hair style 0) - a model the client cannot build;
 3. **no inventory at all** - bags and nothing else, and a client with no items has nothing to draw the
-   character from. The reference's own default inventory is generated from its trace
-   (`tools/gen-default-inventory.py`) - now as **rows** rather than as replayed bytes, and the block
-   rebuilt from them is compared to that capture byte for byte (`docs/08-next-inventory-model.md`).
+   character from. The reference's own default inventory was generated from its trace by
+   `tools/gen-default-inventory.py` (retired with the parity tooling, `docs/16`) - now as **rows**
+   rather than as replayed bytes, and the block rebuilt from them is compared to that capture byte for
+   byte (`docs/08-next-inventory-model.md`).
 
 ## M5 - Capacity, refusal, and persistence
 
@@ -204,14 +208,22 @@ client. The runbook and numbers are `docs/03-protocol.md` #5c; the server half i
 `a_connection_to_an_unhosted_map_is_loaded_on_demand` (`crates/asura-world/tests/load.rs`). The
 prebuilt pool stays the normal path; on-demand creation is the proven fallback.
 
-## Phase 2 - simulation (deferred, not cancelled)
+## Phase 2 - simulation
 
-These begin only when phase 1 works end to end. They are listed here so that phase-1 decisions are
-made knowing what is coming.
+The detailed implementation handoff is `docs/32-world-simulation-plan.md`. Its first assignment
+is configurable map spawns and portal arrivals with a small content manager, followed by isolated
+instances, NPCs, combat, HeroAI, a Lua quest, and capacity measurement. Read its owner intent,
+scope boundaries, acceptance checks, and unresolved decision gates before implementing a phase.
+The manager technology and JSON authoring workflow have not been selected by the owner.
+
+The working login/travel/movement path is the starting point; preserve the client-confirmed
+baseline. The S1-S4 rows below describe architectural outcomes. Use the detailed handoff for the
+current implementation order; its seven phases are distinct from the infrastructure milestones
+and the packet-parity stages. None is marked implemented merely by recording this plan.
 
 | milestone | outcome |
 |---|---|
-| S1 | decide the simulation's language and structure: port the C world server to Rust, or adopt it as a C component owned by this project. This is a decision, not an accident |
+| S1 | Rust owns simulation; Lua is selected for content scripting (Rhai was selected first and replaced, 2026-11-01). The owner intends to port the existing behavior-tree AI to Rust. Event-driven scripting is proposed; implementation and open decisions are recorded in `docs/30-world-content-and-scripting.md` |
 | S2 | the world server builds and runs from this repository, with its own maps and player load/save |
 | S3 | the simulation reads what it needs from the database through `asura-db`, with no shortcuts and no private SQL |
 | S4 | instance teardown: an empty explorable is cleared and returned to its pool, and memory does not grow across a session |

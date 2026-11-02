@@ -287,13 +287,14 @@ bounding box even when the counts happen to survive.
 
 Three things make that a measurement rather than a claim:
 
-- `crates/asura-world/tests/fixtures/gwdat-pathing.csv` holds the reference's rows;
-  `every_catalogue_blob_imports_to_the_references_own_fingerprint` (tests/map_data.rs) imports the blobs
-  from a real `Gw.dat` and compares all eight columns;
+- The reference's rows were held in `crates/asura-world/tests/fixtures/gwdat-pathing.csv`, which is gone from the tree with the rest of the parity fixtures (`docs/16`);
+  it compared all eight columns of every catalogue blob against a real `Gw.dat`. The surviving
+  equivalent is `the_spawn_points_the_reference_configures_land_in_the_graphs_in_the_archive`
+  (`crates/asura-world/src/map_data.rs:1045`);
 - `tools/parity-pathing.py --check` re-runs the reference binary, compares it to the fixture, and compares
   both to this repo's importer - the third leg is what catches the fixture going stale *and* the importer
   drifting in one run;
-- `the_settled_graph_of_every_catalogue_map_contains_its_own_spawn_point` walks every map's configured
+- `the_spawn_points_the_reference_configures_land_in_the_graphs_in_the_archive` walked every map's configured
   spawn point (`tools/map-config.sql`, generated from `GmMapsConfig.c`) and requires a trapezoid: all
   twelve land inside, three of them from the same blob (Lakeside County serving Ascalon City and Ashford
   Abbey as well).
@@ -326,7 +327,7 @@ translation unit *unmodified* (`#define COMPILE_TOOLS 1`, the same trick the ref
 and calls `PathFinding` directly; `tools/build-oracle.ps1` compiles it with the MSVC the reference
 was built with, linking the static libraries its CMake build already produced. Nothing under
 `PreSearing/` is written to. Both sides then run the same 96 cases
-(`crates/asura-world/tests/fixtures/path-cases.txt`, generated from the map catalogue's spawn points) and
+(a fixture file, `path-cases.txt` under `crates/asura-world/tests/fixtures/`, since removed with the other parity fixtures) and
 print one CSV row per case with coordinates as raw IEEE-754 bit patterns:
 
 ```
@@ -337,7 +338,8 @@ the path finder matches the reference on 96 case(s): 41 walk(s) found,
 So 95 of 96 walks - found or refused - come back with the same `result`, the same waypoint count, and
 waypoints identical down to the last bit of every coordinate, including the paths that cross planes
 through portals. The case-by-case comparison is
-`every_case_produces_the_references_own_waypoints` (tests/pathfind.rs) against the committed answers, and
+was `every_case_produces_the_references_own_waypoints` (`tests/pathfind.rs`); both the fixture and that
+file are gone, and the surviving comparison is `tests/path_dump.rs` against `data/path-graphs.bin`, and
 `tools/parity-path.py --check` re-runs the reference itself.
 
 **The one case that cannot be pinned is a finding, not a gap.** `PathBuildAddWaypointAndReduce` reads `t`
@@ -368,9 +370,12 @@ load tests and the movement tests already pin, so it is the next unit.
   That is the reference's `srv->map_context`, with one difference: the reference runs one server per map,
   so it has one context per process, while this hosts several maps in one process.
 - The handler (`GameSrv_HandleMoveToCoord`) pathfinds from **the server's own position**, takes waypoint 0
-  as the destination and broadcasts `AGENT_MOVE_TO_POINT`; on a refusal it cancels the walk and broadcasts
-  `AGENT_UPDATE_POSITION`, which is the reference's whole answer to a walk it cannot make. An empty path
-  sends nothing, as the reference's `0 < agent->waypoints.len` does.
+  as the destination and broadcasts `AGENT_MOVE_TO_POINT`. On a refusal the reference cancels the walk and
+  broadcasts `AGENT_UPDATE_POSITION`; **this tree cancels and sends nothing**, because that broadcast
+  disconnected a live client once and snapped it into a wall once, both measured
+  (`crates/asura-world/src/agent.rs:722-743`). The owner's ruling on whether the silence is the port is
+  open (`crates/asura-world/tests/load.rs:3169`, ignored for that reason). An empty path sends nothing,
+  as the reference's `0 < agent->waypoints.len` does.
 - The world tick advances the agent `speed_base * delta` along the path (`GameSrv_UpdateAgentMovement`),
   hands over to the next waypoint when a segment ends - broadcasting the new destination as the reference's
   `GameSrv_UpdateAgentDestination` does - and ends the walk on arrival. `agent.rs` keeps that state as
@@ -414,7 +419,7 @@ missing party messages survived an audit that called the block equivalent.
 **F1-F2 landed.** `tools/parity-load.py` reads the reference's own `GWPS_TRACE=1` log, drops the periodic
 traffic (pings and simulation ticks, which the log has and a block dump does not - the reference's own "N
 (non-feature)" tier), and compares the ordered `(header, size)` stream. Result: **480 messages, 0 missing,
-0 extra, 0 size disagreements**. That measurement is committed as `crates/asura-world/src/load_fixture.rs`
+0 extra, 0 size disagreements**. That measurement was committed as `crates/asura-world/src/load_fixture.rs`, which is gone from the tree
 (headers and sizes only, no payload), `the_load_stream_is_the_references_message_for_message` compares the
 four blocks against it, and `tools/test-battery.ps1` step 8 re-measures with `--check` so a drift fails the
 battery.

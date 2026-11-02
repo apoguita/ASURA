@@ -27,12 +27,16 @@ Nothing.
 Handlers are the floor, not the whole of parity. These are implemented *and* limited, stated so
 that nobody reads the table above as more than it says:
 
-- **movement** pathfinds now: `MOVE_TO_COORD` is answered with the first waypoint of this server's
-  own path out of the map's graph, and a walk the finder refuses is answered with the agent's
-  position - the same two outcomes (`crates/asura-world/src/lib.rs`, `pathfind.rs`);
-- **world state** is players only: several clients in one map are introduced to each other, see
-  each other walk, and are told when one leaves (`crates/asura-world/src/lib.rs`, `Peers`). There
-  are no NPCs, no combat and no quests;
+- **movement** pathfinds: `MOVE_TO_COORD` is answered with the first waypoint of this server's own path
+  out of the map's graph (`crates/asura-world/src/pathfind.rs`). A walk the finder refuses is cancelled
+  and **nothing is sent**: the reference broadcasts `AGENT_UPDATE_POSITION` there, and that message
+  disconnected a live client once (capture seq 519) and snapped it into a wall once, both measured
+  (`crates/asura-world/src/agent.rs:722-743`). Whether this silence is the port or a deviation is the
+  owner's open ruling; `crates/asura-world/tests/load.rs:3169` is the test held for it;
+- **world state** is players and their movement: several clients in one map are introduced to each
+  other, see each other walk, and are told when one leaves
+  (`crates/asura-world/src/instance.rs`, `PeerView` and `introduction`;
+  `crates/asura-world/src/world.rs:166`). There are no NPCs, no combat and no quests;
 - **instances** are built at startup from `map_config` -- every map in it by default (main towns,
   explorable areas and the character-creation instance), as the reference pre-spawns one server per
   configured map. `--maps` narrows the set on purpose and is never required;
@@ -59,13 +63,11 @@ that nobody reads the table above as more than it says:
   character's position is a deliberate addition, recorded in `0006_inventory.sql`. The inventory is
   durable too, because it is rows: a drop, a move and an equip all survive a relog. Nothing else
   about a character is saved yet: no level, no profession, no gold, no quest state;
-- **character creation** (the four `CHAR_CREATION_*` handlers) needs two things this server does
-  not have. The reference only offers it inside a *character-creation* instance (its
-  `MapType_CharacterCreation`), and this world hosts outposts only; and
-  `GameSrv_HandleCharCreationChangeProf` answers with the default equipment for the chosen
-  campaign and profession (`GetDefaultEquipments`), a table this project has not ported. Doing
-  the handlers without those two would send a creation screen the client cannot leave with a
-  character it cannot equip;
+- **character creation** (the four `CHAR_CREATION_*` handlers) is implemented. The creation instance is
+  hosted (`MapType_CharacterCreation`, `crates/asura-world/src/main.rs:237-251`), all four messages are
+  dispatched (`crates/asura-world/src/dispatch.rs:65-71`), and the profession's default equipment is
+  carried as data from the reference's `GmDefaultArmors.c`
+  (`crates/asura-world/src/default_equipment.rs`);
 - **the game connection's front door** is a byte-copy router; the reference hands the socket
   itself to the game server, which needs one process and is not what this does
   (`crates/asura-auth/src/frontdoor.rs`).
@@ -84,7 +86,7 @@ out of `GmChat.c` and `GmCommands.c`:
 | `@`, `%`, `"` | ignored | ignored |
 | `/stuck` | cancels the movement and broadcasts the agent's position (`0x002C`) | the same |
 | `/maps` | prints its table **in its own log**; its chat answer returns before the wire | prints the same table, line for line, in its own log; **nothing on the wire** |
-| `/tp <map>`, `/teleport <map>` | asks the auth service for a world and tells the client to reconnect | **not implemented**: this world cannot start a travel |
+| `/tp <map>`, `/teleport <map>` | asks the auth service for a world and tells the client to reconnect | the same cycle, world-initiated: the seat is reserved for the destination, the transfer row is written and `TRANSFER_GAME_SERVER_INFO` then `MAP_UPDATE_CURRENT` are sent (`crates/asura-world/src/travel.rs:181`, reached from `crates/asura-world/src/chat.rs:339`). The alias has to name a map this process hosts |
 | anything else after `/` | `Unknown command`, in its log (its sender returns before the wire too) | `world: Unknown command`, in this log |
 
 **A spoken line is sent; a generated answer is printed -- in both servers.** Every server-generated
@@ -93,12 +95,10 @@ answer in the reference funnels through `GameSrv_SendSystemChatMessage` or
 player's line is not gated either way. So the reference's `/maps` is useful because it prints on the
 *server*, and this one prints in the same place, in the same format, and puts no byte on the wire --
 which is the same crash that made the reference's layouts settle: `0x005D`, `0x005E` and `0x0061`
-appear in no capture, and sending one here crashed a live client. The one command that acts there
-and not here is `/tp`, which needs a *world-initiated* travel: a slot reserved, a transfer row
-written, `TRANSFER_GAME_SERVER_INFO` and then `MAP_UPDATE_CURRENT` sent. Neither message is a
-guess -- the reference sends both on every `/tp`, the capture holds the pair, and this repo
-already carries the header and length (`crates/asura-protocol/src/game/mod.rs`) -- what is
-missing is a way for a world to start the cycle that only the client can start today.
+appear in no capture, and sending one here crashed a live client. `/tp` acts in both servers now: the
+same world-initiated travel -- a slot reserved, a transfer row written, `TRANSFER_GAME_SERVER_INFO`
+and then `MAP_UPDATE_CURRENT` sent -- implemented at `crates/asura-world/src/travel.rs:181` and
+reached from the chat command at `crates/asura-world/src/chat.rs:339`.
 
 ## Features the reference has but keeps switched off
 
@@ -112,7 +112,7 @@ source:
   client could not parse, **and that it crashed the client**; this port tried the same thing and a
   live client crashed on `!hello` too. A player's own line is not gated in either server -- it is
   sent -- so the split is: spoken goes out, generated is printed;
-- **GM commands**: the reference has `/tp`, `/teleport` and `/maps`. `/maps` and `/stuck` are here
-  (they can only describe what this world actually runs); `/tp` is not, because the reference
-  teleports by asking the auth service for a world and having the client reconnect, and this world
-  cannot start a travel on its own.
+- **GM commands**: the reference has `/tp`, `/teleport` and `/maps`, and all three are here. `/maps`
+  and `/stuck` because they can only describe what this world actually runs; `/tp` and `/teleport`
+  because the world starts the transfer cycle itself (`crates/asura-world/src/travel.rs:181`). The
+  limit is the alias: it has to name a map this process already hosts.

@@ -14,8 +14,8 @@ capture's ordering.
 | reading a character's bags and items, seeding the default set, finding the item a drop names | `crates/asura-db/src/inventory.rs` |
 | the seed itself: six bags and nine items, kept as rows from the capture | `crates/asura-db/src/inventory/seed.rs` |
 | `CREATE_NAMED_ITEM`, `ITEM_MOVE_TO_LOCATION`, `ITEM_SET_PROFESSION` builders (the captured bytes are kept as a recording under `recordings/`) | `crates/asura-protocol/src/game/mod.rs` |
-| the item block built out of rows, the wearing ids read from the equipped bag | `crates/asura-world/src/lib.rs` (`inventory_block`, `items_block`, `player_block`) |
-| `DROP_ITEM` (`0x802C`) | same file, the `0x802C` arm and `drop_item` |
+| the item block built out of rows, the wearing ids read from the equipped bag | `crates/asura-world/src/item.rs:70` (`items_block`) and `:120` (`inventory_block`); `crates/asura-world/src/player.rs:145` (`player_block`) |
+| `DROP_ITEM` (`0x802C`) | `crates/asura-world/src/item.rs:187` (`drop_item`), dispatched at `crates/asura-world/src/dispatch.rs:73` |
 | the position saved on the way out and read on the way in | `asura_db::game::record_position` / `position`, `Standing::resume` |
 
 **The proof that this is the reference's inventory and not an approximation of it**: the block built from
@@ -117,11 +117,9 @@ in the status document, rather than a guess someone would have to rediscover.
 
 ## What is next
 
-The four `CHAR_CREATION_*` handlers are what is left of the reference's dispatch (`docs/07-status.md`), and
-they need the two things `docs/08` named: a character-creation instance, and the default-equipment table
-that `GetDefaultEquipments` answers with. The equipment half is now cheap - an item row is a row, and the
-table that `GmDefaultArmors.c` carries is 2820 lines of it - so the instance type is what is actually
-missing.
+The four `CHAR_CREATION_*` handlers have landed since: the creation instance is hosted and the default
+equipment is carried as data (`crates/asura-world/src/main.rs:237-251`, `dispatch.rs:65-71`,
+`default_equipment.rs`), so nothing of the reference's dispatch is left (`docs/07-status.md`).
 
 What the inventory still cannot do, in the order a player would notice it: **pick a dropped item back up**
 (`GAME_CMSG_INTERACT_ITEM`, `0x803F` - the reference has no handler, so this is a measurement away: drop

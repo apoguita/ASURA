@@ -33,10 +33,11 @@ of program agree on.
 Ported from AzerothCore, deliberately not cherry-picked:
 
 1. **Two program types**, with no live state channel between them for placement or character state.
-2. **Three databases**, each with its own connection pool:
-   - `auth` - accounts, sessions, login tokens
-   - `game` - characters, items, bags, instance records
-   - `content` - map configuration and spawns, effectively read-only
+2. **Three logical databases** - `auth` (accounts, sessions, login tokens), `game` (characters,
+   items, bags, instance records) and `content` (map configuration and spawns, effectively
+   read-only). Development runs all three domains in one PostgreSQL database, one URL and one pool
+   (`crates/asura-db/migrations/0001_init.sql`: their union, split later); the split into three
+   databases with a pool each is the target shape, not today's.
 3. **A registry table** that world servers write themselves into, exactly as `realmlist` works.
 4. **Character state owned and written by world servers**, through a pool with an asynchronous
    write queue.
@@ -203,14 +204,17 @@ something a simulation thread does.
 
 | map type | lifecycle | count |
 |---|---|---|
-| outpost / town | prebuilt at world startup, one per map per district, never destroyed | bounded by content |
-| explorable | prebuilt **pool** per map; capacity is how many parties may be inside at once | configured |
+| outpost / town | an instance built at start-up, or on first request under `--on-demand`; keyed by map id and never destroyed | bounded by content |
+| explorable | the same, one instance per map id today; a pool per party is the phase-2 target (`docs/32`) | configured |
 
-- Assignment takes an instance from the pool, clears it (agents, pending messages, party and item
-  state) and hands it to the party. Release clears it and returns it.
-- The world server creates instances **ahead of need**, into its pool, and destroys them only when
-  the pool is deliberately shrunk. This is the deviation from AzerothCore, which creates on demand:
-  our client hangs when the destination is not ready, so on-demand creation is not available to us.
+- **The instance is created on first use, and its clock starts with it** (`crates/asura-world/src/
+  instance.rs:376-385`). A world started without `--on-demand` builds an instance for every map in
+  `map_config` at start-up, which is the reference's pre-spawned shape; with `--on-demand` an
+  instance is built the first time a client names its map (`crates/asura-world/src/travel.rs:83`),
+  measured at 0-2 ms per map against the real client. AzerothCore's on-demand creation is therefore
+  available here as an opt-in, and the reference's prebuild is the default.
+- The pool-per-party lifecycle below is the target for explorables: today a map id keys one instance
+  (`Instances`, `instance.rs:368`), and independent copies of one map are `docs/32` phase 2.
 - Instance records persist in `game`, so a restart rebuilds the same pools and "who is where"
   survives an auth-service restart.
 
@@ -218,9 +222,11 @@ something a simulation thread does.
 
 - **One IO reactor** accepts and serves gameplay connections - the ones the front door relays from
   the client (the client dials the auth address, and the auth service copies bytes to this world).
-- **A bounded pool of update threads with map affinity.** A hot map is always updated by the same
-  thread, so simulation state needs no locking, and the pool size is configuration rather than a
-  function of map count. Idle maps cost nothing.
+- **An update task per map.** The first join to a map starts its clock on its own task
+  (`Instance::run`, `tokio::spawn` at `instance.rs:382`), and the task ends with the instance. The
+  bounded pool of update threads with map affinity that AzerothCore uses is **not built**: nothing
+  in `crates/asura-world` pins a map to a worker. It is the shape `docs/32` phase 3 and
+  `docs/adr/0006` name for the simulation stage, where per-instance state stops being lock-free.
 - **Database access through a pool per database**, with writes enqueued to an asynchronous worker so
   the simulation loop never waits on the disk. Multi-statement changes are transactions. Queue depth
   is a metric, because a growing queue is the first sign of trouble.
@@ -244,8 +250,13 @@ operational attention (backups, a restore test, later a standby).
 ## Startup order
 
 1. Database reachable, schema current.
-2. World servers start: connect, prebuild outposts and pools, register in `world`.
-3. Auth service starts: binds the login endpoint, reads the registry.
+2. The supervisor starts the services in dependency order: with no `depends_on` declared, that is
+   alphabetical, so the auth service binds first, then the web gate, then the world
+   (`crates/asura-supervisor/src/config.rs:192-200`, `config/services.toml`). Nothing in the order is a
+   correctness requirement today: the auth service reads the registry per request, so a world that
+   registers later is simply not offered until it has.
+3. A world connects, builds its maps (every map in `map_config`, or none under `--on-demand`), and
+   registers itself in `world`; it is offered as soon as its row is fresh.
 4. Players log in; the auth service answers with a world that is registered, online and has capacity.
 5. Shutdown: worlds flush character state, mark themselves draining, exit; the auth service stops
    accepting, then exits.

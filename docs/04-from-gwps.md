@@ -36,8 +36,8 @@ maps what to reuse as knowledge, what to port, and what to leave behind.
 | `AuthSrv.c` | **auth service**: auth endpoint, handshake, login, character list, sessions, allocation decisions. Ported to Rust. |
 | `AuthSrvCtrl.c`, `CtrlConn.c/.h` | **database**: retired. Placement and state coordination move into tables (`world`, `world_pool`, `session`), so the live control messages have nothing left to carry. |
 | `main.c` | split: `asura` main and `world` main. Today one binary binds 6112/6113/1337 and runs everything. |
-| `GameSrv.c` | **world server** in phase 1 (stays C): simulation, players, instance lifecycle. It is the seed of the auth service's own simulation phase. |
-| `GmMapDataImport.c`, `FaArchive.c`, `GmPaths.c`, `GmItem.c`, ... | **world server** (stays C), untouched. |
+| `GameSrv.c` | **world server**, ported to Rust in `crates/asura-world`: connection, load block, movement, travel, chat, items. It is no longer C and no longer outside this project. |
+| `GmMapDataImport.c`, `FaArchive.c`, `GmPaths.c`, `GmItem.c`, ... | **world server**, ported: the archive importer, decompressor and A* live in `crates/asura-world` (`map_data.rs`, `fa_compress.rs`, `pathfind.rs`, `item.rs`). |
 | `Db.c`, `DbSchema.h` | **database**: ported from SQLite to PostgreSQL and split into `auth` / `game` / `content`, owned by `asura-db`. Character writes move from a connection per instance to a pooled async queue in each world server. |
 | `GmCommands.c` | **world server**, plus the map list it carries is the input for outpost prebuild. |
 | `tools/patch-gw.py`, `keys.txt` | **`client-patcher/`** in this repository, verbatim: the client patcher and the DH parameters the server copied. Nothing client-facing runs without them. |

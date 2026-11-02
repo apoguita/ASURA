@@ -65,8 +65,11 @@ session's first. `0x0196` carried a different position per map. So the populatio
 
 What the client asks while this happens, in the same run: `0x8093` eight times, one per instance
 (`166, 145, 146, 148, 160, 161, 162, 164`) when the world map opened; `0x00B1` once, naming 166 as the
-chosen instance; `0x00C1` twice at a portal, `{1, 0}` then `{0, 0}`. None of the three is answered by
-this world today.
+chosen instance; `0x00C1` twice at a portal, `{1, 0}` then `{0, 0}`. Of the three, the world-map request
+is answered - `GAME_CMSG_PARTY_TRAVEL` ends in the same transfer cycle (`crates/asura-world/src/
+dispatch.rs:58`, `crates/asura-world/src/travel.rs:298`). `0x8093` is named
+(`GAME_CMSG_INSTANCE_QUERY`) and read, and `0x80C1` is read: neither starts anything
+(`crates/asura-world/src/travel.rs:154-166`).
 
 ## What this world sends today, in order
 
@@ -163,9 +166,10 @@ population work is aimed by that dump rather than by this list.
 3. **The `0x0196` tail.** The reference zeroes the last eight bytes (`GameMsg.h:346`); a live server fills
    them with two dwords that change per visit. Unmeasured meaning, recorded here as a gap rather than
    guessed at.
-4. **The client's own initialization messages we do not answer:** `0x8092` (120 bytes) and `0x8093`
-   (4 bytes, `{u16 instance}`), sent 25 times each in one session while browsing the world map. Unnamed in
-   the table and unhandled. A live capture of the *retail* build does not contain them, so what they are
+4. **The client's own initialization messages we do not answer:** `0x8092` (120 bytes, still `Unnamed`)
+   and `0x8093` (4 bytes, `{u16 instance}`, now named `GAME_CMSG_INSTANCE_QUERY` and `Observed`,
+   `crates/asura-protocol/src/packets.rs:480`), sent 25 times each in one session while browsing the world
+   map. Both are unhandled. A live capture of the *retail* build does not contain them, so what they are
    owed has to be measured against this client, not copied.
 
 ## How this document is used

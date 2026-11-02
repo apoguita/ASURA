@@ -273,12 +273,14 @@ asura-world --dump-path-graphs data\path-graphs.bin
 asura-world            # picks data\path-graphs.bin up automatically
 ```
 
-- `--dump-path-graphs FILE` writes the maps in `map_config` (the twelve of the reference);
+- `--dump-path-graphs FILE` writes every map in `map_config` (142 maps at this reading) into FILE;
   `--dump-all` writes every pathing map in the archive instead. `--path-graphs` /
   `ASURA_PATH_GRAPHS` name a dump explicitly; `--gwdat` stays the fallback when no dump exists.
-- **Measured 2026-10-27**: 12 of 12 catalogue maps, 486 planes, 62,326 trapezoids, **11.1 MB** -
-  the world then starts with `path graphs from the dump data\path-graphs.bin: 12 of 12 map(s)
-  bound` and never opens the archive.
+- **Measured 2026-10-27** when the catalogue held twelve maps: 12 of 12 catalogue maps, 486 planes,
+  62,326 trapezoids, 11.1 MB - the world then starts with
+  `path graphs from the dump data\path-graphs.bin: 12 of 12 map(s) bound` and never opens the archive.
+  **The bundled dump today carries 142 maps** (`data/path-graphs.bin`, 87,336,403 bytes, header count
+  `0x8e`), so the twelve-map figures above are that day's reading, not the file's size now.
 - The format is ours (`crates/asura-world/src/graph_dump.rs`), and it carries exactly what the
   finder consumes. The community `.pmap` files (ACB's Pathingmap Builder, e.g. the archives the
   GW-Pathing-Map visualization projects ship) are *visualization* data: trapezoids and adjacency
@@ -286,17 +288,17 @@ asura-world            # picks data\path-graphs.bin up automatically
   a client archive once and then travels with the server.
 - **The bit-31 trap**: a catalogue blob id may carry the archive's "replacement pending" bit
   (`0x8005EA96` for The Northlands) while an archive binds the plain id (`0x5EA96`). Both are tried
-  (`find_path_blob`, `docs/03-roadmap.md`), and a substitution is logged.
+  (`find_path_blob`, the bit-31 trap below), and a substitution is logged.
 - The dump is pinned by `crates/asura-world/tests/path_dump.rs`: the walks from a dumped graph are
   compared, waypoint for waypoint, with the walks from the archive import (maps 146 and 148, which
   share one blob), the dump command's own file is loaded back and bound to the catalogue, and the
   **bundled** `data/path-graphs.bin` is walked directly with no archive present.
 
 The dump is derived game data and it **is bundled with this repository**: `data/path-graphs.bin` is
-committed (11.1 MB), so a fresh clone answers pathfinding without finding a client archive - the
-whole server, pathing included, is one clone. The raw `Gw.dat` itself stays local (3.6 GB, the
-game's file); `/Gw.dat` and `/data/Gw.dat` are the only ignored archive paths, and the dump is
-regenerated with `--dump-path-graphs` when the catalogue or the client changes.
+committed (87,336,403 bytes, about 83 MiB, 142 maps), so a fresh clone answers pathfinding without
+finding a client archive - the whole server, pathing included, is one clone. The raw `Gw.dat` itself
+stays local (3.6 GB, the game's file); `/Gw.dat` and `/data/Gw.dat` are the only ignored archive paths,
+and the dump is regenerated with `--dump-path-graphs FILE` when the catalogue or the client changes.
 
 ### 5a. The auth-side pair (measured from the reference)
 
@@ -408,7 +410,8 @@ Both this port and the reference produce waypoint 0 **stamped with the plane it 
 that plane and 290 units from the agent**. The retail servers' cross-plane destinations are always portal
 corners reached after a same-plane waypoint (`(10860.0, 4532.0)`, which is exactly plane 18's own corner).
 So the world hands the client the reference's path minus any **leading** waypoint on another plane
-(`client_walk` in `asura-world`), and the client walks the straight segment across the slope itself. The
+(`begin_walk` in `crates/asura-world/src/agent.rs:147`), and the client walks the straight segment
+across the slope itself. The
 The dump's own list is unchanged and still checked by `path_dump.rs`; only what reaches the wire is filtered.
 
 ### 5f. The two travels a client performs (`0x80C1`, `0x80B1`) and who starts them
@@ -429,9 +432,11 @@ outpost into an explorable and the crossing contained **no client message at all
 
 Zero `0x00C1` in that file. So the world is what decides that the player reached a portal and sends the
 same eight-message stream `/tp` and the world map produce (`docs/03` 5f, the eight messages below). The
-implementation therefore needs a **portal table**: for each instance, the travel portals' positions and
+implementation therefore has a **portal table**: for each instance, the travel portals' positions and
 which instance each leads to - read from the instance's own props, which is where the client draws them
-from (`docs/22-world-model.md`, answer 3).
+from (`crates/asura-world/src/portals.rs`, generated from `data/portals.json`; `docs/22-world-model.md`,
+answer 3). A doorway a walk reaches fires the crossing; the `0x80C1` arm still names the touch and starts
+nothing (`crates/asura-world/src/travel.rs:154-166`).
 
 The `0x00C1` messages seen in `captures/zone-ref2-012225.jsonl` are therefore **not** the crossing; they
 are the client asking about instances, and what they are owed is still open.
@@ -474,7 +479,8 @@ travels):
 | 8 | `0x0021` `WORLD_REMOVE_AGENT` | 8 | and their agent |
 
 This world sends all eight, from one `begin_transfer` (`crates/asura-world/src/travel.rs`), for every
-trigger - `/tp`, `0x80B1`, and `0x80C1` once a portal table exists. The last four withdraw the travelling
+trigger - `/tp`, `0x80B1`, and a walk that reaches a doorway in the portal table. The last four withdraw
+the travelling
 body from the instance it is leaving; the capture's own ids are not ours to reuse, so they are this
 connection's player id and agent id.
 
@@ -524,7 +530,10 @@ then `0x0099`), reached from a different trigger:
 
 * `0x80B1` names the destination itself, so it is a direct call with the client's map id.
 * `0x80C1` names a portal of the current instance, so it needs a **portal table**: which portal of which
-  instance leads to which instance. The portal is a prop, read from the instance's own map data in the
+  instance leads to which instance. That table exists now (`crates/asura-world/src/portals.rs`), keyed by
+  position rather than by prop order, so the crossing fires from the walk and the message itself is only
+  read (`crates/asura-world/src/travel.rs:154-166`). The portal is a prop, read from the instance's own
+  map data in the
   order that data lists it (`docs/22-world-model.md`), so the number the client sends and a table built
   from the archive are the same ordering, and the table can be derived offline, like the path graphs.
 
@@ -547,7 +556,7 @@ printed without `ASURA_TRACE`, because it is the event, not a packet.
 | `AUTH_CMSG_SEND_COMPUTER_INFO` sized from the table | the client sends it as **42 bytes** - `u16` counts, variable-length strings, no padding - while the table says 138; framing by the table swallows the message behind it and desynchronises the stream | consume this one structurally (`client::messages::decode_computer_info`), not by table size. Measured against a real client, build 39112: it arrived as 42 bytes of computer info plus a 22-byte `SEND_COMPUTER_HASH` |
 | `sizeof(struct)` taken as the wire size | two extra bytes on the wire, so the client misreads every message after it | the size is the format's field sum, not the struct's size. `AuthSrv_SessionInfo` is 14 bytes in C and 10 on the wire - the format has two dwords where the struct has three |
 | a length field written where the protocol has none | the client misreads the body as the next header: error `007` | there is no length field (`section 1`) |
-| `0x0099` size | 12 bytes in the login batch makes the client fail with 007; the same message is 12 bytes (5 in the login batch) | size per context, not per header |
+| `0x0099` size | 12 bytes in the login batch makes the client fail with 007; the same message is 12 bytes on the redirect and 5 in the login batch | size per context, not per header |
 | `is_explorable` from the wrong map | error 005 after travel | always from the destination district |
 | `is_explorable` read as a label the client stores | it is a **path selector**: at 1 the client runs its explorable load, and against an instance this world does not fill that load waits 4.3 s before the players block (5138 ms against 849 ms with the field at 0, the same walk and destination) | this world sends **0 for every travel** since 2026-10-31 (`explorable_flag_for`); `ASURA_TRAVEL_EXPLORABLE=auto` sends the destination's own kind, which is live's value, and a slow explorable load is the explorable path asking for an instance this world does not fill - `docs/23-initialization-protocol.md`, "The explorable" |
 | settings upload not acknowledged | hang correlated 7/7 with unacknowledged uploads | always answer `AUTH_CMSG_SETTING_UPDATE` with a request response |
@@ -562,8 +571,9 @@ environment variable.
 ## 7. File check
 
 The client also asks a file service whether a file is current: a 21-byte request answered with 32
-bytes. GWPS answers it correctly when it receives it (`AuthSrv_TryHandleFileCheck`). Whether the auth service
-needs to answer it depends on whether the client is pointed at us for content; today it is not.
+bytes. GWPS answers it correctly when it receives it (`AuthSrv_TryHandleFileCheck`), and this auth
+service does too: it consumes the request and writes the 32-byte response before the version message
+(`crates/asura-auth/src/lib.rs:239-242`, `filecheck::FILE_CHECK_RESPONSE`).
 
 ## 8. Coordination between programs: the database, not a protocol
 
@@ -845,11 +855,12 @@ The commands, as the reference's `GmChat.c`/`GmCommands.c` define them: `/stuck`
 broadcasts the agent's position (`0x002C`, **not** `AGENT_STOP_MOVING`, which is what `0x8028` answers);
 `/maps` prints the reference's table verbatim - `Teleport targets (N aliases, every one with a map
 config):`, then one `  /tp <alias> -> map <id>  <name>` row per map - and sends nothing; `/tp <map>` and
-`/teleport <map>` are **not implemented**, because they need a *world-initiated* travel (reserve a slot,
-write a transfer row, send `TRANSFER_GAME_SERVER_INFO`, then `MAP_UPDATE_CURRENT`). The redirect is not
-the unknown part - #5 above has its bytes, GWPS sends it on every `/tp`, and `mod.rs:59` already carries
-the header and length; what this server lacks is a way for a *world* to start the cycle that #5 describes
-from the client's side. An unknown command prints `Unknown command`, which is the line the reference logs.
+`/teleport <map>` are implemented: the world starts the cycle #5 describes - the seat reserved for the
+destination, the transfer row written, `TRANSFER_GAME_SERVER_INFO` then `MAP_UPDATE_CURRENT` sent
+(`crates/asura-world/src/travel.rs:181`, reached from the chat command at
+`crates/asura-world/src/chat.rs:339`). The alias resolves through the reference's own generated table
+(`crates/asura-world/src/travel_targets.rs`), and a target this process cannot serve is refused in the
+log, not on the wire. An unknown command prints `Unknown command`, which is the line the reference logs.
 
 Three answers change nothing and send nothing: item id `0`, an item that is not in the backpack/belt
 pouch/bag 1/bag 2 (`GmBag_FindItem` looks no further, so storage is not droppable), and a count larger than

@@ -33,10 +33,12 @@ abandoning.
    - **Hypothesis to test:** on-demand creation is acceptable *if* the destination server is announced
      ready before the client is redirected. If it is, pools become an optimisation instead of a
      requirement, and the memory cost of hundreds of idle instances can be deferred to demand.
-   - The test is one world server, a parity harness or a real client, and the recorder: create the
-     instance during the travel, redirect only after `SERVER_READY`, and watch whether the client
-     rebuilds its world or hangs. That is a five-minute test in the new stack and another week in the
-     old one.
+   - **Answered 2026-10-27: the hypothesis holds.** Measured on the real client with nothing preloaded,
+     a travel to an unhosted map loads it in 0-2 ms and the client settles; precaching is therefore not
+     a requirement (`docs/03-protocol.md` 5c, `docs/roadmap.md`). The flag that does it is
+     `asura-world --on-demand` (`crates/asura-world/src/travel.rs:83`), and prebuilding stays the
+     default because it is the reference's shape, not because it is needed.
+   - The test that answered it: one world server, no preload, a real client, and the recorder.
 4. **Instance creation has to live somewhere explicit.** It belongs to the world server, behind an
    interface that takes (map, party) and returns an instance - whether that instance came from a pool
    or was built on the spot is that server's business. No caller should be able to tell the difference,

@@ -1,6 +1,6 @@
 # ADR 0002 - A separate project instead of another fork of GWPS
 
-- **Status:** Proposed
+- **Status:** Accepted (carried as a made decision in `docs/HANDOFF.md`, "Decisions already made")
 - **Date:** 2026-10-25
 - **Context:** GWPS works as a proof of concept and is the accumulated knowledge base for the client
   protocol. Its process model is what limits it: one program that answers the client, allocates, and

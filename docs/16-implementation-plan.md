@@ -34,10 +34,12 @@
 
 **The suggestion.** "Replace the scripts with a launcher and a babysitter."
 
-**What exists.** `tools/start-server.ps1` (elevation for PostgreSQL, starts the gate, hands over),
-`tools/play.ps1` (seeds, builds, starts auth and world with `Start-Process`, tails two `%TEMP%`
-logs, throws the moment either child exits), `tools/stop-server.ps1` (kills by process name). There
-is no manifest, no state file, no per-service log directory, no way to start or stop one service
+**What existed before this item, as it read on 2026-10-28.** `tools/start-server.ps1` (elevation for
+PostgreSQL, started the gate, handed over), `tools/play.ps1` (seeded, built, started auth and world with
+`Start-Process`, tailed two `%TEMP%` logs, threw the moment either child exited),
+`tools/stop-server.ps1` (killed by process name). All three were retired by this item; none is in the
+tree. There was
+no manifest, no state file, no per-service log directory, no way to start or stop one service
 alone, and no restart.
 
 **What the item delivers (nothing beyond the suggestion):**
@@ -53,7 +55,7 @@ alone, and no restart.
 `restart`, `build`, `schema`, `seed`), the list in `config/services.toml`, one log per service under
 `logs/`, a loopback control channel, bounded restarts (5 attempts, 2 s apart, then FAILED - D1.3),
 the port rule, and the process-group rule so Ctrl+C stops services *through* the supervisor.
-Verified by 10 tests (8 unit + 2 integration) and a live run: start -> all three ready -> status ->
+Verified by 12 tests (10 unit + 2 integration) and a live run: start -> all three ready -> status ->
 stop -> every port free. The cross-platform `schema`/`seed` commands live in the same crate.
 
 **Settled by the owner** (recorded in their words, 2026-10-28):
@@ -241,7 +243,7 @@ documentation:
 | "placement prefers the newest healthy build" | `docs/02-architecture.md` (deployment section) | `find_worlds` orders by `leased, id`; `build` is not consulted (`placement.rs:435`) |
 | "each world server and the auth service exposes a small fixed set of counters ... and a rate form" | `docs/02-architecture.md` (observability section) | nothing exports anything |
 | "a world server ... marks itself draining or offline on exit" (flags = online) | `docs/02-architecture.md` (the registry section) | no exit path, no flags column; the row is left for the reaper |
-| "6 migrations applied / 11 tables" | `docs/HANDOFF.md` (environment status) | nine migration files (`0001`-`0009`) exist today |
+| "6 migrations applied / 11 tables" | `docs/HANDOFF.md` (environment status) | nine migration files (`0001`-`0009`) existed when this was written; the tree now carries 24 (`0001`-`0024`) |
 
 **What the item delivers:** the five corrections, one subject per change, each verified against the
 tree before the edit. This is internal documentation only.

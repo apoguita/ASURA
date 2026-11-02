@@ -90,6 +90,12 @@ pub struct AgentState {
     /// The walk in progress, if any (`GmAgent.destination`, `.direction`, `.speed`, `.waypoints`,
     /// `.waypoint_idx`).
     pub motion: Motion,
+    /// Last announced movement type: 1 forward, 4 backward, 7/8 strafe, 9 stopped.
+    pub move_type: u8,
+    /// Movement speed factor sent with the type; separate from the base speed.
+    pub move_speed: f32,
+    /// Last announced manual direction, for suppressing unchanged direction replies.
+    pub move_direction: (f32, f32),
 }
 
 /// The reference's `GmAgent` walking state: one segment being walked, and the waypoints after it.
@@ -118,6 +124,9 @@ impl AgentState {
             last_report: None,
             speed_base,
             motion: Motion::default(),
+            move_type: 1,
+            move_speed: 1.0,
+            move_direction: (0.0, 0.0),
         }
     }
 
@@ -152,7 +161,7 @@ impl AgentState {
     /// no-op that the arrival test below clears on the next tick. That is a deliberate difference, and
     /// the only one in this file.
     pub fn set_destination(&mut self, destination: Pos) {
-        self.motion.speed = self.speed_base;
+        self.motion.speed = self.speed_base * self.move_speed;
         self.motion.destination = destination;
         let dx = destination.x - self.position.0;
         let dy = destination.y - self.position.1;
@@ -189,6 +198,65 @@ impl AgentState {
         self.motion.waypoints.clear();
         self.motion.waypoint_idx = 0;
         self.set_destination(destination);
+    }
+
+    /// Replace the previous order and announce a manual walk to every copy of this agent.
+    /// Reply order: alternating-live.jsonl 327-329 (direction, type, destination).
+    pub fn begin_manual_walk(
+        &mut self,
+        waypoints: Vec<Waypoint>,
+        direction: (f32, f32),
+        move_type: u8,
+    ) -> Vec<Frame> {
+        self.cancel_movement();
+        self.motion.waypoints.clear();
+        self.motion.waypoint_idx = 0;
+        if waypoints.is_empty() {
+            return Vec::new();
+        }
+        let speed = match move_type {
+            4..=6 => 0.66,
+            7..=8 => 0.75,
+            _ => 1.0,
+        };
+        let mut reply = Vec::new();
+        let dx = direction.0 - self.move_direction.0;
+        let dy = direction.1 - self.move_direction.1;
+        if dx * dx + dy * dy >= 0.0003 || self.move_type != move_type {
+            reply.push(game::agent_update_direction(
+                self.agent_id,
+                direction,
+                move_type,
+            ));
+        }
+        if self.move_type != move_type || self.move_speed != speed {
+            reply.push(game::agent_update_speed(self.agent_id, speed, move_type));
+        }
+        self.move_type = move_type;
+        self.move_speed = speed;
+        self.move_direction = direction;
+        if let Some(first) = self.begin_walk(waypoints) {
+            reply.push(game::agent_move_to_point(
+                self.agent_id,
+                (first.pos.x, first.pos.y),
+                first.pos.plane,
+                self.plane,
+            ));
+        }
+        reply
+    }
+
+    /// alternating-live.jsonl 321-322: type 9, then a destination at the stopping point.
+    pub fn stop_manual_walk(&mut self) -> Vec<Frame> {
+        self.cancel_movement();
+        self.motion.waypoints.clear();
+        self.motion.waypoint_idx = 0;
+        self.move_type = 9;
+        self.move_speed = 1.0;
+        vec![
+            game::agent_update_speed(self.agent_id, 1.0, 9),
+            game::agent_move_to_point(self.agent_id, self.position, self.plane, self.plane),
+        ]
     }
 
     /// `GameSrv_UpdateAgentMovement`: walk `delta` seconds of the current segment.
@@ -515,11 +583,25 @@ pub async fn handle_move_to_coord(
         return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
     }
     let destination = (
-        f32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]),
-        f32::from_le_bytes([frame.body()[4], frame.body()[5], frame.body()[6], frame.body()[7]]),
+        f32::from_le_bytes([
+            frame.body()[0],
+            frame.body()[1],
+            frame.body()[2],
+            frame.body()[3],
+        ]),
+        f32::from_le_bytes([
+            frame.body()[4],
+            frame.body()[5],
+            frame.body()[6],
+            frame.body()[7],
+        ]),
     );
-    let plane =
-        u32::from_le_bytes([frame.body()[8], frame.body()[9], frame.body()[10], frame.body()[11]]) as u16;
+    let plane = u32::from_le_bytes([
+        frame.body()[8],
+        frame.body()[9],
+        frame.body()[10],
+        frame.body()[11],
+    ]) as u16;
     let agent_id = player.GetAgentID();
     let instance = Arc::clone(&player.instance);
     let map_id = instance.map.map_id;
@@ -593,16 +675,21 @@ pub async fn handle_move_to_coord(
             // business, not this server's.
             let begun = instance
                 .with_slot(player.player_id, |slot| {
+                    let speed = (slot.agent.move_type != 1 || slot.agent.move_speed != 1.0)
+                        .then(|| game::agent_update_speed(agent_id, 1.0, 1));
+                    slot.agent.move_type = 1;
+                    slot.agent.move_speed = 1.0;
                     let first = slot.agent.begin_walk(waypoints)?;
                     Some((
                         first,
                         slot.agent.plane,
                         slot.agent.motion.waypoints.len(),
                         slot.agent.position,
+                        speed,
                     ))
                 })
                 .flatten();
-            if let Some((first, current_plane, left, stood)) = begun {
+            if let Some((first, current_plane, left, stood, speed)) = begun {
                 let walk = game::agent_move_to_point(
                     agent_id,
                     (first.pos.x, first.pos.y),
@@ -626,8 +713,10 @@ pub async fn handle_move_to_coord(
                 // Everyone else is told where this agent is walking: the reference broadcasts the
                 // same message (`GameSrv_BroadcastAgentMoveToPoint`), and a client that is not told
                 // keeps drawing the walker where it last stood.
-                instance.broadcast(player.player_id, std::slice::from_ref(&walk));
-                send(stream, session, vec![walk], trace).await?;
+                let mut reply: Vec<_> = speed.into_iter().collect();
+                reply.push(walk);
+                instance.broadcast(player.player_id, &reply);
+                send(stream, session, reply, trace).await?;
             }
         }
         Walk::NoPath | Walk::NoGraph => {
@@ -656,25 +745,52 @@ pub async fn handle_move_to_coord(
     Ok(true)
 }
 
-/// The client reports where it is (`GameSrv_HandlePositionUpdate`). The position is adopted when
-/// the budget allows it, clamped when it does not, and refused across a plane change that is too
-/// far. Nothing goes back to the reporter - it already knows where it is - but everyone else is
-/// told, which is what the reference's `GameSrv_BroadcastAgentPosition` does and why a second
-/// client sees the first one move.
-pub fn handle_position_update(
+/// A manual movement order: position, plane, offset and movement type.
+/// alternating-live.jsonl 90-94: the reporter needs the destination reply too, to
+/// advance the client's sync copy while its drawn copy is under keyboard control.
+pub async fn handle_position_update(
+    stream: &mut TcpStream,
+    session: &mut Session,
     frame: &Frame,
+    world: &World,
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    if frame.body().len() < 12 {
-        return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
+    if frame.body().len() < 24 {
+        return Err(GameError::Framing(FrameError::Incomplete { needed: 26 }));
     }
     let position = (
-        f32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]),
-        f32::from_le_bytes([frame.body()[4], frame.body()[5], frame.body()[6], frame.body()[7]]),
+        f32::from_le_bytes([
+            frame.body()[0],
+            frame.body()[1],
+            frame.body()[2],
+            frame.body()[3],
+        ]),
+        f32::from_le_bytes([
+            frame.body()[4],
+            frame.body()[5],
+            frame.body()[6],
+            frame.body()[7],
+        ]),
     );
-    let plane =
-        u32::from_le_bytes([frame.body()[8], frame.body()[9], frame.body()[10], frame.body()[11]]) as u16;
+    let plane = u32::from_le_bytes([
+        frame.body()[8],
+        frame.body()[9],
+        frame.body()[10],
+        frame.body()[11],
+    ]) as u16;
+    let offset = (
+        f32::from_le_bytes(frame.body()[12..16].try_into().unwrap()),
+        f32::from_le_bytes(frame.body()[16..20].try_into().unwrap()),
+    );
+    let move_type = u32::from_le_bytes(frame.body()[20..24].try_into().unwrap()) as u8;
+    if ![position.0, position.1, offset.0, offset.1]
+        .iter()
+        .all(|v| v.is_finite())
+        || !(1..=8).contains(&move_type)
+    {
+        return Ok(true);
+    }
     let now = Instant::now();
     let before = player.standing();
     let instance = Arc::clone(&player.instance);
@@ -738,21 +854,26 @@ pub fn handle_position_update(
                 );
             }
         }
-        (adopted, standing)
+        let reply = if adopted != Adopted::Refused {
+            let from = slot.agent.here();
+            let to = Pos { x: from.x + offset.0, y: from.y + offset.1, plane: from.plane };
+            let waypoints = match world.graphs.walk(instance.map.map_id, from, to) {
+                Walk::Found(waypoints) => waypoints,
+                Walk::NoPath | Walk::NoGraph => Vec::new(),
+            };
+            let norm = (offset.0 * offset.0 + offset.1 * offset.1).sqrt();
+            let direction = if norm > 0.0 { (offset.0 / norm, offset.1 / norm) } else { (0.0, 0.0) };
+            slot.agent.begin_manual_walk(waypoints, direction, move_type)
+        } else {
+            Vec::new()
+        };
+        (adopted, standing, reply)
     }) else {
         return Ok(true);
     };
-    let (adopted, standing) = outcome;
-    if adopted != Adopted::Refused {
-        instance.broadcast(
-            player.player_id,
-            &[game::agent_update_position(
-                player.GetAgentID(),
-                standing.position,
-                standing.plane,
-            )],
-        );
-    }
+    let (adopted, standing, reply) = outcome;
+    instance.broadcast(player.player_id, &reply);
+    send(stream, session, reply, trace).await?;
     if trace {
         eprintln!(
             "world: agent {} reported ({:.1}, {:.1}) plane {plane}: {adopted:?} -> ({:.1}, {:.1})",
@@ -817,10 +938,12 @@ pub async fn handle_cancel_movement(
     Ok(true)
 }
 
-/// The client corrects its position after a cancelled walk
-/// (`GameSrv_HandleLastPosOnMoveCanceled`): short corrections on the same plane are taken, longer
-/// ones refused, and nothing is sent either way.
-pub fn handle_last_position(
+/// The keyboard stop includes its stopping point; an accepted point ends the old
+/// path and answers with type 9 and that point (alternating-live.jsonl 482-486).
+/// A refused position correction still stops the movement at the server's point.
+pub async fn handle_last_position(
+    stream: &mut TcpStream,
+    session: &mut Session,
     frame: &Frame,
     player: &mut Player,
     trace: bool,
@@ -829,17 +952,35 @@ pub fn handle_last_position(
         return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
     }
     let position = (
-        f32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]),
-        f32::from_le_bytes([frame.body()[4], frame.body()[5], frame.body()[6], frame.body()[7]]),
+        f32::from_le_bytes([
+            frame.body()[0],
+            frame.body()[1],
+            frame.body()[2],
+            frame.body()[3],
+        ]),
+        f32::from_le_bytes([
+            frame.body()[4],
+            frame.body()[5],
+            frame.body()[6],
+            frame.body()[7],
+        ]),
     );
-    let plane =
-        u32::from_le_bytes([frame.body()[8], frame.body()[9], frame.body()[10], frame.body()[11]]) as u16;
+    let plane = u32::from_le_bytes([
+        frame.body()[8],
+        frame.body()[9],
+        frame.body()[10],
+        frame.body()[11],
+    ]) as u16;
     let instance = Arc::clone(&player.instance);
-    let Some(taken) = instance.with_slot(player.player_id, |slot| {
-        slot.agent.adopt_correction(position, plane)
+    let Some((taken, reply)) = instance.with_slot(player.player_id, |slot| {
+        let taken = slot.agent.adopt_correction(position, plane);
+        let reply = slot.agent.stop_manual_walk();
+        (taken, reply)
     }) else {
         return Ok(true);
     };
+    instance.broadcast(player.player_id, &reply);
+    send(stream, session, reply, trace).await?;
     if trace {
         eprintln!(
             "world: agent {} correction to ({:.1}, {:.1}) plane {plane}: {}",
@@ -858,6 +999,45 @@ mod tests {
 
     pub fn agent() -> AgentState {
         AgentState::new(1, (6602.0, 4485.0), 0, 288.0)
+    }
+
+    #[test]
+    fn alternating_manual_and_click_walks_replace_the_old_path_and_reply_on_stop() {
+        let mut agent = agent();
+        agent.begin_walk(vec![
+            waypoint(6702.0, 4485.0, 1),
+            waypoint(6802.0, 4485.0, 2),
+        ]);
+        agent.adopt_report((6652.0, 4485.0), 0, Instant::now());
+        let reply = agent.begin_manual_walk(vec![waypoint(6652.0, 4700.0, 3)], (0.0, 1.0), 1);
+        assert_eq!(
+            reply.iter().map(Frame::header).collect::<Vec<_>>(),
+            vec![0x25, 0x29]
+        );
+        assert_eq!(agent.motion.waypoints.len(), 1);
+        assert_eq!(agent.motion.destination.y, 4700.0);
+        agent.advance(0.1);
+        let stopped_at = agent.position;
+        let stop = agent.stop_manual_walk();
+        assert_eq!(
+            stop.iter().map(Frame::header).collect::<Vec<_>>(),
+            vec![0x2b, 0x29]
+        );
+        assert_eq!(stop[0].body()[8], 9);
+        assert!(agent.motion.waypoints.is_empty());
+        agent.advance(2.0);
+        assert_eq!(agent.position, stopped_at);
+        for message in reply.iter().chain(stop.iter()) {
+            let bytes = message.encode();
+            let (_, used) = Frame::decode_game_message(&bytes, false)
+                .expect("movement replies use the packed game wire layout");
+            assert_eq!(used, bytes.len());
+        }
+        let restart = agent.begin_manual_walk(vec![waypoint(6900.0, 4700.0, 4)], (1.0, 0.0), 1);
+        assert_eq!(
+            restart.iter().map(Frame::header).collect::<Vec<_>>(),
+            vec![0x25, 0x2b, 0x29]
+        );
     }
 
     #[test]

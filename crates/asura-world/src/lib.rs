@@ -19,16 +19,18 @@
 //! 7. keep-alive        a world tick every 500 ms and a ping every 5 s, forever
 //! ```
 //!
-//! What exists today, and what does not -- `docs/07-status.md` is generated from the same comparison
-//! as the parity report, and is the place to check:
+//! What exists today, and what does not -- `docs/07-status.md` holds the hand-kept answer; its
+//! generator was retired when parity closed (`docs/16-implementation-plan.md`):
 //!
-//! * one agent, the character the transfer named, standing where the map's spawn says - or where it
-//!   stood when it last left, which is saved and read back (`asura_db::game::record_position`);
+//! * the character the transfer named, standing where the map's spawn says - or where it stood when it
+//!   last left, which is saved and read back (`asura_db::game::record_position`);
+//! * the other players in the same instance: each newcomer is introduced to the ones already there
+//!   and told when one leaves (`instance.rs`, `PeerView` and `introduction`);
 //! * the character's inventory, read from rows and built into the reference's messages, including the
 //!   nine items `UPDATE_AGENT_VISUAL_EQUIPMENT` puts on the model (`asura_db::inventory`);
-//! * `GAME_CMSG_DROP_ITEM`, which puts an item agent on the ground - and, as in the reference, does not
-//!   take the item out of the bag;
-//! * no NPCs, no other players, no combat, no quests, no picking anything up.
+//! * `GAME_CMSG_DROP_ITEM`, which deducts the stack and sends nothing: the reference's own handler is
+//!   unfinished and the ground agent crashed a live client (`item.rs:243-249`);
+//! * no NPCs, no combat, no quests, no picking anything up.
 //!
 //! The load messages go out even for the parts that are not simulated, because a client that does not
 //! receive them never leaves the loading screen.

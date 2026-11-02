@@ -15,7 +15,7 @@ what we should change. The second half of the talk - restartability - is where w
 | Self-registration plus configuration (slide 30: map servers self-register; many services register with RouteSrv) | `world` registry table written by each world | ours is the "registration" half; the "configuration" half is the `world_pool` capacity rows |
 | Orchestration is assignment of services to hardware, permissions, routing, isolation (slide 25) | placement = registry + pools | we have no permissions layer; see "Not adopting" |
 | The game itself is a *macroservice*, not a microservice (slide 18) | world server | same conclusion: maps are big, stateful and not independently restartable |
-| Maps are time-sliced over cores inside a blade (slide 20) | bounded update-thread pool with map affinity | same idea, stated as a pool rather than a scheduler |
+| Maps are time-sliced over cores inside a blade (slide 20) | one update task per map, no pool yet | the same idea is the intended shape but **not built**: `crates/asura-world/src/instance.rs:376-385` starts one task per map, and the bounded pool with map affinity is `docs/32` phase 3 |
 | Stable identity instead of physical addressing (slide 22: they moved from IP+port+ProgramId+build+map+PlayerId to "ProgramId implicit + player or group GUID") | **partly** - we have tokens, but see "Identity" below | they went further than we have |
 
 ## Adopted: the rules we were missing

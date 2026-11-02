@@ -5,7 +5,8 @@ game header a real session used whose row in `crates/asura-protocol/src/packets.
 committed captures prove about it, and the one action that would name it.
 
 Written 2026-11-01 after the offline pass closed. Fourteen headers were named in that pass (`23de10e`,
-`d17a60a`); the eighteen below are what is left, and every one of them needs a provoked capture.
+`d17a60a`), and `0x8093` was named `GAME_CMSG_INSTANCE_QUERY` from a world-map capture after it; the
+seventeen below are what is left, and every one of them needs a provoked capture.
 
 ## How a name is earned here
 
@@ -28,16 +29,16 @@ there.
   the same OpenTyria `msgdefs.c` this table came from, and its own provenance note says so - "a
   convenience index of ONE lineage, NOT corroboration" - so it carries the same headers unnamed
   (`"table": "GAME_SMSG_0431"` for the ones that have no name).
-- The handler studies are silent or negative on all eighteen: Rurik's `studies/smsgnames`,
+- The handler studies are silent or negative on all seventeen: Rurik's `studies/smsgnames`,
   `studies/smsg` and `studies/newopcodes` return **NOT FOUND** for the item and agent rows and say
   nothing at all about the rest. The Eden checkout carries no opcode catalogue: seven `GAME_SMSG`
   mentions in its whole documentation tree, none of them about these.
 - The reference server never sends any of them: `recordings/gwps/world/load-stream.log` has no `SEND`
-  line for one of the eighteen, so the reference's own sequence cannot place them either.
+  line for one of the seventeen, so the reference's own sequence cannot place them either.
 - The captures are exhausted as evidence of *function*. Each header below has its payload, its
   neighbours and its rate recorded; nothing further can be read out of them.
 
-## The eighteen
+## The seventeen
 
 `wire` is the size in `packets.rs` (the reference's `max_size`, which for these fixed layouts is the wire
 size). Counts are sightings in the committed captures, per file.
@@ -61,7 +62,6 @@ size). Counts are sightings in the committed captures, per file.
 | `0x01AE` | 55 | doors 17 | a leading dword 1, then a masked player name and a run of asset ids | after a `0x8090` players request and a ping, before the `0x000F` burst | enter an instance with another player present |
 | `0x01BE` | 6 | doors 9, login-to-portal 2 | one dword, always 0 | `0x01B3` and `0x01BF`, before `0x00BA` | the party window, with a henchman added |
 | `0x8092` | 122 | first-crossing 48, slow-crossing 24 | a u16 near the instance id, then a run of DAT-shaped ids | with `0x8093` while an instance is chosen or crossed | open the world map, click one destination, close it |
-| `0x8093` | 4 | first-crossing 12, slow-crossing 6 | header plus a u16 instance id: `0x94` for 148, `0x92` for 146 | with `0x8092` | the same click |
 
 ## The test protocol
 
@@ -83,12 +83,14 @@ python tools/sniff-capture.py --dir both --seconds 90 --out recordings/client/fe
 
 `0x0026` and `0x015E` are the shape of a good row: a capture gives the sightings and the field values, the
 client's own handler names the function, and both go into the evidence string with the file and the
-sequence number. `0x009C` and `0x016E` show the weaker case - the source reading names the function and
-the capture confirms the shape, so the status is `Inferred` and the evidence says which half is which.
+sequence number. `0x016E` shows the weaker case - the source reading names the function and the capture
+confirms the shape, so the status is `Inferred` and the evidence says which half is which. `0x009C` was
+that case and is `Emitted` since this tree sends it.
 
 ## Not this list, and deliberately
 
-- The 306 unnamed game rows no capture contains (324 unnamed in the table, 18 of them on this page): they need a stimulus, not an observation - one opcode on the
-  wire and the client's reaction read (`docs/20-rurik-gap.md`, P1).
+- The 306 unnamed game rows no capture contains (323 unnamed game rows in
+  `crates/asura-protocol/src/packets.rs`, 17 of them on this page): they need a stimulus, not an
+  observation - one opcode on the wire and the client's reaction read (`docs/20-rurik-gap.md`, P1).
 - The client-to-server headers this tree frames but ignores (`0x0084` 35 per live session, `0x0012` 12,
   `0x0051` 3): they are named already and belong to stage 4, `docs/21-surrounding-packets.md`.

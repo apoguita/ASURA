@@ -107,9 +107,12 @@ stack does not -- named, explained, and not pretended away.
 
 **Here:** the archive reader, the decompressor and the importer, against the reference's own tool
 
-- `the_archive_index_finds_the_blobs_the_map_catalogue_names` -- a test
-- `a_map_blob_decompresses_to_the_containers_own_signature` -- a test
-- `every_catalogue_blob_imports_to_the_references_own_fingerprint` -- a test
+- `the_archive_index_finds_the_blobs_the_map_catalogue_names` -- a test (`crates/asura-world/src/gwdat.rs:358`)
+- `a_map_blob_decompresses_to_the_containers_own_signature` -- a test (`crates/asura-world/src/gwdat.rs:310`)
+- `every_catalogue_blob_imports_to_the_references_own_fingerprint` -- retired with its fixture
+  (`tests/fixtures/gwdat-pathing.csv`); the surviving comparison is
+  `the_spawn_points_the_reference_configures_land_in_the_graphs_in_the_archive`
+  (`crates/asura-world/src/map_data.rs:1045`)
 
 ## T9: Second client sees the first (hand)
 
@@ -126,8 +129,11 @@ stack does not -- named, explained, and not pretended away.
 **Here:** the walk is the reference's own path, refused the reference's way, and the finder matches it case by case; the client's *smoothness* is the hand half
 
 - `a_walk_is_answered_with_the_first_waypoint_of_the_servers_own_path` -- a test
-- `a_walk_the_finder_refuses_is_answered_with_the_agents_position` -- a test
-- `every_case_produces_the_references_own_waypoints` -- a test
+- `a_walk_the_finder_refuses_is_answered_with_the_agents_position` -- a test, now `#[ignore]`d: the handler
+  sends nothing on a refused walk and the owner's ruling on which side is right is open
+  (`crates/asura-world/tests/load.rs:3169`)
+- `every_case_produces_the_references_own_waypoints` -- retired with the 96-case fixture; the surviving
+  comparison is `tests/path_dump.rs` against `data/path-graphs.bin`
 
 ## T11: Chat (hand)
 

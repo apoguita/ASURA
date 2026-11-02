@@ -15,12 +15,13 @@ Those have to be right before simulation is anything but premature optimisation.
 
 ASURA owns simulation as part of its long-term scope, and implements it in a later phase:
 
-- **Phase 1 (now):** the base structure. Auth service, schema, registry and pools, placement, and
-  a world server that owns its own connections. Simulation stays in the existing C world server,
-  reached through the database rather than a private protocol.
-- **Phase 2 (later):** simulation becomes part of this project. Whether it is a Rust port or the C
-  implementation adopted as an owned component is decided at S1 of the roadmap, on its merits, with
-  no assumption inherited from phase 1.
+- **Phase 1 (delivered):** the base structure. Auth service, schema, registry and pools, placement, and
+  a world server that owns its own connections - all in Rust in this repository. Phase 1 was described
+  here as keeping simulation in the existing C world server; that is history, because the world server
+  is this project's (`crates/asura-world`, `MILESTONES.md`).
+- **Phase 2 (now):** simulation becomes part of this project. The language question is closed by
+  `docs/adr/0007-rust-translation.md` (the whole stack is Rust), and the ordered work is
+  `docs/32-world-simulation-plan.md`.
 
 Two constraints make the deferral safe rather than merely postponed:
 
@@ -44,11 +45,13 @@ Two constraints make the deferral safe rather than merely postponed:
 
 ## Consequences
 
-- `docs/01-scope.md` describes a *phase 1* boundary; read it with this ADR in hand.
-- `docs/02-architecture.md` keeps the world server as an external process, described by protocol.
+- `docs/01-scope.md` describes what is not built yet; read it with this ADR in hand.
+- `docs/02-architecture.md` describes the world server as this project's own process, and names the
+  structures taken from AzerothCore that are still to build.
 - `docs/roadmap.md` carries phase 2 milestones (S1-S4) that must not be silently dropped.
-- ADR 0001 (Rust) answers the control plane's language only. The simulation's language is explicitly
-  open, and S1 is the milestone that closes it.
+- ADR 0001 (Rust) was written when the simulation's language was open. It is closed:
+  `docs/adr/0007-rust-translation.md` puts the whole stack in Rust, and the simulation's scripting
+  language (Lua) is carried in `docs/HANDOFF.md`'s decisions table.
 - GWPS's `GameSrv.c` is not waste: it is the seed of phase 2 and the behavioural reference for it.
 
 ## Alternatives rejected

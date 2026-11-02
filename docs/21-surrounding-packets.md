@@ -1,6 +1,8 @@
 # 21 - The surrounding packets: what a live stream carries that this tree ignores
 
-This is an analysis, not a change. Nothing here is implemented yet.
+Analysis, and partly a change: the first ranked item below (the map table, `0x01A0`) and the portal
+touch are in the tree now; the population and the remaining names are not (`docs/22-world-model.md`,
+`docs/28-headers-to-name.md`).
 
 The owner's direction, 2026-10-30:
 
@@ -50,7 +52,7 @@ line 10797; our counts cover the whole session, which includes ten minutes of st
 | `0x002A` | `AGENT_UPDATE_DESTINATION` | Known | 1 | 0 | never sent |
 | `0x002B` | `AGENT_UPDATE_SPEED` | Emitted | 1 | 0 | never sent here |
 | `0x002E` | `AGENT_UPDATE_ROTATION` | Known | 9 | 0 | never sent |
-| `0x003C` | **unnamed** | Unnamed | 29 | 0 | **not named, never sent** |
+| `0x003C` | `GAME_SMSG_PLAYER_UPDATE_FLAGS` | Emitted | 29 | 1 | sent once per load, the player's own flags (`crates/asura-world/src/player.rs`) |
 | `0x003E` | `AGENT_ALLY_DESTROY` | Known | 1 | 0 | never sent |
 | `0x0048` | `AGENT_DISPLAY_CAPE` | Emitted | 23 | 1 | only for the player |
 | `0x004C` | `QUEST_DESCRIPTION` | Known | 1 | 0 | never sent |
@@ -75,7 +77,7 @@ line 10797; our counts cover the whole session, which includes ten minutes of st
 | `0x0118` | `GUILD_PLAYER_ROLE` | Known | 1 | 0 | never sent |
 | `0x011F` | **unnamed** | Unnamed | 20 | 0 | **not named, never sent** |
 | `0x0121` | `GUILD_GENERAL_INFO` | Known | 14 | 0 | never sent |
-| `0x012E` | **unnamed** | Unnamed | 1 | 0 | **not named, never sent** |
+| `0x012E` | `GAME_SMSG_LOCATION_TAG` | Inferred | 1 | 0 | named from the source reading, never sent |
 | `0x012F` | **unnamed** | Unnamed | 1 | 0 | **not named, never sent** |
 | `0x013A` | `ITEM_UPDATE_CUSTOMIZED_NAME` | Known | 2 | 0 | never sent |
 | `0x013E` | `ITEM_MOVED_TO_LOCATION` | Emitted | 57 | 7 | 1:1 shape, fewer items |
@@ -83,14 +85,14 @@ line 10797; our counts cover the whole session, which includes ten minutes of st
 | `0x0144` | `ITEM_STREAM_CREATE` | Emitted | 1 | 1 | 1:1 |
 | `0x0148` | `ITEM_SET_ACTIVE_WEAPON_SET` | Emitted | 1 | 1 | 1:1 |
 | `0x015A` | `ITEM_SET_PROFESSION` | Emitted | 2 | 6 | 1:1 |
-| `0x015E` | **unnamed** | Unnamed | 118 | 0 | **not named, never sent** |
+| `0x015E` | `GAME_SMSG_ITEM_LOW_DETAIL` | Observed | 118 | 0 | named, never sent |
 | `0x0161` | `CREATE_NAMED_ITEM` | Emitted | 76 | 8 | 1:1 shape, fewer items |
 | `0x017C` | `INSTANCE_LOAD_HEAD` | Emitted | 1 | 1 | 1:1 |
 | `0x017D` | `INSTANCE_LOAD_PLAYER_NAME` | Emitted | 1 | 1 | 1:1 |
 | `0x0186` | `INSTANCE_PLAYER_DATA_START` | Emitted | 1 | 1 | 1:1 |
 | `0x0196` | `INSTANCE_LOAD_SPAWN_POINT` | Emitted | 1 | 1 | 1:1, and the file id agrees |
 | `0x019A` | `INSTANCE_LOAD_INFO` | Emitted | 1 | 1 | 1:1 |
-| `0x01A0` | **unnamed** | Unnamed | 10 | 0 | **not named, never sent: the map table** |
+| `0x01A0` | `GAME_SMSG_INSTANCE_TABLE` | Emitted | 10 | 10 | sent: ten batches in every load block (`crates/asura-world/src/map.rs:432-437`) |
 | `0x008B` `0x008A` | `MAP_INIT_START`, `CARTOGRAPHY_DATA` | Emitted | 0 | 1 + 1 | sent by us, absent from this capture |
 | `0x0094` | `MAP_UPDATE_UNLOCKED_LIST` | Emitted | 0 | 1 | sent by us, absent from this capture |
 | `0x0099` `0x01AC` `0x0198` `0x0199` `0x00F2` `0x018E` | map update, ready, manifest, loaded | Emitted | 0 | 1 + 1 + 2 + 4 + 1 + 1 | sent by us, absent from this capture |
@@ -118,17 +120,19 @@ Ten records in the load of map 148, each a `u32` count of 16 followed by 16 pair
 | seq 763 | 877, 878, 879, 880, 881, 882, 4, 5, 6, 52, 65, 167, 168, 170, 171 |
 | seq 766 | 173 to 188, then 208 |
 
-and seven more, in order, to `seq 791` (count 3, ids 598 and 599). Together: **154 map ids, running up to
-877**, which is the same number the reference's manifest calls `MapId_Count`
-(`crates/asura-world/src/map.rs:435`) - the sentinel for "every map up to here".
+and seven more, in order, to `seq 791` (count 3, ids 598 and 599). Together: **137 pairs over 147 map
+ids, running up to 877** (`crates/asura-protocol/src/game/instance_table.rs:10-14` says the same), which
+is the number the reference's manifest calls `MapId_Count`
+(`crates/asura-world/src/map.rs:464`) - the sentinel for "every map up to here".
 
 The second column is not unique per map: `0x197A39CC` belongs to 65, 318, 823 and 339; `0x7082A801` to
 182, 319, 824 and 340; `0xBF665D0E` to 180, 320, 826 and 341. Groups of four maps share a value, so the
 value is a **region or continent of the map, not the map itself** (a guess, and it is what the ids say,
 nothing more).
 
-**This message is not in our dispatch and never appears on our wire.** A client that is never told which
-map ids exist has no table to resolve an exit against, which is the shape of the cartography failure.
+**This message is sent now**: ten batches in every load block
+(`crates/asura-world/src/map.rs:432-437`), because a client that is never told which map ids exist has no
+table to resolve an exit against - the shape of the cartography failure.
 
 ## The unnamed rows, with their measured shape
 
@@ -179,13 +183,14 @@ names below are what to *read* with it:
 
 ## The ranked next changes, each with its source
 
-1. **Send `0x01A0`, the map table.** Source: ten records in `pre-searing-load-3.jsonl`, shape decoded
-   above. It is the message a client needs to know its maps exist, and it is free: 154 pairs, no new
-   layout work. Accepts it: the client's map and mission surfaces still open, and `0x01A0` is on the wire.
+1. **~~Send `0x01A0`, the map table.~~ Delivered**: ten batches, 137 pairs over 147 ids, in every load
+   block (`crates/asura-world/src/map.rs:432-437`); the client's map and mission surfaces open with it.
 2. **Send the population.** Source: the 42 agent creates and their per-agent streams in the same
    capture. Accepts it: an outpost looks like the live one, and the gate question becomes one walk.
-3. **Name `0x015E` and the four small unknowns** from the same capture, and move their rows off `Unnamed`.
-4. **Then** the portal touch (`docs/03-protocol.md` 5f), on top of 1 and 2, with a live portal-walk capture.
+3. **Name the rest of the unnamed rows** from the same capture and move them off `Unnamed`: `0x011F`,
+   `0x012F` and `0x8092` are what is left of this page's list (`docs/28-headers-to-name.md`).
+4. **~~The portal touch.~~ Partly delivered**: a doorway a walk reaches starts the transfer
+   (`crates/asura-world/src/travel.rs:364-433`); the `0x80C1` arm still only logs (`travel.rs:154-166`).
 
 Items 1 and 2 change what a client sees and need the client to accept them; item 3 changes nothing on the
 wire. None of them is a guess about behaviour: each reproduces messages a live server sent, in the order

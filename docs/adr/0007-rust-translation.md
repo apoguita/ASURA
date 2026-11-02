@@ -50,6 +50,12 @@ start of the work it belongs to, so that "what does AzerothCore do?" always has 
 | their logging module | `tracing` with the same structured fields |
 | `std::shared_mutex` for shared state | `RwLock`/`Mutex`, or message passing where it avoids the lock entirely |
 
+**Four entries in that table are the target, not the tree.** The asynchronous write queue behind `sqlx`
+is not built: writes are awaited on the calling task. Ids are bare integers, not newtypes
+(`crates/asura-world/src/player.rs:24`). The map-affinity worker pool is not built: one task per map
+(`crates/asura-world/src/instance.rs:376-385`). Logging is `eprintln!`, not `tracing` - no crate in the
+workspace names that dependency.
+
 Crates are added when the code that needs them exists, not before. The scaffold is dependency-free on
 purpose, so the toolchain can be proven before any dependency decisions are baked in.
 

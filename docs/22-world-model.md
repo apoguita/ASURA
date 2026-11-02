@@ -52,7 +52,7 @@ Two consequences worth stating, because they are the whole reason the portal wor
 | agent | `CreateAgent`, `AGENT_TYPE_LIVING`, `AGENT_TYPE_ITEM` | `crates/asura-protocol/src/game/mod.rs:1119` |
 | agent array | not modelled - one player, no others | - |
 | prop | not modelled | - |
-| unlock | `characters.unlocked_maps` (a column, read by nothing) and `UNLOCKED_MAP_ZEROS` | `crates/asura-world/src/map.rs:442`, `crates/asura-world/src/player.rs:172` |
+| unlock | `instance_unlock` rows, one per (character, instance) | `crates/asura-db/migrations/0023_instance_unlocks.sql`, `UNLOCKED_MAP_ZEROS` at `crates/asura-world/src/map.rs:471`, read at `crates/asura-world/src/player.rs:196` |
 
 Two of those names are the client's, not ours, and stay: `GAME_SMSG_PLAYER_CREATE`,
 `GAME_SMSG_INSTANCE_LOAD_INFO`, `GAME_CMSG_INSTANCE_LOAD_REQUEST_*`. `AGENTS.md` #1 requires the packet
@@ -124,8 +124,11 @@ capture of a real client): `0x80C1` fifteen times as `{portal, 0}` - a portal of
 character stands in, not a map id - and `0x80B1` twice, beginning with the destination instance id. The
 server answers either with the pair `/tp` already sends. The layout, the counts and the sequence are in
 `docs/03-protocol.md` 5f. **The client does announce the crossing, so nothing about this feature waits on
-a new measurement; what it waits on is the portal table and the information the instance needs to be
-initialised.**
+a new measurement; the portal table is recorded** (`crates/asura-world/src/portals.rs`, generated from
+`data/portals.json`), and a doorway a walk reaches starts the same `begin_transfer` the other triggers do
+(`crates/asura-world/src/travel.rs:364-433`). What is still open is the `0x80C1` arm, which names the
+touch and starts nothing (`travel.rs:154-166`), and the information the instance needs to be initialised
+(`docs/23-initialization-protocol.md`).**
 
 ## Built: the instance unlock and the world-map travel, 2026-10-30
 
@@ -186,8 +189,8 @@ Stated by the owner, and stored here because both are base facts the whole serve
 
 | source | what it is | here |
 |---|---|---|
-| entry spawn list | each instance has several spawn points and entry picks one, randomised | **one** per instance (`map_config.spawn_x/spawn_y/spawn_plane`), always the same |
-| entrance spawns | the positions used when a character arrives from an explorable, near the door it came through | not modelled: a crossing lands on the instance's single spawn |
+| entry spawn list | each instance has several spawn points and entry picks one, randomised | **one** per entry (`map_config.spawn_x/spawn_y/spawn_plane`), always the same. The reference's extra rows are already stored: `map_spawn` holds 1-4 per map (migrations `0021`, `0022`) and no code reads them - `asura_db::game::spawn_points` (`crates/asura-db/src/game.rs:69`) has no caller |
+| entrance spawns | the positions used when a character arrives from an explorable, near the door it came through | modelled per doorway: a crossing writes that door's recorded landing point as the character's position in the destination before the redirect (`crates/asura-world/src/travel.rs:408-414`), so the client wakes on the landing rather than on the instance's spawn. A doorway with no recorded landing still cannot fire |
 | quest placement | a quest can decide where in the instance a character appears | not modelled |
 
 The archive carries these: the client's map data has three spawn lists, each entry a position, a facing
@@ -205,17 +208,20 @@ Two consequences:
 
 1. **Travel has to be recorded, not inferred.** The world must write the last outpost it placed a
    character in (`characters.map_id` holds a map, but the rule needs the last map whose type is an
-   outpost, so a travel into an explorable must not overwrite it). `asura_db::game::settings` already
-   reads `last_outpost`, and `crates/asura-auth/src/travel.rs` already substitutes it in one narrow case
-   (a client that names the creation instance); the rule generalises that substitution rather than adding
-   a second mechanism.
+   outpost, so a travel into an explorable must not overwrite it). `asura_db::game::settings` reads
+   `last_outpost`, and `crates/asura-auth/src/travel.rs:170-196` substitutes it for **every** request
+   whose destination is not a main town (`MAP_TYPE_MAIN_TOWN`), with map 148 for a character that has
+   never been placed in an outpost.
 2. **Every load goes through it**, the first one after login and every reconnect a travel produces - which
    means the doorway crossings built on 2026-10-31 keep working, because their destination is an instance
    the character is being moved *into*, and the rule decides where a *session* starts, not where a travel
    goes.
 
-Not implemented yet. It is written here first because an unrecorded rule is one that gets discovered
-again as a bug.
+**Implemented 2026-11-01.** `characters.last_outpost` is the memory
+(`crates/asura-db/migrations/0024_last_outpost.sql`), written only when the placement is an outpost
+(`asura_db::game::remember_outpost`, `crates/asura-db/src/game.rs:308`) and substituted when the auth
+service answers the client's request for an instance (`crates/asura-auth/src/travel.rs:163-196`). The
+disconnect exception is still open.
 
 ## The one governance question the reading raised
 
@@ -227,16 +233,17 @@ owner's call, and it is asked rather than assumed.
 
 ## What this model already explains
 
-- **`0x01A0` is the instance table**, not an anonymous list: ten counted batches of 16
-  `(instance id, region value)` pairs, 154 instances, running to 877 - the same number the manifest calls
-  `MapId_Count` (`docs/21-surrounding-packets.md`, "The map table"). The client is told which instances
-  exist; we never tell it.
+- **`0x01A0` is the instance table**, not an anonymous list: ten counted batches `(instance id, region
+  value)` pairs, 137 pairs over 147 instance ids, running to 877 - the same number the manifest calls
+  `MapId_Count` (`docs/21-surrounding-packets.md`, "The map table";
+  `crates/asura-protocol/src/game/instance_table.rs:10-14`). **This world sends it**: ten batches in every
+  load block (`crates/asura-world/src/map.rs:432-437`, `GAME_SMSG_INSTANCE_TABLE`, `Emitted`).
 - **The world-map travel is per-instance, not per-place**, which is why `is_explorable` travels exist in
   the live tours (`maps-tour3.jsonl` seq 16, instance 101, flag 1): the map screen offers instances, and
   what the flag describes is the destination instance's type.
-- **Why a portal touch could do nothing in our world and still be nothing in the capture**: the client
-  draws the portal from its own map data, so our world does not have to place it; what our world never
-  sends is the instance table (`0x01A0`) and the population, and the spawn our map sends for 148
-  (`9869.8, 7063.6`) is not the doorway the live server put a character at on entry (`2387.3, 4714.6`,
-  from the live `0x0196`). The next cheap measurement is therefore ours: read map 148's own portal props
-  out of the archive and compare them with both numbers.
+- **Why a portal touch could do nothing in our world**: the client draws the portal from its own map
+  data, so the world does not have to place it. What the world still does not send is the population;
+  the instance table (`0x01A0`) it does send, ten batches per load (`crates/asura-world/src/map.rs:432-437`).
+  The spawn `map_config` carries for 148 is `9541.873, 4796.456` (`tools/map-config.sql:16`), and a
+  crossing into 148 lands on the point recorded for that door instead - `7739, 5900` for the doorway in
+  146 (`crates/asura-world/src/portals.rs:40`).

@@ -1,6 +1,9 @@
 # 09 - GWPS parity audit
 
 > **History.** The tooling named below was retired when parity closed (docs/16); nothing here is runnable.
+> The verdicts are the 2026-10-28 snapshot. Where a row says a behaviour is a stub, missing or shaped one
+> way, `docs/07-status.md` and `MILESTONES.md` hold the answer as the tree stands now; several rows here
+> are superseded (`ACCEPT_EULA` writes the version, character creation is delivered, `/tp` is implemented).
 
 The question this answers: **for every behaviour GWPS has, does ASURA have it, and is it the same
 behaviour?** Nothing here is a plan to rewrite ASURA like GWPS. The reference is
@@ -69,7 +72,7 @@ GWPS dispatch: `AuthSrv.c:1728-1784`. ASURA dispatch: `crates/asura-auth/src/lib
 | 7 | `REQUEST_GAME_INSTANCE` | `AuthSrv_HandleRequestGameInstance` (`AuthSrv.c:899`): picks a live world, sends `TRANSFER_GAME_SERVER_INFO`, then success. | `travel::answer` (`crates/asura-auth/src/travel.rs:96`) probes worlds for reachability, sends the same two messages. | 1:1 |
 | 8 | `HEARTBEAT` | Answers a server heartbeat (`AuthSrv.c:1263-1268`). | Answers `messages::heartbeat(16)` (`lib.rs:407-410`). | 1:1 |
 | 9 | `DISCONNECT` | Logs and closes the connection (`AuthSrv.c:1758-1761`). | `Ok(false)` - the socket closes (`lib.rs:578`). | 1:1 |
-| 10 | `ACCEPT_EULA` | Nothing (`AuthSrv.c:1270-1275`). | Nothing (`lib.rs:556`). | STUB |
+| 10 | `ACCEPT_EULA` | Nothing (`AuthSrv.c:1270-1275`). | Records the accepted version, logs it (`crates/asura-auth/src/lib.rs:587-601`, `account.eula_accepted` from `0012_account_eula.sql`). | 1:1 (effect) |
 | 11 | `ADD_ACCESS_KEY` | `AuthSrv_HandleAddAccessKey` (`AuthSrv.c:1277-1290`) logs the key text and keeps nothing. | Counts the key's units and keeps nothing (`lib.rs:485-509`); nothing is logged unless `ASURA_TRACE` is on. | 1:1 (effect) |
 | 12 | `DELETE_CHARACTER` | `AuthSrv_HandleDeleteCharacter` (`AuthSrv.c:1292`): deletes when the reasons match, answers per reason. | `db_login::delete_character` with the same reason codes (`lib.rs:511-554`). | 1:1 (effect) |
 | 13 | `UPDATE_CHARACTER_SETTINGS` | Answers status 0, stores nothing (`AuthSrv.c:1323-1329`). | Answers status 0 (`lib.rs:470-484`). | 1:1 |
@@ -83,7 +86,7 @@ client and are recorded here rather than "fixed" by inventing behaviour.
 
 ## 2. Game connection dispatch
 
-GWPS dispatch: `GameSrv.c:2007-2074`. ASURA dispatch: `crates/asura-world/src/lib.rs:821-1195`.
+GWPS dispatch: `GameSrv.c:2007-2074`. ASURA dispatch: `crates/asura-world/src/dispatch.rs:26-101` (22 `GAME_CMSG_` arms).
 
 | # | Message | GWPS behaviour | ASURA state | Verdict |
 |---|---|---|---|---|
@@ -124,7 +127,7 @@ the world tick walks the agent along the path (`lib.rs`, `agent.rs`). The walk v
 
 | Behaviour | GWPS | ASURA | Verdict |
 |---|---|---|---|
-| Walk to a coordinate | A* over the map's path graph; the answer is the **first waypoint of its own path**, and the refusal is a tick, a cancel and a position broadcast (`GmAgent.c:371-398`) | The same finder (`pathfind.rs`, `GmPaths.c` ported and compared case by case), the same first waypoint, the same refusal shape (`lib.rs`, `0x803E`) | 1:1 - with one deliberate difference: the reference divides by zero when a walk's destination is where the agent stands, which poisons its position with NaN; this keeps the agent where it is |
+| Walk to a coordinate | A* over the map's path graph; the answer is the **first waypoint of its own path**, and the refusal is a tick, a cancel and a position broadcast (`GmAgent.c:371-398`) | The same finder (`pathfind.rs`, `GmPaths.c` ported and compared case by case), the same first waypoint; a refused walk is cancelled and **nothing is sent**, measured (`crates/asura-world/src/agent.rs:722-743`) | DELIBERATE DEVIATION, owner ruling open (`crates/asura-world/tests/load.rs:3169`); also the reference divides by zero when a walk's destination is where the agent stands, which poisons its position with NaN, and this keeps the agent where it is |
 | World tick | Every `GAME_SRV_MAX_TIME_BETWEEN_WORLD_TICK_MS`, broadcast + advance movement + regen health/energy (`GmAgent.c:502-531`) | `WORLD_SIMULATION_TICK` on the reference's interval; movement advances `speed_base * delta` along the path (`agent.rs`, `advance`) | 1:1 for movement; regen is not integrated - see the health/energy row below |
 | Position reports | Adopted within a speed budget, clamped beyond it, refused across a long plane change (`GmAgent.c:409-462`) | Same three outcomes (`lib.rs:920-931`) | 1:1 (effect) |
 | Cancel a walk | `AGENT_STOP_MOVING` after a tick (`GmAgent.c:533-545`) | `AGENT_STOP_MOVING` (`lib.rs:936-945`) | 1:1 |
@@ -188,18 +191,18 @@ Sources: `captures/zone-ref-005829.jsonl` seq 42 and 424 (raw, gitignored), `doc
 ## 5. Items & inventory
 
 GWPS: `GmInventory.c` (drop handler), `GameSrv_CreatePlayerBags` (`GameSrv.c:1230`), `GmItem`.
-ASURA: `crates/asura-db/src/inventory.rs` (rows + moves), `crates/asura-world/src/lib.rs` (blocks),
+ASURA: `crates/asura-db/src/inventory.rs` (rows + moves), `crates/asura-world/src/item.rs` (blocks),
 `crates/asura-protocol/src/game/mod.rs` (builders).
 
 | Behaviour | GWPS | ASURA | Verdict |
 |---|---|---|---|
 | Where items live | In-memory `GmBag`/`GmItem` arrays on the player, written to the DB once at character creation (`GameSrv.c:1230`, called only from `HandleCharCreationConfirm`) | Rows in `bag`/`item` (`crates/asura-db/migrations/0006_inventory.sql`), read at login (`inventory.rs:314`) | AHEAD - ASURA's items survive a restart; GWPS's do not |
-| The item block on entering a map | Item stream, one `CREATE_NAMED_ITEM` per item with a **`u8`** modifier count, bags in the reference's own fixed order | Byte-identical block, proven against the capture fixture (`lib.rs:1895` `the_item_block_from_rows_is_the_capture_byte_for_byte`) | 1:1 |
-| Move an item to a slot | **No handler.** `GAME_CMSG_ITEM_MOVE` is not in GWPS's dispatch | `0x8072` -> `move_item` -> echo `ITEM_MOVE_TO_LOCATION`, persisted (`lib.rs:1137-1160`, `inventory.rs:585`) | AHEAD |
-| Equip an item | **No handler.** No unequip, trade, split, salvage, identify or use handler either | `0x8030` -> equipped bag + `UPDATE_AGENT_VISUAL_EQUIPMENT` (`lib.rs:1167-1176`, `equipped_slot` at `mod.rs:200`) | AHEAD |
-| Drop an item | Refuses `count < quantity` (`TODO`), never removes the row, creates an agent whose model id is the *item* id (`GmInventory.c:236-300`) | Deducts, persists, prints; sends nothing because both candidate messages crashed a live client and neither is in a capture (`lib.rs:1107-1129`, `drop_item` `lib.rs:1218`, `drop_messages` `lib.rs:1282`) | DEVIATION - deliberately not the reference's dead end |
-| Unequip | **No handler.** | `0x804F` logged as unimplemented - its layout carries no item id (`lib.rs:1180-1186`) | 1:1 (both do nothing, ASURA says so) |
-| Item colour update | Declared, ignores all three parameters (`GameSrv.c:1847-1853`) | No arm; the fallthrough frames it and ignores it (`lib.rs:1200-1208`) | 1:1 (effect) - neither does anything |
+| The item block on entering a map | Item stream, one `CREATE_NAMED_ITEM` per item with a **`u8`** modifier count, bags in the reference's own fixed order | Byte-identical block, proven against the capture fixture (`crates/asura-world/src/lib.rs:631` `the_item_block_opens_with_the_stream_and_carries_the_capture`) | 1:1 |
+| Move an item to a slot | **No handler.** `GAME_CMSG_ITEM_MOVE` is not in GWPS's dispatch | `0x8072` -> `move_item` -> echo `ITEM_MOVE_TO_LOCATION`, persisted (`item.rs:256` `move_item`, `item.rs:498` `handle_item_move`, `dispatch.rs:75`, persisted in `inventory.rs`) | AHEAD |
+| Equip an item | **No handler.** No unequip, trade, split, salvage, identify or use handler either | `0x8030` -> equipped bag + `UPDATE_AGENT_VISUAL_EQUIPMENT` (`item.rs:315` `equip_item`, `item.rs:535` `handle_equip_item`, `dispatch.rs:77`, `equipped_slot` at `mod.rs:200`) | AHEAD |
+| Drop an item | Refuses `count < quantity` (`TODO`), never removes the row, creates an agent whose model id is the *item* id (`GmInventory.c:236-300`) | Deducts, persists, prints; sends nothing because both candidate messages crashed a live client and neither is in a capture (`item.rs:187` `drop_item`, `item.rs:477` `handle_drop_item`, `dispatch.rs:73`; `drop_messages` at `item.rs:251` is the shape the crash ruled out) | DEVIATION - deliberately not the reference's dead end |
+| Unequip | **No handler.** | `0x804F` logged as unimplemented - its layout carries no item id (`item.rs:555` `handle_unequip_item`, `dispatch.rs:79`) | 1:1 (both do nothing, ASURA says so) |
+| Item colour update | Declared, ignores all three parameters (`GameSrv.c:1847-1853`) | No arm; the fallthrough frames it and ignores it (`dispatch.rs:26-101`, the arm that names no handler) | 1:1 (effect) - neither does anything |
 
 **The honest summary of this domain:** GWPS's item support is a load request and a broken drop. Three of
 ASURA's item behaviours have no GWPS counterpart at all, so "parity" here means ASURA is ahead and the
@@ -288,18 +291,18 @@ comes out. It never compared **what the two servers hold between messages**, and
 capability hides: a server that keeps less cannot do what the other one does, even when every message it
 *can* answer is identical.
 
-GWPS keeps twelve fields per player (`GmPlayer.h:21-33`). ASURA keeps six (`Play`, `lib.rs`).
+GWPS keeps twelve fields per player (`GmPlayer.h:21-33`). ASURA keeps the same twelve as the `Player` struct in `crates/asura-world/src/player.rs:18-50`, with the ids allocated per connection (`instance.rs:70`) rather than fixed constants.
 
 | kept | GWPS | ASURA | Verdict |
 |---|---|---|---|
-| player id | `GmPlayer.player_id` | `PLAYER_ID` (constant - one player per map) | 1:1 (effect) |
-| agent id | `GmPlayer.agent_id` | `Agents.player.agent_id` | 1:1 |
+| player id | `GmPlayer.player_id` | `Player.player_id`, allocated per join (`instance.rs:70`, `:291`) | 1:1 |
+| agent id | `GmPlayer.agent_id` | `Player.agent_id`, allocated with the player id | 1:1 |
 | connection | `GmPlayer.conn_token` | the connection is the task; no id | 1:1 (effect) |
-| **character id** | `GmPlayer.char_id` | `Play.character` | 1:1 |
-| **account id** | `GmPlayer.account_id` - used 63 times on the game side, including every bag and item read (`GameSrv.c:1136`, `GameSrv.c:1174`) and the transfer request (`GameSrv.c:1456`) | `Play.account_id`, kept from the claimed transfer; every bag and item query and the `/tp` transfer name it | 1:1 - it was the one real liberty in this table until `/tp` needed it |
+| **character id** | `GmPlayer.char_id` | `Player.character` | 1:1 |
+| **account id** | `GmPlayer.account_id` - used 63 times on the game side, including every bag and item read (`GameSrv.c:1136`, `GameSrv.c:1174`) and the transfer request (`GameSrv.c:1456`) | `Player.account_id`, kept from the claimed transfer; every bag and item query and the `/tp` transfer name it | 1:1 - it was the one real liberty in this table until `/tp` needed it |
 | character row | `GmPlayer.character` (a whole `DbCharacter`: ~44 columns) | the columns a message reads - `appearance`, `primary_profession`, `unlocked_professions`, `gold` (migration 0008) and `level`, `campaign`, `is_pvp`, `secondary_profession`, `helm_status` (migration 0009), plus the position this schema keeps for itself - and the settings blob built from them | **1:1 for what is sent, and it used to be worse**: until migration 0008 the load block sent the reference's *default* character to everyone, and until migration 0009 the login reply's character list sent **one captured 62-byte blob for every character** (a Warrior, level 1, outpost 146, five dyed armour pieces) instead of each character's own |
 | account row | `GmPlayer.account` (a whole `DbAccount`) | nothing; read per request | 1:1 (effect) |
-| bags | `GmPlayer.bags` (in memory, written once) | `Play.inventory` (rows, reloaded) | 1:1 (effect) |
+| bags | `GmPlayer.bags` (in memory, written once) | `Player.inventory` (rows, reloaded) | 1:1 (effect) |
 | campaign | `GmPlayer.char_creation_campaign` | `characters.campaign` (migration 0009), written by the creation confirm and carried in the settings blob | 1:1 |
 | profession | `GmPlayer.primary_profession` | `characters.primary_profession`: `PLAYER_UPDATE_PROFESSION` sends the row's, and the creation screen's choice is what the row holds | 1:1 |
 | team token | `GmPlayer.player_team_token` (an arbitrary constant) | `PLAYER_TEAM_TOKEN` | 1:1 (effect) |
@@ -339,7 +342,7 @@ and `lease` rows are keyed by session, so the session is the thing it must carry
 |---|---|---|---|
 | Packet trace | `GWPS_TRACE=1` | `ASURA_TRACE=1` (`tools/play.ps1 -Trace`) | 1:1 |
 | Event log that is not a packet log | `log_info` lines for dispatch and GM answers | Unconditional `eprintln!` event lines (`docs/03` #11) | 1:1 |
-| Captures in the repository | `GWPS_TRACE=1` output kept as text | `crates/asura-protocol/src/game/default_inventory.rs` is a capture turned into a fixture | AHEAD (a capture that fails the build when it drifts) |
+| Captures in the repository | `GWPS_TRACE=1` output kept as text | `crates/asura-db/src/inventory.rs:243` (`default_inventory()`) is a capture turned into a fixture | AHEAD (a capture that fails the build when it drifts) |
 | Web login gate | `tools/webgate.py` on 6601 | The same script, started by `tools/start-server.ps1` | 1:1 |
 | One-command server | Several consoles | `tools/start-server.ps1` / `stop-server.ps1` / `play.ps1` | AHEAD |
 | Test battery | None in the reference | `tools/test-battery.ps1` + the workspace suite (`cargo test`) | AHEAD |

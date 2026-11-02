@@ -8,7 +8,7 @@ One page, in order: what you need once, how to start the stack, what success loo
 - **Rust with cargo** - the whole stack is built from it.
 - **PostgreSQL, running.** The supervisor checks for it and waits, but never starts it: on Windows it is a service, on Linux systemd. "Managed elsewhere" is the boundary (`config/services.toml`).
 - **A `.env` file**: copy `.env.example` to `.env` and fill in the password. `ASURA_DATABASE_URL` is the one mandatory value; the auth bind and the trace switch are optional.
-- Optional: a real `Gw.dat`, only for regenerating the path-graph dump (`asura-world --dump-path-graphs`). The worlds serve the bundled `data/path-graphs.bin`, so nothing needs it to run.
+- Optional: a real `Gw.dat`, only for regenerating the path-graph dump (`asura-world --dump-path-graphs FILE`, which writes the maps of `map_config`; the flag takes the output file and does nothing without it). The worlds serve the bundled `data/path-graphs.bin`, so nothing needs it to run.
 
 ## First time: the schema
 
@@ -30,7 +30,10 @@ What that one command does, in order:
 2. proves the database is reachable;
 3. builds the services (fast when up to date);
 4. seeds the dev identities and the map catalogue (the rows a fresh database needs);
-5. starts, in order: web gate `127.0.0.1:6601`, auth `127.0.0.1:6112`, world `8001` on `6113`;
+5. starts the services in their dependency order - the order a service's `depends_on` names, and
+   alphabetical among services that declare none, which today is all three: auth `127.0.0.1:6112`,
+   web gate `127.0.0.1:6601`, world `8001` on `6113` (`crates/asura-supervisor/src/config.rs:192-200`,
+   `config/services.toml`);
 6. registers every service it started in the database's `service` table, and keeps the rows fresh;
 7. watches them until Ctrl+C or `stop` - a crashed service is retried at most 5 times, 2 s apart, then reported FAILED (it never restarts forever).
 
@@ -63,7 +66,9 @@ cargo run -p asura-supervisor -- seed                  # the dev identities and 
 cargo run -p asura-supervisor -- deploy-world --old 8001 --new 8002
 ```
 
-Every command takes `--config FILE` (default `config/services.toml`). The control channel answers on `127.0.0.1:7711`; a second supervisor on the same machine is refused.
+`--config FILE` names a different service file (default `config/services.toml`); `build` does not read
+it, and `schema` and `seed` accept it without using it (`crates/asura-supervisor/src/main.rs:52-74`).
+The control channel answers on `127.0.0.1:7711`; a second supervisor on the same machine is refused.
 
 ## Rolling deploy
 

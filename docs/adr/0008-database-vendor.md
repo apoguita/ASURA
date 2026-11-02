@@ -25,7 +25,8 @@ copied from AzerothCore, and we do not import their world or character databases
 
 ## The comparison, on this workload
 
-Our profile: one small server to start, six tables, low write volume (sessions at login, character save
+Our profile: one small server to start, fourteen tables at this reading (`crates/asura-db/migrations`,
+files `0001`-`0024`), low write volume (sessions at login, character save
 on exit and on a timer, a lease on each travel), reads dominated by registry lookups and character
 loads, a rapid schema iteration phase ahead of us, and an administrator who is also the developer.
 

@@ -7,14 +7,16 @@ Which component owns what, in an ASURA stack built on AzerothCore's structure
 
 | component | responsiblity |
 |---|---|
-| **auth service** | answers the client's login and tells it which world to join |
+| **web gate** (`asura-webgate`) | the portal the client asks before any login: four `/Spawned/WebGate` endpoints and `/health` |
+| **auth service** | answers the client's login and tells it which world to join; also relays the gameplay socket |
 | **world server** | everything a player experiences: maps, instances, placement, character state |
-| **database** | the shared truth and the coordination channel between the other two |
+| **database** | the shared truth and the coordination channel between the others |
+| **supervisor** (`asura-supervisor`) | starts, stops, restarts, builds and reports the services above, from `config/services.toml` |
 
-These are the only three kinds of component that matter. The auth service is small and long-lived;
-world servers are interchangeable and disposable; the database is what they both agree on. There is
-no live control connection between the auth service and world servers for state or placement - the
-database is the handoff.
+These are the process kinds this machine runs, and `config/services.toml` is the list. The auth
+service is small and long-lived; world servers are interchangeable and disposable; the database is what
+they all agree on. There is no live control connection between the auth service and world servers for
+state or placement - the database is the handoff.
 
 ## The auth service owns
 
@@ -34,7 +36,8 @@ client error, not a crash.
 ### The web gate
 
 The portal the client talks to before it talks to us, which hands it a `user_id` and a `session_id`.
-The auth service authenticates those.
+It is its own program, `crates/asura-webgate`, with its own port and log; the auth service checks the
+pair it issued rather than owning the endpoints (`crates/asura-webgate/src/lib.rs:1-31`).
 
 ### Reading the registry - not owning it
 
@@ -59,19 +62,25 @@ never writes character data.
 
 ### Instances
 
-Outposts prebuilt per map and district; explorables prebuilt into pools per map. Created ahead of
-need, cleared and recycled; never constructed because a player asked to travel.
+Built from `map_config`: every map in the catalogue at start-up by default, as the reference pre-spawns
+one server per configured map; `--maps` narrows the set on purpose. A map that was not preloaded is
+built on demand the first time a client names it, 0-2 ms per map (`MILESTONES.md`, `docs/roadmap.md`).
+What a world refuses is a map it cannot serve or one with no free seat.
 
 ### The gameplay connection
 
-The client connects to the world server directly and the world server authenticates that connection
-against the token the auth service issued. The auth service is not in the data path.
+The client dials the auth address for its gameplay connection too, so the socket lands on the auth
+service, which copies it to the world that hosts the instance (`crates/asura-auth/src/frontdoor.rs`,
+`copy_bidirectional`). The auth service runs no map; it relays bytes and never looks inside them
+(`docs/02-architecture.md`, "Components").
 
 ## The database owns
 
-The schema, and therefore the contract between the two programs. Three logical databases: `auth`,
-`game`, `content`. One owner of the schema definition (`asura-db`), migrations in version control,
-and nothing in the project writes SQL outside that crate.
+The schema, and therefore the contract between the programs. Three logical domains: `auth`, `game`,
+`content` - one PostgreSQL database in development (`docs/02-architecture.md`, "The five structural
+elements"). One owner of the schema definition (`asura-db`), migrations in version control, and no SQL
+written anywhere else: the two seed files that are SQL (`tools/map-config.sql`, `tools/seed-dev.sql`)
+are applied by `asura-supervisor seed`, which is `asura-db`'s own path.
 
 ## Rules that must not be quietly broken
 
@@ -84,13 +93,15 @@ and nothing in the project writes SQL outside that crate.
 3. **The database is the only coordination point.** No side channel that carries state between the
    auth service and a world server; the moment one exists, restarts become ambiguous.
 
-## Phase 1 boundary: what does not exist *yet*
+## What does not exist *yet*
 
 Simulation - agents, movement, pathfinding, combat, skills, drops - is in this project's long-term
-scope, deferred until the base structure works (`docs/adr/0003-simulation-in-scope.md`). In phase 1 it
-lives in the existing C world server.
+scope (`docs/adr/0003-simulation-in-scope.md`). The base structure it was deferred behind is built:
+the auth service, the world server, the database, placement, travel and movement all run and are
+recorded in `MILESTONES.md`; the simulation roadmap is `docs/32-world-simulation-plan.md`.
 
-- **Simulation.** A world server. Not written yet in this project.
+- **Simulation content.** No NPC, combat, quest or loot exists: an instance holds the clients playing
+  in it and nothing else (`docs/07-status.md`).
 - **Map data.** No component of ASURA stores map blobs; `Gw.dat` reading is a world-server concern.
 - **Content delivery.** The client also talks to a file server for game assets: a separate service,
   not scheduled.

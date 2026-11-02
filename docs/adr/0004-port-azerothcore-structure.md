@@ -26,9 +26,10 @@ Adopt AzerothCore's structure for ASURA. Five elements, ported as a whole rather
    directly, through a connection pool, with an asynchronous write queue so the simulation loop never
    blocks on a query, and transactions for anything multi-statement.
 5. **Instances and map updates live inside the world server.** A map-instance manager keys instances
-   by id, persists instance records, and destroys what is empty. Map simulation runs on a bounded
+   by id, persists instance records, and destroys what is empty. Map simulation is to run on a bounded
    pool of update threads with map affinity - not one thread per map, which is how AzerothCore's
-   `MapUpdater` works and what GWPS gets wrong.
+   `MapUpdater` works and what GWPS gets wrong. **Not built yet**: the tree starts one task per map
+   (`crates/asura-world/src/instance.rs:376-385`), and the pool is `docs/32` phase 3.
 
 ## The one deviation, and why it is forced
 

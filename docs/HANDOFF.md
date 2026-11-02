@@ -206,8 +206,9 @@ is_explorable, map_id`). The port target was named by the user all along.
   the tool's loop.
 - **Everything a run needs is in this repository.** The web gate is `crates/asura-webgate` (the
   reference's `tools/webgate.py`, ported, database-backed); the path graphs are **bundled** as
-  `data/path-graphs.bin` (12 maps, 11.1 MB, measured 2026-10-27) and loaded automatically, so a
-  fresh clone paths without finding a client archive; a local `Gw.dat` (`ASURA_GW_DAT`, `./Gw.dat`,
+  `data/path-graphs.bin` (142 maps, 87,336,403 bytes, about 83 MiB; 11.1 MB and twelve maps was the
+  2026-10-27 reading) and it is loaded automatically, so a fresh clone paths without finding a client
+  archive; a local `Gw.dat` (`ASURA_GW_DAT`, `./Gw.dat`,
   or `data/Gw.dat`) is only the re-dump source, and the tests skip cleanly without one; the
   reference capture the offline checks read is committed as a recording under
   `recordings/gwps/world/` (`recordings/README.md`). No
@@ -222,6 +223,19 @@ is_explorable, map_id`). The port target was named by the user all along.
   shell, the Py4GW_Stealth injection, and a **32-bit** Python (the tool re-executes itself under it,
   because the rig reads the instruction pointer through the x86 CONTEXT). A capture plus the movement log is how a drift or a jump is pinned to a
   message rather than guessed at.
+- **Alternating movement, client-confirmed fixed (2026-11-01).** The owner reproduced the Ascalon City
+  bridge fault on ASURA and performed the same route successfully on live servers. The captures are
+  `recordings/client/feature/movement/alternating-asura.jsonl` and `alternating-live.jsonl` in the same
+  directory. All 14 manual movement orders and 4 stops in the ASURA capture received no movement reply;
+  the live capture replies with destinations and direction/type updates, and answers stops with type 9
+  then the stopping destination (records 319-322 and 482-486). The server already held the correct
+  position before the bridge click (`logs/world-8001.log:279818`); the client's sync copy being stale
+  explains the return to the old click destination, but that copy was not directly measured.
+  `agent.rs` now replaces the old path on manual movement, sends the replies to the player and peers,
+  clears the path on stop, and restores forward speed on the next click. The reply builders use the
+  packed wire layouts, not sniffer struct sizes. After rebuilding and restarting world 8001, the owner
+  confirmed: "the issues are not reproduceable anymore". This proves the reported route, not complete
+  movement parity. Validation: 98 protocol and 61 world unit tests passed, world built, ASCII check passed.
 - **Answered (2026-10-27): precaching the destination is NOT a requirement here.** The reference
   pre-spawns one server per map so a travel constructs nothing; this world used to preload every map
   at startup. Measured on the real client with nothing preloaded (the retired `start-server.ps1 -OnDemand`): a
@@ -460,8 +474,11 @@ the sandbox token may be blocking TLS - run it from a normal shell, or with full
 | **Rust** for the whole stack, translated from AzerothCore's structure | `docs/adr/0001-rust.md`, `docs/adr/0007-rust-translation.md` |
 | **PostgreSQL**, a justified deviation from AzerothCore's MySQL; mechanisms unchanged | `docs/adr/0008-database-vendor.md` |
 | Separate project from GWPS | `docs/adr/0002-separate-project.md` |
+| **One self-contained game profile per server launch, with no automatic base-content inheritance.** A profile containing three quests loads those three; authors can copy the base profile, edit the copy, and share it. Each is a separate experience with its own account settings, characters, levels, inventory, and progress. A future launcher selects the profile. Data format and physical storage layout remain open (owner, 2026-11-02) | `docs/34-self-contained-profiles.md` |
 | Simulation is in scope, deferred behind the base structure | `docs/adr/0003-simulation-in-scope.md` |
+| **Lua for content scripting; Rust retains simulation, movement, pathfinding, and combat.** Rhai was selected first and replaced on 2026-11-01: "Seems too new, not much documentation and examples and real world usage. I think ill do LUA instead." What the change carries: the build gains a C toolchain, and the sandbox becomes ours to assemble. The owner intends to port the existing Py4GW Reforged behavior-tree AI to Rust. Event-driven handlers are proposed; content storage, the API, and party/phasing policies remain open. This is planning, not runtime integration | `docs/30-world-content-and-scripting.md` |
 | AzerothCore's server structure, adopted as a whole | `docs/adr/0004-port-azerothcore-structure.md` |
+| **BehaviorTree.CPP is the behavior-tree execution reference; implement in Rust.** Py4GW Reforged's HeroAI supplies behaviors to port, with explicit handling of action timing, reactive checks, parallel completion, halt/reset, blackboard context, waiting conditions, and repeat semantics. The pinned source comparison and migration checkpoint are required reading before the port (owner, 2026-11-01) | `docs/adr/0014-behavior-tree-execution.md`, `docs/30-world-content-and-scripting.md` |
 | GWPS is reference only; instance creation is settled by an experiment in this stack | `docs/adr/0005-gwps-reference-only.md` |
 | **Rurik is a recorded source, like GWPS: read it, cite it, re-state its facts in our words and never depend on it** | docs/adr/0011-rurik-is-a-source.md |
 | **Eden, a Rust client, is a recorded source and nothing more: it is the evidence for what the client itself does, and it is NOT a test surface** (its roster is synthetic and its in-world viewer is unwired, measured 2026-10-30) | docs/adr/0012-eden-is-a-source.md |
@@ -472,11 +489,22 @@ the sandbox token may be blocking TLS - run it from a normal shell, or with full
 | **One client, one protocol, two observation layers.** The rig patches addresses and DH constants, not the client, so every message has one wire size and one wire field layout. **Those come from a wire**: `recordings/gwps/world/load-stream.log`, a `--capture` run under `recordings/asura/`, or a frame a client accepted. A sniffer capture under `recordings/client/` is the client's message struct - four-byte header, native-width fields, zero padding, even pointers - and is evidence of a header, a count, an order, a name and a trigger, never of a size (owner, 2026-11-01, after the attempt that corrected ~30 messages to the struct layer). A size difference between our table and a sniffer capture is not a defect; between our table and a wire capture it is ours. A message with counted fields is framed structurally, never by a fixed number | `docs/03-protocol.md` 5e, `docs/21-surrounding-packets.md`, `docs/27-packet-parity-attempt.md` |
 | **The stages, from the owner (2026-11-01).** Stage 1 was parity with GWPS and it is closed. Stage 2 is 1:1 correspondence with the **game**: a message is handled the way the client and the game need it, with no GWPS-shaped middle layer and no derived step between the wire and the handler - the reference's arrangement is stage-1 history, not a specification. Stage 3 is naming: no header stays `Unnamed`, and every name carries its evidence. Stage 4 is stream parity: every message of a flow is answered or deliberately ignored with a reason, and nothing is dropped | this document, "Where the next session starts"; `docs/24-stream-parity.md`, `docs/23-initialization-protocol.md` |
 | **The code keeps `Player`** for the character, because the protocol's own messages say `PLAYER` (owner's ruling, 2026-10-30); *character* stays the game's noun in the documents. One word, two concepts - the character, and the `player_id` a party message carries | `docs/22-world-model.md` |
-| **Every load places the character in the last outpost it visited** - including a load into an instance - and a *disconnect* is the one exception, to be implemented separately. Travel therefore has to be recorded rather than inferred: a travel into an explorable must not overwrite the last outpost (owner's ruling, 2026-10-31). Also recorded there: each instance has several entry spawn points chosen at random, a separate set for arriving from an explorable, and quest-driven placement - this world sends one fixed spawn per instance and has neither of the other two | `docs/22-world-model.md`, "Spawn points, and the outpost rule" |
+| **Every load places the character in the last outpost it visited** - including a load into an instance - and a *disconnect* is the one exception, to be implemented separately. Travel therefore has to be recorded rather than inferred: a travel into an explorable must not overwrite the last outpost (owner's ruling, 2026-10-31). Also recorded there: each instance has several entry spawn points chosen at random, a separate set for arriving from an explorable, and quest-driven placement - this world takes one fixed spawn per entry and, for a crossing, that doorway's recorded landing point (`crates/asura-world/src/travel.rs:408-414`); the randomised entry list and quest placement are still not modelled | `docs/22-world-model.md`, "Spawn points, and the outpost rule" |
 | **A travel's `is_explorable` selects the client's loading path; it is not a label the client stores.** At 1 an explorable's load waits 4.3 s against an instance with no population (5138 ms against 849 ms with the field forced to 0, the same walk and destination, measured 2026-10-31 on the patched client). **This world now sends 0 for every travel** (`crates/asura-world/src/travel.rs`, `explorable_flag_for`), a recorded deviation from live taken so that travelling works, and it tells the client an explorable is an outpost; `ASURA_TRAVEL_EXPLORABLE=auto` restores the destination's own kind, which is what live sends and what the default becomes once an explorable carries the initialisation `docs/23` says it is missing. The wait's cause is open with its ruled-out list recorded there | `docs/23-initialization-protocol.md`, "The explorable"; `crates/asura-world/src/travel.rs` |
 | **No server-side travel policy.** The client decides where a character may go and the server carries the decision out; the unlocked-instance bitmap is the data it decides with (owner's ruling, 2026-10-30: "the game itself should decide if we can travel or not ... we should simply send the data"). A world refuses a travel only when it cannot serve the instance or has no free seat - never because of the destination's kind, since an outpost and the explorable it exits to can share one map blob | `docs/22-world-model.md`, `crates/asura-world/src/travel.rs` (`handle_party_travel`) |
 
 ## Where the next session starts
+
+For the world-simulation implementation assignment, use `docs/32-world-simulation-plan.md`.
+For control-panel design, use `docs/33-control-panel-design.md`: the owner expanded the manager
+to server start/stop and operations, Py4GW Stealth capture-session launching/management and in-game
+data reading, guided tests, and configuration/content management on 2026-11-02. Stealth is a core
+research capability of the panel, not just an attachment to captures; the normal server remains
+independent of it. Interface/deployment choices and initial reader coverage remain open.
+It records the owner's intent, the early map/portal content manager, seven ordered phases,
+completion checks, and the unresolved choices the implementer must ask about before dependent
+work. Lua and the BehaviorTree.CPP execution reference are chosen; manager technology and JSON
+import/export are not. This roadmap does not authorize unrelated gameplay changes.
 
 M4 is delivered - a real client logs in, travels, and stands in a map (`git log`, `4f610a8`) - and it now
 carries an inventory and comes back where it logged out.
@@ -489,36 +517,40 @@ Owner, 2026-11-01 (the decision row above). Four stages, in order, and only the 
   reproduced message for message.
 - **Stage 2 - 1:1 with the game.** The rule is written (`docs/03-protocol.md` 5e): nothing between the wire
   and a handler is shaped by GWPS's arrangement. This is held, not reached.
-- **Stage 3 - naming.** Every header named with its evidence, so no row is `Unnamed`. Fourteen of the 32
-  headers a real session used are named (`23de10e`, `d17a60a`); the eighteen that remain, with the shape
+- **Stage 3 - naming.** Every header named with its evidence, so no row is `Unnamed`. Fifteen of the 32
+  headers a real session used are named (`23de10e`, `d17a60a`, then `0x8093`
+  `GAME_CMSG_INSTANCE_QUERY` from a world-map capture); the seventeen that remain, with the shape
   each capture proves and the one action that names it, are `docs/28-headers-to-name.md`. That page also
   records why the rest cannot be finished offline: the catalogue of this lineage leaves them unnamed and
   the reference never sends them. **The initialization phase is the first target** and it is two names
   wide: one load carries 54 server-to-client headers, 32 of them already sent here, 20 named but never
   sent, and only `0x011F` and `0x012F` unnamed. Whether the 20 can be filled depends on what the client's
   structures hold after a load, which is `docs/29-initialization-capture.md`: one sniffer capture plus
-  `tools/context-dump.py` at four moments. After the 18, the 306 game rows no capture contains need a
-  stimulus instead, one opcode at a time.
+  `tools/context-dump.py` at four moments. After the 17, the 306 game rows no capture contains need a
+  stimulus instead, one opcode at a time. The table as it stands now: 782 rows, 391 `Unnamed` (323 of
+  them `Conn::Game`), 255 `Known`, 87 `Emitted`, 36 `Handled`, 7 `Inferred`, 6 `Observed`.
 - **Stage 4 - stream parity.** Every message of a flow answered, or ignored with a written reason. The
   ledgers are `docs/23-initialization-protocol.md` (the set and order an instance sends) and
   `docs/21-surrounding-packets.md` (what a live stream carries and this tree drops). Today 78 of the 148
   headers a real session used are neither sent nor acted on.
 
-The last client run on `main` is the reverted state `e96a909`, and none has been run on it since: the newest
-served session in `logs/` is the attempt's build (2026-10-31 16:26). `docs/27-packet-parity-attempt.md`
-records that the `007` predates the attempt, so the next session's first client run is a measurement rather
-than a confirmation.
+The last client run on `main` is the 2026-11-01 movement confirmation above: the owner walked the
+Ascalon City bridge on ASURA, reproduced the same route on live servers, and reported "the issues are
+not reproduceable anymore" after `agent.rs` began answering manual movement orders. The attempt's
+`007` predates that run (`docs/27-packet-parity-attempt.md`), so a client run today is a measurement,
+not a confirmation.
 
-1. **Verify the baseline** (3 minutes): `cargo test --workspace --offline` -> **175 passing**, of which 16
-   are live-database tests in `asura-db` (login, placement, inventory, migrations) and 6 drive real
-   sockets in `asura-world` (the load, a drop, a return). Then `.\tools\test-battery.ps1`. If a count
-   changed, read `git log` before assuming it is broken.
-2. **What is left of the reference's dispatch is character creation**: the four
-   `GAME_CMSG_CHAR_CREATION_*` handlers (`docs/07-status.md`). They are blocked on a
-   *character-creation* instance (`MapType_CharacterCreation`, which this world does not host) and on
-   porting the default-equipment table `GetDefaultEquipments` answers with (`GmDefaultArmors.c`, 2820
-   lines of it). The second is generation work rather than design, and the generators were retired when parity
-   closed (docs/16): the table is item rows, generated once from the reference and kept as data.
+1. **Verify the baseline** (3 minutes): `cargo test --workspace --offline`. The last full run recorded
+   here was **175 passing** (2026-10-31), of which 16 are live-database tests in `asura-db` (login,
+   placement, inventory, migrations) and 6 drive real sockets in `asura-world` (the load, a drop, a
+   return). That figure is a dated reading, not a target: the workspace declares 261
+   `#[test]`/`#[tokio::test]` attributes today, 2 of them `#[ignore]`d. Then `.\tools\test-battery.ps1`.
+   If a count changed, read `git log` before assuming it is broken.
+2. **Nothing of the reference's dispatch is left.** Character creation, the last gap, is implemented:
+   the creation instance is hosted (`crates/asura-world/src/main.rs:237-251`), the four
+   `GAME_CMSG_CHAR_CREATION_*` handlers are dispatched (`crates/asura-world/src/dispatch.rs:65-71`),
+   and the default-equipment table is carried as data from `GmDefaultArmors.c`
+   (`crates/asura-world/src/default_equipment.rs`).
 3. **Then the things the reference never wrote**: picking a dropped item back up
    (`GAME_CMSG_INTERACT_ITEM`, `0x803F` - the last piece that makes a drop reversible), splitting a
    stack by hand (`0x8075`), buying and selling (`GAME_CMSG_TRANSACT_ITEMS`, `0x804D`), swapping two
@@ -565,13 +597,13 @@ than a confirmation.
 |---|---|
 | `bag`, `item`, the item-id sequence, and `characters.pos_plane` | `crates/asura-db/migrations/0006_inventory.sql` |
 | reading a character's bags and items, seeding the default set, finding the item a drop names | `crates/asura-db/src/inventory.rs` |
-| the seed: the reference's own six bags and nine items, generated from the capture | `crates/asura-db/src/inventory/seed.rs` (generated) |
-| the capture itself, kept as the fixture the rows must reproduce | `crates/asura-protocol/src/game/default_inventory.rs` (generated) |
-| one generator for both halves: the seed rows and the captured bytes | `tools/gen-default-inventory.py` |
+| the seed: the reference's own six bags and nine items, generated from the capture | `crates/asura-db/src/inventory/seed.rs` |
+| the capture itself, kept as the fixture the rows must reproduce | `crates/asura-db/src/inventory.rs:243` (`default_inventory()`) |
+| the generator for both halves: the seed rows and the captured bytes | `tools/gen-default-inventory.py`, retired with the parity tooling (`docs/16`); the two files above are its committed output |
 | `CREATE_NAMED_ITEM`, `ITEM_MOVE_TO_LOCATION`, `ITEM_SET_PROFESSION` | `crates/asura-protocol/src/game/mod.rs` |
-| the item block from rows, the bags in model order, the worn ids from the equipped bag | `crates/asura-world/src/lib.rs` (`inventory_block`, `items_block`, `player_block`) |
-| `DROP_ITEM`, finished rather than copied: the stack is taken down, the agent wears the item's model | `crates/asura-world/src/lib.rs` (`0x802C`, `drop_item`, `drop_messages`) |
-| `ITEM_MOVE` and `EQUIP_ITEM`, which the reference does not dispatch at all | same file (`0x8072`, `0x8030`) + `asura_db::inventory::{move_item, first_free_carrying_slot, take_from_stack}` |
+| the item block from rows, the bags in model order, the worn ids from the equipped bag | `crates/asura-world/src/item.rs:70` (`items_block`), `:120` (`inventory_block`), `crates/asura-world/src/player.rs:145` (`player_block`) |
+| `DROP_ITEM`, finished rather than copied: the stack is taken down, and nothing goes on the wire | `crates/asura-world/src/item.rs:187` (`drop_item`), `:243-249` (why it sends nothing); dispatched at `dispatch.rs:73` |
+| `ITEM_MOVE` and `EQUIP_ITEM`, which the reference does not dispatch at all | `crates/asura-world/src/item.rs` + `asura_db::inventory::{move_item, first_free_carrying_slot, take_from_stack}`, dispatched at `dispatch.rs:73-79` |
 | the position saved on leaving and resumed on entering | `asura_db::game::record_position`/`position`, `Standing::resume` |
 | the live-database proof: seeding, round trip, drop scoping, position | `crates/asura-db/tests/inventory.rs` |
 
@@ -677,23 +709,22 @@ repeatedly, with no client, no protocol and no simulation. That is M2, and it is
   messages crashed a live client and neither is in any capture. There is **no switch** for that, deliberately
   - a knob nobody can use is worse than the plain behaviour. The ground item waits for a capture of GWPS
   actually dropping something, and its handler is the unfinished one, so that capture may never exist.
-- **`/tp` and `/teleport`**: they need a *world-initiated* travel (reserve a slot, write a transfer row,
-  send `TRANSFER_GAME_SERVER_INFO`, then `MAP_UPDATE_CURRENT`). The redirect is **not** the unknown part:
-  the reference sends it on every `/tp`, its 46-byte layout is the one `game::TRANSFER_GAME_SERVER_INFO`
-  already carries, and the cycle is written up in `docs/03-protocol.md` #5. What is missing is a way for a
-  world to start it - today only the client can, through the auth service. `/maps`, `/stuck` and every chat
-  channel are implemented and **not gated**: a spoken line is sent, a generated answer is printed, because
-  printing is the half that has always worked - the reference's `/maps` answered into its own log and never
-  onto a screen.
+- **`/tp` and `/teleport` are implemented.** The world starts the cycle itself: the seat reserved for
+  the destination, the transfer row written, `TRANSFER_GAME_SERVER_INFO` then `MAP_UPDATE_CURRENT` sent
+  (`crates/asura-world/src/travel.rs:181`, reached from `crates/asura-world/src/chat.rs:339`). `/maps`,
+  `/stuck` and every chat channel are implemented and **not gated**: a spoken line is sent, a generated
+  answer is printed, because printing is the half that has always worked - the reference's `/maps`
+  answered into its own log and never onto a screen.
 - **No trade, no salvage, no pick-up**: an item can be dropped (silently), moved and worn, and nothing
   else. Nothing picks a dropped item up, because the reference has no handler for that either
   (`docs/07-status.md`).
-- **No character creation**: the four `CHAR_CREATION_*` handlers need a creation instance and the default
-  equipment table.
-- **One agent, one player**: no NPCs, no other players, no combat, no quests, and no session registry in
-  memory - the service resolves a connection per connection and keeps no record of who is connected.
-- **No character selection yet**: the client's `AUTH_CMSG_CHANGE_PLAY_CHARACTER` is logged as unhandled,
-  and `asura_db::login::select_character` exists but nothing calls it. The login batch reports the
-  character the session already points at; choosing one is the next login-path message.
+- **No NPCs, no combat, no quests**: an instance holds the clients playing in it and nothing else - the
+  players are introduced to each other and told when one leaves
+  (`crates/asura-world/src/instance.rs`, `PeerView`), and no session registry is kept in memory: the
+  service resolves a connection per connection.
+- **Character selection is handled**: `AUTH_CMSG_CHANGE_PLAY_CHARACTER` is answered
+  (`crates/asura-auth/src/lib.rs:416-462`, which calls `asura_db::login::select_character`), and a real
+  client selected a character (`MILESTONES.md`). The login batch reports the character the session
+  points at; the message that chooses a different one is answered by rewriting the session's character.
 - **No CI.** Tests run locally first, and `tools/test-battery.ps1` is the one command that stands in for
   it (10 steps, PASS/FAIL each, and the last one is a human with a game client).

@@ -1,9 +1,9 @@
 # Starting ASURA's services: research for a decision
 
-> **Status: research, not a decision.** Nothing described here is implemented or chosen. This
-> document exists so that the decision - *how should ASURA's services be started, supervised and
-> found?* - can be made on evidence rather than from first principles. The owner decides; the record
-> of the decision will be an ADR (the next one: `docs/adr/0011-...`).
+> **Status: research, and the decision it asked for is made.** The evidence below produced
+> `crates/asura-supervisor`; the retraction at the end of this block records where that decision went.
+> This document exists so that the decision - *how should ASURA's services be started, supervised and
+> found?* - was made on evidence rather than from first principles.
 >
 > **Where the decision went (2026-10-28):** the level-2 supervisor it recommends was built
 > (`crates/asura-supervisor`) and its decisions are recorded in `docs/16-implementation-plan.md` (S1
@@ -24,11 +24,12 @@ service into many". The question is narrower and more useful:
 
 **What should "start the stack" actually be - and what should it guarantee?**
 
-Today, "start" is a set of PowerShell scripts, and everything after "the processes are running" is
-assumed rather than provided: nothing restarts a crashed service, nothing answers "is the auth
-service healthy?", nothing drains a world except the fields a world itself writes, and the only
-coordination a service can announce itself through is the `world` table (which speaks for world
-servers only).
+When this was written, "start" was a set of PowerShell scripts, and everything after "the processes are
+running" was
+assumed rather than provided: nothing restarted a crashed service, nothing answered "is the auth
+service healthy?", nothing drained a world except the fields a world itself writes, and the only
+coordination a service could announce itself through was the `world` table (which speaks for world
+servers only). The supervisor below was built for exactly those four gaps, and closed them.
 
 ## Plain words, so the decision can be discussed
 
@@ -84,22 +85,28 @@ The GDC 2017 talk (Stephen Clarke-Willson, ArenaNet) - slide numbers from
   (dynamic configuration and deployment, multiple simultaneous builds) except independent
   restartability. This is the permission to keep "one world server = one big process".
 
-## What exists today, verified in this repository
+## What existed when this was written, and what replaced it
+
+The table is the state the research found: three PowerShell launchers, no restart, no shared log, no
+registry row for the gate or auth. **None of those scripts is in the tree**, and the replacement is the
+supervisor below them.
 
 | piece | how it starts | health | restart if it crashes |
 |---|---|---|---|
-| PostgreSQL | Windows service, started by `tools/start-server.ps1` (needs elevation) | `Get-NetTCPConnection` :5432 | OS service recovery (not configured here) |
-| `asura-webgate` :6601 | `start-server.ps1`: build, `Start-Process`, poll the port | the poll on the port | none - a dead gate means "cannot connect" until the script is run again |
-| `asura-auth` :6112 | `play.ps1`: build, `Start-Process`, tail log | none beyond the process existing | none |
-| `asura-world` :6113 | `play.ps1`: build, `Start-Process`, tail log; registers itself in `world`, heartbeats every 5 s, publishes `world_pool` capacity | `world.heartbeat_at` (read by placement) | none - a dead world is invisible until its leases are reaped (`tools/stop-server.ps1` frees nothing; the unscheduled reaper does) |
+| PostgreSQL | a Windows service or a systemd unit, managed elsewhere; the supervisor checks it and waits, never starts it | a reachable connection | OS service recovery, outside this repository |
+| `asura-webgate` :6601 | `asura-supervisor start`, from `config/services.toml` | a TCP connect on the port | bounded retry: 5 attempts, 2 s apart, then FAILED |
+| `asura-auth` :6112 | the same | a TCP connect on the port | the same |
+| `asura-world` :6113 (world `8001`) | the same; registers itself in `world`, heartbeats every 5 s, publishes `world_pool` capacity | the world's own row is fresh | the same |
 
 Facts worth carrying into the decision:
 
 - **The `world` table is already a miniature registry** - id, address, port, build, draining,
   population, heartbeat - and placement already refuses stale or draining worlds. The talk's
   registration model exists, but for one kind of service.
-- **The `build` and `draining` columns are SpawnSrv's idea, half-built**: the schema can describe a
-  rolling deploy, but nothing performs one.
+- **The `build` and `draining` columns are SpawnSrv's idea, and they have their pilot now**:
+  `find_worlds` reads both, `set_draining` writes one, and `asura-supervisor deploy-world --old --new`
+  performs the rolling deploy (`crates/asura-db/src/placement.rs:439-463`,
+  `crates/asura-supervisor/src/supervise.rs:525`).
 - **`asura-auth` is also the game-connection front door** (`crates/asura-auth/src/frontdoor.rs`):
   the real client dials the auth address regardless of what `GAME_SERVER_INFO` names, and auth
   routes the socket to the world it handed out. That is a routing responsibility sitting inside a
@@ -107,8 +114,11 @@ Facts worth carrying into the decision:
 - **The start is a script, and the scripts are the operational weak point**: port checks fail
   with "an earlier run is probably still up", logs go to `%TEMP%`, stopping is by process name, and
   a crashed world is simply gone until someone notices a client cannot connect.
-- **Nothing restarts, and nothing aggregates status.** The observability paragraph of
-  `docs/02-architecture.md` asks for counters; nothing exports them and no process reads them.
+- **A crashed service is restarted, and status is aggregated**: the supervisor retries at most
+  `restart_max` times and then reports FAILED, and `asura-supervisor status` answers what is running
+  and how fresh each service is (`crates/asura-supervisor/src/supervise.rs:355-411`,
+  `status.rs`). Counters the architecture still asks for are not exported - that paragraph of
+  `docs/02-architecture.md` remains unbuilt.
 
 ## The decision space
 
@@ -170,7 +180,7 @@ deployment, not about the code** - the protocol already survives a world living 
    The talk's rule applies: rebuild by asking, never by reloading state from disk.
 4. **What "healthy" means** per service, and which check a supervisor uses: the port is open (a
    process exists), the schema is current (world and auth both refuse stale schemas at startup -
-   `crates/asura-db/migrations/ensure_current`), a heartbeat is recent (worlds), or an HTTP probe
+   `asura_db::migrations::ensure_current`, `crates/asura-db/src/migrations.rs`), a heartbeat is recent (worlds), or an HTTP probe
    (webgate). A health check that only tests "the port is bound" is a false comfort; one that asks
    "can you answer one real request?" is what placement already does when it dials a world before
    offering it (`docs/roadmap.md`, M4 progress).

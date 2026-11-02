@@ -11,9 +11,9 @@ whole server stack, made of the components below.
 **auth service** (`asura-auth`) - the program that answers the client's login: key exchange,
 session, character list, character select. It owns identity, and it never runs a map.
 
-**World server** (`asura-world`) - a program that runs maps for players. In phase 1 these are the
-existing C game servers; in phase 2 the simulation becomes part of this project. Either way they
-are disposable: restarting one loses a session, not the database.
+**World server** (`asura-world`) - this project's program that runs maps for players, in Rust. The one
+in `crates/asura-world` is the whole of it: connection, load block, movement, travel, chat, items. It
+is disposable: restarting one loses a session, not the database.
 
 **Control plane** - shorthand for everything that is not simulation: auth, identity, registry,
 placement. It spans the auth service and the registry tables, not one process.
@@ -26,8 +26,9 @@ it populates exactly one agent, the character.
 and last heartbeat. Worlds write their own row; the auth service reads it. Modelled on AzerothCore's
 `realmlist`.
 
-**Pool capacity** - `world_pool`: for each world and map, how many instances are prebuilt (`capacity`)
-and how many are currently handed out (`leased`).
+**Pool capacity** - `world_pool`: for each world and map, how many seats the world offers (`capacity`)
+and how many are currently handed out (`leased`). The seats are counted from the same `capacity` the
+world was started with; `docs/01-scope.md` "Instances" says how the maps behind them are built.
 
 **Reservation / lease** - taking a pool slot for one party. It is a single atomic `UPDATE ... WHERE
 leased < capacity`, released when the party leaves, when the player disconnects, or when a reaper
@@ -36,8 +37,11 @@ decides the owning world is gone.
 **Connection pool** - a small set of open database connections reused by a program, instead of one
 connection per map instance. This is what replaces GWPS's per-instance SQLite handle.
 
-**Map updater** - the bounded pool of threads that advances map simulation, with each hot map always
-handled by the same thread. Not one thread per map.
+**Map updater** - the thing that advances a map's simulation. What exists is one task per map, started
+by the first join and ended with the instance (`crates/asura-world/src/instance.rs:376-385`). The
+bounded pool of threads with map affinity, where a hot map is always handled by the same thread and
+idle maps cost nothing, is the AzerothCore structure this project has **not** built; it is the shape
+`docs/32` phase 3 and `docs/adr/0006` name for the simulation stage.
 
 **GWPS** - the existing single-process project (`PreSearing`). It does the job of the auth service *and* the
 world servers in one program. It stays as the working reference.
@@ -113,7 +117,10 @@ destination it cannot go to. It never enters a loading screen.
 cleared when it leaves.
 
 **The one rule** - a travel request is only ever answered with something already running. Nothing
-is constructed while a client is loading. Violating this is what made hops hang in GWPS.
+is constructed while a client is loading. Violating this is what made hops hang in GWPS. One exception
+is written into the tree: `asura-world --on-demand` builds a missing map inside the travel, measured at
+0-2 ms and accepted by a real client (`crates/asura-world/src/travel.rs:83`,
+`docs/03-protocol.md` 5c). It is off unless the flag is given.
 
 ### The network
 

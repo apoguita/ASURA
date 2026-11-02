@@ -2,7 +2,9 @@
 
 Written 2026-10-31, after reverting the working tree to `e96a909 "up to date and working"`.
 
-The work itself is not lost: it is committed on the branch **`packet-parity-attempt`** (`9818bf2`). `main`
+Every tool, fixture and file this page names lives on that branch, not on `main` unless the text says
+otherwise; the few things that were later taken from it are marked. The work itself is not lost: it is
+committed on the branch **`packet-parity-attempt`** (`9818bf2`). `main`
 is the working version, and this document lives on `main` so the failure is not the only thing that
 survives.
 
@@ -121,7 +123,10 @@ Worth taking first, in this order:
    sessions, never from a sniffer capture. As the branch generates it, from the client's struct, it is not
    worth taking.
 2. `tools/stream-diff.py`, `tools/stream-sizes.ps1`, `tools/client-check.ps1`: reading a session back.
-3. `crates/asura-world/src/capture.rs` wiring in `config/services.toml`: the session capture itself.
+3. ~~`crates/asura-world/src/capture.rs` wiring~~ - **already taken, and differently**: the session
+   capture is on `main` and switched by the command line, `--capture PATH` or `ASURA_CAPTURE`
+   (`crates/asura-world/src/main.rs:131-136`, used at `connection.rs:485,534`), not by
+   `config/services.toml`.
 4. The individual message corrections, one at a time, each verified with the client before the next.
 
 Not worth taking: the NPC population, unless it is wanted as a feature in its own right.

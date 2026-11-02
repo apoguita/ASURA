@@ -1017,7 +1017,10 @@ pub fn character_update_factions(
 /// `00EF` in `recordings/asura/world/load-layers-20261031.jsonl`, captured in `ef000000 | ffffffff |
 /// ffffffff`). Uninitialized, the inventory panel's per-slot display mode stays blank for every slot.
 pub fn char_visibility_flags(value: u32, mask: u32) -> crate::client::Frame {
-    Builder::new(CHAR_VISIBILITY_FLAGS).u32(value).u32(mask).frame()
+    Builder::new(CHAR_VISIBILITY_FLAGS)
+        .u32(value)
+        .u32(mask)
+        .frame()
 }
 
 /// `GAME_SMSG_PLAYER_UPDATE_FLAGS`: one player's flags word as a masked read-modify-write - a u16
@@ -1223,7 +1226,10 @@ pub fn world_create_agent(agent: &CreateAgent) -> crate::client::Frame {
 /// (`recordings/client/feature/travel/doors-20261031-095754.jsonl`, header `009C`) - and the party
 /// panel draws its morale icon from this record rather than from the character's own morale field.
 pub fn agent_update_morale(agent_id: u32, morale: u32) -> crate::client::Frame {
-    Builder::new(AGENT_UPDATE_MORALE).u32(agent_id).u32(morale).frame()
+    Builder::new(AGENT_UPDATE_MORALE)
+        .u32(agent_id)
+        .u32(morale)
+        .frame()
 }
 
 /// `GAME_SMSG_AGENT_PROPERTY_UPDATE_INT`: one integer property of an agent.
@@ -1379,8 +1385,8 @@ pub fn world_simulation_tick(delta_ms: u32) -> crate::client::Frame {
 /// `GAME_SMSG_AGENT_MOVE_TO_POINT` in the two-byte-header form: an agent is walking to `destination` on
 /// `plane`, from `current_plane` (`GameSrv_MoveAgentToPoint`), 18 bytes.
 ///
-/// The live servers do not send this form: see [`agent_move_to_point_live`] for the 24-byte message the
-/// live client and the patched client parse.
+/// The sniffer reads the unpacked client struct; the wire uses this packed layout
+/// (`docs/03-protocol.md` 5e).
 pub fn agent_move_to_point(
     agent_id: u32,
     destination: (f32, f32),
@@ -1393,6 +1399,29 @@ pub fn agent_move_to_point(
         .f32(destination.1)
         .u16(plane)
         .u16(current_plane)
+        .frame()
+}
+
+/// Packed direction reply: agent, direction, facing (`packets.rs`, 0x0025).
+pub fn agent_update_direction(
+    agent_id: u32,
+    direction: (f32, f32),
+    facing: u8,
+) -> crate::client::Frame {
+    Builder::new(AGENT_UPDATE_DIRECTION)
+        .u32(agent_id)
+        .f32(direction.0)
+        .f32(direction.1)
+        .u8(facing)
+        .frame()
+}
+
+/// Packed move-type reply: agent, speed factor, facing (`packets.rs`, 0x002B).
+pub fn agent_update_speed(agent_id: u32, speed: f32, facing: u8) -> crate::client::Frame {
+    Builder::new(AGENT_UPDATE_SPEED)
+        .u32(agent_id)
+        .f32(speed)
+        .u8(facing)
         .frame()
 }
 
@@ -1601,7 +1630,6 @@ mod tests {
                 direction: (1.0, 0.0),
                 speed_base: 288.0,
                 player_team_token: 1,
-
             })),
             99
         );
@@ -1812,7 +1840,10 @@ mod tests {
         // ffffffff` and the player flags as `3c000000 | 01000000 | 00000000 | 07000000`
         // (recordings/asura/world/load-layers-20261031.jsonl, headers 00EF and 003C).
         let visibility = char_visibility_flags(0xFFFF_FFFF, 0xFFFF_FFFF);
-        assert_eq!(visibility.bytes(), &[0xEF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(
+            visibility.bytes(),
+            &[0xEF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+        );
 
         let flags = player_update_flags(1, 0, 7);
         assert_eq!(

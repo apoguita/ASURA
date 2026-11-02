@@ -32,7 +32,7 @@ pub async fn answer(
         msg::GAME_CMSG_MOVE_TO_COORD => agent::handle_move_to_coord(stream, session, &frame, world, player, trace).await,
 
         msg::GAME_CMSG_POSITION_UPDATE => {
-            let answer = agent::handle_position_update(&frame, player, trace);
+            let answer = agent::handle_position_update(stream, session, &frame, world, player, trace).await;
 
             travel::portal_reached(stream, session, world, player, trace).await?;
             answer
@@ -43,7 +43,7 @@ pub async fn answer(
         }
 
         msg::GAME_CMSG_LAST_POS_BEFORE_MOVE_CANCELED => {
-            let answer = agent::handle_last_position(&frame, player, trace);
+            let answer = agent::handle_last_position(stream, session, &frame, player, trace).await;
             travel::portal_reached(stream, session, world, player, trace).await?;
             answer
         }

@@ -73,8 +73,8 @@ anything into it.
 | | Rurik | ASURA |
 |---|---|---|
 | language | Python 3, stdlib only | Rust |
-| code | 732 `.py`, ~390,000 lines | 86 `.rs`, 36,883 lines |
-| research documents | 219 `.md`, 16.5 MB (`studies/`, 71 arcs) | 23 pages under `docs/`, 12 ADRs |
+| code | 732 `.py`, ~390,000 lines | 88 `.rs`, 38,585 lines (measured 2026-11-01) |
+| research documents | 219 `.md`, 16.5 MB (`studies/`, 71 arcs) | 33 pages under `docs/`, 14 ADRs |
 | server | one process: `toolkit/authsrv/authsrv.py`, 50,110 lines | 7 crates, tokio, PostgreSQL |
 | world content | 11 declarative `.toml` tables, 480 KB | SQL migrations, `crates/asura-db/migrations/` |
 | schema | 777 messages (`schema/messages.json`: AUTH_CMSG 57, AUTH_SMSG 39, GAME_CMSG 194, GAME_SMSG 487) | 782 rows, `crates/asura-protocol/src/packets.rs` (auth 60 + 40, game 194 + 488) |
@@ -91,7 +91,7 @@ thing and this one is not behind:
 
 | area | where |
 |---|---|
-| auth handshake, ARC4, fixed-constant DH, file check, login burst | `crates/asura-auth/src/handshake.rs`, `client/`, proven over a socket by `tests/login.rs` |
+| auth handshake, ARC4, fixed-constant DH, file check, login burst | `crates/asura-protocol/src/client/handshake.rs`, `client/`, answered by `crates/asura-auth`, proven over a socket by `crates/asura-auth/tests/login.rs` |
 | travel, placement, atomic reservation, leases, reaper | `crates/asura-db/src/placement.rs`, `crates/asura-auth/src/travel.rs` |
 | instance load block, spawn point, spawn block, manifest | `crates/asura-world/src/map.rs`, `tests/load.rs` |
 | path graph import and A\* over the trapezoid graph | `crates/asura-world/src/map_data.rs`, `pathfind.rs`, with the reference's own reciprocal/square-root tables |
@@ -99,7 +99,7 @@ thing and this one is not behind:
 | the exploration grid (`0x008B` + `0x008A`, RLE bands, empty-band shape) | `crates/asura-world/src/cartography.rs` - and Rurik's `content/fog.toml` is what settled its position in the load block |
 | chat channel split (`!`/`#`/`$`), `/stuck`, `/maps`, no server-generated chat on the wire | `crates/asura-world/src/chat.rs`, `docs/07-status.md` |
 | inventory as rows, drop with the stack deducted, move, equip, position round trip | `crates/asura-world/src/item.rs`, `crates/asura-db/src/inventory.rs` |
-| multi-player maps: introduction, withdrawal, broadcast | `crates/asura-world/src/lib.rs`, `Peers` |
+| multi-player maps: introduction, withdrawal, broadcast | `crates/asura-world/src/instance.rs` (`PeerView`, `introduction`), `crates/asura-world/src/world.rs:166` |
 | Gw.dat index and the FaCompress decompressor | `crates/asura-world/src/gwdat.rs`, `fa_compress.rs` |
 
 Two of these are places this tree is ahead and the port must not regress: the crate split (Rurik's
@@ -132,8 +132,8 @@ Rurik: `toolkit/authsrv/smsgsweep.py`, `sweeploop.py`, `shotloop.py`, `shotlabel
 `studies/smsgsweep/FINDINGS.md` - 334 of 487 GAME_SMSG opcodes measured against a controlled client,
 **82 ASSERTED, 3 FAULTED, 1 DROPPED_CHANNEL, 3 REPLIED, 235 SILENT**, every crash row paired with the
 dialog its own run captured.
-Here: nothing. `docs/07-status.md` reports dispatch parity as 18/18 and says nothing about the 488
-server-to-client rows this tree has never sent.
+Here: nothing. `docs/07-status.md` reports 32 of the reference's client-message handlers present and
+says nothing about the 488 server-to-client rows this tree has never sent.
 A port: a tool under `tools/` that sends one catalogued opcode to a client bound to loopback, reads what
 comes back, and records a verdict per opcode; the verdict table committed as a recording, not as prose.
 **The two halves are different instruments**, and only one of them is ours to write: the *observation*
@@ -301,8 +301,9 @@ and the reward arrives.
 Rurik: `charstore.py`, `summarycensus.py` (`charsummary.py` for the summary blob), `attribspend.py` (the
 rank and point model and the client's own refusal rules), `attribpoints.py`, `skillunlock.py` (two
 unlocked-skill bitmaps, on two scopes), `morale.py` (`0x00EE` attr 10 and `0x009C`).
-Here: four character traits are stored (migration 0008); level, profession, gold, attributes and unlocks
-are not.
+Here: gold, level, both professions and the campaign are columns now (`0008_character_traits.sql`,
+`0009_character_settings.sql`), and the instance unlocks are `instance_unlock` rows
+(`0023_instance_unlocks.sql`). Attributes, ranks and the unlocked-skill bitmaps are not stored.
 Rurik's storage is the one thing not to take: one JSON file per account is a design this tree replaced
 with PostgreSQL rows.
 A port: attributes and ranks as columns with the reference's point model, and the unlocked-skill bitmaps.
@@ -332,8 +333,9 @@ Rurik: `toolkit/content.py` (559 lines) loading `content/*.toml`: `maps.toml` 84
 `items.toml` 933, `areas.toml` 1,130, `world.toml` 3,790, `fog.toml`, `quests.toml`, `drops.toml`,
 `partycap.toml`, `movecode.toml`, `compose.toml`. Every row carries its own `provenance` table, and the
 loader **refuses** a `source = "client-table"` row that does not name its extractor and its build.
-Here: SQL migrations and `crates/asura-db/src/seed.rs`; content literals are kept as data, and the
-reference's own list is generated into `map_config`.
+Here: SQL migrations (`crates/asura-db/migrations/`, 24 files) plus two seed files the supervisor applies
+(`tools/map-config.sql`, `tools/seed-dev.sql`); content literals are kept as data, and the reference's own
+map list is generated into `map_config`.
 Handling, not a hole: migrations are versioned, reversible and tested, which a TOML file is not.
 A port: **the provenance column and the loader's refusal, not the file format.** A content row that
 cannot name where it came from is the defect this tree's incident ledger is full of.

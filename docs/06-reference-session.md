@@ -2,7 +2,8 @@
 
 A complete login, recorded from both servers on 2026-10-26. This is the yardstick: the order, the
 headers, the sizes, and every message either side sent. Anything in ASURA that disagrees with a line
-below is a bug, not a preference (`docs/adr/0010-gwps-is-the-floor.md`).
+below is a bug, not a preference - the packets are the objective (`AGENTS.md` #1), and
+`docs/adr/0010-gwps-is-the-floor.md` is where that reference-as-floor reading was argued.
 
 How it was captured:
 
@@ -55,8 +56,10 @@ Client build 39112, `-authsrv 127.0.0.1 -portal 127.0.0.1`, web gate on 6601, id
 
 ## What ASURA did, for comparison
 
-`crates/asura-auth` reproduced 1-19 exactly (same order, same sizes, same replies) and refused 20 with
-`status 2` because no world server exists. The client then sent `0x800E` (offline) and `0x800D`
-(disconnect), which is the correct response to a refused travel.
+At M3, `crates/asura-auth` reproduced 1-19 exactly (same order, same sizes, same replies) and refused
+20 with `status 2` because no world server existed. **That is history**: request 20 is answered with a
+world from the registry now (`crates/asura-auth/src/lib.rs:604-618`), and a real client logs in,
+travels and stands in a map (`MILESTONES.md`). The recorded M3 behaviour is kept because it is what the
+first comparison measured.
 
-That is M3's finish line: the patched client reaches the character list against this service.
+The M3 finish line was: the patched client reaches the character list against this service.

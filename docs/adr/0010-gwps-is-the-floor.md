@@ -49,17 +49,18 @@ The reference's auth dispatch, from `AuthSrv.c`, against this service:
 | `AUTH_CMSG_CHANGE_PLAY_CHARACTER` | yes | selects, records on the session, answers |
 | `AUTH_CMSG_HEARTBEAT` -> `AUTH_SMSG_HEARTBEAT` (tick 16) | yes | |
 | `AUTH_CMSG_DISCONNECT` | yes | closes the connection |
-| `AUTH_CMSG_ACCEPT_EULA` | yes | accepted, not stored |
+| `AUTH_CMSG_ACCEPT_EULA` | yes | the version is stored (`account.eula_accepted`, `0012_account_eula.sql`) |
 | `AUTH_CMSG_SETTING_UPDATE_SIZE` / `..._CONTENT` | yes | acknowledged |
 | `AUTH_CMSG_UPDATE_CHARACTER_SETTINGS` | partial | acknowledged, **not stored** |
-| `AUTH_CMSG_ADD_ACCESS_KEY` | **no** | reference stores a key; not needed to log in |
-| `AUTH_CMSG_DELETE_CHARACTER` | **no** | reference deletes a character |
-| `AUTH_CMSG_REQUEST_GAME_INSTANCE` | **refused cleanly** | needs a world server; M4 |
-| pre-spawned map servers, ctrl connections, travel | **no** | M4, and the reference's own shape has no place here yet |
+| `AUTH_CMSG_ADD_ACCESS_KEY` | yes (nothing stored) | logged and dropped, exactly as the reference does (`crates/asura-auth/src/lib.rs:487`) |
+| `AUTH_CMSG_DELETE_CHARACTER` | yes | deletes this account's character by name (`crates/asura-auth/src/lib.rs:513-532`) |
+| `AUTH_CMSG_REQUEST_GAME_INSTANCE` | yes | answered with a world from the registry (`crates/asura-auth/src/lib.rs:604-618`) |
+| pre-spawned map servers, ctrl connections, travel | yes | the whole travel path exists: `begin_transfer` (`crates/asura-world/src/travel.rs:441`), relayed by `crates/asura-auth/src/frontdoor.rs` |
 
-Three genuine gaps are visible in that table (`ADD_ACCESS_KEY`, `DELETE_CHARACTER`, and the storage
-behind character-settings and EULA). None of them is on the login path, and each is named here rather
-than discovered later by a hang.
+Two of the three gaps named in this table at the time are closed: `ACCEPT_EULA` now stores its version, and
+`DELETE_CHARACTER` is implemented. What is still open is the storage behind
+`AUTH_CMSG_UPDATE_CHARACTER_SETTINGS` (acknowledged, not stored) and `ADD_ACCESS_KEY`, which stores
+nothing because the reference stores nothing. None of them is on the login path.
 
 ## What this rule does not say
 

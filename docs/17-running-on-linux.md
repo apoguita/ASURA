@@ -48,7 +48,8 @@ Run from the repository root.
    cargo run -p asura-supervisor -- schema
    ```
 
-   It drives `psql` - found from PATH (`psql` on Linux), the usual Windows install, or `ASURA_PSQL`.
+   It drives `psql` - taken from `ASURA_PSQL` first, then PATH (`psql` on Linux), then the usual
+   Windows install (`crates/asura-supervisor/src/psql.rs:13-31`).
    The equivalent by hand is a `psql -v ON_ERROR_STOP=1 -f` loop over
    `crates/asura-db/migrations/*.sql`.
 
@@ -85,7 +86,9 @@ Run from the repository root.
    ```
 
    It builds what is missing, seeds the same rows step 5 writes (idempotent, so a running start
-   re-seeds harmlessly), starts the gate, auth and world, waits for each to be healthy, and watches
+   re-seeds harmlessly), starts the services in dependency order - alphabetical while none declares
+   `depends_on`, so auth, then the gate, then world (`crates/asura-supervisor/src/config.rs:192-200`) -
+   waits for each to be healthy, and watches
    until Ctrl+C. The first build of the three services inside `start` uses `--offline`; because
    step 4 fetched everything, that succeeds.
 

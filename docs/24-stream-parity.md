@@ -40,7 +40,7 @@ the client held": it is a count and a shape, not a length to send. The wire size
 | 0x002F | S -> C | 1 | 12 | GAME_SMSG_AGENT_UPDATE_ALLEGIANCE | Known |
 | 0x0035 | S -> C | 4 | 16 | - | Unnamed |
 | 0x0037 | S -> C | 33 | 16 | GAME_SMSG_AGENT_UPDATE_ATTRIBUTE_POINTS | Emitted |
-| 0x003C | S -> C | 115 | 16 | GAME_SMSG_PLAYER_UPDATE_FLAGS | Observed |
+| 0x003C | S -> C | 115 | 16 | GAME_SMSG_PLAYER_UPDATE_FLAGS | Emitted |
 | 0x003E | S -> C | 1 | 8 | GAME_SMSG_AGENT_ALLY_DESTROY | Known |
 | 0x0048 | S -> C | 61 | 12 | GAME_SMSG_AGENT_DISPLAY_CAPE | Emitted |
 | 0x004C | S -> C | 35 | 520 | GAME_SMSG_QUEST_DESCRIPTION | Known |
@@ -65,7 +65,7 @@ the client held": it is a count and a shape, not a length to send. The wire size
 | 0x0099 | S -> C | 255 | 12 | GAME_SMSG_MAP_UPDATE_CURRENT | Emitted |
 | 0x009A | S -> C | 28 | 12 | GAME_SMSG_AGENT_UPDATE_SCALE | Known |
 | 0x009B | S -> C | 191 | 72 | GAME_SMSG_AGENT_UPDATE_NPC_NAME | Known |
-| 0x009C | S -> C | 33 | 12 | GAME_SMSG_AGENT_UPDATE_MORALE | Inferred |
+| 0x009C | S -> C | 33 | 12 | GAME_SMSG_AGENT_UPDATE_MORALE | Emitted |
 | 0x009F | S -> C | 394 | 16 | GAME_SMSG_AGENT_PROPERTY_UPDATE_INT | Emitted |
 | 0x00A0 | S -> C | 12 | 20 | GAME_SMSG_AGENT_PROPERTY_UPDATE_INT_TARGET | Known |
 | 0x00A2 | S -> C | 30 | 16 | GAME_SMSG_AGENT_PROPERTY_UPDATE_FLOAT | Emitted |
@@ -87,7 +87,7 @@ the client held": it is a count and a shape, not a length to send. The wire size
 | 0x00DA | S -> C | 33 | 44 | GAME_SMSG_SKILLBAR_UPDATE | Emitted |
 | 0x00DB | S -> C | 38 | 260 | GAME_SMSG_UPDATE_UNLOCKED_SKILLS | Emitted |
 | 0x00E9 | S -> C | 33 | 64 | GAME_SMSG_CHARACTER_UPDATE_FACTIONS | Emitted |
-| 0x00EF | S -> C | 33 | 12 | GAME_SMSG_CHAR_VISIBILITY_FLAGS | Observed |
+| 0x00EF | S -> C | 33 | 12 | GAME_SMSG_CHAR_VISIBILITY_FLAGS | Emitted |
 | 0x00F0 | S -> C | 352 | 12 | GAME_SMSG_AGENT_INITIAL_EFFECTS | Emitted |
 | 0x00F1 | S -> C | 37 | 12 | GAME_SMSG_AGENT_UPDATE_EFFECTS | Known |
 | 0x00F2 | S -> C | 32 | 8 | GAME_SMSG_INSTANCE_LOADED | Emitted |
@@ -141,14 +141,14 @@ the client held": it is a count and a shape, not a length to send. The wire size
 | 0x01AE | S -> C | 21 | 64 | - | Unnamed |
 | 0x01B3 | S -> C | 10 | 12 | GAME_SMSG_CHARACTER_UDPATE_PARTY | Emitted |
 | 0x01BE | S -> C | 11 | 8 | - | Unnamed |
-| 0x01BF | S -> C | 11 | 8 | GAME_SMSG_PARTY_SET_DIFFICULTY | Known |
+| 0x01BF | S -> C | 11 | 8 | GAME_SMSG_PARTY_SET_DIFFICULTY | Observed |
 | 0x01CC | S -> C | 10 | 16 | GAME_SMSG_PARTY_PLAYER_ADD | Emitted |
 | 0x01D3 | S -> C | 9 | 8 | GAME_SMSG_PARTY_CREATE | Emitted |
 | 0x01D4 | S -> C | 10 | 8 | GAME_SMSG_PARTY_MEMBER_STREAM_END | Emitted |
 | 0x01DA | S -> C | 6 | 256 | GAME_SMSG_PARTY_LOCK | Known |
 | 0x01E0 | S -> C | 8 | 8 | GAME_SMSG_PARTY_SEARCH_SEEK | Known |
-| 0x800A | C -> S | 4 | 240 | - | Unnamed |
-| 0x800B | C -> S | 4 | 324 | - | Unnamed |
+| 0x800A | C -> S | 4 | 240 | GAME_CMSG_COMPUTER_INFO | Known |
+| 0x800B | C -> S | 4 | 324 | GAME_CMSG_COMPUTER_HASH | Known |
 | 0x800C | C -> S | 32 | 4 | GAME_CMSG_HEARTBEAT | Handled |
 | 0x800D | C -> S | 34 | 4 | GAME_CMSG_PING_REQUEST | Handled |
 | 0x8012 | C -> S | 12 | 8 | GAME_CMSG_QUEST_REQUEST_INFOS | Known |
@@ -164,7 +164,7 @@ the client held": it is a count and a shape, not a length to send. The wire size
 | 0x808B | C -> S | 1 | 56 | GAME_CMSG_CHAR_CREATION_CONFIRM | Handled |
 | 0x8090 | C -> S | 37 | 24 | GAME_CMSG_INSTANCE_LOAD_REQUEST_PLAYERS | Handled |
 | 0x8091 | C -> S | 37 | 12 | GAME_CMSG_INSTANCE_LOAD_REQUEST_ITEMS | Handled |
-| 0x8093 | C -> S | 5 | 8 | - | Unnamed |
+| 0x8093 | C -> S | 5 | 8 | GAME_CMSG_INSTANCE_QUERY | Observed |
 | 0x80B1 | C -> S | 6 | 24 | GAME_CMSG_PARTY_TRAVEL | Handled |
 | 0x80C1 | C -> S | 53 | 12 | GAME_CMSG_TRAVEL_INIT | Observed |
 
