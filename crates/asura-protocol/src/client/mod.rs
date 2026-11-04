@@ -21,6 +21,21 @@
 //! Both families live in the one packet table ([`crate::packets`]); `tables` and `game_tables` are
 //! that table's auth and game views. This module is the auth path: connection classification,
 //! framing, the key exchange, and the login messages.
+//!
+//! ## Naming, because both directions live in this crate
+//!
+//! A name says what the function does to the bytes, so a reader never has to open it
+//! (`docs/38-layer-decisions.md`, D15):
+//!
+//! * `decode_<thing>` - bytes to a struct: the client said something.
+//! * `<thing>` alone - a struct to a [`Frame`]: the server says something. `instance_load_head`,
+//!   `item_stream_create`. A builder carries no verb.
+//! * `*_len`, `*_bytes`, `*_slots` - a size, never a value.
+//! * `pack` / `unpack` - a word's bit fields, not a message.
+//! * `is_*`, `has_*`, `can_*` - a predicate.
+//! * no `get_` prefix: an accessor is named after what it returns.
+//!
+//! Every module's first line says which direction it owns, and a module that owns both says so.
 
 pub mod arc4;
 pub mod filecheck;
