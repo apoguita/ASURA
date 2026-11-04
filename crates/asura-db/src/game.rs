@@ -223,7 +223,7 @@ pub struct Settings {
 struct CharacterRow {
     last_outpost: i32,
     map_id: i32,
-    appearance: i32,
+    appearance: i64,
     campaign: i32,
     level: i32,
     is_pvp: bool,
