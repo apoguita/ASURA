@@ -16,7 +16,7 @@ use std::process::ExitCode;
 
 use asura_protocol::client::handshake;
 use asura_protocol::client::messages::PortalAccountLogin;
-use asura_protocol::client::peer::ReferenceClient;
+use asura_protocol::client::reference_client::ReferenceClient;
 use asura_protocol::client::tables;
 use asura_protocol::client::Frame;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

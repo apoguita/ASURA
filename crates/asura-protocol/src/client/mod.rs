@@ -43,10 +43,10 @@ pub mod frame;
 pub mod game;
 pub mod handshake;
 pub mod messages;
-/// A fake game client for tests and for `asura-auth/examples/probe.rs`, never for the server
+/// A fake game client for tests and for the two `asura-auth` examples, never for the server
 /// (`docs/38-layer-decisions.md`, D13). Compiled only when a consumer asks for `test-client`.
 #[cfg(feature = "test-client")]
-pub mod peer;
+pub mod reference_client;
 pub mod version;
 
 /// The auth family's view of the one packet table ([`crate::packets`]): masks, counts, the named
@@ -67,7 +67,7 @@ pub use frame::{Frame, FrameError};
 pub use handshake::{ClientSeed, Established, HandshakeError};
 pub use messages::{PortalAccountLogin, RequestResponse};
 #[cfg(feature = "test-client")]
-pub use peer::ReferenceClient;
+pub use reference_client::ReferenceClient;
 
 /// Server -> client: where to go. GWPS's own struct, verbatim (`GameMsg.h:659`): 46 bytes, a
 /// two-byte header, `host[24]`, then `map_token, region, player_token, is_explorable, map_id`.

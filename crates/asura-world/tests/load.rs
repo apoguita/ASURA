@@ -29,7 +29,7 @@ use asura_db::login as db;
 use asura_db::{placement, PgPool, Uuid};
 use asura_protocol::client::game::GameVersion;
 use asura_protocol::client::handshake;
-use asura_protocol::client::peer::ReferenceClient;
+use asura_protocol::client::reference_client::ReferenceClient;
 use asura_protocol::client::Frame;
 use asura_protocol::game;
 use asura_world::{serve, MapEntry, World, MAP_TYPE_CHARACTER_CREATION};
@@ -364,7 +364,12 @@ async fn read_until_count(
 ) -> Vec<Frame> {
     let mut frames: Vec<Frame> = Vec::new();
     let mut buffer = [0u8; 8192];
-    while frames.iter().filter(|frame| frame.header() == header).count() < count {
+    while frames
+        .iter()
+        .filter(|frame| frame.header() == header)
+        .count()
+        < count
+    {
         let read = tokio::time::timeout(TIMEOUT, stream.read(&mut buffer))
             .await
             .expect("read before the timeout")
@@ -560,12 +565,22 @@ async fn a_placed_client_is_loaded_into_its_map() {
         .expect("a spawn point");
     assert_eq!(spawn.len(), 26);
     assert_eq!(
-        u32::from_le_bytes([spawn.body()[0], spawn.body()[1], spawn.body()[2], spawn.body()[3]]),
+        u32::from_le_bytes([
+            spawn.body()[0],
+            spawn.body()[1],
+            spawn.body()[2],
+            spawn.body()[3]
+        ]),
         0x1B97D,
         "the map blob the client must stream"
     );
     assert_eq!(
-        f32::from_le_bytes([spawn.body()[4], spawn.body()[5], spawn.body()[6], spawn.body()[7]]),
+        f32::from_le_bytes([
+            spawn.body()[4],
+            spawn.body()[5],
+            spawn.body()[6],
+            spawn.body()[7]
+        ]),
         6602.0,
         "and where to stand, from the map's own config"
     );
@@ -618,7 +633,12 @@ async fn a_placed_client_is_loaded_into_its_map() {
         .find(|frame| frame.header() == game::PING_REPLY)
         .expect("a ping reply");
     assert_eq!(
-        u32::from_le_bytes([reply.body()[0], reply.body()[1], reply.body()[2], reply.body()[3]]),
+        u32::from_le_bytes([
+            reply.body()[0],
+            reply.body()[1],
+            reply.body()[2],
+            reply.body()[3]
+        ]),
         asura_world::PING_VALUE
     );
 
@@ -852,7 +872,12 @@ async fn an_item_can_be_moved_between_slots_and_the_server_agrees() {
         .find(|frame| frame.header() == game::ITEM_MOVE_TO_LOCATION)
         .expect("an accepted move is echoed");
     assert_eq!(
-        u32::from_le_bytes([echo.body()[2], echo.body()[3], echo.body()[4], echo.body()[5]]),
+        u32::from_le_bytes([
+            echo.body()[2],
+            echo.body()[3],
+            echo.body()[4],
+            echo.body()[5]
+        ]),
         cupcake.id as u32
     );
     assert_eq!(
@@ -939,7 +964,12 @@ async fn an_item_can_be_taken_off_and_worn_again() {
         .find(|frame| frame.header() == game::UPDATE_AGENT_VISUAL_EQUIPMENT)
         .expect("the visual equipment");
     assert_eq!(
-        u32::from_le_bytes([worn.body()[4], worn.body()[5], worn.body()[6], worn.body()[7]]),
+        u32::from_le_bytes([
+            worn.body()[4],
+            worn.body()[5],
+            worn.body()[6],
+            worn.body()[7]
+        ]),
         worn_ids[0],
         "the weapon slot holds the item the equipped bag says it does"
     );
@@ -1307,8 +1337,18 @@ async fn a_character_comes_back_where_it_left() {
         .iter()
         .find(|frame| frame.header() == game::INSTANCE_LOAD_SPAWN_POINT)
         .expect("a spawn point");
-    let x = f32::from_le_bytes([spawn.body()[4], spawn.body()[5], spawn.body()[6], spawn.body()[7]]);
-    let y = f32::from_le_bytes([spawn.body()[8], spawn.body()[9], spawn.body()[10], spawn.body()[11]]);
+    let x = f32::from_le_bytes([
+        spawn.body()[4],
+        spawn.body()[5],
+        spawn.body()[6],
+        spawn.body()[7],
+    ]);
+    let y = f32::from_le_bytes([
+        spawn.body()[8],
+        spawn.body()[9],
+        spawn.body()[10],
+        spawn.body()[11],
+    ]);
     assert_eq!(
         (x, y),
         walked,
@@ -1442,7 +1482,12 @@ async fn a_second_player_is_introduced_to_the_first_and_withdrawn_again() {
         .iter()
         .filter(|frame| frame.header() == game::PLAYER_CREATE)
         .map(|frame| {
-            u32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]])
+            u32::from_le_bytes([
+                frame.body()[0],
+                frame.body()[1],
+                frame.body()[2],
+                frame.body()[3],
+            ])
         })
         .collect();
     assert_eq!(players.len(), 2, "two players: this one and the other");
@@ -2278,8 +2323,18 @@ async fn a_character_is_created_in_a_creation_instance() {
         .filter(|frame| frame.header() == game::AGENT_PROPERTY_UPDATE_INT)
         .map(|frame| {
             (
-                u32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]),
-                u32::from_le_bytes([frame.body()[8], frame.body()[9], frame.body()[10], frame.body()[11]]),
+                u32::from_le_bytes([
+                    frame.body()[0],
+                    frame.body()[1],
+                    frame.body()[2],
+                    frame.body()[3],
+                ]),
+                u32::from_le_bytes([
+                    frame.body()[8],
+                    frame.body()[9],
+                    frame.body()[10],
+                    frame.body()[11],
+                ]),
             )
         })
         .collect();

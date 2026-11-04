@@ -22,7 +22,7 @@ use asura_db::login as db;
 use asura_db::{placement, PgPool, Uuid};
 use asura_protocol::client::handshake;
 use asura_protocol::client::messages::{self, RequestResponse};
-use asura_protocol::client::peer::ReferenceClient;
+use asura_protocol::client::reference_client::ReferenceClient;
 use asura_protocol::client::{tables, Frame};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -264,7 +264,11 @@ async fn a_travel_request_is_answered_with_a_reachable_world() {
     // The host blob: AF_INET little endian, port big endian, then the address bytes. It names the
     // **auth** address, because that is where a client dials its game connection (measured, not
     // assumed) and where this service routes it onwards.
-    assert_eq!(&info.body()[12..14], &[0x02, 0x00], "AF_INET, little endian");
+    assert_eq!(
+        &info.body()[12..14],
+        &[0x02, 0x00],
+        "AF_INET, little endian"
+    );
     assert_eq!(
         &info.body()[14..16],
         &(harness.address.port()).to_be_bytes(),
