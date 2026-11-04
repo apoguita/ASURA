@@ -53,7 +53,7 @@ A layer is closed when its boxes are done **and** its audit finds nothing left t
 |---|---|---|---|---|
 | # | layer | files (measured) | class | status |
 |---|---|---|---|---|
-| 1 | wire and codec | `asura-protocol`, 16 files, 7,952 lines | evidence | audit pending |
+| 1 | wire and codec | `asura-protocol`, 16 files, 8,885 lines; the packet table and the codecs, no payload of its own | evidence | `[x]` closed |
 | 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | audit pending |
 | 3 | rules | `asura-rules`, 1 file, 283 lines, 9 tests; depends on 1 for the client's `MapKinds` | rules | audit pending |
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | audit pending |
@@ -125,11 +125,19 @@ Files: `packets.rs` 2,106 (782 rows, 403 consts), `game/mod.rs` 1,711, `game/app
 
 ### Layer 1 audit
 
-- [ ] **the instance table is data in a layer of codecs** (`game/instance_table.rs`: 137 pairs,
-      transcribed by hand from one recording, no generator, ten pairs without a value). Its target is
-      `docs/38` D36: constructed at start-up from the pack's map folders, one `(map id, region value)`
-      pair per map. **Blocked on the pack itself**, which the owner deferred; the constant stays until
-      then, because it is the only copy of data a client needs
+**Complete.** Five findings, all answered:
+
+- [x] the instance table is data, not a codec: it moved to `crates/asura-world/src/instance_table.rs`
+      (where it is sent), and `docs/38` D36 gives it its real home - constructed from the pack's map
+      folders when the pack exists. That step is layer 15's, not this layer's
+- [x] the default appearance is a value: `config/World/Vanilla/character_defaults.json` (`appearance`),
+      and `Appearance` is a pure codec again
+- [x] the file check's two byte strings are the client's payload: `config/Server/file_check.json`, with
+      the crate keeping only the comparison
+- [x] the login batch's 591-byte blob is the client's payload: `config/Server/account_settings.json`,
+      with the crate keeping only the framing
+- [x] the cartography payload's size was the packet table's number written twice: it is derived from the
+      row's `FieldKind::Array32, length: 64`, and a test holds the table and the frame together
 
 ## Layer 2 - storage and schema
 
