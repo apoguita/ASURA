@@ -89,6 +89,11 @@ Files: `packets.rs` 2,106 (782 rows, 403 consts), `game/mod.rs` 1,711, `game/app
       (D16) - commit `13c9e72`, three call sites unchanged through the re-export
 - [x] `client/game.rs` is `client/game_version.rs`: two modules were called `game`, one per
       direction - commit `33666f8`
+- [x] `reference_client::as_request_response` is `decode_request_response`: it reads a frame and can
+      fail, which is what `decode_` means here - commit `acf64d8`
+- [x] `character_update_factions` takes a `CharacterProgress` struct instead of thirteen positional
+      dwords, so the `#[allow(clippy::too_many_arguments)]` is gone - commit `89ebfea`
+- [x] the crate's only `#[allow(dead_code)]` is gone: `Reader::utf16` was unused - commit `c3c0552`
 - [x] the lint policy is written and the crate opts in (`docs/38`, D17): `missing_docs` warn,
       `unsafe_code` deny, `clippy::all` warn, `broken_intra_doc_links` deny - commit `fb112aa`,
       which also documented the 70 items the policy exposed and allowed one `unsafe` (ARC4's
@@ -198,6 +203,8 @@ Four homes today:
       `portals.rs` and `travel_targets.rs` tables
 - [ ] a generator input: `data/portals.json`, 5,954 bytes, never read at runtime
 - [ ] 214 `INSERT`s inside migrations `0013`-`0022`
+- [ ] `game/instance_table.rs` (175 lines) is data rather than code - the map ids a load tells the
+      client exist, capture-derived - and moves here when the content format is settled
 - [ ] one file layout decided and written down before the second layer moves
 - [ ] the `config/` directory created with the first layer that lands in it
 
