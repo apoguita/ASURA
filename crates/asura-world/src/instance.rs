@@ -347,7 +347,6 @@ pub fn introduction(peer: &PeerView) -> Vec<Frame> {
             direction: (1.0, 0.0),
             speed_base: game::PLAYER_SPEED_BASE,
             player_team_token: PLAYER_TEAM_TOKEN,
-
         }),
     ]
 }

@@ -17,7 +17,11 @@ fn a_measured_crossing_still_answers_when_the_database_supplies_doorways() {
     // is the compiled table answering, which is what the world did before the table existed.
     let measured = portals::portal_at(146, 7198.0, 5177.0).expect("the measured crossing");
     assert_eq!(measured.to_instance, Some(148));
-    assert_eq!(measured.arrive, Some((7739.0, 5900.0)), "its measured landing point");
+    assert_eq!(
+        measured.arrive,
+        Some((7739.0, 5900.0)),
+        "its measured landing point"
+    );
 
     // Install a doorway somewhere else entirely, as `main` does at start-up from `map_portal`.
     assert!(

@@ -430,8 +430,8 @@ async fn dispatch(
                 return Ok(true);
             };
 
-            let name =
-                messages::decode_change_character(&frame.body()).map_err(ConnectionError::Message)?;
+            let name = messages::decode_change_character(&frame.body())
+                .map_err(ConnectionError::Message)?;
             let characters = db_login::characters(pool, account)
                 .await
                 .map_err(ConnectionError::Database)?;

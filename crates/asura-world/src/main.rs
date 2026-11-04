@@ -203,16 +203,18 @@ async fn main() -> ExitCode {
             let count = rows.len();
             let table: Vec<asura_world::portals::Portal> = rows
                 .into_iter()
-                .map(|(map_id, x, y, to_map, arrive_x, arrive_y)| asura_world::portals::Portal {
-                    from_instance: map_id,
-                    x,
-                    y,
-                    to_instance: to_map,
-                    arrive: match (arrive_x, arrive_y) {
-                        (Some(ax), Some(ay)) => Some((ax, ay)),
-                        _ => None,
+                .map(
+                    |(map_id, x, y, to_map, arrive_x, arrive_y)| asura_world::portals::Portal {
+                        from_instance: map_id,
+                        x,
+                        y,
+                        to_instance: to_map,
+                        arrive: match (arrive_x, arrive_y) {
+                            (Some(ax), Some(ay)) => Some((ax, ay)),
+                            _ => None,
+                        },
                     },
-                })
+                )
                 .collect();
             asura_world::portals::install(table);
             eprintln!("asura-world: {count} doorway(s) from map_portal");

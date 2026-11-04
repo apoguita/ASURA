@@ -167,15 +167,30 @@ mod tests {
         assert_eq!(start.header(), game::MAP_INIT_START);
         assert_eq!(start.len(), 14, "three dwords after the header");
         assert_eq!(
-            u32::from_le_bytes([start.body()[0], start.body()[1], start.body()[2], start.body()[3]]),
+            u32::from_le_bytes([
+                start.body()[0],
+                start.body()[1],
+                start.body()[2],
+                start.body()[3]
+            ]),
             TYRIA.0
         );
         assert_eq!(
-            u32::from_le_bytes([start.body()[4], start.body()[5], start.body()[6], start.body()[7]]),
+            u32::from_le_bytes([
+                start.body()[4],
+                start.body()[5],
+                start.body()[6],
+                start.body()[7]
+            ]),
             TYRIA.1
         );
         assert_eq!(
-            u32::from_le_bytes([start.body()[8], start.body()[9], start.body()[10], start.body()[11]]),
+            u32::from_le_bytes([
+                start.body()[8],
+                start.body()[9],
+                start.body()[10],
+                start.body()[11]
+            ]),
             blob.len() as u32,
             "the byte count the client waits for"
         );

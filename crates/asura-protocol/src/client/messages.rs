@@ -144,7 +144,6 @@ impl<'a> Reader<'a> {
         out.copy_from_slice(bytes);
         Ok(out)
     }
-
 }
 
 /// A message body under construction.

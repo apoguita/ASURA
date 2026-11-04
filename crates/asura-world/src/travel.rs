@@ -59,11 +59,13 @@ enum FlagMode {
 
 fn flag_mode() -> FlagMode {
     static MODE: std::sync::OnceLock<FlagMode> = std::sync::OnceLock::new();
-    *MODE.get_or_init(|| match std::env::var("ASURA_TRAVEL_EXPLORABLE").ok().as_deref() {
-        Some("auto") => FlagMode::Auto,
-        Some("1") => FlagMode::One,
-        _ => FlagMode::Zero,
-    })
+    *MODE.get_or_init(
+        || match std::env::var("ASURA_TRAVEL_EXPLORABLE").ok().as_deref() {
+            Some("auto") => FlagMode::Auto,
+            Some("1") => FlagMode::One,
+            _ => FlagMode::Zero,
+        },
+    )
 }
 
 /// Load a catalogue map this world was **not** started with - the `--on-demand` experiment.
@@ -155,8 +157,18 @@ pub fn handle_travel_init(frame: &Frame, player: &Player, _trace: bool) -> Resul
     if frame.body().len() < 8 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 10 }));
     }
-    let agent = u32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]);
-    let other = u32::from_le_bytes([frame.body()[4], frame.body()[5], frame.body()[6], frame.body()[7]]);
+    let agent = u32::from_le_bytes([
+        frame.body()[0],
+        frame.body()[1],
+        frame.body()[2],
+        frame.body()[3],
+    ]);
+    let other = u32::from_le_bytes([
+        frame.body()[4],
+        frame.body()[5],
+        frame.body()[6],
+        frame.body()[7],
+    ]);
     eprintln!(
         "world: {:?} touched a travel object in map {} '{}': TRAVEL_INIT agent {agent:#010X}, \
          second {other:#010X}; no portal row names that agent, so no travel starts",
@@ -349,8 +361,18 @@ pub async fn portal_target_reached(
     if frame.body().len() < 8 {
         return Ok(true);
     }
-    let x = f32::from_le_bytes([frame.body()[0], frame.body()[1], frame.body()[2], frame.body()[3]]);
-    let y = f32::from_le_bytes([frame.body()[4], frame.body()[5], frame.body()[6], frame.body()[7]]);
+    let x = f32::from_le_bytes([
+        frame.body()[0],
+        frame.body()[1],
+        frame.body()[2],
+        frame.body()[3],
+    ]);
+    let y = f32::from_le_bytes([
+        frame.body()[4],
+        frame.body()[5],
+        frame.body()[6],
+        frame.body()[7],
+    ]);
     portal_at_position(stream, session, world, player, x, y, trace).await
 }
 
