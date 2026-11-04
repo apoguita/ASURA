@@ -1,9 +1,9 @@
 # Rework layers: the checklist
 
-Tracks the layer-by-layer move of configuration and content into `config/`. Measured from the
-code on 2026-11-05: 89 Rust files, 38,689 lines, 7 crates, 25 migrations, 35 `tools/` files.
+Tracks the layer-by-layer move of configuration and content into `config/`. Measured from the code on
+2026-11-03: 92 Rust files, 39,528 lines across 9 crates, 25 migrations, 35 `tools/` files.
 
-Why the rest was left where it is is docs/38-layer-decisions.md.
+The reason behind each decision is in `docs/38-layer-decisions.md`.
 
 This file is the tracker. It states no design of its own: every row names the files it covers,
 and every box is ticked with the commit that closed it. A layer is **covered** only when all six
@@ -27,25 +27,27 @@ conditions of the next section hold for it.
 - `[x]` done - all six conditions hold, with the commit named
 - `[-]` holds by design - this layer is not configuration and must not move
 
-## The sixteen layers
+## The layers
 
 | # | layer | files (measured) | class | status |
 |---|---|---|---|---|
-| 1 | wire and codec | `asura-protocol`, 16 files, 9,357 lines | evidence | `[-]` |
-| 2 | storage and schema | `asura-db`, 16 files, 4,629 lines, 25 migrations | schema + state + some content | `[~]` |
-| 3 | auth service | `asura-auth`, 8 files, 3,034 lines | rules | `[ ]` |
+| 1 | wire and codec | `asura-protocol`, 16 files, 7,952 lines | evidence | `[-]` closed |
+| 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + some content | closed |
+| 3 | auth service | `asura-auth`, 6 files, 2,664 lines | rules | closed |
+| 3b | rules | `asura-rules`, 1 file, 208 lines, 8 tests | rules | `[-]` new, open |
+| 3c | socket layer | `asura-gateway`, 3 files, 475 lines | transport | new, open |
 | 4 | web gate | `asura-webgate`, 2 files, 631 lines | rules | `[ ]` |
-| 5 | world connection and load | `connection.rs` 524, `dispatch.rs` 124, `world.rs` 201, `map.rs` 497, `capture.rs` 161, `replay.rs` 276 | rules + rates | `[ ]` |
-| 6 | instance and simulation | `instance.rs` 378, `agent.rs` 1,158, `player.rs` 305 | rules + rates | `[ ]` |
-| 7 | travel | `travel.rs` 522, `portals.rs` 232, `travel_targets.rs` 164 | rules + content | `[~]` |
-| 8 | character | `creation.rs` 482 | rules + content | `[ ]` |
-| 9 | items | `item.rs` 525 | rules + content | `[ ]` |
-| 10 | chat and commands | `chat.rs` 349 | rules + one table | `[ ]` |
-| 11 | map data and pathing | `map_data.rs` 1,100, `pathfind.rs` 1,253, `gwdat.rs` 397, `fa_compress.rs` 368, `fa_compress_tables.rs` 63, `path_tables.rs` 75, `graph_dump.rs` 452 | measured data | `[-]` |
-| 12 | cartography | `cartography.rs` 188 | measured data | `[-]` |
+| 5 | world connection and load | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `capture.rs`, `replay.rs` | rules + rates | `[ ]` |
+| 6 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | `[ ]` |
+| 7 | travel | `travel.rs`, `portals.rs`, `travel_targets.rs` | rules + content | `[~]` |
+| 8 | character | `creation.rs` | rules + content | `[ ]` |
+| 9 | items | `item.rs`, `pvp_items.rs` | rules + content | `[ ]` |
+| 10 | chat and commands | `chat.rs` | rules + one table | `[ ]` |
+| 11 | map data and pathing | `map_data.rs`, `pathfind.rs`, `gwdat.rs`, `fa_compress.rs`, `fa_compress_tables.rs`, `path_tables.rs`, `graph_dump.rs` | measured data | `[-]` |
+| 12 | cartography | `cartography.rs` | measured data | `[-]` |
 | 13 | content itself | four homes, see below | content | `[~]` |
 | 14 | supervision and operations | `asura-supervisor`, 10 files, 2,070 lines, `config/services.toml` | operations | `[x]` |
-| 15 | harness | `asura-fakeworld` 307, 12 test files, 5 examples | harness | `[ ]` |
+| 15 | harness | `asura-fakeworld` 307 lines, 12 test files, 5 examples | harness | `[ ]` |
 | 16 | evidence | `recordings/`, `data/portals.json`, `client-patcher/`, `logs/` | evidence | `[-]` |
 
 ## Layer 1 - wire and codec
@@ -146,12 +148,28 @@ placement mechanism now; its rules left for `asura-rules` (layer 3b).
 
 ## Layer 3b - the rules layer (`asura-rules`, new)
 
-Files: `src/lib.rs` (~300 lines, 8 tests).
+Files: `src/lib.rs` 208 lines, 8 tests.
 
 - [x] created because a protocol answer needed a game rule and no existing crate fits: `asura-db` is
       storage and `asura-world` may not exist yet at login (`docs/38`, D25) - commit `4b09d17`
 - [ ] the next rule that needs a home goes here rather than into a service: party and instance policy
       (`docs/32` phase 2) is the first candidate
+
+## Layer 3c - the socket layer (`asura-gateway`, new)
+
+Files: `src/lib.rs` 214, `src/frontdoor.rs` 176, `src/main.rs` 85. It listens on the address a client
+dials, answers the file check, reads the four classification bytes and hands the socket on
+(`docs/38`, D26).
+
+- [x] created and wired: `asura-auth` has no listener and no `main.rs`, and `config/services.toml`
+      `[services.auth]` starts `asura-gateway` - commit `be99de2`, so a client sees no change
+- [x] the crate adopts the lint policy (`docs/38`, D17) and `cargo doc` builds - commit `be99de2`
+- [ ] the file check is answered here rather than by the auth conversation: confirm against a client
+      that sends it first, then record the measurement beside the code
+- [ ] `frontdoor.rs` keeps its own copy of the world freshness window (`FRESH_WORLD_AGE_SECS`,
+      `frontdoor.rs`), duplicating `ASURA_WORLD_MAX_AGE_SECS` in `asura-auth::travel`; the two must
+      agree or a client is placed in a world this layer then refuses
+- [ ] `docs/02` and `docs/01` describe the layer; the architecture table in `docs/adr/0006` does not
 
 ## Layer 4 - web gate
 
