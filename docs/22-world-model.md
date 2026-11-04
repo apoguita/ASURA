@@ -173,6 +173,24 @@ socket, with the bytes a real client sent). What a live client makes of it is st
    order in the instance's own prop list, so the crossing ends in the same `begin_transfer` the other two
    triggers use.
 
+## Character spawn points
+
+Where a created character is spawned is the world pack's
+(`config/World/Vanilla/character_spawn.json`): one map per expansion source, read by
+`crates/asura-world/src/spawns.rs`. The file states the values; this section records where each came from,
+because provenance is a measurement and the pack is not the place for one.
+
+| source | map | evidence |
+|---|---|---|
+| Prophecies | 148 Ascalon City (pre-Searing) | every campaign-1 character this server has created has loaded it - the world log prints `created character ... campaign 1 profession 3` |
+| Factions | 212 Monastery Overlook | a live creation was redirected to map 212, blob 156969, at (-2132, 1054) plane 0: `recordings/client/feature/character_creation/character_creation-live-necro_factions.jsonl`, the `0x01A6`, `0x0099` and `0x0196` after the confirm |
+| Nightfall | 449 Kamadan, Jewel of Istan | **not measured.** In the catalogue, and the client's own ordering puts Nightfall after Factions; no creation has named it yet, so the first Nightfall character settles it |
+| Eye of the North | 642 | **not measured**, same reasoning as Nightfall |
+| PvP | none | **not implemented.** No live PvP character has been created against this server, so the pack names no map and the creation refuses one |
+
+An unknown or newer source falls back to 148, stated in the pack's `fallback` entry, so a stand-in is
+visible in the log rather than mistaken for a measurement.
+
 ## Spawn points, and the outpost rule (owner, 2026-10-31)
 
 Stated by the owner, and stored here because both are base facts the whole server depends on:

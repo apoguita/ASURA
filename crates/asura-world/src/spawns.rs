@@ -2,11 +2,11 @@
 //!
 //! The character-creation screen asks the player which expansion their character belongs to, and the
 //! confirm writes the map below into the character's row before the client reconnects into it. That map
-//! is content - a measured value per source - so it lives in the world pack
+//! is content - one map per source - so it lives in the world pack
 //! (`config/World/Vanilla/character_spawn.json`, `docs/38-layer-decisions.md` D23, D24) rather than in a
 //! `match` compiled into this crate.
 //!
-//! A source whose map has not been measured says so, and a source with no map at all (`pvp`) is `null`:
+//! A source with no map at all (`pvp`) is `null`:
 //! the creation refuses that character rather than putting it somewhere nobody has seen.
 
 use std::path::{Path, PathBuf};
@@ -28,11 +28,8 @@ pub struct Spawn {
     pub campaign: u8,
     /// The expansion's name, for the log and for whoever reads the file.
     pub source: String,
-    /// The map the character is written into, or `None` when no map has been measured.
+    /// The map the character is written into, or `None` when the pack names none.
     pub map_id: Option<i32>,
-    /// Whether that map came from a recording. An unmeasured map is still used, and the log says so.
-    #[serde(default)]
-    pub measured: bool,
     /// What the map is, and where the number came from.
     #[serde(default)]
     pub doc: Option<String>,
@@ -57,8 +54,6 @@ pub struct Placement {
     pub map_id: i32,
     /// The expansion's own name, for the log.
     pub source: String,
-    /// Whether the map is a measurement, or the stand-in for a source nobody measured.
-    pub measured: bool,
 }
 
 impl CharacterSpawns {
@@ -70,20 +65,18 @@ impl CharacterSpawns {
     /// Where a character of this campaign number is spawned.
     ///
     /// `None` means the source is known and its map is not: the caller refuses the creation instead of
-    /// choosing a map on the player's behalf. An unknown campaign gets the fallback, marked unmeasured so
-    /// the log says a stand-in was used.
+    /// choosing a map on the player's behalf. An unknown campaign gets the fallback, and its `source`
+    /// says `fallback` in the log so a stand-in is visible.
     pub fn for_campaign(&self, campaign: u8) -> Option<Placement> {
         if let Some(spawn) = self.spawns.iter().find(|spawn| spawn.campaign == campaign) {
             return spawn.map_id.map(|map_id| Placement {
                 map_id,
                 source: spawn.source.clone(),
-                measured: spawn.measured,
             });
         }
         self.fallback.map_id.map(|map_id| Placement {
             map_id,
             source: self.fallback.source.clone(),
-            measured: false,
         })
     }
 }
@@ -136,22 +129,18 @@ mod tests {
         let spawns = vanilla();
         let prophecies = spawns.for_campaign(1).expect("prophecies");
         assert_eq!(prophecies.map_id, 148);
-        assert!(prophecies.measured);
         let factions = spawns.for_campaign(2).expect("factions");
         assert_eq!(factions.map_id, 212);
-        assert!(factions.measured);
     }
 
     #[test]
-    fn an_unmeasured_source_says_so_rather_than_looking_measured() {
+    fn every_source_answers_its_own_map() {
         let spawns = vanilla();
-        let nightfall = spawns.for_campaign(3).expect("nightfall");
-        assert_eq!(nightfall.map_id, 449);
-        assert!(
-            !nightfall.measured,
-            "not a measurement, and the log must say so"
+        assert_eq!(spawns.for_campaign(3).expect("nightfall").map_id, 449);
+        assert_eq!(
+            spawns.for_campaign(4).expect("eye of the north").map_id,
+            642
         );
-        assert!(!spawns.for_campaign(4).expect("eye of the north").measured);
     }
 
     #[test]
@@ -159,18 +148,15 @@ mod tests {
         let spawns = vanilla();
         assert!(
             spawns.for_campaign(0).is_none(),
-            "no measured map, so the creation must refuse"
+            "the pack names no map, so the creation must refuse"
         );
     }
 
     #[test]
-    fn an_unknown_source_gets_the_fallback_and_is_not_called_measured() {
+    fn an_unknown_source_gets_the_fallback() {
         let spawns = vanilla();
         let placement = spawns.for_campaign(42).expect("fallback");
         assert_eq!(placement.map_id, 148);
-        assert!(
-            !placement.measured,
-            "the caller has to say a stand-in was used"
-        );
+        assert_eq!(placement.source, "fallback", "the log names the stand-in");
     }
 }

@@ -411,9 +411,8 @@ pub async fn handle_confirm(
     // catalogue; the log says when that stand-in was used, so it is never mistaken for a measurement.
     // Where the character is spawned, by the expansion source the screen chose. It is the world pack's
     // file (`config/World/Vanilla/character_spawn.json`, `docs/38`, D23, D24), not a match in this file:
-    // a measured map per source, written down with what measured it. A source whose map has not been
-    // measured is still used, and the log says it is not a measurement; a source with no map at all (a
-    // PvP character) is refused rather than guessed.
+    // one map per expansion source. A source with no map at all (a PvP character) is refused rather
+    // than guessed.
     let spawns = match crate::spawns::load(&crate::spawns::pack()) {
         Ok(spawns) => spawns,
         Err(err) => {
@@ -448,13 +447,6 @@ pub async fn handle_confirm(
         return Ok(true);
     };
     let outpost = placed.map_id;
-    if !placed.measured {
-        eprintln!(
-            "world: campaign {} ({}) has no measured spawn map; {name:?} is put in map {outpost} as the \
-             pack states it - add a measurement when one exists",
-            creation.campaign, placed.source
-        );
-    }
     match db_inventory::create_character(
         &world.pool,
         player.account_id,
