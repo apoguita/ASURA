@@ -6,13 +6,13 @@
 //!
 //! The order of events on any connection, and therefore the order of the modules below:
 //!
-//! 1. [`version`] - the first message is not a normal frame. It is a bare `u32` "version" header
+//! 1. `version` - the first message is not a normal frame. It is a bare `u32` "version" header
 //!    that says what kind of connection this is: auth, game, or control. Get this wrong and every
 //!    later decision is wrong.
-//! 2. [`handshake`] - the key exchange: the client's seed, the server's seed, and the ARC4 key both
-//!    sides derive from them ([`arc4`]). Everything after the server seed is scrambled.
-//! 3. [`frame`] - after that, both directions are a `u16 header` and a body whose size the header
-//!    alone fixes ([`tables`]). A size disagreement is what produces the client's opaque `007`
+//! 2. `handshake` - the key exchange: the client's seed, the server's seed, and the ARC4 key both
+//!    sides derive from them (`arc4`). Everything after the server seed is scrambled.
+//! 3. `frame` - after that, both directions are a `u16 header` and a body whose size the header
+//!    alone fixes (`tables`). A size disagreement is what produces the client's opaque `007`
 //!    error, so it is an error here, not a warning.
 //!
 //! Names are GWPS's, verbatim, so a Rust message can be compared against a C one by name. The
@@ -76,7 +76,7 @@ pub use reference_client::ReferenceClient;
 /// The port target is GWPS's bytes, in GWPS's order - the captured live shape (52 bytes, map_id
 /// before is_explorable) is a different client build's framing.
 ///
-/// This is a *game* header, not an auth one, so the auth view ([`tables`]) has no row for it; the
+/// This is a *game* header, not an auth one, so the auth view (`tables`) has no row for it; the
 /// two constants below are the recorded evidence that it must not be treated as one size. The
 /// value itself lives in the one table ([`crate::packets::PACKETS`]).
 pub const TRANSFER_GAME_SERVER_INFO: u16 =
