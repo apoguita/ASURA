@@ -523,7 +523,7 @@ async fn the_character_settings_come_back_from_the_row_the_creation_wrote() {
         .await
         .expect("read the settings")
         .expect("the character exists");
-    assert_eq!(settings.last_outpost, MAP as u16, "where it was created");
+    // Two facts, two fields: `map_id` is the map the row names (where it was created), and`r`n    // `last_outpost` is the outpost memory the login rule writes, which a creation does not set.`r`n    assert_eq!(settings.map_id, MAP, "the map the creation wrote");`r`n    assert_eq!(settings.last_outpost, 0, "no outpost placement yet");
     assert_eq!(settings.appearance, 0x0310_0000, "the appearance it chose");
     assert_eq!(settings.campaign, 1, "Prophecies");
     assert_eq!(settings.level, 1, "the reference's creation level");

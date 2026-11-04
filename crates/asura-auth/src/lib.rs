@@ -661,7 +661,12 @@ async fn answer_login(
         // where the client gets the appearance, level, campaign and armour it draws at character select.
         let settings = match db_game::settings(pool, character.id).await {
             Ok(Some(settings)) => messages::character_settings(&messages::CharacterSettings {
-                last_outpost: settings.last_outpost,
+                // The blob's `last_outpost` is the reference's `DbCharacter.last_outpost`: **the map the
+                // character is in**, which this schema keeps as `characters.map_id`. It is not our own
+                // `characters.last_outpost` column (migration `0024`), which remembers the outpost the
+                // login rule places a character in. The two differ the moment a character has never
+                // been placed in an outpost, and then the client draws it as map 0 with no data.
+                last_outpost: u16::try_from(settings.map_id).unwrap_or(0),
                 appearance: settings.appearance,
                 campaign: settings.campaign,
                 level: settings.level,
