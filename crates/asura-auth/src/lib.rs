@@ -85,14 +85,6 @@ const READ_CHUNK: usize = 4096;
 pub enum ConnectionError {
     /// The socket failed.
     Io(io::Error),
-    /// The first four bytes name no connection type this service knows.
-    UnknownConnection(VersionError),
-    /// A well-formed connection that belongs to a different program: a world server, not the auth
-    /// service.
-    NotAnAuthConnection {
-        /// The connection kind the first four bytes named.
-        kind: version::ConnectionKind,
-    },
     /// The first message was not a version message.
     BadVersion(VersionError),
     /// The key exchange did not complete.
@@ -105,28 +97,18 @@ pub enum ConnectionError {
     Idle,
     /// The database failed.
     Database(asura_db::DatabaseError),
-    /// A game connection could not be routed to the world that client named. The client's socket is
-    /// closed without a message, which is what the reference does when it cannot place a connection.
-    GameRoute(String),
 }
 
 impl core::fmt::Display for ConnectionError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ConnectionError::Io(err) => write!(f, "socket: {err}"),
-            ConnectionError::UnknownConnection(err) => {
-                write!(f, "no connection type in the first bytes: {err}")
-            }
-            ConnectionError::NotAnAuthConnection { kind } => {
-                write!(f, "a {kind:?} connection does not belong on the auth port")
-            }
             ConnectionError::BadVersion(err) => write!(f, "version: {err}"),
             ConnectionError::Handshake(err) => write!(f, "key exchange: {err}"),
             ConnectionError::Framing(err) => write!(f, "framing: {err}"),
             ConnectionError::Message(err) => write!(f, "message: {err}"),
             ConnectionError::Idle => write!(f, "connection was idle"),
             ConnectionError::Database(err) => write!(f, "database: {err}"),
-            ConnectionError::GameRoute(reason) => write!(f, "game connection not routed: {reason}"),
         }
     }
 }
