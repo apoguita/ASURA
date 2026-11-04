@@ -754,29 +754,21 @@ mod tests {
 
     #[test]
     fn the_chat_messages_a_line_produces_are_the_references_pair() {
-        // The reference answers a spoken line with the text and then the speaker (`GameSrv_HandleLocal
-        // Message`); it gates the text *it* generates, not the text a player types, which is why the gate
-        // is not consulted for this pair.
-        let frames = [
-            game::chat_message_core("hello"),
-            game::chat_message_local(PLAYER_ID, game::CHANNEL_ALL),
-        ];
+        // A spoken line is the text (a coded string, `game::player_chat_line`) and then the speaker.
+        // Plain text crashed the client on its coded-string assert.
+        let frames = game::player_chat_line(PLAYER_ID, game::CHANNEL_ALL, "hello");
+        assert_eq!(frames.len(), 2);
         assert_eq!(frames[0].header(), game::CHAT_MESSAGE_CORE);
         assert_eq!(
             frames[0].len(),
-            2 + 2 + 2 * 5,
-            "five code units: a count, then the text"
+            2 + 2 + 2 * 8,
+            "wrapper, literal start, five units of text, literal end"
         );
-        assert_eq!(frames[1].len(), 10);
-        assert_eq!(
-            u32::from_le_bytes([
-                frames[1].body()[4],
-                frames[1].body()[5],
-                frames[1].body()[6],
-                frames[1].body()[7]
-            ]),
-            game::CHANNEL_ALL
-        );
+        // A word and a byte, 5 bytes - Rurik's reading, the only witness - and the player comes
+        // first, which a retail capture's struct of the sibling `0x005E` corroborates
+        // (`recordings/client/feature/travel/doors-20261031-095754.jsonl` seq 12328).
+        assert_eq!(frames[1].len(), 5);
+        assert_eq!(u32::from(frames[1].body()[2]), game::CHANNEL_ALL);
         assert_eq!(game::CHANNEL_GROUP, 11, "Channel_Group");
         assert_eq!(game::CHANNEL_TRADE, 12, "Channel_Trade");
     }

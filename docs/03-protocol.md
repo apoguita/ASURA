@@ -836,17 +836,40 @@ message a working drop needs is a measurement this project does not have yet.
 
 `GAME_CMSG_SEND_CHAT_MESSAGE` (`0x8064`) is `{agent_id u32, text String16}`; the first unit of the text is
 the channel: `!` all, `#` group, `$` trade, `/` a command, and `@`/`%`/`"` are dropped, as the reference
-drops them. A player's line is answered with two messages - `CHAT_MESSAGE_CORE` (`0x005D`) carrying the text
-and `CHAT_MESSAGE_LOCAL` (`0x0061`, speaker and channel) - and that pair is **sent**, exactly as the
-reference sends it: `GmChat.c:259-277` is not behind the reference's chat switch.
+drops them. A player's line is answered with one or more `CHAT_MESSAGE_CORE` (`0x005D`) fragments carrying
+the text and then one `CHAT_MESSAGE_LOCAL` (`0x0061`, speaker and channel) - and that pair is **sent**,
+exactly as the reference sends it: `GmChat.c:259-277` is not behind the reference's chat switch.
+
+The body of `0x005D` is a **coded string**, not plain text: a word at or above `0x100` is a string id and a
+word below it is a control marker, so a bare ASCII line asserts the client's coded-string check
+(`TextApi.cpp(585)`). A player's All-channel line is therefore four parts - `0x0108` (the All-chat body
+wrapper), `0x0107` (opens a literal run), the text as UTF-16 units, `0x0001` (closes it) - and a line longer
+than 121 units continues in another `0x005D` fragment, 121 being the declared 122 minus one. The coded body
+and the 121-unit split are the Rurik project's live reading (`studies/chat/FINDINGS.md` sections 1-5), which
+replayed them to a client that rendered the line and stayed connected, and the same capture of ours shows a
+live `0x005D` body carrying string ids rather than a count and ASCII
+(`recordings/client/feature/travel/doors-20261031-095754.jsonl` seq 12327).
+
+`0x0061` and `0x005E` are **5 bytes: a word and a byte**, `[playerId, channel]`. That size has one
+witness - the Rurik project's live read (`studies/chat/FINDINGS.md` section 1), which replayed it to a
+client that rendered the line and stayed connected - and the word must be said out loud because `0x0061`
+appears in no capture of ours.
+
+The **order** has a second, independent witness. A retail client's capture of the live server carries
+`0x005E` as a 12-byte client struct holding `[0, 10]`
+(`recordings/client/feature/travel/doors-20261031-095754.jsonl` seq 12328): the subject player first,
+then the channel, which is the reverse of the reference's `[channel, 0]`. The reference's field order is
+therefore wrong and this server's is the live one. The struct is evidence of the order and **not** of the
+size: a sniffer records the client's own struct - four-byte header, native-width fields, zero padding -
+and never a wire size (section 5e, `docs/HANDOFF.md` decisions, 2026-11-01). That is why the same
+12-byte struct is equally consistent with a 5-byte and a 10-byte wire form, and why the size rests on
+the live read alone.
 
 The answers the *server* generates are the other half, and they are printed, not sent. Every GM answer and
 every "unknown command" in the reference funnels through `GameSrv_SendSystemChatMessage` or
 `GameSrv_SendInvalidCommand`, and both return before touching the wire unless `GWPS_CHAT=1`
 (`GmChat.c:150-153`, `GmChat.c:209-212`). So the reference's `/maps` answer is a log line; this server's
-`/maps` answer is a console line; neither puts a byte on the wire. That is parity, not a switch. No chat text
-has ever reached a screen in either server, and sending it here crashed a live client - `0x005D`, `0x005E`
-and `0x0061` appear in no capture, so the layouts are guesses.
+`/maps` answer is a console line; neither puts a byte on the wire. That is parity, not a switch.
 
 Nothing in this build is behind a switch (#11). The split above is what the reference does, not what this
 server enables: a spoken line goes out; a generated answer is printed.

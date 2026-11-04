@@ -459,14 +459,18 @@ traits, so `PLAYER_UPDATE_PROFESSION` sent 0 where the reference's character row
 <header>`), so a message's bytes can be asked for rather than reasoned about. `tools/build-oracle.ps1` now
 builds either oracle.
 
-### G. Chat (T11) - equal to the reference, and that is the ceiling
+### G. Chat (T11) - sent in the shape a source measured, waiting on a client
 
-Both servers send a player's line and print a generated answer; neither has ever rendered chat on
-screen. `0x005D`/`0x005E`/`0x0061` appear in no capture.
+Both servers send a player's line and print a generated answer. The shape is now: a coded-string body in
+121-unit `0x005D` fragments, and 5 bytes - a word and a byte, `[playerId, channel]` - for
+`0x0061`/`0x005E`. The size rests on the Rurik project's live read, the only witness; the order is
+corroborated by a retail client's own struct of `0x005E`
+(`recordings/client/feature/travel/doors-20261031-095754.jsonl` seq 12328), which also shows the
+reference's `[channel, 0]` to be reversed. A client struct is evidence of an order, never of a size.
 
 | # | item | done when |
 |---|---|---|
-| G1 | none, unless a capture of a working chat message appears | recorded, not worked |
+| G1 | a live client renders a player's `!` line and stays connected | the client, not a test |
 
 ### H. Operations parity (T13, T15)
 

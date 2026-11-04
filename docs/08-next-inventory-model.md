@@ -79,8 +79,10 @@ in the status document, rather than a guess someone would have to rediscover.
   or `0x0061` appears in the capture, and the reference's own comments predicted the chat one exactly
   (*"sending chat crashed the client twice ... every message we send is a guess"*). What survived is what a
   capture or a client measured: a drop that sends **nothing** (the client does its own subtraction, and
-  the stack went down in a live session with no message at all), and chat that sends nothing unless
-  `ASURA_CHAT=1`. **The rule, in one line: a message that is in no capture waits for one.**
+  the stack went down in a live session with no message at all), and a gate on chat (`ASURA_CHAT=1`)
+  until chat left the list. **The rule, in one line: a message that is in no capture waits for one** -
+  and chat is the one that waited for a *source*, because the Rurik project had already read the family
+  off ArenaNet's own wire and watched a client render the line (`studies/chat/FINDINGS.md`).
 - **The move's confirmation is still open, and both answers were reported.** With the echo (`0x013E`,
   which *is* in the capture - eight times, in the inventory block) a live client moved the item; with
   silence, the item sprang back and the move did nothing. So the echo is the default. The same session

@@ -221,9 +221,16 @@ pub async fn handle_chat_message(
 
     match u8::try_from(channel).unwrap_or(0) as char {
         // `Channel_All`, `Channel_Group`, `Channel_Trade`: the three channels the reference
-        // speaks on. Sent ungated, as the reference sends them. None of the three chat messages
-        // appears in any capture, and no chat text has ever rendered on screen in either server
-        // -- so what this path matches is the reference's *bytes*, not its visible result.
+        // speaks on. Sent ungated, as the reference sends them.
+        //
+        // What the bytes are comes from the Rurik project's live capture, which is the only
+        // witness for this family: `0x005D`, `0x005E` and `0x0061` appear in no capture of ours
+        // (`docs/03-protocol.md` 5f), the reference's own layouts are guesses, and sending those
+        // guesses crashed a live client. Rurik read the family out of the client's RECV table and
+        // off ArenaNet's own wire (`studies/chat/FINDINGS.md` sections 1-5: `0x005E` and `0x0061`
+        // are `[u16, u8]`, 5 bytes, and a line splits at 121 units), and replayed it to a client
+        // that rendered the line and stayed connected. So this path is the one place in the tree
+        // where a source is the only witness, and it says so.
         speaker @ ('!' | '#' | '$') => {
             let channel = match speaker {
                 '#' => game::CHANNEL_GROUP,
@@ -233,16 +240,15 @@ pub async fn handle_chat_message(
             if trace {
                 eprintln!("world: {speaker} {spoken:?} on channel {channel}");
             }
-            send(
-                stream,
-                session,
-                vec![
-                    game::chat_message_core(&spoken),
-                    game::chat_message_local(player.player_id, channel),
-                ],
-                trace,
-            )
-            .await?;
+            // The body is a coded string (`game::player_chat_line`): plain text crashed the client
+            // on its coded-string assert, which is why no chat line had ever rendered here.
+            let line = game::player_chat_line(player.player_id, channel, &spoken);
+            // Everyone in the instance hears `!` and `$`. `#` is the party channel, and a party here
+            // is the speaker alone, so it goes back to the speaker only.
+            if speaker != '#' {
+                player.instance.broadcast(player.player_id, &line);
+            }
+            send(stream, session, line, trace).await?;
             Ok(true)
         }
         '/' => {
