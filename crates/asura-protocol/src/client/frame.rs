@@ -173,7 +173,9 @@ impl Frame {
     /// working one until the client reports `007` (`docs/03-protocol.md`, section 6).
     pub fn encode_validated(&self) -> Result<Vec<u8>, FrameError> {
         match self.expected_size() {
-            None => Err(FrameError::UnknownHeader { header: self.header() }),
+            None => Err(FrameError::UnknownHeader {
+                header: self.header(),
+            }),
             Some(expected) if expected != self.len() => Err(FrameError::SizeMismatch {
                 header: self.header(),
                 got: self.len(),
@@ -205,7 +207,12 @@ impl Frame {
             return Err(FrameError::Incomplete { needed: expected });
         }
 
-        Ok((Frame { bytes: bytes[..expected].to_vec() }, expected))
+        Ok((
+            Frame {
+                bytes: bytes[..expected].to_vec(),
+            },
+            expected,
+        ))
     }
 
     /// Take one client-to-server message off the front of `bytes`, and say how many bytes it used.
@@ -228,7 +235,12 @@ impl Frame {
         let entry = tables::entry(header).ok_or(FrameError::UnknownHeader { header })?;
         let shapes: Vec<Shape> = entry.fields.iter().map(shape_of).collect();
         let position = walk(bytes, header, &shapes)?;
-        Ok((Frame { bytes: bytes[..position].to_vec() }, position))
+        Ok((
+            Frame {
+                bytes: bytes[..position].to_vec(),
+            },
+            position,
+        ))
     }
 
     /// Take one game message off the front of `bytes`, and say how many bytes it used.
@@ -253,7 +265,12 @@ impl Frame {
             game_tables::fields(header, from_client).ok_or(FrameError::UnknownHeader { header })?;
         let shapes: Vec<Shape> = fields.iter().map(shape_of).collect();
         let position = walk(bytes, header, &shapes)?;
-        Ok((Frame { bytes: bytes[..position].to_vec() }, position))
+        Ok((
+            Frame {
+                bytes: bytes[..position].to_vec(),
+            },
+            position,
+        ))
     }
 }
 
