@@ -394,16 +394,33 @@ pub async fn handle_confirm(
         body.get(config_at + 2).copied().unwrap_or(0),
         body.get(config_at + 3).copied().unwrap_or(0),
     ]);
+    // What a new character is worth is the pack's (`config/World/Vanilla/character_defaults.json`):
+    // level, gold and secondary profession are values the world states. The unlocked-profession bitmap is
+    // not among them - it is one bit for the profession the player chose, which the confirm derives.
+    let defaults = match crate::character_defaults::load(&crate::spawns::pack()) {
+        Ok(defaults) => defaults,
+        Err(err) => {
+            eprintln!("world: cannot create {name:?}: {err}");
+            send(
+                stream,
+                session,
+                vec![game::char_creation_error(
+                    GM_ERROR_CHARACTER_NAME_ALREADY_EXIST,
+                )],
+                trace,
+            )
+            .await?;
+            return Ok(true);
+        }
+    };
     let traits = db_game::Traits {
         appearance,
         profession: creation.profession,
         unlocked_professions: 1 << creation.profession,
-        gold: 0,
+        gold: defaults.gold(),
         campaign: creation.campaign,
-        // The creation flow has no secondary profession: the reference sets one only through
-        // `CHAR_CREATION_CHANGE_PROF`, and its confirm leaves the field zero.
-        secondary_profession: 0,
-        level: 1,
+        secondary_profession: defaults.secondary_profession(),
+        level: defaults.level(),
     };
     // Where the character starts, which is not where it was made. A live creation redirects a Factions
     // character to map 212 (`crates/asura-db/migrations/0017_starter_outpost.sql`). Every other

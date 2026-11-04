@@ -67,8 +67,11 @@ pub use tokio::net::{TcpListener, TcpStream};
 
 /// The map catalogue: one entry per map, and the questions a server answers about it.
 pub mod catalogue;
+/// What a new character is given, from the world pack (`config/World/Vanilla/`).
+pub mod character_defaults;
 pub mod chat;
 pub mod connection;
+
 pub mod creation;
 pub mod dispatch;
 pub mod instance;
