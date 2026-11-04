@@ -23,9 +23,12 @@ config/World/Vanilla/maps/<campaign>/<area>/<subarea>/<map id>/basic.json
 ```
 
 - `<campaign>` and `<area>` are the client's own `AreaInfo.campaign` and `AreaInfo.region` for that map;
-  `<subarea>` is its kind from the same record (`AreaInfo.type`) - the explorable areas, the missions,
-  the towns and outposts a region is split into.
-- `<map id>` is the map's id, and the folder holds that map's own files: `basic.json` today, `spawns.json`
-  and `portals.json` when they exist.
+  `<subarea>` is its kind, and there are four of them, spelled exactly like this: `Arenas`,
+  `Explorables`, `Missions`, `Outposts`. A dungeon level counts as `Explorables` - the client instances
+  it the same way.
+- `<map id>` is the map's id, and the folder holds that map's own files: `basic.json` (id, name,
+  `map_type`, `map_file_id`, `instance_value`), `spawns.json` (the spawn list, and the only place a spawn
+  is stated) and `portals.json` (the map's arches, and the landings it gives to arrivals).
 - The instance table this server sends is built by walking this tree, so a folder's position is what
   places a map; the walk is recursive and a map with no folder is a map the server does not know.
+- A map whose place is not known sits in `maps/unplaced/<map id>/`, with the same files.
