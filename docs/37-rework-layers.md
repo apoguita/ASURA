@@ -123,6 +123,14 @@ Files: `packets.rs` 2,106 (782 rows, 403 consts), `game/mod.rs` 1,711, `game/app
       which also documented the 70 items the policy exposed and allowed one `unsafe` (ARC4's
       zeroization) with its SAFETY reason
 
+### Layer 1 audit
+
+- [ ] **the instance table is data in a layer of codecs** (`game/instance_table.rs`: 137 pairs,
+      transcribed by hand from one recording, no generator, ten pairs without a value). Its target is
+      `docs/38` D36: constructed at start-up from the pack's map folders, one `(map id, region value)`
+      pair per map. **Blocked on the pack itself**, which the owner deferred; the constant stays until
+      then, because it is the only copy of data a client needs
+
 ## Layer 2 - storage and schema
 
 Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
