@@ -570,10 +570,29 @@ environment variable.
 
 ## 7. File check
 
-The client also asks a file service whether a file is current: a 21-byte request answered with 32
-bytes. GWPS answers it correctly when it receives it (`AuthSrv_TryHandleFileCheck`), and this auth
-service does too: it consumes the request and writes the 32-byte response before the version message
-(`crates/asura-auth/src/lib.rs:239-242`, `filecheck::FILE_CHECK_RESPONSE`).
+The client asks which game files it should have: a 21-byte request answered with 32 bytes. Two runs on
+2026-10-25 answered this, and the pair is what the socket layer implements
+(`crates/asura-gateway/src/lib.rs`, step 0 of `handle_connection`).
+
+**On the wire.** Captured with `pktmon` filtered to port 6112 and decoded by the run's own pcap parser:
+one request, one reply, and the request is the first thing on that socket - nothing precedes it and no
+handshake is possible before it. The reply's seven words are six `Gw.dat` file ids in tight consecutive
+order with a zero among them, so the question is *which files*, not a transfer. The client treats a
+failure here as fatal: with those addresses made unreachable it refused with "Guild Wars is unable to
+connect to the ArenaNet network". The captured ids are `391339 391348 344988 391350 391351 0 391349`;
+the reference's own literal is `0x100` lower on every id that differs (`client/filecheck.rs`), and both
+answers are accepted - the reference's by its own rig, the captured one by the client.
+
+**Against a server of ours.** With hosts entries for the six file names, one check arrived on loopback
+and was answered - "File check on 0114: answered 32 of 32 bytes" in that run's log.
+
+**What that does not settle.** The file-check address is the client's own choice. It builds and
+resolves the file-server names itself, and some of those lookups ignore the hosts file - after flushing
+the DNS cache, entries for two of the names reappeared though both were in the file - so the check
+reaches our port only when the machine's name resolution sends it there. In the default open mode the
+client asks ArenaNet and our handler never fires: that is why it is written as a loop that may run zero
+times. A follow-up of four bytes (`F1 0F 04 00`, header `0x40FF1`) comes after the check on that socket;
+the reference does not answer it and the client tolerates the silence.
 
 ## 8. Coordination between programs: the database, not a protocol
 

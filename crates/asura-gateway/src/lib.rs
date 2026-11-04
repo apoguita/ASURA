@@ -140,9 +140,27 @@ pub async fn handle_connection(
     let mut buffer = Vec::with_capacity(CLASSIFY_LEN * 4);
 
     // ---- 0. the file check ------------------------------------------------------------------
-    // The client may ask whether its game files are current before it says anything else, and it waits
-    // for a 32-byte answer. This is a socket-level handshake with no identity in it, so this layer
-    // answers it; the reference does the same in its own accept state.
+    // The client asks which game files it should have: a 21-byte request, answered with 32 bytes. Two
+    // measurements of 2026-10-25 say what this block is for.
+    //
+    // On the wire, with `pktmon` filtered to port 6112 and the run's own pcap parser: one request and one
+    // reply, and the request is **first** on that socket, before any handshake. Its failure is fatal to
+    // the login - with those addresses made unreachable the client refused with "Guild Wars is unable to
+    // connect to the ArenaNet network" (`docs/03-protocol.md` 7).
+    //
+    // Against a server of ours, with hosts entries for the six file names: one check arrived on loopback
+    // and was answered - "File check on 0114: answered 32 of 32 bytes" in that run's log.
+    //
+    // Two consequences this block lives with. The address is the client's own choice: it builds and
+    // resolves the file-server names itself, and some of those lookups ignore the hosts file, so a check
+    // reaches this port only when the machine's name resolution points the client here. In the default
+    // open mode it never does, and this handler is idle rather than wrong. And the client uses several
+    // file servers, so one socket may ask more than once, which is why this is a loop.
+    //
+    // The client also sends a 4-byte follow-up after the check (`F1 0F 04 00`, header `0x40FF1`) that
+    // the reference does not answer and the client tolerates unanswered (same capture). It belongs to
+    // the file-server socket, not to the handshake that follows here; if it does arrive, this layer
+    // classifies it as an unknown connection and closes, which the measurement says is harmless.
     read_until(&mut stream, &mut buffer, 1).await?;
     while filecheck::starts_with_request(&buffer) {
         buffer.drain(..filecheck::FILE_CHECK_REQUEST.len());
