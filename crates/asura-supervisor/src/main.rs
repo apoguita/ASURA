@@ -50,7 +50,16 @@ async fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     match args.first().map(String::as_str) {
-        Some("build") => finish(build_services(None)),
+        Some("build") => {
+            let config = match config::load(&config_path(&args)) {
+                Ok(config) => config,
+                Err(err) => {
+                    eprintln!("asura-supervisor: {err}");
+                    return ExitCode::from(2);
+                }
+            };
+            finish(build_services(&config))
+        }
         Some("start") => start(&args).await,
         Some("stop") => stop(&args).await,
         Some("restart") => restart(&args).await,
@@ -112,7 +121,7 @@ async fn start(args: &[String]) -> ExitCode {
     };
     // `start` stays one command, like the old start script: build what the list runs (fast when
     // up to date) and seed the rows a fresh database needs, then start and watch.
-    if let Err(err) = build_services(Some(&config)) {
+    if let Err(err) = build_services(&config) {
         eprintln!("asura-supervisor: {err}");
         return ExitCode::from(1);
     }
@@ -318,9 +327,9 @@ async fn print_registry() {
 /// `start` rebuilt a crate that produces no binary and started a stale `asura-gateway`, which then
 /// refused to run against a config it did not know. A service the list runs is now always a service this
 /// builds.
-fn build_services(fallback: Option<&config::Config>) -> Result<(), String> {
+fn build_services(config: &config::Config) -> Result<(), String> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let packages = packages_to_build(fallback);
+    let packages = packages_to_build(config);
     let mut args: Vec<String> = vec!["build".to_string(), "--offline".to_string()];
     for package in &packages {
         args.push("-p".to_string());
@@ -336,51 +345,44 @@ fn build_services(fallback: Option<&config::Config>) -> Result<(), String> {
         Ok(status) => Err(format!("the build failed (exit {status})")),
         // Cargo could not be run at all: a direct binary invocation with no cargo on PATH is fine
         // as long as every program the list names is already present.
-        Err(err) => match fallback {
-            Some(config)
-                if config
-                    .services
-                    .values()
-                    .all(|service| config::resolve_exe(&service.exe).is_ok()) =>
+        Err(err) => {
+            // Cargo could not be run at all: a direct binary invocation with no cargo on PATH is fine
+            // as long as every program the list names is already present.
+            if config
+                .services
+                .values()
+                .all(|service| config::resolve_exe(&service.exe).is_ok())
             {
                 eprintln!(
                     "asura-supervisor: cargo could not be run ({err}); using the binaries that are present"
                 );
                 Ok(())
+            } else {
+                Err(format!(
+                    "cannot run cargo ({err}); build once with `asura-supervisor build`"
+                ))
             }
-            _ => Err(format!(
-                "cannot run cargo ({err}); build once with `asura-supervisor build`"
-            )),
-        },
+        }
     }
 }
 
 /// The packages to build: one per binary the config starts, deduplicated and sorted.
 ///
-/// With no config - `asura-supervisor build` before a list exists - the three services this repository
-/// has are built by name.
-fn packages_to_build(config: Option<&config::Config>) -> Vec<String> {
+/// The list comes from the config and from nowhere else - a service's `exe` names its binary and the
+/// binary's stem names the package. A hardcoded list was here once and it kept building a crate with no
+/// binary, so `start` launched a stale `asura-gateway`; a list of names in code is the defect, not the
+/// fallback for a missing file.
+fn packages_to_build(config: &config::Config) -> Vec<String> {
     let mut packages: Vec<String> = config
-        .map(|config| {
-            config
-                .services
-                .values()
-                .filter_map(|service| {
-                    std::path::Path::new(&service.exe)
-                        .file_stem()
-                        .and_then(|stem| stem.to_str())
-                        .map(str::to_string)
-                })
-                .collect()
+        .services
+        .values()
+        .filter_map(|service| {
+            std::path::Path::new(&service.exe)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::to_string)
         })
-        .unwrap_or_default();
-    if packages.is_empty() {
-        packages = vec![
-            "asura-gateway".to_string(),
-            "asura-world".to_string(),
-            "asura-webgate".to_string(),
-        ];
-    }
+        .collect();
     packages.sort();
     packages.dedup();
     packages
