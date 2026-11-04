@@ -39,7 +39,7 @@ conditions of the next section hold for it.
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | closed |
 | 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | `[x]` closed |
 | 6 | web gate | `asura-webgate`, 2 files, 696 lines | rules | `[x]` closed |
-| 7 | world connection and load | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `catalogue.rs`; `capture.rs` and `replay.rs` behind `harness` | rules + rates | `[x]` closed |
+| 7 | sessions | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `catalogue.rs`; `capture.rs` and `replay.rs` behind `harness` | rules + rates | `[x]` closed |
 | 8 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | `[ ]` |
 | 9 | travel | `travel.rs`, `portals.rs`, `travel_targets.rs` | rules + content | `[~]` |
 | 10 | character | `creation.rs` | rules + content | `[ ]` |
@@ -211,7 +211,12 @@ client takes its identity from before it logs in (`docs/03-protocol.md` #4), plu
       the route table says so again). Not content, and nothing reads it but supervision - checked against
       `main.rs:39,51` and `config/services.toml` (`[services.webgate]`, `health = { tcp = ... }`)
 
-## Layer 7 - world connection and load
+## Layer 7 - sessions
+
+A **session** is one client's stay in the world: the socket arrives, the handshake runs, the ticket
+the login issued is claimed, the load goes out, and then the connection is the world's until it
+closes. It is not the login session, which is a row - `t_session` in the database, written by the
+auth service and claimed here - and it is not the simulation, which is layer 8.
 
 Files: `connection.rs` 572, `dispatch.rs` 210, `world.rs` 89, `map.rs` 137, `catalogue.rs` 103, plus
 `capture.rs` and `replay.rs` behind the `harness` feature. The path graphs are `pathfind.rs`, the
