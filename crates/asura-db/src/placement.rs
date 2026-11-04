@@ -1,4 +1,4 @@
-//! Placement: registering a world, reserving a slot atomically, and keeping the lease ledger honest.
+﻿//! Placement: registering a world, reserving a slot atomically, and keeping the lease ledger honest.
 //!
 //! Every statement that mutates `world`, `world_pool` or `lease` lives here. Callers (the auth
 //! service, a world server, the fake-world harness) get functions whose names say what happens,
@@ -295,7 +295,9 @@ pub async fn reap_stale(pool: &PgPool, max_age_secs: f64) -> sqlx::Result<ReapRe
 /// `world_pool` rows whose counter was corrected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReapReport {
+    /// How many leases the call released.
     pub leases_freed: i64,
+    /// How many pool rows the call wrote.
     pub pools_touched: i64,
 }
 
@@ -361,15 +363,21 @@ pub async fn world_is_fresh(pool: &PgPool, world_id: i32, max_age_secs: f64) -> 
 /// request with `AUTH_SMSG_GAME_SERVER_INFO`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorldCandidate {
+    /// Which world server the row belongs to.
     pub world_id: i32,
+    /// The name, as the UTF-16 code units the wire carries.
     pub name: String,
     /// The address as the world registered it. `asura-world` registers the address the *client* may
     /// dial, not the one it binds: a server behind a NAT listens on a private address and must
     /// publish the public one, exactly as a realmlist does.
     pub address: String,
+    /// The port that goes with it.
     pub port: i32,
+    /// The map the row is about.
     pub map_id: i32,
+    /// How many of those seats are handed out right now.
     pub leased: i32,
+    /// How many seats the world offers on that map.
     pub capacity: i32,
 }
 
@@ -382,10 +390,15 @@ pub struct WorldCandidate {
 /// for the first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorldEndpoint {
+    /// Which world server the row belongs to.
     pub world_id: i32,
+    /// The name, as the UTF-16 code units the wire carries.
     pub name: String,
+    /// The address clients are told to dial.
     pub address: String,
+    /// The port that goes with it.
     pub port: i32,
+    /// Whether the world`s heartbeat is recent enough to be offered.
     pub fresh: bool,
 }
 
@@ -509,11 +522,17 @@ pub async fn note_session_world(
 /// believes a connecting client.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transfer {
+    /// The token the client`s next connection must present.
     pub player_token: i64,
+    /// Which world server the row belongs to.
     pub world_id: i32,
+    /// The map the row is about.
     pub map_id: i32,
+    /// The session that was issued for the connection.
     pub session_id: uuid::Uuid,
+    /// The account the row belongs to.
     pub account_id: uuid::Uuid,
+    /// The character the row is about.
     pub character_id: uuid::Uuid,
 }
 

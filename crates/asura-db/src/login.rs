@@ -1,4 +1,4 @@
-//! Login: turning the pair the client presents into an account, and reading what it may see.
+﻿//! Login: turning the pair the client presents into an account, and reading what it may see.
 //!
 //! The client sends two UUIDs - a portal user id and a session id - and gets either a character list
 //! or an error. That is the whole transaction, and this module is the only place it is decided.
@@ -32,7 +32,9 @@ pub struct LoginSession {
 /// One character, as the character-list message needs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Character {
+    /// The row`s own identifier.
     pub id: Uuid,
+    /// The name, as the UTF-16 code units the wire carries.
     pub name: String,
     /// Where the character stands. The login batch reports it; the auth service does not move anyone.
     pub map_id: i32,
@@ -168,9 +170,13 @@ pub async fn close_other_sessions(pool: &PgPool, account: Uuid, keep: Uuid) -> s
 /// character.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SeededIdentity {
+    /// The web gate`s user id, which a login is resolved from.
     pub portal_user: Uuid,
+    /// The session id the gate issued for it.
     pub session: Uuid,
+    /// The account the character belongs to.
     pub account: Uuid,
+    /// The character the row is about.
     pub character: Uuid,
 }
 

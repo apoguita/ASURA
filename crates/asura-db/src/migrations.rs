@@ -1,4 +1,4 @@
-//! Applying migrations, and answering the only question a database can be asked about itself:
+﻿//! Applying migrations, and answering the only question a database can be asked about itself:
 //! **which changes has it had?**
 //!
 //! Without this, "is the database up to date?" can only be guessed at, and a service can start
@@ -25,7 +25,9 @@ use crate::{
 /// One migration: a version number (its file's number) and its statements.
 #[derive(Debug, Clone, Copy)]
 pub struct Migration {
+    /// The migration number, as recorded in `schema_version`.
     pub version: i32,
+    /// The migration`s own SQL, compiled in.
     pub sql: &'static str,
 }
 

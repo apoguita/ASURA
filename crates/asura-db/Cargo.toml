@@ -14,3 +14,6 @@ uuid = { workspace = true }
 # The integration tests drive the live database from concurrent tasks; the ordinary
 # `cargo test` path still works without a database.
 tokio = { workspace = true }
+
+[lints]
+workspace = true

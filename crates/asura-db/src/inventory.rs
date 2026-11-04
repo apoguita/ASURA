@@ -6,11 +6,11 @@
 //! dropped, equipped, moved or saved. These are the rows that replaced them, and the two operations the
 //! world server needs them for:
 //!
-//! * **reading** a character's inventory into the shape the wire wants ([`load`]);
-//! * **creating** the default inventory for a character that has none ([`seed_default`]), which is what
+//! * **reading** a character's inventory into the shape the wire wants (`load`);
+//! * **creating** the default inventory for a character that has none (`seed_default`), which is what
 //!   the reference does for every player it creates (`GameSrv_CreateDefaultBags`, guarded by
 //!   `IsValidBag` so a loaded character keeps what it had);
-//! * **finding** the item a client asks to drop ([`find_in_carrying_bags`]), restricted to the bags the
+//! * **finding** the item a client asks to drop (`find_in_carrying_bags`), restricted to the bags the
 //!   reference searches (`GmBag_FindItem` looks only at the backpack, the belt pouch and bags 1 and 2).
 //!
 //! The model, and where it differs from the reference's own `items`/`bags` tables, is argued in
@@ -33,6 +33,7 @@ pub struct Bag {
     pub bag_model_id: i32,
     /// `BagType`: 1 bag, 2 equipped, 3 not collected, 4 storage, 5 material storage.
     pub bag_type: i32,
+    /// How many slots the bag holds, as `GmBag.slots`.
     pub slot_count: i32,
     /// The item that *is* the bag (the reference's `bag_item_id`), 0 for the bags that have none.
     pub assoc_item_id: i32,
@@ -45,17 +46,29 @@ pub struct Item {
     pub id: i32,
     /// Where it sits. `None` for an item that is not in a slot - a bag's own item.
     pub bag_id: Option<i32>,
+    /// Which slot inside that bag; `None` for a bag`s own item.
     pub slot: Option<i32>,
+    /// The `Gw.dat` file id the client draws the model from.
     pub file_id: i64,
+    /// The item`s kind code; the client groups bags and dyes by it.
     pub item_type: i32,
+    /// The model id the client draws, which for some kinds differs from `file_id`.
     pub model_id: i32,
+    /// Which dye slots apply; 0 for an undyed item.
     pub dye_tint: i32,
+    /// The four packed dye colours, four bits each.
     pub dye_colors: i32,
+    /// Crafting materials the item carries or needs.
     pub materials: i32,
+    /// The reference`s own unverified byte; copied, not reasoned about.
     pub unk1: i32,
+    /// Item flags: identified, customized, equipped and the rest.
     pub flags: i64,
+    /// The item`s value in gold, as the client shows it.
     pub value: i32,
+    /// How many are in the stack; 1 for a non-stackable item.
     pub quantity: i32,
+    /// The profession the item was made for, or 0.
     pub profession: i32,
     /// The name, as the UTF-16 code units the wire carries. Not text: the reference's bag name is a
     /// Gw.dat template id packed into units, and some of them are not valid Unicode.
@@ -87,20 +100,23 @@ impl Item {
 pub struct Inventory {
     /// In the reference's order: by bag model id, which is the order its bag array is walked in.
     pub bags: Vec<Bag>,
+    /// Every item the character owns, in the order the reference`s bag walk produces.
     pub items: Vec<Item>,
 }
 
 impl Inventory {
     /// Empty is the answer for a character that has never been loaded, and it is what
-    /// [`seed_default`] fills.
+    /// `seed_default` fills.
     pub fn is_empty(&self) -> bool {
         self.bags.is_empty() && self.items.is_empty()
     }
 
+    /// The bag with this id, if the character has it.
     pub fn bag(&self, bag_id: i32) -> Option<&Bag> {
         self.bags.iter().find(|bag| bag.bag_id == bag_id)
     }
 
+    /// The item with this id, if the character has it.
     pub fn item(&self, item_id: i32) -> Option<&Item> {
         self.items.iter().find(|item| item.id == item_id)
     }
@@ -169,9 +185,13 @@ pub const LAST_CARRYING_MODEL: i32 = 3;
 /// One bag as the seed describes it: the capture's bag id, and the capture id of its own item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SeedBag {
+    /// The capture's bag id.
     pub bag_id: i32,
+    /// `BagModelId`, as `Bag` carries it: 0 backpack, 5 material storage, 7+ storage, 21 equipped.
     pub bag_model_id: i32,
+    /// `BagType`: 1 bag, 2 equipped, 3 not collected, 4 storage, 5 material storage.
     pub bag_type: i32,
+    /// How many slots the bag holds, as `GmBag.slots`.
     pub slot_count: i32,
     /// The capture's item id of the item that is this bag, 0 when the bag has none.
     pub assoc_item: i32,
@@ -182,20 +202,35 @@ pub struct SeedBag {
 pub struct SeedItem {
     /// The capture's item id. Renumbered from the sequence when it is written.
     pub id: i32,
+    /// Which bag the record belongs to; `None` for an item that is not in a slot.
     pub bag_id: Option<i32>,
+    /// Which slot inside that bag; `None` for a bag`s own item.
     pub slot: Option<i32>,
+    /// The `Gw.dat` file id the client draws the model from.
     pub file_id: i64,
+    /// The item`s kind code; the client groups bags and dyes by it.
     pub item_type: i32,
+    /// The model id the client draws, which for some kinds differs from `file_id`.
     pub model_id: i32,
+    /// Which dye slots apply; 0 for an undyed item.
     pub dye_tint: i32,
+    /// The four packed dye colours, four bits each.
     pub dye_colors: i32,
+    /// Crafting materials the item carries or needs.
     pub materials: i32,
+    /// The reference`s own unverified byte; copied, not reasoned about.
     pub unk1: i32,
+    /// Item flags: identified, customized, equipped and the rest.
     pub flags: i64,
+    /// The item`s value in gold, as the client shows it.
     pub value: i32,
+    /// How many are in the stack; 1 for a non-stackable item.
     pub quantity: i32,
+    /// The profession the item was made for, or 0.
     pub profession: i32,
+    /// The name, as the UTF-16 code units the wire carries.
     pub name: &'static [i32],
+    /// The modifier list, in the client`s own dwords.
     pub modifiers: &'static [i64],
 }
 
@@ -237,7 +272,7 @@ impl From<&SeedBag> for Bag {
 
 /// The default inventory, as rows, with the ids the original capture used.
 ///
-/// This is the seed: [`seed_default`] writes these rows (with ids taken from the sequence, because
+/// This is the seed: `seed_default` writes these rows (with ids taken from the sequence, because
 /// two characters cannot both own item 1). The rows are the source of truth now; the world server
 /// builds the item block out of them.
 pub fn default_inventory() -> Inventory {
@@ -262,7 +297,7 @@ fn item_columns(alias: &str) -> String {
 }
 
 /// One item row as both queries select it, in the order they select it (`load` and
-/// [`find_in_carrying_bags`] share the column list so the two cannot drift apart).
+/// `find_in_carrying_bags` share the column list so the two cannot drift apart).
 type ItemRow = (
     i32,
     Option<i32>,
@@ -368,20 +403,35 @@ pub async fn load(pool: &PgPool, character: Uuid) -> sqlx::Result<Inventory> {
 /// profession the client picked, so it owns its slices.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewItem {
+    /// Which bag the record belongs to; `None` for an item that is not in a slot.
     pub bag_id: Option<i32>,
+    /// Which slot inside that bag; `None` for a bag`s own item.
     pub slot: Option<i32>,
+    /// The `Gw.dat` file id the client draws the model from.
     pub file_id: i64,
+    /// The item`s kind code; the client groups bags and dyes by it.
     pub item_type: i32,
+    /// The model id the client draws, which for some kinds differs from `file_id`.
     pub model_id: i32,
+    /// Which dye slots apply; 0 for an undyed item.
     pub dye_tint: i32,
+    /// The four packed dye colours, four bits each.
     pub dye_colors: i32,
+    /// Crafting materials the item carries or needs.
     pub materials: i32,
+    /// The reference`s own unverified byte; copied, not reasoned about.
     pub unk1: i32,
+    /// Item flags: identified, customized, equipped and the rest.
     pub flags: i64,
+    /// The item`s value in gold, as the client shows it.
     pub value: i32,
+    /// How many are in the stack; 1 for a non-stackable item.
     pub quantity: i32,
+    /// The profession the item was made for, or 0.
     pub profession: i32,
+    /// The name, as the UTF-16 code units the wire carries.
     pub name: Vec<i32>,
+    /// The modifier list, in the client`s own dwords.
     pub modifiers: Vec<i64>,
 }
 
@@ -793,12 +843,27 @@ pub enum Refused {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MoveOutcome {
     /// It is now at `(bag_id, slot)`.
-    At { item: Item, bag_id: i32, slot: i32 },
+    At {
+        /// The item, with its new place filled in.
+        item: Item,
+        /// Where it now sits.
+        bag_id: i32,
+        /// Which slot of that bag.
+        slot: i32,
+    },
     /// It was already there; nothing was written.
-    Unchanged { item: Item },
+    Unchanged {
+        /// The item, exactly as it was.
+        item: Item,
+    },
     /// Nothing happened, and `item` is where it actually is - a caller uses that to put the client's
     /// own model back, because the client moves the item optimistically before it asks.
-    Refused { item: Option<Item>, reason: Refused },
+    Refused {
+        /// The item where it really is, when the character still has it.
+        item: Option<Item>,
+        /// Why the move did not happen.
+        reason: Refused,
+    },
 }
 
 /// Move an item to a slot in one of its character's bags.

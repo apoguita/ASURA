@@ -1,4 +1,4 @@
-//! The general service registry (S2): every service kind announces itself like a world server does.
+﻿//! The general service registry (S2): every service kind announces itself like a world server does.
 //!
 //! A row says where a service is (address, port), its build, whether it is alive (`heartbeat_at`)
 //! and what state it is in. The supervisor writes a row for every service it starts; consumers read
@@ -15,11 +15,17 @@ use crate::PgPool;
 /// One service, as consumers see it: where it is, and whether its heartbeat is still fresh.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServiceRow {
+    /// What kind of service the row describes.
     pub kind: String,
+    /// The name, as the UTF-16 code units the wire carries.
     pub name: String,
+    /// The address clients are told to dial.
     pub address: String,
+    /// The port that goes with it.
     pub port: i32,
+    /// The build string the process reported when it registered.
     pub build: String,
+    /// What the registry says the service is doing.
     pub state: String,
     /// `heartbeat_at` is inside the freshness window.
     pub fresh: bool,

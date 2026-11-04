@@ -1,4 +1,4 @@
-//! The account: the row every other table is keyed by, and its own state.
+﻿//! The account: the row every other table is keyed by, and its own state.
 //!
 //! Everything else in this crate names an account by id and never reads the row; this module is the
 //! one place that does. It starts with the two things the login path needs and grows when a feature
@@ -14,7 +14,9 @@ use crate::{PgPool, Uuid};
 /// One account row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
+    /// The row`s own identifier.
     pub id: Uuid,
+    /// The account name the client presents.
     pub username: String,
     /// The EULA version this account accepted; `0` for never.
     pub eula_accepted: i16,

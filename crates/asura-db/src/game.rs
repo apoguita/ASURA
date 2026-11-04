@@ -1,4 +1,4 @@
-//! The reads a world server needs: which map blob to load, where to spawn, and who the character is.
+﻿//! The reads a world server needs: which map blob to load, where to spawn, and who the character is.
 //!
 //! Small on purpose. A world server owns the gameplay connection and its own in-memory simulation;
 //! what it takes from the database is the handful of facts a client cannot be told without, and what
@@ -18,6 +18,7 @@ use crate::{PgPool, Uuid};
 /// an explorable area, and where a character stands in it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnMap {
+    /// The map the row is about.
     pub map_id: i32,
     /// 0 for an outpost/town, 1 for an explorable area (the reference's `MapType`).
     pub map_type: i32,
@@ -27,6 +28,7 @@ pub struct SpawnMap {
     /// The spawn coordinate, as the client's world coordinates. Verified against a live client in the
     /// reference rig for the development maps (`GmMapsConfig.c`).
     pub spawn_x: f32,
+    /// The spawn coordinate the map row carries.
     pub spawn_y: f32,
     /// The plane inside the map blob, not a height: 0 for every pre-Searing map measured so far.
     pub spawn_plane: i16,
@@ -120,9 +122,13 @@ pub async fn character_name(pool: &PgPool, character: Uuid) -> sqlx::Result<Opti
 /// everyone - a real liberty, recorded in `docs/09-parity-audit.md` #9.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Traits {
+    /// The packed appearance word, as `CREATE_NAMED_ITEM` and the load block carry it.
     pub appearance: u32,
+    /// The profession the item was made for, or 0.
     pub profession: u8,
+    /// The professions this account may pick, as the reference packs them.
     pub unlocked_professions: u32,
+    /// The character`s gold, as `UPDATE_GOLD_STORAGE` reports it.
     pub gold: u32,
     /// `Campaign` (`GmChar.h`): 0 none (a pvp character), 1 Prophecies, 2 Factions, 3 Nightfall,
     /// 4 Eye of the North. The character settings blob carries four bits of it.
@@ -198,10 +204,15 @@ pub struct Settings {
     pub map_id: i32,
     /// The packed `Appearance` word, exactly as `create_character` stored it.
     pub appearance: u32,
+    /// 0 none, 1 Prophecies, 2 Factions, 3 Nightfall, 4 Eye of the North.
     pub campaign: u8,
+    /// The character`s level, from `characters.level`.
     pub level: u8,
+    /// Whether the character was created for PvP.
     pub is_pvp: bool,
+    /// The secondary profession, four bits on the wire.
     pub secondary_profession: u8,
+    /// 0 none, 1 show, 2 hide.
     pub helm_status: u8,
     /// Up to five pieces, in the reference's order: body, legs, head, boots, gloves. A piece the character
     /// is not wearing is absent, not zero-filled -- `number_of_pieces` is the count.
@@ -264,7 +275,9 @@ pub async fn settings(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Set
 pub struct Position {
     /// The map the position belongs to. A position is only usable on the map it was taken in.
     pub map_id: i32,
+    /// The coordinate the client reports.
     pub x: f32,
+    /// The coordinate that goes with it.
     pub y: f32,
     /// The plane inside the map blob, the client's third coordinate.
     pub plane: i16,
