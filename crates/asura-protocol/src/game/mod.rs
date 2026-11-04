@@ -76,7 +76,7 @@ pub const MAP_UPDATE_UNLOCKED_LIST: u16 = crate::packets::game::GAME_SMSG_MAP_UP
 /// Unnamed in the generated table (three dwords is all it records); the name is the client's own
 /// handler, `OnMsgSrvMapInitStart`, and the shape is measured - `{dims.x, dims.y, compressed
 /// byte count}`, three dwords. See [`map_init_start`].
-pub const MAP_INIT_START: u16 = 0x008B;
+pub const MAP_INIT_START: u16 = crate::packets::game::GAME_SMSG_MAP_INIT_START;
 /// `GAME_SMSG_CARTOGRAPHY_DATA` (`0x008A`, 262 bytes): one slice of the exploration grid.
 pub const CARTOGRAPHY_DATA: u16 = crate::packets::game::GAME_SMSG_CARTOGRAPHY_DATA;
 /// The blob bytes one [`CARTOGRAPHY_DATA`] message carries: 256, so 64 dwords.
@@ -905,7 +905,7 @@ pub fn transfer_game_server_info(
 /// Unnamed in the reference's own table, which is why it is addressed by its header here. A live server
 /// sends it in batches during a load - ten of them for the load of instance 148
 /// (`recordings/client/feature/maps/pre-searing-load-3.jsonl`) - and the data is `game::instance_table`.
-pub const INSTANCE_TABLE: u16 = 0x01A0;
+pub const INSTANCE_TABLE: u16 = crate::packets::game::GAME_SMSG_INSTANCE_TABLE;
 
 /// One batch of [`INSTANCE_TABLE`]: a `u8` count and that many `{u16 instance, u32 value}` pairs.
 ///
