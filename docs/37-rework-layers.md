@@ -50,11 +50,11 @@ conditions of the next section hold for it.
 
 ## Layer 1 - wire and codec
 
-Files: `packets.rs` (2,105; 782 rows, 403 consts), `game/mod.rs` (1,754; 109 consts),
-`client/frame.rs` 634, `client/messages.rs` 1,236, `client/handshake.rs` 427, `client/peer.rs` 383,
-`client/version.rs` 259, `client/arc4.rs` 186, `game/instance_table.rs` 175, `game/pvp_items.rs`
-1,567, `client/filecheck.rs` 95, `client/mod.rs` 83, `client/login_fixtures.rs` 49, `trace.rs` 50,
-`lib.rs` 153.
+Files: `packets.rs` 2,106 (782 rows, 403 consts), `game/mod.rs` 1,711, `game/appearance.rs` 68,
+`game/instance_table.rs` 175, `client/frame.rs` 660, `client/messages.rs` 1,267,
+`client/handshake.rs` 435, `client/reference_client.rs` 383 (gated), `client/version.rs` 275,
+`client/game_version.rs` 201, `client/arc4.rs` 190, `client/filecheck.rs` 95, `client/mod.rs` 105,
+`client/account_settings.rs` 49, `trace.rs` 52, `lib.rs` 181.
 
 - [-] holds by design - the packet table is the specification (`AGENTS.md` #1)
 - [x] content that was misplaced here is moved out: `game/pvp_items.rs` (387 rows) is
