@@ -216,6 +216,11 @@ client takes its identity from before it logs in (`docs/03-protocol.md` #4), plu
 Files: `connection.rs` 524, `dispatch.rs` 124, `world.rs` 201, `map.rs` 497, `capture.rs` 161,
 `replay.rs` 276.
 
+- [x] the two instruments left the serving build: `capture.rs` and `replay.rs` are behind the
+      `harness` feature, off by default, and `harness_off.rs` gives both modules an inert answer
+      with the same shape so no call site reads a `cfg` (`docs/38`, D32). 55 tests pass in the
+      serving build and 61 with `--features harness`, which is where the six instrument tests live
+      - `crates/asura-world/src/harness_off.rs`
 - [ ] `map.rs` split: the `map_config` read belongs to layer 15, the instance table and the
       cartography frames belong to layers 1 and 12
 - [ ] `TICK_INTERVAL` 100 ms and `PING_INTERVAL` 5 s moved to the rates file, marked measured

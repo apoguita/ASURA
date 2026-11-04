@@ -6,6 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 description = "A world server: maps, instances, placement, and character persistence"
 
+[features]
+# The diagnostic instruments: the server-side capture and the reference replayer. Off by default,
+# because a build that serves players carries neither (docs/38-layer-decisions.md, D32).
+harness = []
+
 [dependencies]
 asura-protocol = { path = "../asura-protocol" }
 asura-db = { path = "../asura-db" }

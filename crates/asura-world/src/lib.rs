@@ -107,10 +107,27 @@ pub mod graph_dump;
 
 /// A server-side packet capture: every game message both ways, plaintext JSONL, for diagnosing a
 /// live session without an injected client (`--capture` / `ASURA_CAPTURE`).
+///
+/// Behind the `harness` feature: a measuring instrument is not part of answering a client
+/// (`docs/38-layer-decisions.md`, D32). Without the feature, [`harness_off`] answers with an inert
+/// module of the same shape, so no call site needs to know which build it is in.
+#[cfg(feature = "harness")]
 pub mod capture;
 
-/// Replaying the reference's captured stream, for bisection (ASURA_WORLD_REPLAY).
+/// Replaying the reference's captured stream, for bisection (ASURA_WORLD_REPLAY). Harness-only, like the
+/// capture above.
+#[cfg(feature = "harness")]
 pub mod replay;
+
+/// The inert answer to `capture` and `replay` in a build without the `harness` feature.
+#[cfg(not(feature = "harness"))]
+#[path = "harness_off.rs"]
+mod harness_off;
+
+/// Both instruments as the serving build sees them: an installation that refuses, and a replay that never
+/// replaces anything.
+#[cfg(not(feature = "harness"))]
+pub use harness_off::{capture, replay};
 
 /// The `Gw.dat` archive's index: the reference's `FaArchive.c`, ported far enough to find a file id and
 /// say where its bytes are. The decompressor is the other half and is not here yet (docs/10-parity-queue.md,
