@@ -136,17 +136,25 @@ pub async fn answer(
             None
         }
     };
-    // A character with no row, or a database error reading one, is treated as a character with no
-    // history: the rule then answers the default outpost, which is a map a client can load.
+    // The two values the rule needs and does not own: where a character with no history enters, and the
+    // map id that means "nothing written yet". Both are `config/Server/defaults.json`
+    // (`docs/38-layer-decisions.md` D34). No file, no value, so the travel is refused rather than
+    // invented, and the log names the file that is missing.
+    let defaults = match asura_config::defaults() {
+        Ok(defaults) => defaults,
+        Err(err) => {
+            eprintln!("auth: travel to map {map_id} refused: {err}");
+            return Ok(request_frames(STATUS_NETWORK_ERROR));
+        }
+    };
+    // A character with no row, or a database error reading one, is treated as a character with nothing
+    // written yet - which is the creation map, the value the rows themselves use for "no map".
+    let empty = defaults.creation_map();
     let character = asura_rules::Character {
-        map_id: settings
-            .as_ref()
-            .map_or(asura_rules::CREATION_MAP, |settings| settings.map_id),
+        map_id: settings.as_ref().map_or(empty, |settings| settings.map_id),
         last_outpost: settings
             .as_ref()
-            .map_or(asura_rules::CREATION_MAP, |settings| {
-                i32::from(settings.last_outpost)
-            }),
+            .map_or(empty, |settings| i32::from(settings.last_outpost)),
     };
     // The destination's own type, as the catalogue describes it. `None` means the map is not in the
     // catalogue: the rule leaves the request alone and the registry lookup below refuses it.
@@ -164,18 +172,9 @@ pub async fn answer(
         },
         character,
         destination_type,
-        // Where a character with no placement history goes. The value is configuration, not a rule's
-        // (`config/Server/placement.json`, `docs/38-layer-decisions.md` D34): character creation, a
-        // scripted event and travelling write the real one, and this is only the fallback for a row
-        // that says none of them happened. No file, no value: the travel is refused rather than
-        // invented, and the log names the file that is missing.
-        match asura_config::defaults() {
-            Ok(placement) => placement.default_outpost(),
-            Err(err) => {
-                eprintln!("auth: travel to map {map_id} refused: {err}");
-                return Ok(request_frames(STATUS_NETWORK_ERROR));
-            }
-        },
+        // Both from the defaults file, read above.
+        defaults.default_outpost(),
+        empty,
     );
     match substituted {
         Some(asura_rules::Substituted::CreationNamedAsPlace(from)) => eprintln!(

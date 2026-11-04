@@ -199,6 +199,9 @@ pub struct Defaults {
     /// event and by travelling for every other case; this is the fallback for a row where none of them
     /// happened.
     pub default_outpost: Described<i32>,
+    /// The creation instance's map id: the destination that is a conversation rather than a place, and
+    /// the value a row carries when nothing has been written yet.
+    pub creation_map: Described<i32>,
 }
 
 impl Defaults {
@@ -210,6 +213,11 @@ impl Defaults {
     /// The fallback outpost, as the number rather than the wrapper.
     pub fn default_outpost(&self) -> i32 {
         self.default_outpost.value
+    }
+
+    /// The creation instance's map id, as the number rather than the wrapper.
+    pub fn creation_map(&self) -> i32 {
+        self.creation_map.value
     }
 }
 
@@ -286,6 +294,15 @@ mod tests {
             doc.contains("creation") && doc.contains("travelling"),
             "the doc says who writes the real value, said: {doc}"
         );
+        assert_eq!(defaults.creation_map(), 0, "the creation instance is map 0");
+        assert!(
+            defaults
+                .creation_map
+                .doc
+                .as_deref()
+                .is_some_and(|doc| doc.contains("creation")),
+            "the key documents itself"
+        );
     }
 
     #[test]
@@ -296,9 +313,11 @@ mod tests {
 
     #[test]
     fn a_key_may_carry_its_own_documentation() {
-        let defaults =
-            Defaults::from_json(r#"{"default_outpost": {"value": 163, "doc": "why this number"}}"#)
-                .expect("parses");
+        let defaults = Defaults::from_json(
+            r#"{"default_outpost": {"value": 163, "doc": "why this number"},
+                    "creation_map": {"value": 0}}"#,
+        )
+        .expect("parses");
         assert_eq!(defaults.default_outpost(), 163);
         assert_eq!(
             defaults.default_outpost.doc.as_deref(),
