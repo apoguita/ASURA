@@ -62,8 +62,15 @@ pub const POSITION_UPDATE_TOLERANCE: f32 = 50.0;
 /// elapsed time. A longer gap is treated as this, so a stalled client does not get an unbounded budget.
 pub const POSITION_UPDATE_MAX_ELAPSED_MS: u32 = 2_000;
 
-/// The reference's `MAXIMUM_ALLOWED_CORRECTION`: how far a client may move itself when it cancels a walk.
-pub const MAXIMUM_ALLOWED_CORRECTION: f32 = 100.0;
+/// The correction ceiling in force: `config/Server/movement.json`'s `max_allowed_correction`.
+///
+/// The rule is the reference's `MAXIMUM_ALLOWED_CORRECTION` and the reference's own number is 100
+/// (`GmAgent.c:547-563`), which is also the fallback `asura-config` carries for a checkout with no
+/// `config/`. A compiled copy does not live here: this is a number a machine chooses, and
+/// `docs/38-layer-decisions.md` (D33) keeps those in a file so they can be read and reviewed.
+pub fn max_allowed_correction() -> f32 {
+    asura_config::movement().max_allowed_correction()
+}
 
 /// What the server did with a reported position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,15 +255,24 @@ impl AgentState {
 
     /// alternating-live.jsonl 321-322: type 9, then a destination at the stopping point.
     pub fn stop_manual_walk(&mut self) -> Vec<Frame> {
+        self.stand_still();
+        vec![
+            game::agent_update_speed(self.agent_id, 1.0, 9),
+            game::agent_move_to_point(self.agent_id, self.position, self.plane, self.plane),
+        ]
+    }
+
+    /// The state half of [`stop_manual_walk`]: the walk is over, at rest, with no waypoints left.
+    ///
+    /// Used when the stopping point is refused. A refused correction still means the agent is not
+    /// walking, so the server's copy must stop -- otherwise it keeps advancing along the abandoned path
+    /// and tells every client to keep walking it. Nothing goes on the wire.
+    pub fn stand_still(&mut self) {
         self.cancel_movement();
         self.motion.waypoints.clear();
         self.motion.waypoint_idx = 0;
         self.move_type = 9;
         self.move_speed = 1.0;
-        vec![
-            game::agent_update_speed(self.agent_id, 1.0, 9),
-            game::agent_move_to_point(self.agent_id, self.position, self.plane, self.plane),
-        ]
     }
 
     /// `GameSrv_UpdateAgentMovement`: walk `delta` seconds of the current segment.
@@ -359,9 +375,10 @@ impl AgentState {
     }
 
     /// Adopt a correction the client sends after cancelling a walk
-    /// (`GAME_CMSG_LAST_POS_BEFORE_MOVE_CANCELED`). Only a short correction on the same plane counts.
+    /// (`GAME_CMSG_LAST_POS_BEFORE_MOVE_CANCELED`). Only a short correction on the same plane counts;
+    /// how short is `config/Server/movement.json`'s `max_allowed_correction`.
     pub fn adopt_correction(&mut self, position: (f32, f32), plane: u16) -> bool {
-        if plane != self.plane || MAXIMUM_ALLOWED_CORRECTION < self.distance_to(position) {
+        if plane != self.plane || max_allowed_correction() < self.distance_to(position) {
             return false;
         }
         self.position = position;
@@ -856,8 +873,33 @@ pub async fn handle_position_update(
         }
         let reply = if adopted != Adopted::Refused {
             let from = slot.agent.here();
-            let to = Pos { x: from.x + offset.0, y: from.y + offset.1, plane: from.plane };
-            let waypoints = match world.graphs.walk(instance.map.map_id, from, to) {
+            // The report names a direction, not a surface. The point `offset` away can sit on a bridge
+            // or slope plane the character is not standing on, so the destination's plane is the graph's
+            // answer; stamping `from.plane` there made the search fail, and a failed search is answered
+            // with silence (`pathfind::PathGraphs::walk_any_plane` has the measurement).
+            let target = (from.x + offset.0, from.y + offset.1);
+            let walked = world.graphs.walk_any_plane(instance.map.map_id, from, target);
+            if move_trace_on() {
+                match &walked {
+                    Walk::Found(waypoints) => eprintln!(
+                        "move[manual] answered with a walk to (x={:.1}, y={:.1}): {} waypoint(s) {}",
+                        target.0,
+                        target.1,
+                        waypoints.len(),
+                        waypoints_preview(waypoints)
+                    ),
+                    Walk::NoPath => eprintln!(
+                        "move[manual] the finder refused a walk to (x={:.1}, y={:.1}) from \
+                         (x={:.1}, y={:.1}, plane={}): nothing is sent",
+                        target.0, target.1, from.x, from.y, from.plane
+                    ),
+                    Walk::NoGraph => eprintln!(
+                        "move[manual] this world has no path graph for map {}: nothing is sent",
+                        instance.map.map_id
+                    ),
+                }
+            }
+            let waypoints = match walked {
                 Walk::Found(waypoints) => waypoints,
                 Walk::NoPath | Walk::NoGraph => Vec::new(),
             };
@@ -940,7 +982,13 @@ pub async fn handle_cancel_movement(
 
 /// The keyboard stop includes its stopping point; an accepted point ends the old
 /// path and answers with type 9 and that point (alternating-live.jsonl 482-486).
-/// A refused position correction still stops the movement at the server's point.
+///
+/// A refused correction sends **nothing at all**. The reference refuses a long or wrong-plane correction
+/// and stops there (`GmAgent.c:547-563`, `docs/09-parity-audit.md` row 17); the frame it must not send is
+/// the destination, because the only position it could name is its own stale guess -- and a client
+/// obeys that message, so the character walks backwards to where it stood a report ago. Measured live:
+/// `logs/world-8001.log` 6230-6246 is one refusal ordering the client 196.7 units back and the client
+/// complying. The server's own copy still stops walking.
 pub async fn handle_last_position(
     stream: &mut TcpStream,
     session: &mut Session,
@@ -972,22 +1020,64 @@ pub async fn handle_last_position(
         frame.body()[11],
     ]) as u16;
     let instance = Arc::clone(&player.instance);
-    let Some((taken, reply)) = instance.with_slot(player.player_id, |slot| {
+    let Some((taken, reply, believed, distance)) = instance.with_slot(player.player_id, |slot| {
+        let believed = Standing {
+            position: slot.agent.position,
+            plane: slot.agent.plane,
+        };
         let taken = slot.agent.adopt_correction(position, plane);
-        let reply = slot.agent.stop_manual_walk();
-        (taken, reply)
+        let distance = {
+            let dx = position.0 - believed.position.0;
+            let dy = position.1 - believed.position.1;
+            (dx * dx + dy * dy).sqrt()
+        };
+        let reply = if taken {
+            slot.agent.stop_manual_walk()
+        } else {
+            // Refused: the agent stops, and no position is named, so the client is not moved.
+            slot.agent.stand_still();
+            Vec::new()
+        };
+        (taken, reply, believed, distance)
     }) else {
         return Ok(true);
     };
-    instance.broadcast(player.player_id, &reply);
-    send(stream, session, reply, trace).await?;
+    if !reply.is_empty() {
+        instance.broadcast(player.player_id, &reply);
+        send(stream, session, reply, trace).await?;
+    }
+    if move_trace_on() {
+        // The distance is what decides and the ceiling is configuration, so the trace names both: a
+        // refusal is otherwise indistinguishable from a plane mismatch without it.
+        eprintln!(
+            "move[stop] correction to (x={:.1}, y={:.1}, plane={plane}) against the server's \
+             (x={:.1}, y={:.1}, plane={}) - d={distance:.1}, ceiling={:.1}: {}",
+            position.0,
+            position.1,
+            believed.position.0,
+            believed.position.1,
+            believed.plane,
+            max_allowed_correction(),
+            if taken {
+                "taken - type 9 and a destination at that point [0x802B, 0x8029]"
+            } else if plane != believed.plane {
+                "refused (the plane differs) - the agent stops and nothing is sent"
+            } else {
+                "refused (farther than the ceiling) - the agent stops and nothing is sent"
+            }
+        );
+    }
     if trace {
         eprintln!(
             "world: agent {} correction to ({:.1}, {:.1}) plane {plane}: {}",
             player.GetAgentID(),
             position.0,
             position.1,
-            if taken { "taken" } else { "refused" }
+            if taken {
+                "taken - type 9 and a destination at that point"
+            } else {
+                "refused - the agent stops and nothing is sent"
+            }
         );
     }
     Ok(true)
@@ -1126,6 +1216,50 @@ mod tests {
         );
         assert!(!other.adopt_correction((6602.0, 4485.0), 3), "wrong plane");
         assert_eq!(other.position, (6602.0, 4485.0));
+    }
+
+    #[test]
+    pub fn the_ceiling_comes_from_the_movement_file_and_not_a_constant() {
+        // `config/Server/movement.json` carries `max_allowed_correction`; the reference's own 100 is only
+        // the fallback a checkout with no file runs on. What matters here is that the ceiling is read,
+        // not that it is any particular number: an unchanged constant would make this test pass too, so
+        // the file's shipped value is what is asserted.
+        let ceiling = max_allowed_correction();
+        let mut inside = agent();
+        assert!(
+            inside.adopt_correction((6602.0 + ceiling - 1.0, 4485.0), 0),
+            "a point just inside the ceiling is taken"
+        );
+        let mut outside = agent();
+        assert!(
+            !outside.adopt_correction((6602.0 + ceiling + 1.0, 4485.0), 0),
+            "a point just outside it is refused"
+        );
+    }
+
+    #[test]
+    pub fn a_refused_correction_stops_the_walk_and_names_no_point() {
+        // The two frames `stop_manual_walk` builds are what a refused correction must NOT send: the only
+        // position it could name is the server's stale guess, and the client walks to it. So a refusal
+        // stops the copy and produces no frames at all -- the reference's own reply (`GmAgent.c:547-563`).
+        let mut walker = agent();
+        walker.begin_walk(vec![
+            waypoint(6702.0, 4485.0, 1),
+            waypoint(6802.0, 4485.0, 2),
+        ]);
+        walker.advance(0.1);
+        let believed = walker.position;
+
+        let far = (believed.0 + max_allowed_correction() + 50.0, believed.1);
+        assert!(!walker.adopt_correction(far, 0), "out of budget");
+        // `stand_still` returns no frames at all, so "nothing goes on the wire" is the signature's claim
+        // and not an assertion that could be quiet about it.
+        walker.stand_still();
+        assert_eq!(walker.position, believed, "and the agent is not moved");
+        assert_eq!(walker.motion.speed, 0.0, "the copy stops walking");
+        assert!(walker.motion.waypoints.is_empty(), "the path is dropped");
+        assert_eq!(walker.advance(2.0), None, "and it stays stopped");
+        assert_eq!(walker.position, believed);
     }
 
     #[test]

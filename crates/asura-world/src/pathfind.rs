@@ -546,6 +546,17 @@ impl PathContext {
         Some(self.data.planes[usize::from(plane)].trapezoids[position].trap_id)
     }
 
+    /// Which plane a point lies on, if any does: the first plane whose search places it.
+    ///
+    /// The answer a client's movement needs, because the report names a direction and not a surface. A
+    /// point can lie on two planes at once -- one above the other, a bridge over a road -- and the first
+    /// in plane order is the one named; the caller only passes this to the finder, which still has to
+    /// connect the two positions through portals.
+    pub fn plane_at(&self, point: Vec2f) -> Option<u16> {
+        let count = u16::try_from(self.data.planes.len()).ok()?;
+        (0..count).find(|plane| self.data.trapezoid_at(point, *plane).is_some())
+    }
+
     /// `PathAddNode`: record the cost of reaching `trap` and queue it.
     fn add_node(
         &mut self,
@@ -1379,6 +1390,78 @@ mod tests {
         assert!(!inside(0.0, 0.0), "nor the bottom edge");
         assert!(!inside(0.0, -1.0), "and nothing below it");
     }
+
+    /// A walk to a point whose plane the caller does not know still finds a path.
+    ///
+    /// The four cases are real, taken from `logs/world-8001.log` on map 148: each is a client position
+    /// report and the destination that report's own offset names. Every one of them was answered with
+    /// silence, because the destination lies on a different plane from the character - one on plane 29
+    /// while the character stood on plane 0, three on plane 0 while the character stood on plane 29.
+    /// `walk` on the character's plane refuses all four; `walk_any_plane` finds all four. The direction and
+    /// the distance the client named are unchanged: only the plane is the graph's answer.
+    #[test]
+    fn a_destination_on_another_plane_still_finds_a_path() {
+        let repo = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("a crate directory")
+            .parent()
+            .expect("a repository directory")
+            .to_path_buf();
+        let dump = repo.join("data").join("path-graphs.bin");
+        if !dump.exists() {
+            eprintln!("skipped: the bundled dump is absent");
+            return;
+        }
+        let graphs =
+            PathGraphs::from_dump(dump.to_str().expect("a path")).expect("the bundled dump loads");
+        graphs.bind(&[crate::MapEntry {
+            map_id: 148,
+            map_file_id: 0x1B97D,
+            map_type: 1,
+            spawn: (6602.0, 4485.0),
+            spawn_plane: 0,
+            name: "Lakeside County".to_string(),
+            capacity: 2,
+        }]);
+
+        // (character x, y, plane, destination x, y) -- the destination's plane is deliberately not given.
+        let cases = [
+            (10150.1, 8481.8, 0u16, 10858.7, 8774.6),
+            (10513.1, 8707.0, 29, 11106.2, 9190.2),
+            (10621.1, 8802.2, 29, 11168.8, 9336.3),
+            (10986.9, 9158.9, 29, 11536.1, 9695.7),
+        ];
+        for (x, y, plane, dx, dy) in cases {
+            let from = Pos { x, y, plane };
+            // The character's own plane refuses it: that is the defect this guards against returning.
+            assert!(
+                matches!(
+                    graphs.walk(
+                        148,
+                        from,
+                        Pos {
+                            x: dx,
+                            y: dy,
+                            plane
+                        }
+                    ),
+                    Walk::NoPath
+                ),
+                "({x}, {y}) plane {plane} -> ({dx}, {dy}) must refuse on the character's plane"
+            );
+            match graphs.walk_any_plane(148, from, (dx, dy)) {
+                Walk::Found(waypoints) => {
+                    let last = waypoints.last().expect("a found walk has a waypoint");
+                    assert_eq!(
+                        (last.pos.x, last.pos.y),
+                        (dx, dy),
+                        "the last waypoint names the point the report asked for"
+                    );
+                }
+                other => panic!("({x}, {y}) plane {plane} -> ({dx}, {dy}) answered {other:?}"),
+            }
+        }
+    }
 }
 
 // ---- the graphs, imported from the archive and held per blob ------------------------------
@@ -1539,6 +1622,56 @@ impl PathGraphs {
 
     /// Ask the finder for a walk from `from` to `to` on `map_id`.
     pub fn walk(&self, map_id: i32, from: pathfind::Pos, to: pathfind::Pos) -> Walk {
+        match self.with_finder(map_id, |finder| {
+            let mut waypoints = Vec::new();
+            if finder.path_finding(from, to, &mut waypoints) {
+                Walk::Found(waypoints)
+            } else {
+                Walk::NoPath
+            }
+        }) {
+            Some(walk) => walk,
+            None => Walk::NoGraph,
+        }
+    }
+
+    /// Ask the finder for a walk to a point whose plane the caller does not know.
+    ///
+    /// A client's movement report names a position and a direction, not a surface: the point the walk is
+    /// aimed at can sit on a bridge, a stair or a slope plane rather than on the one the character is
+    /// standing on. Stamping the character's own plane there made the search fail, and a failed search is
+    /// answered with silence -- measured on map 148: of four reports whose destination lay on another
+    /// plane, all four came back `NoPath` with the character's plane and all four found a two-waypoint
+    /// path with the plane the destination actually lies on. The direction and the distance are the
+    /// client's; only the plane is the graph's answer.
+    pub fn walk_any_plane(&self, map_id: i32, from: pathfind::Pos, to: (f32, f32)) -> Walk {
+        match self.with_finder(map_id, |finder| {
+            let Some(plane) = finder.plane_at(Vec2f { x: to.0, y: to.1 }) else {
+                return Walk::NoPath;
+            };
+            let mut waypoints = Vec::new();
+            let destination = pathfind::Pos {
+                x: to.0,
+                y: to.1,
+                plane,
+            };
+            if finder.path_finding(from, destination, &mut waypoints) {
+                Walk::Found(waypoints)
+            } else {
+                Walk::NoPath
+            }
+        }) {
+            Some(walk) => walk,
+            None => Walk::NoGraph,
+        }
+    }
+
+    /// Run `use_it` against the finder for `map_id`, or `None` when this world has no graph for it.
+    fn with_finder<R>(
+        &self,
+        map_id: i32,
+        use_it: impl FnOnce(&mut pathfind::PathContext) -> R,
+    ) -> Option<R> {
         let file_id = self
             .0
             .bound
@@ -1554,21 +1687,13 @@ impl PathGraphs {
                 .get(&file_id)
                 .map(std::sync::Arc::clone)
         });
-        let Some(data) = data else {
-            return Walk::NoGraph;
-        };
+        let data = data?;
 
         let mut finders = self.0.finders.lock().unwrap_or_else(|err| err.into_inner());
         let finder = finders
             .entry(map_id)
             .or_insert_with(|| pathfind::PathContext::new(data));
-
-        let mut waypoints = Vec::new();
-        if finder.path_finding(from, to, &mut waypoints) {
-            Walk::Found(waypoints)
-        } else {
-            Walk::NoPath
-        }
+        Some(use_it(finder))
     }
 }
 

@@ -1,14 +1,16 @@
-//! The intervals this machine runs at, and the file that holds them.
+//! The numbers this machine runs at, and the files that hold them.
 //!
 //! These are the numbers a client's behaviour is measured against: how often the world ticks, how often
-//! it asks whether the client is still there, how long login waits for a world's port, and how old a
-//! world's heartbeat may be before it counts as gone. They were constants in three different crates
-//! (`asura-world`'s `connection.rs`, `asura-auth`'s `travel.rs`, `asura-rules` for the freshness window),
-//! so changing one meant editing Rust and rebuilding, and no single place answered "what cadence is this
-//! server using" (`docs/38-layer-decisions.md`, D33).
+//! it asks whether the client is still there, how long login waits for a world's port, how old a
+//! world's heartbeat may be before it counts as gone, and how far a client may place itself when it
+//! cancels a walk. They were constants in four different crates (`asura-world`'s `connection.rs` and
+//! `agent.rs`, `asura-auth`'s `travel.rs`, `asura-rules` for the freshness window), so changing one meant
+//! editing Rust and rebuilding, and no single place answered "what cadence is this server using"
+//! (`docs/38-layer-decisions.md`, D33).
 //!
-//! The file is `config/Server/intervals.json`. It is read once per process and then held, because every
-//! value in it is a cadence: re-reading it mid-session would make a server run at two cadences.
+//! Two files, one concern each: `config/Server/intervals.json` for the cadences ([`Intervals`]) and
+//! `config/Server/movement.json` for the movement tolerances ([`Movement`]). Both are read once per
+//! process and then held, because re-reading either mid-session would make one server run by two rules.
 //!
 //! Precedence, and it is deliberate: an environment variable overrides the file, and the file overrides
 //! the built-in default. The env variable is what a one-off experiment uses; the file is what a machine
@@ -189,6 +191,81 @@ pub fn intervals() -> &'static Intervals {
             // silently falling back would run the server at numbers nobody asked for.
             eprintln!("asura: {err}; using the built-in defaults");
             Intervals::default()
+        }
+    })
+}
+
+/// The file that holds this machine's movement tolerances.
+pub const MOVEMENT_FILE: &str = "config/Server/movement.json";
+
+/// The variable that names a different movement file, for an experiment.
+pub const MOVEMENT_VARIABLE: &str = "ASURA_MOVEMENT";
+
+/// The movement tolerances this server judges a client's reports by.
+///
+/// Same shape and same precedence as [`Intervals`]: an environment variable overrides the file, the file
+/// overrides the built-in default, and the built-in default is what a checkout with no `config/` runs on.
+/// Read once per process, because a tolerance that changed mid-session would judge two stops in one walk
+/// by two rules.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Movement {
+    /// How far a client may place itself when it cancels a walk and still be believed.
+    pub max_allowed_correction: Described<f32>,
+}
+
+impl Default for Movement {
+    fn default() -> Self {
+        Movement {
+            max_allowed_correction: Described {
+                value: 100.0,
+                doc: None,
+                immutable: false,
+            },
+        }
+    }
+}
+
+impl Movement {
+    /// Parse the file's text.
+    pub fn from_json(text: &str) -> Result<Movement, String> {
+        serde_json::from_str(text).map_err(|err| err.to_string())
+    }
+
+    /// The correction ceiling, as the number rather than the wrapper.
+    pub fn max_allowed_correction(&self) -> f32 {
+        self.max_allowed_correction.value
+    }
+}
+
+/// The movement tolerances in force, read once per process.
+pub fn movement() -> &'static Movement {
+    static IN_FORCE: OnceLock<Movement> = OnceLock::new();
+    IN_FORCE.get_or_init(|| {
+        let path = match std::env::var(MOVEMENT_VARIABLE) {
+            Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
+            _ => MOVEMENT_FILE.to_string(),
+        };
+        let path = resolve(&path).display().to_string();
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match Movement::from_json(&text) {
+                Ok(movement) => {
+                    eprintln!("asura: movement tolerances from {path}");
+                    movement
+                }
+                Err(err) => {
+                    // A broken file is not worth crashing a running world over, but it must be visible:
+                    // silently falling back would judge every stop by a number nobody chose.
+                    eprintln!("asura: {path} is not a valid movement file: {err}; using the built-in defaults");
+                    Movement::default()
+                }
+            },
+            Err(err) => {
+                eprintln!(
+                    "asura: movement file {path} is not readable: {err}; using the built-in defaults"
+                );
+                Movement::default()
+            }
         }
     })
 }
@@ -518,6 +595,41 @@ mod tests {
 
     /// The committed defaults file, parsed the way the services parse it.
     const DEFAULTS_COMMITTED: &str = include_str!("../../../config/Server/defaults.json");
+
+    /// The committed movement file, parsed the way `asura-world` parses it.
+    const MOVEMENT_COMMITTED: &str = include_str!("../../../config/Server/movement.json");
+
+    #[test]
+    fn the_committed_movement_file_states_the_ceiling() {
+        // The owner's number lives in the file, so the file is what is asserted. The `doc` sentence is
+        // required for the same reason every other server key carries one: JSON has no comments.
+        let movement = Movement::from_json(MOVEMENT_COMMITTED).expect("the committed file parses");
+        assert_eq!(
+            movement.max_allowed_correction(),
+            150.0,
+            "the ceiling this machine runs at"
+        );
+        assert!(
+            movement
+                .max_allowed_correction
+                .doc
+                .as_deref()
+                .is_some_and(|doc| !doc.trim().is_empty()),
+            "the file says what the number means"
+        );
+        assert_ne!(
+            movement.max_allowed_correction(),
+            Movement::default().max_allowed_correction(),
+            "and it is not the reference fallback, or the file would be pointless"
+        );
+    }
+
+    #[test]
+    fn a_movement_key_this_crate_does_not_know_is_refused() {
+        let err = Movement::from_json(r#"{"max_allowed_correction_x": {"value": 1}}"#)
+            .expect_err("a misspelled key would otherwise run at the fallback");
+        assert!(err.contains("unknown field"), "{err}");
+    }
 
     #[test]
     fn the_committed_file_states_the_defaults() {
