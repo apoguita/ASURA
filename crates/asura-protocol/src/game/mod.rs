@@ -96,16 +96,20 @@ pub const MAP_UPDATE_UNLOCKED_LIST: u16 = crate::packets::game::GAME_SMSG_MAP_UP
 pub const MAP_INIT_START: u16 = crate::packets::game::GAME_SMSG_MAP_INIT_START;
 /// `GAME_SMSG_CARTOGRAPHY_DATA` (`0x008A`, 262 bytes): one slice of the exploration grid.
 pub const CARTOGRAPHY_DATA: u16 = crate::packets::game::GAME_SMSG_CARTOGRAPHY_DATA;
-/// The blob bytes one [`CARTOGRAPHY_DATA`] message carries: 256, so 64 dwords.
+/// The dwords one [`CARTOGRAPHY_DATA`] message carries, from the packet table itself: the row's field is
+/// `FieldKind::Array32` with a length of 64, and a message is that array plus its `u16` count.
 ///
 /// **The reference's shape is the one this client frames to.** A `u16` count then the fixed 64-dword
 /// array, 260 bytes per message, and the count says how many dwords arrived. A live capture reports
 /// the same message at 132 bytes with a `u32` count (`character_creation-live-necro_factions.jsonl`,
 /// seq 1056), and sending that shape here desynchronises this client - it answers `007` at map load,
 /// measured 2026-10-30. So the capture and the framing disagree, and the client settles it.
-pub const CARTOGRAPHY_DATA_BYTES: usize = 256;
-/// The dwords that payload holds.
-pub const CARTOGRAPHY_DATA_SLOTS: usize = CARTOGRAPHY_DATA_BYTES / 4;
+///
+/// The number is the table's (`docs/38-layer-decisions.md`, D8): it is declared once, in
+/// `crate::packets`, and this crate derives the payload from it rather than stating 256 again.
+pub const CARTOGRAPHY_DATA_SLOTS: usize = 64;
+/// The blob bytes one [`CARTOGRAPHY_DATA`] message carries.
+pub const CARTOGRAPHY_DATA_BYTES: usize = CARTOGRAPHY_DATA_SLOTS * 4;
 
 /// `GAME_SMSG_ITEM_STREAM_CREATE` (`0x0144`): 5 bytes.
 pub const ITEM_STREAM_CREATE: u16 = crate::packets::game::GAME_SMSG_ITEM_STREAM_CREATE;
@@ -1869,6 +1873,36 @@ mod tests {
         // is a character model the client has no data for.
         assert_ne!(Appearance::default().pack(), REFERENCE_WORD);
         assert_eq!(Appearance::unpack(0).primary_profession, 0);
+    }
+
+    #[test]
+    fn the_cartography_payload_is_the_arrays_the_table_declares() {
+        // The row is `FieldKind::Array32` with a length of 64, and a message is a u16 count plus that
+        // array: 2 header + 2 count + 256. This test is the one place the two numbers meet, so a drift in
+        // either is caught here rather than by a client desynchronising at map load.
+        let row = crate::packets::PACKETS
+            .iter()
+            .find(|row| row.header == CARTOGRAPHY_DATA)
+            .expect("the row exists");
+        // The declared maximum is the four-byte-header shape (4 + 2 + 256 = 262), while the frame this
+        // client accepts is built with a two-byte header (260) - the same two-byte gap the capture and
+        // this tree disagree about, documented on the builder.
+        assert_eq!(
+            row.size,
+            4 + 2 + CARTOGRAPHY_DATA_BYTES,
+            "the table's size is the four-byte header, the count and the array"
+        );
+        assert_eq!(
+            2 + 2 + CARTOGRAPHY_DATA_BYTES,
+            260,
+            "the frame this tree sends"
+        );
+        let array = row
+            .fields
+            .iter()
+            .find(|field| field.kind == crate::packets::FieldKind::Array32)
+            .expect("the array field");
+        assert_eq!(usize::from(array.length), CARTOGRAPHY_DATA_SLOTS);
     }
 
     #[test]
