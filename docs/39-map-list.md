@@ -764,3 +764,24 @@ is a campaign or a region:
   `GW::Region` (`Region_Ascalon` and `Region_Presearing` share one, `Region_NorthernShiverpeaks` does
   not distinguish north from south).
 - `GWToolboxdll/Windows/Pathfinding/maps_constant_data.h` - per-map constants the pathfinder reads.
+
+## The display names, from Reforged's native header
+
+The client patch this server's keys and mutex patches pair with ships its own copy of the map ids, and
+its `NAME_FROM_ID` array carries the readable name for an id rather than an enum spelling: id `148` is
+`"Ascalon City"`, not `Ascalon_City_outpost` (`Py4GW_Reforged_Native`, `include/GW/common/constants/
+maps.h`, commit `e2f56648`, the array the file's own comment says "needs testing").
+
+It covers 115 of the pack's 137: the array holds 729 entries and the pack's ids run to 882, so the ids
+above 728 are outside it. Those are 779, 787, 796, 823, 824, 825, 826, 827, 828, 829, 831, 832, 833, 834, 835, 836, 877, 878, 879, 880, 881, 882.
+
+The enum in the same header is smaller than GWCA's: 698 entries, and 104 of the 137 ids.
+
+The sources do not agree word for word, and the difference is the interesting part. For 77 of the 115
+ids the display string is not the enum's spelling: `75` is `"The Hall of Heroes"` where the enum says
+`The_Hall_of_Heroes_arena_mission` and Py4GW's table says `The Hall of Heroes Arena`, and `4` is
+`"Warriors Isle"` where the table says `Guild Hall - Warrior's Isle`.
+
+So a name is not settled by picking a table. The name the client shows is the one its `AreaInfo`
+record points at - `DecodeStringId(area->name_id)`, and no read of that record for these ids has been
+taken yet. Until it is, this file records what each source says and none of them is the answer.
