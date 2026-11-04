@@ -168,7 +168,14 @@ pub async fn answer(
     // reconnect after a travel names a map the world has already decided, and a request for an outpost is
     // answered as asked.
     let map_id = match asura_db::game::spawn_map(pool, map_id).await {
-        Ok(Some(placed)) if placed.map_type != MAP_TYPE_MAIN_TOWN => {
+        // The creation instance is a destination in its own right: a client that asks for it is about
+        // to make a character, and the base rule must not capture it. Without this the request is
+        // answered with the last outpost and the creation screen never opens (`logs/auth.log`:
+        // "map 0 is not an outpost (type 11)" twice, then a loading screen the client cannot leave).
+        Ok(Some(placed))
+            if placed.map_type != MAP_TYPE_MAIN_TOWN
+                && placed.map_type != MAP_TYPE_CHARACTER_CREATION as i32 =>
+        {
             match asura_db::game::settings(pool, character_id).await {
                 Ok(Some(settings)) => {
                     // A character that has never been placed in an outpost has no last outpost to return
