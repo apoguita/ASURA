@@ -35,7 +35,7 @@ conditions of the next section hold for it.
 |---|---|---|---|---|
 | 1 | wire and codec | `asura-protocol`, 16 files, 7,952 lines | evidence | `[-]` closed |
 | 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | closed |
-| 3 | rules | `asura-rules`, 1 file, 208 lines, 8 tests; **no dependencies** | rules | open |
+| 3 | rules | `asura-rules`, 1 file, 289 lines, 10 tests; **no dependencies** | rules | open |
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | closed |
 | 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | `[x]` closed |
 | 6 | web gate | `asura-webgate`, 2 files, 696 lines | rules | `[x]` closed |
@@ -139,11 +139,12 @@ Files: `src/lib.rs` 208 lines, 8 tests.
 
 - [x] created because a protocol answer needed a game rule and no existing crate fits: `asura-db` is
       storage and `asura-world` may not exist yet at login (`docs/38`, D25) - commit `4b09d17`
-- [x] the rule holds no value of its own (`docs/38`, D34): `DEFAULT_OUTPOST` is gone, and
-      `placement` answers `Option<i32>` - `None` with `Substituted::NothingToPlace` when the
-      character's row names neither a map nor an outpost. The outpost a character enters is written
-      by character creation, by a scripted event and by travelling; the login refuses with the
-      reference's network error instead of inventing one. 10 rule and 3 auth unit tests pass
+- [x] the rule holds no value of its own (`docs/38`, D34): `DEFAULT_OUTPOST` is gone. The fallback
+      outpost is `config/Server/placement.json` (`default_outpost`, read by `asura-config`), and it
+      arrives at `placement` as an argument, which answers with it plus
+      `Substituted::NothingToPlace` when the character's row names neither a map nor an outpost. The
+      outpost a character enters is written by character creation, by a scripted event and by
+      travelling - never by this layer. 10 rule, 5 config and 3 auth unit tests pass
 - [ ] the next rule that needs a home goes here rather than into a service: party and instance policy
       (`docs/32` phase 2) is the first candidate
 

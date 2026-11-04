@@ -87,13 +87,16 @@ pub enum Substituted {
 ///    screen, not entering the world.
 /// 2. A client that names the creation instance as a place (`map_type` 0, map 0) is asking the
 ///    mistaken question that follows a creation confirm. The answer is the character's own row, then
-///    its last outpost - never map 0, which has no map file and leaves the client on a loading screen.
-///    **When the row says neither, there is no answer**: this crate holds no fallback and invents none.
-///    The outpost a character enters is written by character creation, by a scripted event and by
-///    travelling, so a value for a character with no history is the row's reader's business, not a
-///    rule's.
+///    its last outpost, then [`fallback_outpost`] - never map 0, which has no map file and leaves the
+///    client on a loading screen.
 /// 3. Any other destination that is not a main town is replaced by the last outpost, because entering
-///    the game puts the character in the last outpost it visited.
+///    the game puts the character in the last outpost it visited; with no last outpost, again the
+///    fallback.
+///
+/// `fallback_outpost` is where a character with no placement history is put. It is configuration - one
+/// number in `config/Server/placement.json` - and it arrives as an argument, because the outpost a
+/// character enters is written by character creation, by a scripted event and by travelling, never by
+/// a rule. This function holds no value of its own (`docs/38-layer-decisions.md`, D34).
 ///
 /// `destination_type` is the map type of the map being asked for, as the caller read it, or `None`
 /// when the map is not in the catalogue - an unknown map is left alone for the caller to refuse.
@@ -101,48 +104,46 @@ pub fn placement(
     request: Requested,
     character: Character,
     destination_type: Option<i32>,
-) -> (Option<i32>, Option<Substituted>) {
+    fallback_outpost: i32,
+) -> (i32, Option<Substituted>) {
     // 1. A creation visit is its own destination.
     if request.map_id == CREATION_MAP && request.map_type == MAP_TYPE_CHARACTER_CREATION as u32 {
-        return (Some(request.map_id), None);
+        return (request.map_id, None);
     }
 
     // 2. The mistaken creation request: map 0 named as a place.
     if request.map_id == CREATION_MAP {
         if character.map_id != CREATION_MAP {
             return (
-                Some(character.map_id),
+                character.map_id,
                 Some(Substituted::CreationNamedAsPlace("the character's row")),
             );
         }
         if character.last_outpost != CREATION_MAP {
             return (
-                Some(character.last_outpost),
+                character.last_outpost,
                 Some(Substituted::CreationNamedAsPlace("its last outpost")),
             );
         }
-        // The row names no map and no outpost. A rule does not make one up.
-        return (None, Some(Substituted::NothingToPlace));
+        // The row names no map and no outpost: the caller's fallback is the answer, not one of ours.
+        return (fallback_outpost, Some(Substituted::NothingToPlace));
     }
 
     // 3. The outpost rule, for every destination that is not a main town.
     let Some(map_type) = destination_type else {
-        return (Some(request.map_id), None);
+        return (request.map_id, None);
     };
     if map_type == MAP_TYPE_MAIN_TOWN {
-        return (Some(request.map_id), None);
+        return (request.map_id, None);
     }
     if character.last_outpost == CREATION_MAP {
-        // The character was never placed, so there is no last outpost to substitute.
-        return (None, Some(Substituted::NothingToPlace));
+        // Never placed, so there is no last outpost to substitute: the fallback, as above.
+        return (fallback_outpost, Some(Substituted::NothingToPlace));
     }
     if character.last_outpost == request.map_id {
-        (Some(request.map_id), None)
+        (request.map_id, None)
     } else {
-        (
-            Some(character.last_outpost),
-            Some(Substituted::NotAnOutpost),
-        )
+        (character.last_outpost, Some(Substituted::NotAnOutpost))
     }
 }
 
@@ -162,8 +163,8 @@ mod tests {
             map_type: MAP_TYPE_CHARACTER_CREATION as u32,
         };
         assert_eq!(
-            placement(request, FRESH, Some(11)),
-            (Some(CREATION_MAP), None)
+            placement(request, FRESH, Some(11), 148),
+            (CREATION_MAP, None)
         );
     }
 
@@ -178,8 +179,8 @@ mod tests {
             map_id: 212,
             last_outpost: CREATION_MAP,
         };
-        let (map, why) = placement(request, character, Some(11));
-        assert_eq!(map, Some(212), "the map the confirm wrote");
+        let (map, why) = placement(request, character, Some(11), 148);
+        assert_eq!(map, 212, "the map the confirm wrote");
         assert_eq!(
             why,
             Some(Substituted::CreationNamedAsPlace("the character's row"))
@@ -196,11 +197,11 @@ mod tests {
             map_id: CREATION_MAP,
             last_outpost: 163,
         };
-        assert_eq!(placement(request, character, Some(11)).0, Some(163));
+        assert_eq!(placement(request, character, Some(11), 148).0, 163);
     }
 
     #[test]
-    fn a_character_with_no_history_gets_no_answer_rather_than_an_invented_one() {
+    fn a_character_with_no_history_gets_the_fallback_it_was_handed() {
         // The outpost a character enters is written by creation, by a scripted event and by travelling.
         // A row that says none of that happened has no map to be placed in, and this rule does not make
         // one up (D34).
@@ -209,8 +210,8 @@ mod tests {
             map_type: MAP_TYPE_MAIN_TOWN as u32,
         };
         assert_eq!(
-            placement(request, FRESH, Some(11)),
-            (None, Some(Substituted::NothingToPlace))
+            placement(request, FRESH, Some(11), 148),
+            (148, Some(Substituted::NothingToPlace))
         );
     }
 
@@ -224,7 +225,7 @@ mod tests {
             map_id: 163,
             last_outpost: 163,
         };
-        assert_eq!(placement(request, character, Some(0)), (Some(163), None));
+        assert_eq!(placement(request, character, Some(0), 148), (163, None));
     }
 
     #[test]
@@ -238,20 +239,20 @@ mod tests {
             last_outpost: 148,
         };
         assert_eq!(
-            placement(request, character, Some(1)),
-            (Some(148), Some(Substituted::NotAnOutpost))
+            placement(request, character, Some(1), 148),
+            (148, Some(Substituted::NotAnOutpost))
         );
     }
 
     #[test]
-    fn a_character_that_never_saw_an_outpost_and_asks_for_an_explorable_gets_no_answer() {
+    fn a_character_that_never_saw_an_outpost_and_asks_for_an_explorable_gets_the_fallback() {
         let request = Requested {
             map_id: 146,
             map_type: 1,
         };
         assert_eq!(
-            placement(request, FRESH, Some(1)),
-            (None, Some(Substituted::NothingToPlace))
+            placement(request, FRESH, Some(1), 148),
+            (148, Some(Substituted::NothingToPlace))
         );
     }
 
@@ -261,7 +262,7 @@ mod tests {
             map_id: 999,
             map_type: 1,
         };
-        assert_eq!(placement(request, FRESH, None), (Some(999), None));
+        assert_eq!(placement(request, FRESH, None, 148), (999, None));
     }
 
     #[test]

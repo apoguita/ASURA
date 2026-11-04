@@ -164,18 +164,12 @@ pub async fn answer(
         },
         character,
         destination_type,
+        // Where a character with no placement history goes. The value is configuration, not a rule's
+        // (`config/Server/placement.json`, `docs/38-layer-decisions.md` D34): character creation, a
+        // scripted event and travelling write the real one, and this is only the fallback for a row
+        // that says none of them happened.
+        asura_config::placement().default_outpost,
     );
-    let Some(placed_map) = placed_map else {
-        // The rule says the character's row names no map and no outpost - it was never created, never
-        // placed and never travelled. Nothing here invents a place for it: the login refuses, and the
-        // log says which row was empty so the cause can be found.
-        eprintln!(
-            "auth: travel to map {map_id} refused: the character's row names no map and no last outpost \
-             (map_id {}, last_outpost {}), so the placement rule has nothing to answer with",
-            character.map_id, character.last_outpost
-        );
-        return Ok(request_frames(STATUS_NETWORK_ERROR));
-    };
     match substituted {
         Some(asura_rules::Substituted::CreationNamedAsPlace(from)) => eprintln!(
             "auth: the client named the creation instance as a place; placing it in map \
@@ -186,7 +180,12 @@ pub async fn answer(
              outpost, map {placed_map}, instead",
             destination_type.unwrap_or(-1)
         ),
-        Some(asura_rules::Substituted::NothingToPlace) | None => {}
+        Some(asura_rules::Substituted::NothingToPlace) => eprintln!(
+            "auth: the character's row names no map and no last outpost (map_id {}, last_outpost {}); \
+             using the configured fallback outpost {placed_map}",
+            character.map_id, character.last_outpost
+        ),
+        None => {}
     }
     let map_id = placed_map;
     let candidates = placement::find_worlds(pool, map_id, world_max_age_secs(), MAX_CANDIDATES)

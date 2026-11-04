@@ -163,12 +163,88 @@ pub fn intervals() -> &'static Intervals {
     })
 }
 
+/// The file that holds the placement values: what the world says when a character's row names nothing.
+pub const PLACEMENT_FILE: &str = "config/Server/placement.json";
+
+/// The variable that names a different placement file.
+pub const PLACEMENT_VARIABLE: &str = "ASURA_PLACEMENT";
+
+/// The values placement needs from the world rather than from a rule.
+///
+/// One key today: the outpost a character enters when its row names neither a map nor a last outpost -
+/// a row written before character creation filled one in. It is Ascalon City (pre-Searing) in the base
+/// game, and it is a stand-in for a campaign whose own starting outpost this tree has not measured
+/// (`docs/22-world-model.md`), so it belongs beside the other values a machine runs on and not inside a
+/// decision (`docs/38-layer-decisions.md`, D34).
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Placement {
+    /// Free text for whoever opens the file; never read by the server.
+    #[serde(default)]
+    pub note: Option<String>,
+    /// Where a character with no placement history is put.
+    pub default_outpost: i32,
+}
+
+impl Default for Placement {
+    fn default() -> Self {
+        Placement {
+            note: None,
+            default_outpost: 148,
+        }
+    }
+}
+
+impl Placement {
+    /// Parse the file's text.
+    pub fn from_json(text: &str) -> Result<Placement, String> {
+        serde_json::from_str(text).map_err(|err| err.to_string())
+    }
+}
+
+/// The placement values in force, read once per process.
+///
+/// A missing file is the defaults, and a file that does not parse is reported rather than silently
+/// ignored: a server placing characters somewhere nobody chose is worse than one that says why.
+pub fn placement() -> &'static Placement {
+    static IN_FORCE: OnceLock<Placement> = OnceLock::new();
+    IN_FORCE.get_or_init(|| {
+        let path = match std::env::var(PLACEMENT_VARIABLE) {
+            Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
+            _ => PLACEMENT_FILE.to_string(),
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match Placement::from_json(&text) {
+                Ok(placement) => {
+                    eprintln!("asura: placement from {path}");
+                    placement
+                }
+                Err(err) => {
+                    eprintln!("asura: {path} is not a valid placement file: {err}; using the defaults");
+                    Placement::default()
+                }
+            },
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!("asura: no placement file at {path}; using the defaults");
+                Placement::default()
+            }
+            Err(err) => {
+                eprintln!("asura: {path} is not readable: {err}; using the defaults");
+                Placement::default()
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// The committed file, parsed the way a service parses it.
     const COMMITTED: &str = include_str!("../../../config/Server/intervals.json");
+
+    /// The committed placement file, parsed the way the services parse it.
+    const PLACEMENT_COMMITTED: &str = include_str!("../../../config/Server/placement.json");
 
     #[test]
     fn the_committed_file_states_the_defaults() {
@@ -187,6 +263,20 @@ mod tests {
         assert!(
             from_file.note.is_some(),
             "the file says where its numbers came from"
+        );
+    }
+
+    #[test]
+    fn the_committed_placement_file_states_the_default_outpost() {
+        let placement =
+            Placement::from_json(PLACEMENT_COMMITTED).expect("the committed file parses");
+        assert_eq!(
+            placement.default_outpost,
+            Placement::default().default_outpost
+        );
+        assert!(
+            placement.note.is_some(),
+            "the file says where its number came from"
         );
     }
 
