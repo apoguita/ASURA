@@ -14,6 +14,7 @@ version = "0.1.0"
 dependencies = [
  "asura-db",
  "asura-protocol",
+ "asura-rules",
  "getrandom 0.2.17",
  "tokio",
  "uuid",
@@ -42,6 +43,10 @@ version = "0.1.0"
 dependencies = [
  "num-bigint-dig",
 ]
+
+[[package]]
+name = "asura-rules"
+version = "0.1.0"
 
 [[package]]
 name = "asura-supervisor"
