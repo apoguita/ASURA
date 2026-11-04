@@ -15,5 +15,7 @@ getrandom = { workspace = true }
 
 [dev-dependencies]
 # The end-to-end test drives the real listener over a loopback socket, using the reference client in
-# `asura-protocol::client::peer`. No game client is involved.
+# `asura-protocol::client::peer`. No game client is involved. The fake client is compiled only on
+# request (`docs/38-layer-decisions.md`, D13), so the tests and `examples/probe.rs` ask for it here.
 tokio = { workspace = true }
+asura-protocol = { path = "../asura-protocol", features = ["test-client"] }

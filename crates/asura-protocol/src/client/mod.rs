@@ -28,6 +28,9 @@ pub mod frame;
 pub mod game;
 pub mod handshake;
 pub mod messages;
+/// A fake game client for tests and for `asura-auth/examples/probe.rs`, never for the server
+/// (`docs/38-layer-decisions.md`, D13). Compiled only when a consumer asks for `test-client`.
+#[cfg(feature = "test-client")]
 pub mod peer;
 pub mod version;
 
@@ -38,8 +41,9 @@ pub use crate::packets::auth as tables;
 /// The game family's view of the same table: the lookups and constants a world connection uses.
 pub use crate::packets::game as game_tables;
 
-/// The login batch's fixed data. Real data, so it is compiled in:
-/// `AUTH_SMSG_ACCOUNT_SETTINGS` carries this blob on every login.
+/// The login batch's fixed data: the 591-byte blob `AUTH_SMSG_ACCOUNT_SETTINGS` carries on every
+/// login, copied from the reference's own literal and sent by `messages::account_settings`
+/// (`messages.rs:577`). Real payload, not a test fixture, whatever the module's name says.
 pub mod login_fixtures;
 
 pub use crate::packets::Packet as Entry;
@@ -47,6 +51,7 @@ pub use arc4::Arc4;
 pub use frame::{Frame, FrameError};
 pub use handshake::{ClientSeed, Established, HandshakeError};
 pub use messages::{PortalAccountLogin, RequestResponse};
+#[cfg(feature = "test-client")]
 pub use peer::ReferenceClient;
 
 /// Server -> client: where to go. GWPS's own struct, verbatim (`GameMsg.h:659`): 46 bytes, a
