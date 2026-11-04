@@ -84,7 +84,7 @@ async fn main() -> ExitCode {
         character_name: String::new(),
         kind: "Portal".to_string(),
     }
-    .frame()
+    .try_to_frame()
     .expect("builds");
     let mut login_bytes = login.encode();
     client.seal_raw(&mut login_bytes);

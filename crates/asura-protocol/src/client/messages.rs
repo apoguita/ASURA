@@ -330,8 +330,11 @@ impl PortalAccountLogin {
         })
     }
 
-    /// Build the message, which is what the reference client in [`super::peer`] does.
-    pub fn frame(&self) -> Result<Frame, MessageError> {
+    /// Build the message, which is what the reference client in [`super::reference_client`] does.
+    ///
+    /// Fallible, because the character name must fit its counted field: a builder that can refuse
+    /// says so in its name. `RequestResponse::frame` cannot fail and does not carry the prefix.
+    pub fn try_to_frame(&self) -> Result<Frame, MessageError> {
         let mut writer = Writer::new();
         writer
             .u32(self.request)
@@ -793,7 +796,7 @@ mod tests {
             character_name: String::new(),
             kind: "Portal".to_string(),
         };
-        let frame = login.frame().expect("builds");
+        let frame = login.try_to_frame().expect("builds");
         // header 2, req_id 4, two 16-byte ids, an empty name (2), a six-unit type (2 + 12).
         assert_eq!(frame.len(), 54);
         assert!(
@@ -885,7 +888,7 @@ mod tests {
             kind: "Gw1".to_string(),
         };
 
-        let bytes = login.frame().expect("builds").encode();
+        let bytes = login.try_to_frame().expect("builds").encode();
         let (frame, used) = Frame::decode_client_message(&bytes).expect("frames");
         assert_eq!(used, bytes.len());
 
@@ -916,7 +919,7 @@ mod tests {
             kind: String::new(),
         };
         assert!(matches!(
-            login.frame(),
+            login.try_to_frame(),
             Err(MessageError::TooLong {
                 field: "charname",
                 ..
@@ -950,7 +953,7 @@ mod tests {
             character_name: "A".to_string(),
             kind: String::new(),
         };
-        let frame = login.frame().expect("builds");
+        let frame = login.try_to_frame().expect("builds");
         // One message, one representation: a body that ends early is a message built eight bytes
         // short, and it is refused because the table says what its fields must add up to.
         let short = frame.body().len() - 8;
@@ -986,7 +989,7 @@ mod tests {
             character_name: "A".to_string(),
             kind: String::new(),
         }
-        .frame()
+        .try_to_frame()
         .expect("builds");
 
         // The charname count sits after req_id, user_id and session_id.
@@ -1011,7 +1014,7 @@ mod tests {
             character_name: String::new(),
             kind: String::new(),
         };
-        let bytes = login.frame().expect("builds").encode();
+        let bytes = login.try_to_frame().expect("builds").encode();
         let (frame, _) = Frame::decode_client_message(&bytes).expect("frames");
         let decoded = PortalAccountLogin::decode(&frame).expect("decodes");
         assert_eq!(decoded.character_name, "");

@@ -276,7 +276,7 @@ impl ReferenceClient {
             character_name: String::new(),
             kind: "Gw1".to_string(),
         }
-        .frame()
+        .try_to_frame()
         .map_err(ClientError::Message)
     }
 }
