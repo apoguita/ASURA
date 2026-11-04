@@ -69,9 +69,9 @@ Files: `packets.rs` 2,106 (782 rows, 403 consts), `game/mod.rs` 1,711, `game/app
 - [x] the layer passes the repository's own checks: `cargo clippy -p asura-protocol --all-targets
       -- -D warnings` and `cargo fmt --check` are both clean for this crate - commits `f62ee4a`
       (two needless borrows) and `276a8c2` (rustfmt on `frame.rs`)
-- [ ] the thirteen files `cargo fmt --all --check` still rewrites live in `asura-auth` (3) and
-      `asura-world` (10); each belongs to its own layer, so CI stays red until layers 3 and 5-10
-      are visited
+- [x] the workspace's format check is green: `cargo fmt --all --check` exits 0 - commit `1138762`,
+      which formatted the nine drifted files in `asura-auth` and `asura-world` and one blank line in
+      this crate; formatting only, 93 protocol, 61 world and 5 auth unit tests pass
 - [x] the naming rule is written down in `client/mod.rs` (`docs/38`, D15) - commit `b2dbc2f`; the
       violations it exposes are the four boxes below, one commit each
 
