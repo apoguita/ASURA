@@ -324,49 +324,6 @@ as part of writing this design.
 This is the proposed panel work order. It does not reorder the simulator's combat/AI/quest
 dependencies or make every workspace an initial release requirement.
 
-## Deferred: an existing editor in a fork (asura-cs, 2026-11-05)
-
-The owner's instruction, 2026-11-05: mark this as a feature to be addressed later. So it is recorded,
-not adopted, and no work is authorized by this section.
-
-An editor of exactly this kind already exists as a working program, outside this repository:
-`aeratemark/ASURA_testfork`, directory `asura-cs` ("ASURA Construction Set"), 56 files and 9,038 lines
-of Python 3.10+ with PySide6, numpy and Panda3D. Read it as a candidate for the map-editor half of this
-document, not as a dependency and not as a design.
-
-What it has, verified by running it rather than by reading its README:
-
-- A 3D view (Panda3D rendering offscreen into a Qt window, `wglGraphicsPipe` on this machine) and Nox
-  style 2D top/front/side orthographic views over the hillshaded terrain, the path graph and scenery.
-- Object, property, hierarchy, palette, dialogue, quest and script panels, an undo stack, and validation
-  that runs `luac -p`.
-- Its own Gw.dat reader (a port of `crates/asura-world/src/gwdat.rs` plus the FA decompressor), GWMB
-  export import, and `data/path-graphs.bin`; it builds a starting map set from the migrations,
-  `tools/map-config.sql`, `data/portals.json` and `portals.rs`.
-- A profile folder format (`asura-cs-profile/1`, JSON plus Lua) and a deploy path: SQL through
-  `psql -v ON_ERROR_STOP=1 -f`, then `asura-supervisor restart <service>`.
-- `tests/smoke_ui.py` against a stand-in Qt printed `UI smoke OK: 11 maps; 16 undo steps`.
-
-What it collides with, which is why it is deferred rather than ported:
-
-- It answers, by existing, three questions this document leaves to the owner: desktop or browser, the
-  launch model, and whether the map editor belongs in the first release.
-- It implements a profile store and a storage/deploy path that `docs/34-self-contained-profiles.md`
-  says must be chosen before any code is written.
-- 13 of its files are not ASCII, which `AGENTS.md` section 5 forbids in this tree.
-- It commits Gw.dat extractions as tables (`tools/portals_dump.json` 22 KB, `tools/doors_dump.json`
-  18 KB) while its own README says no ArenaNet data ships with it.
-- Its deploy rewrites a map's `map_spawn` and `map_portal` rows wholesale and stamps
-  `source = 'editor'` over the provenance strings the doorway table carries.
-- Its own test `tests/test_core.py:366` fails against the fork, because it expects the measured-crossing
-  doorways that the fork's `0025_map_portals.sql` deletes.
-
-To look at it without touching this tree: a 64-bit interpreter (the `python` on PATH here is 32-bit and
-has no PySide6 wheels), `python -m venv .venv`, `pip install PySide6 numpy panda3d`, then
-`run_editor.py`. Its settings file is `~/.asura_cs/settings.json` (`asura_root`, `gw_dat`, `cache_dir`).
-`File > Apply spawns and portals to ASURA` writes to the live database and restarts services; every
-other path is local.
-
 ## Questions before implementation
 
 - Is the first setup entirely on the owner's Windows machine, or must it manage a remote
