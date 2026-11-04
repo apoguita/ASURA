@@ -135,7 +135,8 @@ Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
 
 ## Layer 3 - rules (`asura-rules`)
 
-Files: `src/lib.rs` 208 lines, 8 tests.
+Files: `src/lib.rs` 274 lines, 8 tests, one dependency (`asura-protocol`, for the client's
+`MapKinds` type).
 
 - [x] created because a protocol answer needed a game rule and no existing crate fits: `asura-db` is
       storage and `asura-world` may not exist yet at login (`docs/38`, D25) - commit `4b09d17`
@@ -149,6 +150,11 @@ Files: `src/lib.rs` 208 lines, 8 tests.
       travelling - never by this layer. 10 rule, 5 config and 3 auth unit tests pass
 - [ ] the next rule that needs a home goes here rather than into a service: party and instance policy
       (`docs/32` phase 2) is the first candidate
+
+- [x] the layer holds no value of its own and reads only (`AGENTS.md` 4a, `docs/38` D34-D35): the
+      fallback outpost, the creation map id and the client's three map kinds are
+      `config/Server/defaults.json`, each with a `doc` and an `immutable` flag, and every one reaches
+      `placement` as an argument
 
 ## Layer 4 - auth service (`asura-auth`)
 

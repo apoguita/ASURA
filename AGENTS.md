@@ -159,6 +159,35 @@ What the mode asks for instead: each candidate, its limits axis by axis, one cla
 evidence, the setups the owner has not listed, and the list of what is still not measured. It ends with
 the question that would sharpen it, never with a conclusion.
 
+## 4a. Values are configuration, decisions are code, and a rule reads only
+
+Three kinds of thing, kept apart (`docs/38-layer-decisions.md`, D34, D35):
+
+1. **The client's vocabulary** - `MapType` 0/1/11, message headers, field layouts. The wire layer's,
+   documented there. A file may *state* these values for review and must mark them `immutable`, but
+   changing one changes what this server believes, never what the client does.
+2. **Values that describe the world** - who spawns where, where a character with no history enters, the
+   map catalogue, the cadences this machine runs at. These are **files**, never compiled constants.
+3. **Decisions** - "this destination is not an outpost, so put the character in its last one". These are
+   `asura-rules`, which takes 1 and 2 as arguments, holds no value of its own, reads no file, opens no
+   connection and prints nothing.
+
+The rules that follow from that, and they are binding:
+
+- **No hardcoded value, even when the contract never changes.** A compiled number is invisible and
+  unreachable; it goes in a file so it can be read and reviewed.
+- **Where the files go.** `config/Server/` for what this machine runs on (the intervals, the values a
+  world falls back on - `asura-config` reads them). `config/World/<pack>/` for what the world contains,
+  one JSON per concern, `Vanilla` as the faithful base (`docs/38`, D23, D24).
+- **What a config file holds: values.** One key per value, each with a sentence saying what it means, and
+  `immutable` where it may not be changed. It holds **no provenance and no reporting**: "measured",
+  "implemented", "unverified" are not configuration. Evidence lives in `docs/` with the recording it names
+  beside it - the file answers *what it is*, the document answers *why we believe it*.
+- **Values with no answer say so.** A key whose map has not been established is `null`, and the caller
+  refuses the action with a logged reason instead of choosing on the player's behalf.
+- **A layer's file list is not a licence.** Before adding a number to a constant, ask which of the three
+  kinds it is; two of them are not code.
+
 ## 5. Every file is ASCII
 
 ```powershell
