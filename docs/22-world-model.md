@@ -125,7 +125,9 @@ character stands in, not a map id - and `0x80B1` twice, beginning with the desti
 server answers either with the pair `/tp` already sends. The layout, the counts and the sequence are in
 `docs/03-protocol.md` 5f. **The client does announce the crossing, so nothing about this feature waits on
 a new measurement; the portal table is recorded** (`crates/asura-world/src/portals.rs`, generated from
-`data/portals.json`), and a doorway a walk reaches starts the same `begin_transfer` the other triggers do
+`data/portals.json` - and read from the `map_portal` table instead when the database has rows,
+`0025_map_portals.sql` and `portals::install`), and a doorway a walk reaches starts the same `begin_transfer`
+the other triggers do
 (`crates/asura-world/src/travel.rs:364-433`). The `0x80C1` arm now does the same thing: it names the touch
 and then applies that crossing test (`crates/asura-world/src/dispatch.rs:56-60`). What is still open is the
 agent-keyed lookup - the message names the portal's agent, and the doorway is found by position instead -

@@ -132,15 +132,60 @@ pub const PORTALS: &[Portal] = &[
     Portal { from_instance: 449, x: -7297.0, y: 6184.0, to_instance: None, arrive: None },
 ];
 
+/// The doorways read from the database (`map_portal`) at start-up, when there are any.
+///
+/// Portals are content (docs/32, Phase 1): a profile edits them and a restart picks them up, with no
+/// rebuild. The compiled tables above stay as the fallback for a database that has no `map_portal` rows
+/// yet, so a world against an older schema behaves exactly as before.
+static LOADED: std::sync::OnceLock<Vec<Portal>> = std::sync::OnceLock::new();
+
+/// Install the database's doorways. Called once, by `main`, before the world accepts a connection;
+/// a second call is ignored and answers `false`.
+pub fn install(portals: Vec<Portal>) -> bool {
+    LOADED.set(portals).is_ok()
+}
+
+/// Every doorway this world knows: the database's when it has some, the compiled tables otherwise.
+fn table() -> Box<dyn Iterator<Item = &'static Portal>> {
+    match LOADED.get() {
+        Some(rows) if !rows.is_empty() => Box::new(rows.iter()),
+        _ => Box::new(CROSSED.iter().chain(PORTALS.iter())),
+    }
+}
+
+/// The first doorway of `from_instance` in **table order** that is within `REACH` of `(x, y)`.
+///
+/// Table order is the rule and it is not re-ranked here: `CROSSED` is searched before `PORTALS`, and where
+/// two rows overlap the earlier one answers. A doorway listed twice therefore fires on whichever row comes
+/// first, which is the reference's own precedence and what `docs/32-world-simulation-plan.md` work package 5
+/// requires be preserved ("Do not deduplicate, reorder, or reinterpret them").
+fn at(
+    rows: impl Iterator<Item = &'static Portal>,
+    from_instance: i32,
+    x: f32,
+    y: f32,
+) -> Option<&'static Portal> {
+    rows.filter(|portal| portal.from_instance == from_instance)
+        .find(|portal| (portal.x - x).powi(2) + (portal.y - y).powi(2) <= REACH * REACH)
+}
+
+/// The first doorway of `from_instance` in **table order** whose centre is within `REACH` of the segment.
+fn along(
+    rows: impl Iterator<Item = &'static Portal>,
+    from_instance: i32,
+    from: (f32, f32),
+    to: (f32, f32),
+) -> Option<&'static Portal> {
+    rows.filter(|portal| portal.from_instance == from_instance)
+        .find(|portal| distance_to_segment((portal.x, portal.y), from, to) <= REACH)
+}
+
 /// The doorway a position in `from_instance` is standing in, if any.
 ///
 /// A doorway without a destination still answers: the caller decides what to do with it, and today that is
 /// a log line naming the coordinates - the measurement that fills `to_instance` for the next session.
 pub fn portal_at(from_instance: i32, x: f32, y: f32) -> Option<&'static Portal> {
-    CROSSED.iter().chain(PORTALS.iter()).find(|portal| {
-        portal.from_instance == from_instance
-            && (portal.x - x).powi(2) + (portal.y - y).powi(2) <= REACH * REACH
-    })
+    at(table(), from_instance, x, y)
 }
 
 /// The doorway a **walk passes through**, given where the character stands and where it is going.
@@ -155,11 +200,7 @@ pub fn portal_along(
     from: (f32, f32),
     to: (f32, f32),
 ) -> Option<&'static Portal> {
-    CROSSED
-        .iter()
-        .chain(PORTALS.iter())
-        .filter(|portal| portal.from_instance == from_instance)
-        .find(|portal| distance_to_segment((portal.x, portal.y), from, to) <= REACH)
+    along(table(), from_instance, from, to)
 }
 
 /// How far a point is from the segment `a`-`b`, in the map's own units.

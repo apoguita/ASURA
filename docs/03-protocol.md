@@ -439,6 +439,13 @@ answer 3). A doorway a walk reaches fires the crossing, and so does a touch: the
 touch and then applies the same crossing test a position report does
 (`crates/asura-world/src/dispatch.rs:56-60`, `travel::portal_reached`).
 
+The table itself is **content**, not a compiled constant: `asura-world` reads `map_portal` once at
+start-up (`crates/asura-db/migrations/0025_map_portals.sql`, `asura_db::game::map_portals`,
+`portals::install`) and keeps the compiled `PORTALS` table only as the fallback for a database with no
+rows there. That is `docs/32-world-simulation-plan.md` Phase 1's read model, so a doorway is edited with
+no rebuild. Table order is the trigger order and is not re-ranked: `CROSSED` before `PORTALS` while the
+compiled table answers, and the rows' own `(map_id, idx)` order when the database does.
+
 The `0x00C1` messages seen in `captures/zone-ref2-012225.jsonl` are therefore **not** the crossing; they
 are the client asking about instances, and what they are owed is still open.
 
