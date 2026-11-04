@@ -11,6 +11,26 @@
 //! Vendor: PostgreSQL, a recorded deviation from AzerothCore's MySQL
 //! (`docs/adr/0008-database-vendor.md`). The *structure* stays theirs; only the driver and the DDL
 //! dialect differ, and both live behind this crate.
+//!
+//! ## What this database is for, and what is only passing through
+//!
+//! Two kinds of row live here, and they are leaving in different directions
+//! (`docs/38-layer-decisions.md`, D20, D21, D23).
+//!
+//! **Operational state stays.** A row that changes while the server runs belongs here: `characters`,
+//! `bag`, `item`, `session`, `account`, `transfer`, `lease`, `world`, `world_pool`, `service`,
+//! `instance_unlock`, and the saved position. A character's gold changes while the server runs, and
+//! nothing else may own that number.
+//!
+//! **Content is passing through.** A row that only *describes* the game will leave for a package
+//! folder, where an author can copy and edit it without SQL: `map_config`, `map_spawn`, `map_portal`,
+//! and the 214 `INSERT`s of map content inside migrations `0013`, `0014` and `0016`-`0022`. Until that
+//! move is scheduled those tables are still how the world and the auth service read a map, so they
+//! stay correct - but no new content row belongs in a migration. A new map is a row in `map_config`
+//! only because the move has not happened yet.
+//!
+//! One sentence decides which side a new table is on: does the row change while the server runs? If
+//! it does, it is state and stays. If it only describes the game, it is content and will move.
 
 /// The initial schema, compiled into the binary so a developer can apply it without hunting for files.
 pub const SCHEMA_V1: &str = include_str!("../migrations/0001_init.sql");
