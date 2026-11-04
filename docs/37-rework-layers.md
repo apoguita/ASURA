@@ -58,7 +58,12 @@ Files: `packets.rs` (2,105; 782 rows, 403 consts), `game/mod.rs` (1,754; 109 con
 
 - [-] holds by design - the packet table is the specification (`AGENTS.md` #1)
 - [ ] content that is misplaced here is moved out: `game/pvp_items.rs`, 1,567 lines of item rows
-- [ ] `client/login_fixtures.rs` (49 lines) reviewed as fixture rather than table
+- [x] test client gated: `client/peer.rs` behind the `test-client` feature (`docs/38`, D13) - commit
+      `8e7448b`; `cargo check --workspace` and `--all-targets` exit 0, 93 protocol tests pass
+- [x] `client/login_fixtures.rs` is payload, not a fixture: `messages::account_settings` sends it on
+      every login (`messages.rs:577`), so it stays in the wire layer
+- [x] header numbers have one source: `MAP_INIT_START` and `INSTANCE_TABLE` aliased `packets.rs`, the
+      last two literals of 66 - commit `31b5bfa`, 93 protocol tests pass
 
 ## Layer 2 - storage and schema
 

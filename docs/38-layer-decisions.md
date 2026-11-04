@@ -1,4 +1,5 @@
-# Layer decisions: why the layers are arranged as they are
+#| D13 | `client::peer` (421 lines, a fake game client) is compiled only behind the `test-client` feature, which `asura-auth` and `asura-world` turn on in `[dev-dependencies]`; the server's production build carries no test client. `client/login_fixtures.rs` is **not** a fixture - it is the 591-byte `AUTH_SMSG_ACCOUNT_SETTINGS` payload that `messages::account_settings` sends on every login (`messages.rs:577`) - so it stays, and only its name is wrong | accepted | A test client in the production path is code that cannot fail in production and is never exercised there; a payload misnamed a fixture invites someone to delete it as dead test data | `crates/asura-protocol/Cargo.toml`, `crates/asura-protocol/src/client/mod.rs`, `crates/asura-auth/tests/login.rs:21`, `crates/asura-db` unused |
+ Layer decisions: why the layers are arranged as they are
 
 One entry per decision, with the reason and the evidence. This is the log the checklist in
 `docs/37-rework-layers.md` points to: the checklist tracks what moved, this file tracks why the
