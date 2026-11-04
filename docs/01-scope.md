@@ -74,7 +74,7 @@ What a world refuses is a map it cannot serve or one with no free seat.
 ### The gameplay connection
 
 The client dials the auth address for its gameplay connection too, so the socket lands on the auth
-service, which copies it to the world that hosts the instance (`crates/asura-auth/src/frontdoor.rs`,
+service, which copies it to the world that hosts the instance (`crates/asura-gateway/src/relay.rs`,
 `copy_bidirectional`). The auth service runs no map; it relays bytes and never looks inside them
 (`docs/02-architecture.md`, "Components").
 

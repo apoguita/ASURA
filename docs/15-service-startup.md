@@ -107,7 +107,7 @@ Facts worth carrying into the decision:
   `find_worlds` reads both, `set_draining` writes one, and `asura-supervisor deploy-world --old --new`
   performs the rolling deploy (`crates/asura-db/src/placement.rs:439-463`,
   `crates/asura-supervisor/src/supervise.rs:525`).
-- **The socket layer is also the game-connection front door** (`crates/asura-gateway/src/frontdoor.rs`):
+- **The socket layer is also the game-connection front door** (`crates/asura-gateway/src/relay.rs`):
   the real client dials the auth address regardless of what `GAME_SERVER_INFO` names, and auth
   routes the socket to the world it handed out. That is a routing responsibility sitting inside a
   service the architecture describes as "not in the data path".

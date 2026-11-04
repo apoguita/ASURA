@@ -1,4 +1,4 @@
-//! The game connection, as the **auth** service sees it: the client's second connection arrives here.
+//! The relay: a client's gameplay connection arrives here and is copied to the world it named.
 //!
 //! This was measured, not assumed. A real client (build 39112) answered `AUTH_SMSG_GAME_SERVER_INFO`
 //! by opening its game connection to the address it was launched with - the auth service - even though

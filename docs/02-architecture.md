@@ -30,7 +30,7 @@ pool. Full table in `docs/adr/0006-azerothcore-is-the-reference.md`.
 The auth service never runs a map. It **is** in the gameplay data path for every gameplay session,
 and that is a consequence of the client, not of this design: the client dials the address the game
 was launched with for its gameplay connection (measured), so the socket lands on the auth service,
-which relays it to the world that hosts the instance (`crates/asura-auth/src/frontdoor.rs`,
+which relays it to the world that hosts the instance (`crates/asura-gateway/src/relay.rs`,
 `copy_bidirectional`). The reference did the same thing through its control channel, inside one
 process; across a process boundary a socket cannot be handed over cleanly, so the relay is a byte
 copy. World servers are interchangeable and disposable. The database is the only thing both kinds

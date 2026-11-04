@@ -642,7 +642,7 @@ After `AUTH_SMSG_GAME_SERVER_INFO` the client opens a **second** connection, to 
 was launched with, and presents the tokens it was issued. The reference names its own address in that
 message, which is why it never noticed; a client handed a *different* address still dials the launch
 address (measured, build 39112), so ASURA's front door relays that connection to the world
-(`crates/asura-auth/src/frontdoor.rs`). Everything below is measured from the reference: the
+(`crates/asura-gateway/src/relay.rs`). Everything below is measured from the reference: the
 message layouts from its packed structs (`GameMsg.h`), the sizes from its own send log, and the order
 from the functions named beside each step.
 

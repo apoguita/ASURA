@@ -13,7 +13,6 @@ name = "asura-auth"
 version = "0.1.0"
 dependencies = [
  "asura-db",
- "asura-gateway",
  "asura-protocol",
  "asura-rules",
  "getrandom 0.2.17",

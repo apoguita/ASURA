@@ -237,7 +237,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
     // The client is told to dial the **auth** address: that is what a real client does (measured -'- it
     // ignored the port in this same message and dialled the address it was launched with), and it is
     // what the reference does, whose auth port receives game connections and hands them to a game
-    // server. This service routes the connection onwards (`asura_auth::frontdoor`).
+    // server. This service routes the connection onwards (`asura_gateway::relay`).
     let host = &info.body()[12..36];
     assert_eq!(&host[0..2], &[2, 0], "AF_INET");
     let port = u16::from_be_bytes([host[2], host[3]]);

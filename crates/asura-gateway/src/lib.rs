@@ -6,7 +6,7 @@
 //!
 //! * **auth** - hand the socket to `asura_auth::converse`, which speaks the login conversation;
 //! * **game** - find the world the client named in the registry and copy bytes between the two
-//!   ([`frontdoor`]);
+//!   ([`relay`]);
 //! * **anything else** - close it, naming the kind, exactly as the reference does.
 //!
 //! What this crate must never grow: a game rule, a character lookup, a message decoder beyond the four
@@ -23,7 +23,7 @@ use asura_protocol::Trace;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-pub mod frontdoor;
+pub mod relay;
 
 /// How much to read before classifying: the four bytes that name a connection kind.
 const CLASSIFY_LEN: usize = 4;
@@ -161,7 +161,7 @@ pub async fn handle_connection(
     read_until(&mut stream, &mut buffer, CLASSIFY_LEN).await?;
     let kind = version::classify(&buffer).map_err(Error::UnknownConnection)?;
     match kind {
-        version::ConnectionKind::Game => frontdoor::route(stream, buffer, pool, trace.on())
+        version::ConnectionKind::Game => relay::route(stream, buffer, pool, trace.on())
             .await
             .map_err(Error::GameRoute),
         version::ConnectionKind::Auth => {

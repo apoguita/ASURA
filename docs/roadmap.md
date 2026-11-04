@@ -127,7 +127,7 @@ pings for as long as the client stays.**
 
 The auth service is also the game connection's front door: a real client dials the auth address
 whatever `GAME_SERVER_INFO` names (measured - it ignored the port in that message), so the auth routes
-the socket to the world it named (`crates/asura-auth/src/frontdoor.rs`).
+the socket to the world it named (`crates/asura-gateway/src/relay.rs`).
 
 `crates/asura-world/tests/load.rs` proves the load over a socket - a placed client is loaded into its
 map, a token nobody issued is closed without a word, a transfer naming a different character is

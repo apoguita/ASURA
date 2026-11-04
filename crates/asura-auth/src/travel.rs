@@ -270,7 +270,7 @@ pub async fn answer(
                 candidate.world_id as u32,
                 map_id as u32,
                 // What the client dials, which is this service: the game connection arrives at the
-                // auth port and is routed to `address` (`frontdoor`). Advertising the world's own
+                // auth port and is routed to `address` (`relay`). Advertising the world's own
                 // address would be a lie the client cannot act on - measured: it dials the auth
                 // address regardless of what this field says.
                 messages::host_for(advertised),

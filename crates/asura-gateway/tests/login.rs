@@ -384,7 +384,7 @@ async fn a_closed_session_cannot_log_in() {
 async fn a_game_connection_for_an_unknown_world_is_closed() {
     // A gameplay connection arrives at this port -- that is measured, not assumed: a real client dials
     // the auth address for its second connection whatever `GAME_SERVER_INFO` says. This service routes
-    // it to the world the client named (`frontdoor`), so a game connection naming a world that was
+    // it to the world the client named (`relay`), so a game connection naming a world that was
     // never registered has nowhere to go and is closed without a word. What must not happen is a game
     // connection being negotiated as a login.
     if skip() {
@@ -422,7 +422,7 @@ async fn a_game_connection_for_an_unknown_world_is_closed() {
 /// handed, and this service routes that connection to the world and copies bytes both ways.
 ///
 /// This is the half of a teleport no in-process world test can cover: the world tests dial the world
-/// directly, while a client always dials the auth address (`frontdoor`). The only front-door test before
+/// directly, while a client always dials the auth address (`relay`). The only front-door test before
 /// this one was the refusal -- a world nobody registered -- so the positive path, the one a teleport depends
 /// on, was untested. The "world" here is a bare listener: what is being asserted is the **router** (the
 /// bytes forwarded verbatim, the reply copied back), not the world's protocol.
@@ -444,10 +444,10 @@ async fn a_game_connection_is_routed_to_the_world_it_names() {
     asura_db::placement::register_world(
         &harness.pool,
         world_id,
-        "frontdoor-test",
+        "relay-test",
         &world_address.ip().to_string(),
         i32::from(world_address.port()),
-        "frontdoor-test",
+        "relay-test",
         &[],
     )
     .await
