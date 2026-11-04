@@ -39,7 +39,7 @@ conditions of the next section hold for it.
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | closed |
 | 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | `[x]` closed |
 | 6 | web gate | `asura-webgate`, 2 files, 696 lines | rules | `[x]` closed |
-| 7 | world connection and load | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `capture.rs`, `replay.rs` | rules + rates | `[ ]` |
+| 7 | world connection and load | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `catalogue.rs`; `capture.rs` and `replay.rs` behind `harness` | rules + rates | `[x]` closed |
 | 8 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | `[ ]` |
 | 9 | travel | `travel.rs`, `portals.rs`, `travel_targets.rs` | rules + content | `[~]` |
 | 10 | character | `creation.rs` | rules + content | `[ ]` |
@@ -228,6 +228,9 @@ spawn handler `agent.rs` and the player block `player.rs` (commit `8890603`).
       `cartography.rs`'s. What is left is the load - two blocks, the manifest handshake, and the
       order (`docs/03-protocol.md` 11.3a). The `map_config` read is content and waits on the pack
       (D22) - commits `8890603` and `54cb1f2`, then the two relocations after them
+- [-] the `map_config` read itself leaves for the pack, and this is **parked**: the destination is
+      D22/D23's, the reader switches when a pack file exists, and the table goes last. Marked here so
+      the layer does not read as "everything moved" - the same way layer 2 marks its content rows
 - [x] the two timings and the ping value left `connection.rs`: the world reads them from
       `config/Server/intervals.json` through `asura-config` (`docs/38`, D33), and the file marks the
       tick as measured, the ping interval as the reference's constant and the ping value as
