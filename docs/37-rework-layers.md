@@ -114,11 +114,9 @@ Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
 - [x] the crate adopts the lint policy (`docs/38`, D17): `missing_docs`, `unsafe_code` deny and
       `broken_intra_doc_links` cost 106 one-line docs and three doc links - commit `9925621`; clippy
       `-D warnings`, `cargo doc` and 21 unit tests pass
-- [ ] the split written into the migrations themselves: which tables are content (leaving) and which
-      are operational state (staying) - D21 names both lists
-- [-] `map_config`, `map_spawn` and the 214 `INSERT`s leave for `config/` - **parked**: D20 settles
-      the destination and the owner deferred the move, so these three boxes wait for that decision,
-      not for layer 2 work
+- [-] `map_config`, `map_spawn` and the 214 `INSERT`s leave for a package folder - **parked**: D20
+      settles the destination and the owner deferred the move, so these two boxes wait for that
+      decision, not for layer 2 work
 - [x] `map_portal` is content with provenance (`0025_map_portals.sql`, a `source` column per row)
 - [-] the 214 content `INSERT`s retired - parked with the box above
 
