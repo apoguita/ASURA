@@ -242,6 +242,8 @@ spawn handler `agent.rs` and the player block `player.rs` (commit `8890603`).
       two that join afterwards, and the 24-message head from
       `recordings/asura/world/live-client-session-20261027-222641.jsonl` that proves the order a
       live client survives
+- [x] a real client was run against this build after the moves (owner's session, 2026-11-04): login,
+      load and play. The relocations changed no message, and this is the run that says so
 
 ## Layer 8 - instance and simulation
 
