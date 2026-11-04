@@ -435,8 +435,9 @@ same eight-message stream `/tp` and the world map produce (`docs/03` 5f, the eig
 implementation therefore has a **portal table**: for each instance, the travel portals' positions and
 which instance each leads to - read from the instance's own props, which is where the client draws them
 from (`crates/asura-world/src/portals.rs`, generated from `data/portals.json`; `docs/22-world-model.md`,
-answer 3). A doorway a walk reaches fires the crossing; the `0x80C1` arm still names the touch and starts
-nothing (`crates/asura-world/src/travel.rs:154-166`).
+answer 3). A doorway a walk reaches fires the crossing, and so does a touch: the `0x80C1` arm names the
+touch and then applies the same crossing test a position report does
+(`crates/asura-world/src/dispatch.rs:56-60`, `travel::portal_reached`).
 
 The `0x00C1` messages seen in `captures/zone-ref2-012225.jsonl` are therefore **not** the crossing; they
 are the client asking about instances, and what they are owed is still open.
@@ -538,15 +539,19 @@ then `0x0099`), reached from a different trigger:
   from the archive are the same ordering, and the table can be derived offline, like the path graphs.
 
 **What this world does with `0x80C1` today.** `travel::handle_travel_init`
-(`crates/asura-world/src/travel.rs`) names the touch as an event and starts nothing:
+(`crates/asura-world/src/travel.rs`) names the touch as an event, and the arm then runs the same crossing
+test a position report runs - the doorway is found by the character's position, not by the agent the
+message carries:
 
 ```
 world: "name" touched a travel object in map 148 'Ascalon City (pre-Searing)': TRAVEL_INIT agent
-       0x0000003A, second 0x00000000; no portal row names that agent, so no travel starts
+       0x0000003A, second 0x00000000; checking the doorways at the character's position
 ```
 
 That line is the measurement a portal table is built from - which portal, in which instance - and it is
-printed without `ASURA_TRACE`, because it is the event, not a packet.
+printed without `ASURA_TRACE`, because it is the event, not a packet. The agent id is not the lookup key
+yet: a portal row keyed by the instance and the agent the message names is the next step, and until then a
+touch only crosses where a recorded doorway is already within `portals::REACH`.
 
 ## 6. Traps that cost real time in GWPS
 

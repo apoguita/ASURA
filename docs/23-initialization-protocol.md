@@ -68,8 +68,8 @@ What the client asks while this happens, in the same run: `0x8093` eight times, 
 chosen instance; `0x00C1` twice at a portal, `{1, 0}` then `{0, 0}`. Of the three, the world-map request
 is answered - `GAME_CMSG_PARTY_TRAVEL` ends in the same transfer cycle (`crates/asura-world/src/
 dispatch.rs:58`, `crates/asura-world/src/travel.rs:298`). `0x8093` is named
-(`GAME_CMSG_INSTANCE_QUERY`) and read, and `0x80C1` is read: neither starts anything
-(`crates/asura-world/src/travel.rs:154-166`).
+(`GAME_CMSG_INSTANCE_QUERY`) and read, and `0x80C1` is read and applied: the arm names the touch and then
+runs the crossing test a position report runs (`crates/asura-world/src/dispatch.rs:56-60`).
 
 ## What this world sends today, in order
 

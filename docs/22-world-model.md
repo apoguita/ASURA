@@ -126,8 +126,10 @@ server answers either with the pair `/tp` already sends. The layout, the counts 
 `docs/03-protocol.md` 5f. **The client does announce the crossing, so nothing about this feature waits on
 a new measurement; the portal table is recorded** (`crates/asura-world/src/portals.rs`, generated from
 `data/portals.json`), and a doorway a walk reaches starts the same `begin_transfer` the other triggers do
-(`crates/asura-world/src/travel.rs:364-433`). What is still open is the `0x80C1` arm, which names the
-touch and starts nothing (`travel.rs:154-166`), and the information the instance needs to be initialised
+(`crates/asura-world/src/travel.rs:364-433`). The `0x80C1` arm now does the same thing: it names the touch
+and then applies that crossing test (`crates/asura-world/src/dispatch.rs:56-60`). What is still open is the
+agent-keyed lookup - the message names the portal's agent, and the doorway is found by position instead -
+and the information the instance needs to be initialised
 (`docs/23-initialization-protocol.md`).**
 
 ## Built: the instance unlock and the world-map travel, 2026-10-30

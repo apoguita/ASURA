@@ -145,12 +145,11 @@ pub async fn load_map_on_demand(
 /// object the player used, and the second was zero).
 ///
 /// **It names an agent, not a map**, so the destination is this server's knowledge, not the client's:
-/// the object it names leads somewhere only because a row says so. This world has no portal table yet
-/// and no non-player agent to touch (it sends exactly one agent, the player), so this arm names the
-/// touch and starts no transfer - it is the measurement that has to come first. The line below is
-/// what the next live touch writes: which agent, in which map, for which player. A portal row keyed
-/// by that map and agent is what turns this into the same redirect `/tp` already sends
-/// (`docs/03-protocol.md` 5e).
+/// the object it names leads somewhere only because a doorway row says so. This function only reads it
+/// and prints the measurement; the arm in `dispatch` follows it with [`portal_reached`], which is what
+/// turns the touch into the same redirect `/tp` already sends (`docs/03-protocol.md` 5e). The agent id
+/// is not yet the lookup key - the doorway is found by the character's position, so an object whose
+/// model is not a recorded doorway still does nothing.
 pub fn handle_travel_init(frame: &Frame, player: &Player, _trace: bool) -> Result<bool, GameError> {
     if frame.body().len() < 8 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 10 }));
@@ -159,7 +158,7 @@ pub fn handle_travel_init(frame: &Frame, player: &Player, _trace: bool) -> Resul
     let other = u32::from_le_bytes([frame.body()[4], frame.body()[5], frame.body()[6], frame.body()[7]]);
     eprintln!(
         "world: {:?} touched a travel object in map {} '{}': TRAVEL_INIT agent {agent:#010X}, \
-         second {other:#010X}; no portal row names that agent, so no travel starts",
+         second {other:#010X}; checking the doorways at the character's position",
         player.name, player.instance.map.map_id, player.instance.map.name,
     );
     Ok(true)
