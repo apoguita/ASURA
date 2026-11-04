@@ -222,21 +222,14 @@ pub fn player_block(
     // client's record for a level-13 character (`dump4-after`, worldcontext.level/experience/morale),
     // and `characters.level` is where our level comes from. Experience and skill points have no column
     // yet - a freshly created character has neither - so they go out as zero rather than as absent.
-    frames.push(game::character_update_factions(
-        EXPERIENCE_TEST_VALUE,      // experience: 500 until a column holds it, so the sheet shows it working
-        0,                          // current kurzick
-        0,                          // total earned kurzick
-        0,                          // current luxon
-        0,                          // total earned luxon
-        0,                          // current imperial
-        0,                          // total earned imperial
-        u32::from(traits.level),    // level, from `characters.level`
-        MORALE_FULL,                // morale: 100 is the no-modifier value a live load carries
-        0,                          // current balthazar
-        0,                          // total earned balthazar
-        0,                          // current skill points
-        0,                          // total earned skill points
-    ));
+    frames.push(game::character_update_factions(&game::CharacterProgress {
+        // 500 until a column holds experience, so the sheet shows it working.
+        experience: EXPERIENCE_TEST_VALUE,
+        level: u32::from(traits.level),
+        morale: MORALE_FULL,
+        // Faction, skill points and their earned totals have no column yet.
+        ..game::CharacterProgress::default()
+    }));
     // A live load sends these two immediately after the faction block, once per player: the visibility
     // flags and the player's own flags word (`recordings/asura/world/load-layers-20261031.jsonl`,
     // headers 00EF then 003C). Without them the client's player record carries no flags and its
@@ -279,7 +272,6 @@ pub fn player_block(
         direction: (1.0, 0.0),
         speed_base: game::PLAYER_SPEED_BASE,
         player_team_token: PLAYER_TEAM_TOKEN,
-
     }));
     // The agent's own morale record, which the party panel's morale icon is drawn from. A live server
     // sends one per body at load with 100, the unmodified value; with the record left unset the client

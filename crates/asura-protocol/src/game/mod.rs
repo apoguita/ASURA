@@ -921,40 +921,61 @@ pub fn hard_mode_unlocked(unlocked: u8) -> crate::client::Frame {
     Builder::new(HARD_MODE_UNLOCKED).u8(unlocked).frame()
 }
 
+/// The character and account progress `GAME_SMSG_CHARACTER_UPDATE_FACTIONS` reports, one field per
+/// reference argument (`GameSrv_UpdatePlayerFactions`).
+///
+/// A struct rather than thirteen arguments: the dwords are positional on the wire, so a caller that
+/// passes them in order reads as a wall of zeros and the compiler cannot catch a swap. Two dwords of
+/// the body (`unk_faction4`, `unk_faction5`) are not modelled here because nothing measured sets them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CharacterProgress {
+    /// Total experience; the client shows it on the character sheet.
+    pub experience: u32,
+    /// Kurzick faction held now.
+    pub current_kurzick: u32,
+    /// Kurzick faction earned in total.
+    pub total_earned_kurzick: u32,
+    /// Luxon faction held now.
+    pub current_luxon: u32,
+    /// Luxon faction earned in total.
+    pub total_earned_luxon: u32,
+    /// Imperial faction held now.
+    pub current_imperial: u32,
+    /// Imperial faction earned in total.
+    pub total_earned_imperial: u32,
+    /// The character's level, from `characters.level`.
+    pub level: u32,
+    /// Morale percentage: 100 is the unmodified value a live load carries.
+    pub morale: u32,
+    /// Balthazar faction held now.
+    pub current_balthazar: u32,
+    /// Balthazar faction earned in total.
+    pub total_earned_balthazar: u32,
+    /// Skill points held now.
+    pub current_skill_points: u32,
+    /// Skill points earned in total.
+    pub total_earned_skill_points: u32,
+}
+
 /// `GAME_SMSG_CHARACTER_UPDATE_FACTIONS`: fifteen dwords of character and account progress, in the
 /// reference's order (`GameSrv_UpdatePlayerFactions`).
-#[allow(clippy::too_many_arguments)]
-pub fn character_update_factions(
-    experience: u32,
-    current_kurzick: u32,
-    total_earned_kurzick: u32,
-    current_luxon: u32,
-    total_earned_luxon: u32,
-    current_imperial: u32,
-    total_earned_imperial: u32,
-    level: u32,
-    morale: u32,
-    current_balthazar: u32,
-    total_earned_balthazar: u32,
-    current_skill_points: u32,
-    total_earned_skill_points: u32,
-) -> crate::client::Frame {
+pub fn character_update_factions(progress: &CharacterProgress) -> crate::client::Frame {
     Builder::new(CHARACTER_UPDATE_FACTIONS)
-        .u32(experience)
-        .u32(current_kurzick)
-        .u32(total_earned_kurzick)
-        .u32(current_luxon)
-        .u32(total_earned_luxon)
-        .u32(current_imperial)
-        .u32(total_earned_imperial)
+        .u32(progress.experience)
+        .u32(progress.current_kurzick)
+        .u32(progress.total_earned_kurzick)
+        .u32(progress.current_luxon)
+        .u32(progress.total_earned_luxon)
+        .u32(progress.current_imperial)
+        .u32(progress.total_earned_imperial)
         .u32(0) // unk_faction4
         .u32(0) // unk_faction5
-        .u32(level)
-        .u32(morale)
-        .u32(current_balthazar)
-        .u32(total_earned_balthazar)
-        .u32(current_skill_points)
-        .u32(total_earned_skill_points)
+        .u32(progress.level)
+        .u32(progress.morale)
+        .u32(progress.current_balthazar)
+        .u32(progress.total_earned_balthazar)
+        .u32(progress.current_skill_points)
+        .u32(progress.total_earned_skill_points)
         .frame()
 }
 
@@ -1781,7 +1802,7 @@ mod tests {
 
     #[test]
     fn character_update_factions_is_fifteen_dwords_of_body() {
-        let frame = character_update_factions(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        let frame = character_update_factions(&CharacterProgress::default());
         assert_eq!(wire(&frame), 62);
         assert_eq!(frame.body().len(), 60, "fifteen dwords");
     }

@@ -262,7 +262,7 @@ pub async fn handle_request_player(
     frames.push(game::skillbar_update(agent_id, &[0; 8], &[0; 8], 1));
     frames.push(game::update_unlocked_skills(&[]));
     frames.push(game::character_update_factions(
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        &game::CharacterProgress::default(),
     ));
     frames.push(game::agent_update_attributes(agent_id, &[0; 42]));
     // `GameSrv_SendPlayerHealthEnergy` (`GmPlayer.c:178-199`): three **int** properties with the
