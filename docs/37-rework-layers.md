@@ -213,8 +213,9 @@ client takes its identity from before it logs in (`docs/03-protocol.md` #4), plu
 
 ## Layer 7 - world connection and load
 
-Files: `connection.rs` 524, `dispatch.rs` 124, `world.rs` 201, `map.rs` 497, `capture.rs` 161,
-`replay.rs` 276.
+Files: `connection.rs` 572, `dispatch.rs` 210, `world.rs` 89, `map.rs` 137, `catalogue.rs` 103, plus
+`capture.rs` and `replay.rs` behind the `harness` feature. The path graphs are `pathfind.rs`, the
+spawn handler `agent.rs` and the player block `player.rs` (commit `8890603`).
 
 - [x] the two instruments left the serving build: `capture.rs` and `replay.rs` are behind the
       `harness` feature, off by default, and `harness_off.rs` gives both modules an inert answer
@@ -228,7 +229,8 @@ Files: `connection.rs` 524, `dispatch.rs` 124, `world.rs` 201, `map.rs` 497, `ca
       tick as measured, the ping interval as the reference's constant and the ping value as
       unverified. The same file answers the login path's probe timeout and the freshness window the
       socket layer routes by, so the three programs cannot disagree - 4 config, 55 world, 3 auth,
-      4 gateway and 10 rules unit tests pass- [ ] the load block's message order recorded as a rule with its capture named
+      4 gateway and 10 rules unit tests pass
+- [ ] the load block's message order recorded as a rule with its capture named
 
 ## Layer 8 - instance and simulation
 
