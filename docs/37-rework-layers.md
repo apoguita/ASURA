@@ -137,8 +137,12 @@ placement mechanism now; its rules left for `asura-rules` (layer 3b).
       (`crates/asura-rules/src/lib.rs`) - commit `4b09d17`
 - [x] the crate adopts the lint policy (`docs/38`, D17): seven needless borrows and one field doc -
       commit `4b09d17`; clippy `-D warnings` and `cargo doc` pass
-- [ ] `frontdoor.rs` is transport, not auth: decide whether it stays colocated because the client
-      dials this address, or becomes its own layer
+- [x] `frontdoor.rs` left auth: the socket layer is `crates/asura-gateway` - listener, file check,
+      classification, relay (`docs/38`, D26) - commit `be99de2`; auth is a library call from it and
+      has no `main.rs`
+- [x] the supervisor starts `asura-gateway` on the auth port (`config/services.toml`,
+      `[services.auth]`) - commit `be99de2`, so a client sees no change
+- [ ] `docs/15`, `docs/17` and `docs/19` still name `asura-auth` as the process on 6112
 
 ## Layer 3b - the rules layer (`asura-rules`, new)
 
