@@ -27,7 +27,7 @@ use asura_db::game as db_game;
 use asura_db::inventory as db_inventory;
 use asura_db::login as db;
 use asura_db::{placement, PgPool, Uuid};
-use asura_protocol::client::game::GameVersion;
+use asura_protocol::client::game_version::GameVersion;
 use asura_protocol::client::handshake;
 use asura_protocol::client::reference_client::ReferenceClient;
 use asura_protocol::client::Frame;

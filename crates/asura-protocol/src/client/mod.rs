@@ -40,7 +40,9 @@
 pub mod arc4;
 pub mod filecheck;
 pub mod frame;
-pub mod game;
+/// The game connection's opening message (GAME_CMSG_VERSION); not the game message builders,
+/// which live in crate::game. Two modules were called game before D16.
+pub mod game_version;
 pub mod handshake;
 pub mod messages;
 /// A fake game client for tests and for the two `asura-auth` examples, never for the server

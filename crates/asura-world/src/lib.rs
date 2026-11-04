@@ -44,7 +44,7 @@ use std::time::{Duration, Instant};
 pub use asura_db::game as db_game;
 pub use asura_db::inventory::{self as db_inventory, Inventory};
 pub use asura_db::{placement, PgPool, Uuid};
-pub use asura_protocol::client::game::GameVersion;
+pub use asura_protocol::client::game_version::GameVersion;
 pub use asura_protocol::client::handshake;
 pub use asura_protocol::client::handshake::{Established, CLIENT_SEED_LEN, MASTER_SECRET_LEN};
 pub use asura_protocol::client::version;
