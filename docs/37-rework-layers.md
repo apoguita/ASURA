@@ -148,6 +148,9 @@ Files: `src/lib.rs` 274 lines, 8 tests, one dependency (`asura-protocol`, for th
       `Substituted::NothingToPlace` when the character's row names neither a map nor an outpost. The
       outpost a character enters is written by character creation, by a scripted event and by
       travelling - never by this layer. 10 rule, 5 config and 3 auth unit tests pass
+- [x] the blank-name rule is here rather than in the world: `name_is_acceptable(&str)`, called by the
+      creation confirm in place of its own `trim().is_empty()`. The error code it answers with stays
+      where the frame is built, because a code is protocol. 9 rule and 64 world unit tests pass
 - [ ] the next rule that needs a home goes here rather than into a service: party and instance policy
       (`docs/32` phase 2) is the first candidate
 

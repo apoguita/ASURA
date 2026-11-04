@@ -370,7 +370,7 @@ pub async fn handle_confirm(
             })
             .collect::<Vec<u16>>(),
     );
-    if name.trim().is_empty() {
+    if !asura_rules::name_is_acceptable(&name) {
         send(
             stream,
             session,

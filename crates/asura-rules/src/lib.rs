@@ -46,6 +46,15 @@ pub enum Substituted {
     NothingToPlace,
 }
 
+/// Whether a name the creation confirm parsed is one to create a character with.
+///
+/// A name with nothing in it is refused: a character the client cannot list is not a character. Whether
+/// the name is *free* is the database's question and is not asked here - this is the rule, and it takes
+/// the string the caller already parsed (`docs/38-layer-decisions.md`, D34).
+pub fn name_is_acceptable(name: &str) -> bool {
+    !name.trim().is_empty()
+}
+
 /// The map a character is placed in when it enters the game.
 ///
 /// Three inputs decide it, and the order matters:
@@ -248,6 +257,16 @@ mod tests {
             placement(request, FRESH, Some(1), 148, CREATION, KINDS),
             (148, Some(Substituted::NothingToPlace))
         );
+    }
+
+    #[test]
+    fn a_name_with_nothing_in_it_is_refused() {
+        assert!(!name_is_acceptable(""));
+        assert!(!name_is_acceptable("   "));
+        assert!(!name_is_acceptable("\u{00a0}"));
+        assert!(name_is_acceptable("Asura"));
+        assert!(name_is_acceptable("A"));
+        assert!(name_is_acceptable("Asura One"));
     }
 
     #[test]
