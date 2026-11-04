@@ -163,57 +163,70 @@ pub fn intervals() -> &'static Intervals {
     })
 }
 
-/// The file that holds the placement values: what the world says when a character's row names nothing.
-pub const PLACEMENT_FILE: &str = "config/Server/placement.json";
+/// The file that holds the values a world falls back on when a row says nothing.
+pub const DEFAULTS_FILE: &str = "config/Server/defaults.json";
 
-/// The variable that names a different placement file.
-pub const PLACEMENT_VARIABLE: &str = "ASURA_PLACEMENT";
+/// The variable that names a different defaults file.
+pub const DEFAULTS_VARIABLE: &str = "ASURA_DEFAULTS";
 
-/// The values placement needs from the world rather than from a rule.
+/// One documented value: the number, and the sentence that says what it means.
 ///
-/// One key today: the outpost a character enters when its row names neither a map nor a last outpost -
-/// a row written before character creation filled one in. It is Ascalon City (pre-Searing) in the base
-/// game, and it is a stand-in for a campaign whose own starting outpost this tree has not measured
-/// (`docs/22-world-model.md`), so it belongs beside the other values a machine runs on and not inside a
-/// decision (`docs/38-layer-decisions.md`, D34).
+/// The documentation travels with the value because JSON has no comments and a file of bare numbers is a
+/// file nobody can review. A key without `doc` is accepted - a name can be enough - but the base game's
+/// own file documents every one.
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Placement {
-    /// Free text for whoever opens the file; never read by the server.
+pub struct Described<T> {
+    /// The value itself.
+    pub value: T,
+    /// What it means, in the words the person reading the file needs.
     #[serde(default)]
-    pub note: Option<String>,
-    /// Where a character with no placement history is put. **Required**: there is no default in code,
-    /// because a fallback outpost is a value the world owns and a compiled one would only be a number
-    /// somebody forgot to configure (`docs/38-layer-decisions.md`, D34).
-    pub default_outpost: i32,
+    pub doc: Option<String>,
 }
 
-impl Placement {
+/// The values a world falls back on when its rows say nothing.
+///
+/// Every key is required and there is no built-in value: a world that placed a character somewhere
+/// nobody configured would be running on a number that does not exist (`docs/38-layer-decisions.md`,
+/// D34).
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Defaults {
+    /// Where a character with no placement history is put. Written by character creation, by a scripted
+    /// event and by travelling for every other case; this is the fallback for a row where none of them
+    /// happened.
+    pub default_outpost: Described<i32>,
+}
+
+impl Defaults {
     /// Parse the file's text. A file without `default_outpost` is an error, not a default.
-    pub fn from_json(text: &str) -> Result<Placement, String> {
+    pub fn from_json(text: &str) -> Result<Defaults, String> {
         serde_json::from_str(text).map_err(|err| err.to_string())
+    }
+
+    /// The fallback outpost, as the number rather than the wrapper.
+    pub fn default_outpost(&self) -> i32 {
+        self.default_outpost.value
     }
 }
 
-/// The placement values in force, read once per process.
+/// The defaults in force, read once per process.
 ///
 /// There is no built-in value: a missing file, an unreadable one, or one without `default_outpost` is an
-/// error, and the service that needs it refuses to start. A server that placed characters somewhere
-/// nobody configured would be running on a number that does not exist.
-pub fn placement() -> Result<&'static Placement, String> {
-    static IN_FORCE: OnceLock<Result<Placement, String>> = OnceLock::new();
+/// error, and the service that needs it refuses to start.
+pub fn defaults() -> Result<&'static Defaults, String> {
+    static IN_FORCE: OnceLock<Result<Defaults, String>> = OnceLock::new();
     IN_FORCE
         .get_or_init(|| {
-            let path = match std::env::var(PLACEMENT_VARIABLE) {
+            let path = match std::env::var(DEFAULTS_VARIABLE) {
                 Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
-                _ => PLACEMENT_FILE.to_string(),
+                _ => DEFAULTS_FILE.to_string(),
             };
             match std::fs::read_to_string(&path) {
-                Ok(text) => Placement::from_json(&text)
-                    .map_err(|err| format!("{path} is not a valid placement file: {err}"))
-                    .map(|placement| {
-                        eprintln!("asura: placement from {path}");
-                        placement
+                Ok(text) => Defaults::from_json(&text)
+                    .map_err(|err| format!("{path} is not a valid defaults file: {err}"))
+                    .map(|defaults| {
+                        eprintln!("asura: defaults from {path}");
+                        defaults
                     }),
                 Err(err) => Err(format!("{path} is not readable: {err}")),
             }
@@ -229,8 +242,8 @@ mod tests {
     /// The committed file, parsed the way a service parses it.
     const COMMITTED: &str = include_str!("../../../config/Server/intervals.json");
 
-    /// The committed placement file, parsed the way the services parse it.
-    const PLACEMENT_COMMITTED: &str = include_str!("../../../config/Server/placement.json");
+    /// The committed defaults file, parsed the way the services parse it.
+    const DEFAULTS_COMMITTED: &str = include_str!("../../../config/Server/defaults.json");
 
     #[test]
     fn the_committed_file_states_the_defaults() {
@@ -253,23 +266,40 @@ mod tests {
     }
 
     #[test]
-    fn the_committed_placement_file_states_the_default_outpost() {
-        let placement =
-            Placement::from_json(PLACEMENT_COMMITTED).expect("the committed file parses");
+    fn the_committed_defaults_file_states_and_documents_the_outpost() {
+        let defaults = Defaults::from_json(DEFAULTS_COMMITTED).expect("the committed file parses");
         assert_eq!(
-            placement.default_outpost, 148,
+            defaults.default_outpost(),
+            148,
             "the base game's starting outpost"
         );
+        let doc = defaults
+            .default_outpost
+            .doc
+            .as_deref()
+            .expect("the key documents itself");
         assert!(
-            placement.note.is_some(),
-            "the file says where its number came from"
+            doc.contains("creation") && doc.contains("travelling"),
+            "the doc says who writes the real value, said: {doc}"
         );
     }
 
     #[test]
-    fn a_placement_file_without_the_outpost_is_an_error_not_a_default() {
-        let err = Placement::from_json(r#"{"note": "nothing here"}"#).expect_err("refused");
+    fn a_defaults_file_without_the_outpost_is_an_error_not_a_default() {
+        let err = Defaults::from_json("{}").expect_err("refused");
         assert!(err.contains("default_outpost"), "said: {err}");
+    }
+
+    #[test]
+    fn a_key_may_carry_its_own_documentation() {
+        let defaults =
+            Defaults::from_json(r#"{"default_outpost": {"value": 163, "doc": "why this number"}}"#)
+                .expect("parses");
+        assert_eq!(defaults.default_outpost(), 163);
+        assert_eq!(
+            defaults.default_outpost.doc.as_deref(),
+            Some("why this number")
+        );
     }
 
     #[test]

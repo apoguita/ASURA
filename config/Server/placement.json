@@ -1,4 +1,0 @@
-{
-  "note": "The outpost a character enters when its row names neither a map nor a last outpost: a row written before character creation filled one in. Ascalon City (pre-Searing), 148, is the base game's starting outpost and is already in the catalogue. It is a stand-in for a campaign whose own starting outpost this tree has not measured (docs/22-world-model.md). The outpost a character enters is otherwise written by character creation, by a scripted event and by travelling, so this value is only ever the fallback (docs/38-layer-decisions.md, D34).",
-  "default_outpost": 148
-}

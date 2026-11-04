@@ -169,8 +169,8 @@ pub async fn answer(
         // scripted event and travelling write the real one, and this is only the fallback for a row
         // that says none of them happened. No file, no value: the travel is refused rather than
         // invented, and the log names the file that is missing.
-        match asura_config::placement() {
-            Ok(placement) => placement.default_outpost,
+        match asura_config::defaults() {
+            Ok(placement) => placement.default_outpost(),
             Err(err) => {
                 eprintln!("auth: travel to map {map_id} refused: {err}");
                 return Ok(request_frames(STATUS_NETWORK_ERROR));
