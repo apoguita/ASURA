@@ -580,8 +580,7 @@ handshake is possible before it. The reply's seven words are six `Gw.dat` file i
 order with a zero among them, so the question is *which files*, not a transfer. The client treats a
 failure here as fatal: with those addresses made unreachable it refused with "Guild Wars is unable to
 connect to the ArenaNet network". The captured ids are `391339 391348 344988 391350 391351 0 391349`;
-the reference's own literal is `0x100` lower on every id that differs (`client/filecheck.rs`), and both
-answers are accepted - the reference's by its own rig, the captured one by the client.
+the reference's own literal is `0x100` lower on every id that differs (`client/filecheck.rs`).
 
 **Against a server of ours.** With hosts entries for the six file names, one check arrived on loopback
 and was answered - "File check on 0114: answered 32 of 32 bytes" in that run's log.
@@ -593,6 +592,35 @@ reaches our port only when the machine's name resolution sends it there. In the 
 client asks ArenaNet and our handler never fires: that is why it is written as a loop that may run zero
 times. A follow-up of four bytes (`F1 0F 04 00`, header `0x40FF1`) comes after the check on that socket;
 the reference does not answer it and the client tolerates the silence.
+
+**The seven words are a client-build fact, so this server needs the running client's version.** They are
+file ids in the archive the client loaded, so a new client build brings a new set: the reference's
+literal and the captured set differ by `0x100` on every id, which is what a rebuild looks like. A server
+that answers with another build's ids is answering a question the client did not ask. Nothing here
+prevents that from being harmless in practice - and nothing shows that it is, either: the one run in
+which a server of ours answered had its other file sockets still going to ArenaNet, so the client may
+have been answered elsewhere and never compared ours. What *is* measured is the opposite failure, no
+answer at all, and that one is fatal. Until a mismatch is measured one way or the other, treat the set
+as required and keep it current.
+
+Getting the current set is a measurement, not a guess, and there are three routes:
+
+1. **Capture the answer the client accepts.** `pktmon` filtered to port 6112, one login in open mode,
+   then decode the pcap. This is how the captured set above was obtained, and it is exact by definition -
+   it is the bytes the running client was answered with. It repeats once per client build. The pcap
+   decoder used then lived outside this tree; there is none here yet.
+2. **Check a set against the archive.** `crates/asura-world/src/gwdat.rs` reads `Gw.dat`'s file table, so
+   a set can be confirmed present with sensible sizes before it is trusted. It cannot invent the set:
+   which six files are named is the protocol's rule, not the archive's ordering.
+3. **Read the set out of the running client.** Py4GW Stealth reads the client through its own image and
+   archive code, which is the way to ask a running client what it expects without touching the network.
+   Not done here yet, and `tools/sniff-capture.py` will not show it: the sniffer records framed messages
+   at the client's handler table, and this request is a bare blob outside that table.
+
+Ghidra answers a different question and is worth it only for that one: what the client actually
+compares - the whole 21-byte request, the reply's header and length, or the ids as well - and what it
+does when they differ. The ids themselves are not in the code; they come from the archive the client
+loaded.
 
 ## 8. Coordination between programs: the database, not a protocol
 

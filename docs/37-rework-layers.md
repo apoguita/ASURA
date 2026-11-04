@@ -180,6 +180,10 @@ dials, answers the file check, reads the four classification bytes and hands the
 - [ ] a real client run against this layer: the measurement above is inherited from the same machine and
       the same client, but the server that answered was the earlier build, not `asura-gateway`. Needs
       hosts entries or DNS pointing the six file names here, one login, and the trace kept
+- [ ] the answer's seven words refreshed for the client build now running, with the build named beside
+      them (`docs/38`, D30; the three routes for getting them are in `docs/03-protocol.md` 7)
+- [ ] what a mismatched set costs, measured: one client, a set from another build, the login watched.
+      The requirement is written down; whether the client enforces it is not measured
 - [x] the world freshness window has one source: `FRESH_WORLD_AGE_SECS` is gone from `relay.rs` and
       `asura_rules::world_max_age_secs` answers for this layer and the login path alike (`docs/38`,
       D29) - commit `801abfe`, 10 rules, 4 gateway and 3 auth unit tests pass

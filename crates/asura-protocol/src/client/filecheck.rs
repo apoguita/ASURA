@@ -29,6 +29,13 @@ pub const FILE_CHECK_REQUEST: [u8; 21] = [
 /// an approximation of the real answer. The reference's own value is used here because it is what the
 /// rig demonstrably accepts (and GWPS is the floor, `docs/adr/0010-gwps-is-the-floor.md`); the captured
 /// ids are the alternative if the client ever rejects this reply.
+///
+/// Which set is right is a question about the **client build**, not about this server: these are file
+/// ids in the `Gw.dat` the client loaded, so a new build brings a new set, and a stale answer is a
+/// question answered in another build's terms. Refreshing it is a measurement, not an edit made from
+/// memory (`docs/03-protocol.md` 7 lists the three routes). What a mismatch costs is not measured: the
+/// one run where a server of ours answered left the client's other file sockets on ArenaNet, so it may
+/// never have compared our words. No answer at all is measured, and that one is fatal.
 pub const FILE_CHECK_RESPONSE: [u8; 32] = [
     0xF1, 0x02, 0x20, 0x00, 0xAB, 0xF7, 0x05, 0x00, 0xB4, 0xF7, 0x05, 0x00, 0x9C, 0x43, 0x05, 0x00,
     0xB6, 0xF7, 0x05, 0x00, 0xB7, 0xF7, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0xB5, 0xF7, 0x05, 0x00,
