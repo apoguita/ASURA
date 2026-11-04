@@ -29,7 +29,7 @@ the glossary now points here.
 |---|---|---|---|
 | **account** | the login: the characters on it and the account's own unlocks | the auth service, `account` / `session` tables | not a place, not an agent, not a map |
 | **character** | a body with levels, skills, armour, items, attributes that stands in an instance | the account, `characters` table | not the login, not a party slot |
-| **instance** | the game's own word for a map: Ascalon City, Lakeside County; the thing a travel moves you between | the world server, `map_config` rows + the archive's geometry | not an agent, not a region, not a district |
+| **instance** | the game's word for a map, realised as **one running copy of that map's simulation** (owner, 2026-11-02). A map is the static definition; the instance is the live copy a character or party stands in, shared by one character or many | the world server, `map_config` rows + the archive's geometry | not an agent, not a region; a district is an instance of the *same* map |
 | **agent** | anything *in* an instance that is not a prop: enemies, characters, gadgets, items | the instance's simulator, the agent array | not a map, not a prop |
 | **unlock** | a bit per instance, in a bitmap that starts all zero, set when the character reaches that instance | the account or the character (open question 1) | not a permission the client checks before walking |
 
@@ -126,8 +126,10 @@ server answers either with the pair `/tp` already sends. The layout, the counts 
 `docs/03-protocol.md` 5f. **The client does announce the crossing, so nothing about this feature waits on
 a new measurement; the portal table is recorded** (`crates/asura-world/src/portals.rs`, generated from
 `data/portals.json`), and a doorway a walk reaches starts the same `begin_transfer` the other triggers do
-(`crates/asura-world/src/travel.rs:364-433`). What is still open is the `0x80C1` arm, which names the
-touch and starts nothing (`travel.rs:154-166`), and the information the instance needs to be initialised
+(`crates/asura-world/src/travel.rs:364-433`). The `0x80C1` arm now does the same thing: it names the touch
+and then applies that crossing test (`crates/asura-world/src/dispatch.rs:56-60`). What is still open is the
+agent-keyed lookup - the message names the portal's agent, and the doorway is found by position instead -
+and the information the instance needs to be initialised
 (`docs/23-initialization-protocol.md`).**
 
 ## Built: the instance unlock and the world-map travel, 2026-10-30
@@ -222,6 +224,85 @@ Two consequences:
 (`asura_db::game::remember_outpost`, `crates/asura-db/src/game.rs:308`) and substituted when the auth
 service answers the client's request for an instance (`crates/asura-auth/src/travel.rs:163-196`). The
 disconnect exception is still open.
+
+## Instances, districts, and party travel (owner, 2026-11-02)
+
+Status of every rule below, and of the older statements this page carries, is tracked in
+[`36-game-rules-ledger.md`](36-game-rules-ledger.md). Where the two disagree, the ledger wins and
+this page is corrected.
+
+The game rules, stated by the owner with the district behaviour given in game terms:
+
+| rule | the game's behaviour |
+|---|---|
+| **Map vs instance** | A map is the static definition. An **instance** is one running copy of that map's simulation. A character or a party stands in an instance, never in "a map". |
+| **Outposts** | Shared: one instance of an outpost serves many characters. |
+| **Districts** | An outpost may have several instances of itself, distinguished by district number. The client presents them as the same outpost. |
+| **District creation** | **Automatic** when an outpost instance reaches its player allotment. The allotment follows the server's hardware and efficiency, is **configurable, and starts at 100**. An outpost opens with **one** district; when it fills, the next is created and shown - no pre-built list of many. |
+| **Explorables** | Private: **each party gets its own instance** of the map. One party, one copy, no sharing. |
+| **Travel** | The **party is the unit**. The leader drives it; the party moves together. |
+| **Portal crossing** | When **any party member** crosses a portal into another map, the **whole party** is brought through: every member loads the destination instance and plays there. |
+| **Leader district hop** | The whole party follows **after a countdown**. |
+| **Non-leader district hop** | The character is asked whether it wants to **leave the current party**; the hop is not a party move. |
+| **District list** | The client **asks** the auth link for district counts and receives `(language, count)` pairs. A hop is the game link's `CtoS 177 TravelMission`, and the server answers with a redirect (`StoC 421`); the load message carries the district the HUD shows. Message shapes in the ledger, rows E27-E31. |
+| **Explorable teardown** | A **network disconnect** keeps the instance **15 minutes** for reconnection - **explorable-only**; outposts have no reconnection hold, and **logging out is a leave, not a disconnect**. Everyone leaving by any normal means (portal, scripted/history travel, quitting the client) disposes it **immediately**. When the 15 minutes expire the copy is disposed and the character reappears at its **last visited outpost** - no reconnection into a disposed instance. |
+
+The two causes are distinguishable on the wire (ledger, E6-E7): a clean logout sends its disconnect
+messages, and a lost member is held as **soft-disconnected** (`Player.flags` bit `0x04`, cleared by
+`MemberConnectSoft`) rather than removed. A socket that ends without the clean-shutdown messages is a
+disconnect.
+| **Unlocks** | Travel is gated on unlocked maps, and a character starts with **one**. A scripted or forced travel **unlocks the destination at arrival** rather than being refused. |
+| **World-map travel** | Reaches **outposts only**, and only an **unlocked** one. Anything else is reached by portal or by a scripted travel. |
+| **Entry spawn** | Outposts carry many scattered spawn points. Any travel that is not a portal walk picks one **at random** and places the character **scattered around it** - random offset and facing. Soft spread, not stacking. A **portal walk** uses the arrival position the destination provides, falling back to a point **near the portal** when there is none. |
+| **Party size** | Starts small, capped at **8** for most content, **12** in some game modes, **25** in some instances. A tunable, not a constant. |
+| **Party persistence** | Travel does not break a party. It disbands only on a script or when the destination's **cap is smaller** than the party. Leadership never changes, except one focused dungeon that randomises positions. |
+| **Member disconnect** | A disconnect is the same for the leader as for anyone else: the party remains, and that member's **heroes and henchmen deactivate until it reconnects**. |
+| **Party composition** | Characters, plus the player's **heroes** (account-owned), plus **henchmen** hired for the party. The client holds players, heroes and henchmen as distinct lists (ledger, E5). |
+| **Heroes** | Introduced in Nightfall but **usable everywhere**; the option stays open for any mode to allow them. A hero belongs to its player and **disconnects with it**. |
+| **Henchmen** | Mercenaries hired like heroes, and they **travel with the party** to outposts and missions. On arrival at an outpost, one that **exists there is kept** and one that **does not is kicked** - the roster differs per outpost. |
+| **Travel alone** | A player may enter with a party of one, with heroes, or any combination of heroes, henchmen and players. |
+| **Party truncation** | Arriving at a **smaller cap** truncates the party: the **leader plus its heroes** hold the slots, and the remaining members are split into **parties of one**, each keeping its own heroes. |
+| **District assignment** | A travel that **names** a district is placed in that district; a request with district 0 takes the **first district with available slots**. The language travels with the request (R57; R22 governs the district-0 case). **A full or closing district cannot be entered** (R58). |
+| **Instance contents** | NPCs, enemies and props exist **when the instance is created**, before any player arrives, unless a script makes them appear later or disappear. Most NPCs are static; some walk. Paths and behaviour come from **Lua configuration**, not hardcoded rules. |
+| **Enemies** | Spawn once. **No respawn unless scripted**, and a new instance **wipes their state**. Most enemies **only spawn and tick while inside a player's compass range (10,000 units)** - outside it they are not simulated. |
+| **Instance lifetime** | Lives **only while a party is inside** (plus the 15-minute disconnect hold). Re-entering the same map creates a **new instance**. **Outposts** empty are disposed after **15 minutes of inactivity** - inactivity meaning *nobody inside*; the disconnect hold itself is **explorable-only**. |
+| **One party per instance** | PvE instances hold **exactly one party**; a party always shares one instance and is never split across copies. **PvP** is the exception - different parties fight inside one instance. |
+| **Missions** | An instance with its own success/fail conditions, entered only from an outpost that offers it ("Enter Mission", or an NPC). No resurrection shrines; a party wipe fails it and returns the party to the initiating outpost. |
+| **Ticking** | The real game ticks an instance. Ours is **configurable** - we may choose not to tick one. |
+
+**Identity of an instance** is therefore not the map: `(map_id, kind, owner, ordinal)` - outpost
+`(map, outpost, region, district n)`, explorable `(map, explorable, party)`. A district is an instance
+of the same map, not a different map. Whether district numbering is scoped per region (so district 3 of
+an outpost exists once per region) is not yet observed; keying by region is the superset that collapses
+to a single value if it is not, so no rule depends on the answer.
+
+**Lifecycle.** An outpost instance persists for the server's life and gains siblings as it fills. An
+explorable instance is created when its party enters and exists while that party is in it.
+
+Compliance this sets for the code, to be done as the instance work lands (not a design choice, a
+consequence of the rules above):
+
+- an instance registry keyed by instance identity, with `map_id` as an attribute for lookups;
+- a party object that holds its own instance and is the travel unit in `asura-auth`;
+- a portal crossing that resolves the destination **once for the party** and brings every member into it,
+  whoever crossed - not a per-character travel;
+- a district hop that is party-wide with a countdown for the leader, and party-leaving for a non-leader;
+- a capacity trigger that creates the next district instance of an outpost (allotment configurable,
+  hardware-tied, starting at 100; one district per outpost at first, the next on overflow);
+- instance teardown split by cause: **disconnect -> 15-minute hold**, **graceful exit -> dispose at once**,
+  and **expiry of the hold -> dispose plus placement at the last visited outpost**;
+- travel gated on the unlock bitmap, with scripted and forced travel unlocking at arrival;
+- entry placement that picks a random spawn point and scatters the character around it;
+- party capacity as configuration (8 / 12 / 25 by content), never a constant;
+- a party that survives travel, disbands only on a script or a smaller destination cap, and keeps a
+  fixed leader;
+- a disconnect that keeps the party and deactivates that member's heroes and henchmen until it
+  returns;
+- world-map travel restricted to **unlocked outposts**; portal and scripted travel for the rest;
+- district assignment: a **named district is honoured** when it can be entered, and a **district 0**
+  request takes the first with a free slot; the language travels with the request;
+- an instance whose NPC/enemy population is **created with the instance** and whose enemies **spawn and
+  tick only inside a player's compass range** (10,000 units), with no respawn unless scripted.
 
 ## The one governance question the reading raised
 

@@ -1,0 +1,203 @@
+# Rework layers: the checklist
+
+Tracks the layer-by-layer move of configuration and content into `config/`. Measured from the
+code on 2026-11-05: 89 Rust files, 38,689 lines, 7 crates, 25 migrations, 35 `tools/` files.
+
+Why the rest was left where it is is docs/38-layer-decisions.md.
+
+This file is the tracker. It states no design of its own: every row names the files it covers,
+and every box is ticked with the commit that closed it. A layer is **covered** only when all six
+conditions of the next section hold for it.
+
+## What "covered" means, and it is six conditions
+
+1. **The file is the source of truth.** The value lives in `config/` and nowhere else.
+2. **Every reader reads the file.** All consumers listed on the row are switched.
+3. **The old source is deleted.** The constant, the SQL `INSERT` or the compiled table is gone,
+   in its own commit.
+4. **The equivalence diff is empty.** The file reproduces the old source row for row, and the
+   command that says so is named on the row.
+5. **`.\tools\ascii-check.ps1` exits 0** and the tests the change touches pass.
+6. **A real client was tested** wherever the layer is client-visible.
+
+## Notation
+
+- `[ ]` open - not started
+- `[~]` partial - some boxes below are ticked
+- `[x]` done - all six conditions hold, with the commit named
+- `[-]` holds by design - this layer is not configuration and must not move
+
+## The sixteen layers
+
+| # | layer | files (measured) | class | status |
+|---|---|---|---|---|
+| 1 | wire and codec | `asura-protocol`, 16 files, 9,357 lines | evidence | `[-]` |
+| 2 | storage and schema | `asura-db`, 16 files, 4,629 lines, 25 migrations | schema + state + some content | `[~]` |
+| 3 | auth service | `asura-auth`, 8 files, 3,034 lines | rules | `[ ]` |
+| 4 | web gate | `asura-webgate`, 2 files, 631 lines | rules | `[ ]` |
+| 5 | world connection and load | `connection.rs` 524, `dispatch.rs` 124, `world.rs` 201, `map.rs` 497, `capture.rs` 161, `replay.rs` 276 | rules + rates | `[ ]` |
+| 6 | instance and simulation | `instance.rs` 378, `agent.rs` 1,158, `player.rs` 305 | rules + rates | `[ ]` |
+| 7 | travel | `travel.rs` 522, `portals.rs` 232, `travel_targets.rs` 164 | rules + content | `[~]` |
+| 8 | character | `creation.rs` 482 | rules + content | `[ ]` |
+| 9 | items | `item.rs` 525 | rules + content | `[ ]` |
+| 10 | chat and commands | `chat.rs` 349 | rules + one table | `[ ]` |
+| 11 | map data and pathing | `map_data.rs` 1,100, `pathfind.rs` 1,253, `gwdat.rs` 397, `fa_compress.rs` 368, `fa_compress_tables.rs` 63, `path_tables.rs` 75, `graph_dump.rs` 452 | measured data | `[-]` |
+| 12 | cartography | `cartography.rs` 188 | measured data | `[-]` |
+| 13 | content itself | four homes, see below | content | `[~]` |
+| 14 | supervision and operations | `asura-supervisor`, 10 files, 2,070 lines, `config/services.toml` | operations | `[x]` |
+| 15 | harness | `asura-fakeworld` 307, 12 test files, 5 examples | harness | `[ ]` |
+| 16 | evidence | `recordings/`, `data/portals.json`, `client-patcher/`, `logs/` | evidence | `[-]` |
+
+## Layer 1 - wire and codec
+
+Files: `packets.rs` (2,105; 782 rows, 403 consts), `game/mod.rs` (1,754; 109 consts),
+`client/frame.rs` 634, `client/messages.rs` 1,236, `client/handshake.rs` 427, `client/peer.rs` 383,
+`client/version.rs` 259, `client/arc4.rs` 186, `game/instance_table.rs` 175, `game/pvp_items.rs`
+1,567, `client/filecheck.rs` 95, `client/mod.rs` 83, `client/login_fixtures.rs` 49, `trace.rs` 50,
+`lib.rs` 153.
+
+- [-] holds by design - the packet table is the specification (`AGENTS.md` #1)
+- [ ] content that is misplaced here is moved out: `game/pvp_items.rs`, 1,567 lines of item rows
+- [ ] `client/login_fixtures.rs` (49 lines) reviewed as fixture rather than table
+
+## Layer 2 - storage and schema
+
+Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
+`inventory/seed.rs` 122, `placement.rs` 609, `login.rs` 245, `account.rs` 44, `catalog.rs` 110,
+`portal.rs` 108, `lib.rs` 230, plus `migrations/0001`-`0025`.
+
+- [ ] physical schema stays SQL: 25 migrations, 14 tables
+- [ ] content rows identified and counted: 214 `INSERT`s in `0013`, `0014`, `0016`-`0022`
+- [ ] `map_config` content moved to `config/`
+- [ ] `map_spawn` content moved to `config/` (no reader today: `game::spawn_points` has no caller)
+- [x] `map_portal` is content with provenance (`0025_map_portals.sql`, a `source` column per row)
+- [ ] the 214 content `INSERT`s retired, in their own commit, after the files match them
+
+## Layer 3 - auth service
+
+Files: `lib.rs` 947, `travel.rs` 306, `frontdoor.rs` 165, `main.rs` 115, 2 examples, 2 test files.
+
+- [ ] the placement rule's own copies of the map-type numbers replaced by one source
+- [ ] `DEFAULT_OUTPOST = 148` moved to `config/`, or recorded as a rule that stays
+- [ ] `DEFAULT_OUTPOST`'s stand-in for unmeasured campaigns recorded where it is read
+
+## Layer 4 - web gate
+
+Files: `lib.rs` 528, `main.rs` 103.
+
+- [ ] the four endpoints' answers checked against `config/` for anything that is content
+- [ ] `/health` recorded as operational, not content
+
+## Layer 5 - world connection and load
+
+Files: `connection.rs` 524, `dispatch.rs` 124, `world.rs` 201, `map.rs` 497, `capture.rs` 161,
+`replay.rs` 276.
+
+- [ ] `map.rs` split: the `map_config` read belongs to layer 2's content, the instance table and the
+      cartography frames belong to layers 1 and 12
+- [ ] `TICK_INTERVAL` 100 ms and `PING_INTERVAL` 5 s moved to the rates file, marked measured
+- [ ] the load block's message order recorded as a rule with its capture named
+
+## Layer 6 - instance and simulation
+
+Files: `instance.rs` 378, `agent.rs` 1,158, `player.rs` 305.
+
+- [ ] `TICK_INTERVAL` consumer and the tick's cadence recorded (layer 5 owns the value)
+- [ ] `POSITION_UPDATE_MAX_ELAPSED_MS = 2000` moved to the rates file
+- [ ] `EXPERIENCE_TEST_VALUE = 500` recorded as a stand-in, not moved
+- [ ] `REACH`-style unmeasured constants listed in one place
+
+## Layer 7 - travel
+
+Files: `travel.rs` 522, `portals.rs` 232, `travel_targets.rs` 164.
+
+- [x] doorway positions are content: `map_portal` read once at start-up
+      (`asura-world/src/main.rs:199-222`, `portals.rs:140-166`), compiled table kept as fallback
+- [ ] the compiled `CROSSED` and `PORTALS` tables deleted once the file matches them
+- [ ] `travel_targets.rs`'s 21 aliases over 12 maps moved to `config/` as per-map aliases
+- [ ] `hosted` removed from content and computed at runtime
+- [ ] the doorway identity question recorded: position (today) versus the client's prop index
+- [x] the `0x80C1` touch starts nothing: `travel::handle_travel_init` (`travel.rs:154-166`) prints
+      the touch and returns. The code is the truth, so commit `8bcc029`'s title is wrong.
+
+## Layer 8 - character
+
+Files: `creation.rs` 482.
+
+- [ ] `default_equipment.rs` (2,957 lines; 32 campaign rows, 179 items) moved to `config/`, or kept
+      as code with the reason written down
+- [ ] starter outposts moved to `config/`
+
+## Layer 9 - items
+
+Files: `item.rs` 525.
+
+- [ ] `inventory/seed.rs` (122 lines) moved to `config/`
+- [ ] the bag order and the refusal shapes recorded as rules (they are not content)
+
+## Layer 10 - chat and commands
+
+Files: `chat.rs` 349.
+
+- [ ] the `COMMANDS` table (`chat.rs:141`) moved to `config/`, or kept as code with the reason
+- [ ] the coded-string chat body recorded as a wire rule, not content
+
+## Layer 11 - map data and pathing
+
+- [-] holds by design - measured from the archive, not authored
+- [ ] `data/path-graphs.bin` recorded as a build artifact: 87,336,403 bytes, 142 maps
+- [ ] how a profile ships it recorded (it is not `config/`)
+
+## Layer 12 - cartography
+
+- [-] holds by design - 64 x 128, eight empty bands, one `0x008A`
+
+## Layer 13 - content itself
+
+Four homes today:
+
+- [x] database rows: `map_config`, `map_spawn`, `map_portal`
+- [ ] compiled Rust: `default_equipment.rs` 2,957, `pvp_items.rs` 1,567, `inventory/seed.rs` 122,
+      `portals.rs` and `travel_targets.rs` tables
+- [ ] a generator input: `data/portals.json`, 5,954 bytes, never read at runtime
+- [ ] 214 `INSERT`s inside migrations `0013`-`0022`
+- [ ] one file layout decided and written down before the second layer moves
+- [ ] the `config/` directory created with the first layer that lands in it
+
+## Layer 14 - supervision and operations
+
+Files: `config.rs` 347, `supervise.rs` 571, `main.rs` 493, `control.rs` 128, `registry.rs` 114,
+`psql.rs` 70, `process.rs` 68, `status.rs` 34, `health.rs` 22, `tests/supervisor.rs` 223,
+`config/services.toml`, `config/services.docker.toml`, `docker/`.
+
+- [x] already file-native: one TOML file drives every service (`config.rs:150`, `toml::from_str`)
+- [ ] `deploy-world` covered by a test (it has none)
+
+## Layer 15 - harness
+
+Files: `asura-fakeworld/src/main.rs` 307, `asura-world/tests/load.rs` 3,039,
+`asura-world/tests/end_to_end.rs` 344, `asura-auth/tests/login.rs` 708, `asura-auth/tests/travel.rs`
+397, `asura-db/tests/*` (5 files, 1,483), `asura-world/tests/path_dump.rs` 220,
+`asura-world/tests/portals.rs` 41, 5 examples.
+
+- [ ] 261 declared tests recorded, 2 ignored, with the ignore reasons named
+- [ ] every fixture that is content moved with its layer
+
+## Layer 16 - evidence
+
+- [-] holds by design - never configuration, never edited
+
+## Boundary defects to fix before the content layers move
+
+- [ ] the world declares a dependency on `asura-auth` (`crates/asura-world/Cargo.toml`) with no call
+      site anywhere in the crate
+- [ ] `map.rs` straddles content, connection and cartography (layer 5 note)
+- [ ] layer 3 restates layer 1's map-type numbers instead of importing them
+- [ ] content in layer 1 (`pvp_items.rs`), layer 6 (`default_equipment.rs`), layer 7 (`portals.rs`,
+      `travel_targets.rs`), layer 2 (`inventory/seed.rs`) - four layers, five homes
+
+## How to update this file
+
+One box per commit. Tick the box, and append the commit hash and the evidence line - the command,
+the count, or the capture - on the same line. A box is never ticked because the work is planned,
+and a layer's `[x]` requires the six conditions at the top of this file.
