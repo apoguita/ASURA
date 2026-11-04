@@ -25,7 +25,7 @@ pub struct Account {
 /// Read one account. `None` means no such row, which the login path treats as a refusal.
 pub async fn load(pool: &PgPool, id: Uuid) -> sqlx::Result<Option<Account>> {
     let row = sqlx::query_as::<_, (Uuid, String, i16)>(
-        "SELECT id, username, eula_accepted FROM account WHERE id = $1",
+        "SELECT id, username, eula_accepted FROM t_account WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -42,7 +42,7 @@ pub async fn load(pool: &PgPool, id: Uuid) -> sqlx::Result<Option<Account>> {
 /// only report: the client has already been answered either way, and refusing after the fact would
 /// ask it again in a loop.
 pub async fn record_eula(pool: &PgPool, id: Uuid, version: i16) -> sqlx::Result<bool> {
-    let done = sqlx::query("UPDATE account SET eula_accepted = $2 WHERE id = $1")
+    let done = sqlx::query("UPDATE t_account SET eula_accepted = $2 WHERE id = $1")
         .bind(id)
         .bind(version)
         .execute(pool)

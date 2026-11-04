@@ -41,6 +41,8 @@ for now, the named condition would change it), **open** (not decided).
 
 | D30 | The file check's seven words belong to the client build, so this server carries the set of the build it serves and refreshes it by measurement: capture the answer a live client accepts (pktmon on 6112) and decode it, check a set against Gw.dat (crates/asura-world/src/gwdat.rs), or read it out of the running client. Never by shifting the reference's literal by arithmetic | accepted | The two sets on record differ by  x100 on every id that differs, which is what a client rebuild looks like, so the reference's literal is an approximation of one build. A mismatch has not been measured either way, while no answer at all is fatal, so the requirement is stated and the set kept current | docs/03-protocol.md 7, crates/asura-protocol/src/client/filecheck.rs, the 2026-10-25 runs |
 
+| D31 | Every data table carries a `t_` prefix: `t_session`, `t_world`, `t_item`. The prefix is the namespace marker - a bare `session` is the login, a bare `world` is the world server, a bare `item` is a thing on the wire | accepted | The owner's rule: the table named `session` collided with the word this project uses for the session itself, in queries, logs and documents alike, and the same collision exists for `world`, `item`, `bag`, `account` and `service`. `0026_t_prefix.sql` renames them, guarded so a second run is a no-op; 0001-0025 are not rewritten, because they are the record of what a database has already had done to it | commit `T_PREFIX_COMMIT`, `crates/asura-db/migrations/0026_t_prefix.sql`, `crates/asura-db/src/lib.rs` (`REQUIRED_TABLES`) |
+
 ## How to add an entry
 
 One row per decision, appended. Quote the reason in one sentence, name the evidence as `file:line`

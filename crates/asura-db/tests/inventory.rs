@@ -184,7 +184,7 @@ async fn a_drop_finds_only_what_the_reference_would_find() {
         .find(|bag| bag.bag_model_id == 7)
         .expect("storage 1");
     let stored: i32 = sqlx::query_scalar(
-        "INSERT INTO item (character_id, bag_id, slot, file_id, item_type, model_id, quantity)
+        "INSERT INTO t_item (character_id, bag_id, slot, file_id, item_type, model_id, quantity)
          VALUES ($1, $2, 0, 0x47C34, 9, 22269, 1) RETURNING id",
     )
     .bind(character)
@@ -600,7 +600,7 @@ async fn an_instance_is_unlocked_by_arriving_once() {
 
 /// The account id behind a username, for a test that needs to create a character on it.
 async fn account_of(pool: &PgPool, username: &str) -> Uuid {
-    sqlx::query_scalar("SELECT id FROM account WHERE username = $1")
+    sqlx::query_scalar("SELECT id FROM t_account WHERE username = $1")
         .bind(username)
         .fetch_one(pool)
         .await

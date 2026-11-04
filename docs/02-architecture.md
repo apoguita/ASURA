@@ -75,25 +75,25 @@ CREATE TABLE world_pool (                       -- capacity, per world, per map
 );
 ```
 
-A world server inserts or updates its `world` row at startup (`draining = false`) and keeps
+A world server inserts or updates its `t_world` row at startup (`draining = false`) and keeps
 `heartbeat_at` current; it does not mark itself draining or offline on exit - a world that stops is
 discovered by its heartbeat going stale, and the reaper frees its leases. The auth service reads
-`world` to answer "where is this player's map?" - the registry is data, so it survives restarts, and
+`t_world` to answer "where is this player's map?" - the registry is data, so it survives restarts, and
 no handshake is needed to keep it honest.
 
-The general service registry sits beside `world`: a `service` table (migration 0010, S2) holding a
+The general service registry sits beside `world`: a `t_service` table (migration 0010, S2) holding a
 row per service kind - kind, name, address, port, build, state, `heartbeat_at`. The supervisor
 writes a row for every service it starts and refreshes it every 5 s, so consumers read the catalog
-instead of hard-coding addresses; worlds keep their own `world` rows as the load-bearing registry,
+instead of hard-coding addresses; worlds keep their own `t_world` rows as the load-bearing registry,
 and the catalog writes theirs beside it (`crates/asura-db/src/catalog.rs`).
 
-`world_pool` is what makes allocation safe across processes: it is the prebuilt capacity, and only
+`t_world_pool` is what makes allocation safe across processes: it is the prebuilt capacity, and only
 one process can win a given row.
 
 ### The lease ledger
 
-`world_pool.leased` is a counter, and a counter cannot say *which* lease to free. Beside it sits
-`lease`, one row per reserved slot (`crates/asura-db/migrations/0002_leases.sql`):
+`t_world_pool.leased` is a counter, and a counter cannot say *which* lease to free. Beside it sits
+`t_lease`, one row per reserved slot (`crates/asura-db/migrations/0002_leases.sql`):
 
 - it is what the reaper deletes for a world that stops heartbeating, so the counter drops by exactly
   the slots that world held;

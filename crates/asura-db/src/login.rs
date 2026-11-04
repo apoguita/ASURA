@@ -1,4 +1,4 @@
-﻿//! Login: turning the pair the client presents into an account, and reading what it may see.
+//! Login: turning the pair the client presents into an account, and reading what it may see.
 //!
 //! The client sends two UUIDs - a portal user id and a session id - and gets either a character list
 //! or an error. That is the whole transaction, and this module is the only place it is decided.
@@ -53,7 +53,7 @@ pub async fn find_session(
 ) -> sqlx::Result<Option<LoginSession>> {
     sqlx::query_as::<_, (Uuid, Uuid, Option<Uuid>)>(
         "SELECT id, account_id, char_id
-           FROM session
+           FROM t_session
           WHERE portal_user = $1
             AND id = $2
             AND ended_at IS NULL",
@@ -78,7 +78,7 @@ pub async fn find_session(
 pub async fn characters(pool: &PgPool, account: Uuid) -> sqlx::Result<Vec<Character>> {
     sqlx::query_as::<_, (Uuid, String, i32)>(
         "SELECT id, name, map_id
-           FROM characters
+           FROM t_characters
           WHERE account_id = $1
           ORDER BY name",
     )
@@ -96,7 +96,7 @@ pub async fn characters(pool: &PgPool, account: Uuid) -> sqlx::Result<Vec<Charac
 /// (`docs/02-architecture.md`, "Identity"), not an authorisation: the pair was already validated.
 pub async fn select_character(pool: &PgPool, session: Uuid, character: Uuid) -> sqlx::Result<bool> {
     let done = sqlx::query(
-        "UPDATE session SET char_id = $2
+        "UPDATE t_session SET char_id = $2
           WHERE id = $1 AND ended_at IS NULL",
     )
     .bind(session)
@@ -119,12 +119,12 @@ pub async fn select_character(pool: &PgPool, session: Uuid, character: Uuid) -> 
 pub async fn delete_character(pool: &PgPool, account: Uuid, character: Uuid) -> sqlx::Result<bool> {
     let mut tx = pool.begin().await?;
 
-    sqlx::query("UPDATE session SET char_id = NULL WHERE char_id = $1")
+    sqlx::query("UPDATE t_session SET char_id = NULL WHERE char_id = $1")
         .bind(character)
         .execute(&mut *tx)
         .await?;
 
-    let done = sqlx::query("DELETE FROM characters WHERE account_id = $1 AND id = $2")
+    let done = sqlx::query("DELETE FROM t_characters WHERE account_id = $1 AND id = $2")
         .bind(account)
         .bind(character)
         .execute(&mut *tx)
@@ -138,7 +138,7 @@ pub async fn delete_character(pool: &PgPool, account: Uuid, character: Uuid) -> 
 /// which is what makes it safe to run on every disconnect and again on a stale sweep.
 pub async fn close_session(pool: &PgPool, session: Uuid) -> sqlx::Result<bool> {
     let done = sqlx::query(
-        "UPDATE session SET ended_at = now()
+        "UPDATE t_session SET ended_at = now()
           WHERE id = $1 AND ended_at IS NULL",
     )
     .bind(session)
@@ -154,7 +154,7 @@ pub async fn close_session(pool: &PgPool, session: Uuid) -> sqlx::Result<bool> {
 /// means "newest wins" cannot be half-implemented in the service.
 pub async fn close_other_sessions(pool: &PgPool, account: Uuid, keep: Uuid) -> sqlx::Result<u64> {
     let done = sqlx::query(
-        "UPDATE session SET ended_at = now()
+        "UPDATE t_session SET ended_at = now()
           WHERE account_id = $1
             AND id <> $2
             AND ended_at IS NULL",
@@ -203,7 +203,7 @@ pub async fn seed_identity(
     // Upsert on the unique username and return the row's id either way. `DO UPDATE` is what makes
     // RETURNING fire for an existing row; `SET username = EXCLUDED.username` is a no-op write.
     let account: Uuid = sqlx::query_scalar(
-        "INSERT INTO account (id, username) VALUES (gen_random_uuid(), $1)
+        "INSERT INTO t_account (id, username) VALUES (gen_random_uuid(), $1)
          ON CONFLICT (username) DO UPDATE SET username = EXCLUDED.username
          RETURNING id",
     )
@@ -212,7 +212,7 @@ pub async fn seed_identity(
     .await?;
 
     sqlx::query(
-        "INSERT INTO session (id, account_id, portal_user, started_at, ended_at)
+        "INSERT INTO t_session (id, account_id, portal_user, started_at, ended_at)
          VALUES ($1, $2, $3, now(), NULL)
          ON CONFLICT (id) DO UPDATE SET
              account_id  = EXCLUDED.account_id,
@@ -227,7 +227,7 @@ pub async fn seed_identity(
     .await?;
 
     let character: Uuid = match sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM characters WHERE account_id = $1 AND name = $2",
+        "SELECT id FROM t_characters WHERE account_id = $1 AND name = $2",
     )
     .bind(account)
     .bind(character_name)
@@ -237,8 +237,12 @@ pub async fn seed_identity(
         Some(existing) => existing,
         None => {
             sqlx::query_scalar(
-                "INSERT INTO characters (id, account_id, name, map_id)
-             VALUES (gen_random_uuid(), $1, $2, $3)
+                // `last_outpost` is written too: this fixture means "a character standing in this map",
+                // and the placement rule asks where it was last placed before it lets it leave an
+                // explorable. A row with the memory left at 0 reads as "never placed" and is sent to
+                // the campaign default instead (D28, `asura_rules::placement`).
+                "INSERT INTO t_characters (id, account_id, name, map_id, last_outpost)
+             VALUES (gen_random_uuid(), $1, $2, $3, $3)
              RETURNING id",
             )
             .bind(account)
@@ -263,7 +267,7 @@ pub async fn seed_identity(
 ///
 /// Test hygiene: a run leaves nothing behind that the next run would mistake for a live account.
 pub async fn remove_account(pool: &PgPool, account_name: &str) -> sqlx::Result<bool> {
-    let done = sqlx::query("DELETE FROM account WHERE username = $1")
+    let done = sqlx::query("DELETE FROM t_account WHERE username = $1")
         .bind(account_name)
         .execute(pool)
         .await?;

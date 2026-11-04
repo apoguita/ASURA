@@ -107,9 +107,9 @@ Files: `packets.rs` 2,106 (782 rows, 403 consts), `game/mod.rs` 1,711, `game/app
 
 Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
 `inventory/seed.rs` 122, `placement.rs` 609, `login.rs` 245, `account.rs` 44, `catalog.rs` 110,
-`portal.rs` 108, `lib.rs` 230, plus `migrations/0001`-`0025`.
+`portal.rs` 108, `lib.rs` 300, plus `migrations/0001`-`0026`.
 
-- [x] physical schema stays SQL: 25 migrations, 14 tables (`docs/38`, D21)
+- [x] physical schema stays SQL: 26 migrations, 14 tables (`docs/38`, D21)
 - [x] content rows counted and named: 214 `INSERT`s in `0013`, `0014`, `0016`-`0022`, plus
       `map_config`, `map_spawn` and `map_portal` (`0025`)
 - [x] the split is written at the source (`crates/asura-db/src/lib.rs`): which tables are operational
@@ -125,6 +125,12 @@ Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
       settles the destination and the owner deferred the move, so these two boxes wait for that
       decision, not for layer 2 work
 - [x] `map_portal` is content with provenance (`0025_map_portals.sql`, a `source` column per row)
+- [x] every data table carries a `t_` prefix (`docs/38`, D31): `session` is the login and
+      `t_session` is the row, and the same for `world`, `item`, `bag`, `account`, `service`,
+      `characters`, `lease`, `transfer`, `map_config`, `map_spawn`, `map_portal`,
+      `instance_unlock` and `world_pool`. `0026_t_prefix.sql` renames them, guarded; every
+      query in the tree and in the tools names the new tables - `cargo test --workspace` passes
+      and the whole schema test set is green - commit `T_PREFIX_COMMIT`
 - [-] the 214 content `INSERT`s retired - parked with the box above
 
 ## Layer 3 - rules (`asura-rules`)

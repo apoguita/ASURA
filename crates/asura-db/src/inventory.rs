@@ -364,7 +364,7 @@ fn item_from_row(row: ItemRow) -> Item {
 pub async fn load(pool: &PgPool, character: Uuid) -> sqlx::Result<Inventory> {
     let bags: Vec<(i32, i32, i32, i32, i32)> = sqlx::query_as(
         "SELECT bag_id, bag_model_id, bag_type, slot_count, assoc_item_id
-           FROM bag WHERE character_id = $1
+           FROM t_bag WHERE character_id = $1
           ORDER BY bag_model_id, bag_id",
     )
     .bind(character)
@@ -372,7 +372,7 @@ pub async fn load(pool: &PgPool, character: Uuid) -> sqlx::Result<Inventory> {
     .await?;
 
     let items: Vec<ItemRow> = sqlx::query_as(&format!(
-        "SELECT {ITEM_COLUMNS} FROM item WHERE character_id = $1
+        "SELECT {ITEM_COLUMNS} FROM t_item WHERE character_id = $1
           ORDER BY bag_id NULLS FIRST, slot, id"
     ))
     .bind(character)
@@ -460,7 +460,7 @@ pub async fn create_character(
     // creation defaults (`GameSrv.c:1880-1886`): level 1, `is_pvp` when the campaign is none, the helmet
     // shown, the secondary profession the screen chose, and the unlocked-professions bit for the primary.
     sqlx::query(
-        "INSERT INTO characters (id, account_id, name, map_id, appearance, primary_profession,
+        "INSERT INTO t_characters (id, account_id, name, map_id, appearance, primary_profession,
                                  unlocked_professions, gold, campaign, secondary_profession, level,
                                  is_pvp, helm_status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, 1)",
@@ -504,7 +504,7 @@ pub async fn create_character(
     for seed_bag in seed::BAGS {
         let assoc_item_id = bag_own_item(seed_bag, &allocated)?;
         sqlx::query(
-            "INSERT INTO bag (character_id, bag_id, bag_model_id, bag_type, slot_count, assoc_item_id)
+            "INSERT INTO t_bag (character_id, bag_id, bag_model_id, bag_type, slot_count, assoc_item_id)
              VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(character)
@@ -608,7 +608,7 @@ async fn insert_row(
     item: ItemColumns<'_>,
 ) -> sqlx::Result<i32> {
     sqlx::query_scalar(
-        "INSERT INTO item (character_id, bag_id, slot, file_id, item_type, model_id, dye_tint,
+        "INSERT INTO t_item (character_id, bag_id, slot, file_id, item_type, model_id, dye_tint,
                            dye_colors, materials, unk1, flags, value, quantity, profession,
                            name, modifiers)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
@@ -650,7 +650,7 @@ pub async fn seed_default(pool: &PgPool, character: Uuid) -> sqlx::Result<bool> 
     // not both decide it has no bags. The reference cannot hit this (one connection per player); a
     // server that reconnects fast can.
     let exists: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM characters WHERE id = $1 FOR UPDATE")
+        sqlx::query_scalar("SELECT id FROM t_characters WHERE id = $1 FOR UPDATE")
             .bind(character)
             .fetch_optional(&mut *tx)
             .await?;
@@ -658,7 +658,7 @@ pub async fn seed_default(pool: &PgPool, character: Uuid) -> sqlx::Result<bool> 
         return Ok(false);
     }
 
-    let bags: i64 = sqlx::query_scalar("SELECT count(*) FROM bag WHERE character_id = $1")
+    let bags: i64 = sqlx::query_scalar("SELECT count(*) FROM t_bag WHERE character_id = $1")
         .bind(character)
         .fetch_one(&mut *tx)
         .await?;
@@ -672,7 +672,7 @@ pub async fn seed_default(pool: &PgPool, character: Uuid) -> sqlx::Result<bool> 
     let mut allocated: Vec<(i32, i32)> = Vec::with_capacity(seed::ITEMS.len());
     for seed in seed::ITEMS {
         let id: i32 = sqlx::query_scalar(
-            "INSERT INTO item (character_id, bag_id, slot, file_id, item_type, model_id, dye_tint,
+            "INSERT INTO t_item (character_id, bag_id, slot, file_id, item_type, model_id, dye_tint,
                                dye_colors, materials, unk1, flags, value, quantity, profession,
                                name, modifiers)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
@@ -703,7 +703,7 @@ pub async fn seed_default(pool: &PgPool, character: Uuid) -> sqlx::Result<bool> 
         let assoc_item_id = bag_own_item(seed, &allocated)?;
 
         sqlx::query(
-            "INSERT INTO bag (character_id, bag_id, bag_model_id, bag_type, slot_count, assoc_item_id)
+            "INSERT INTO t_bag (character_id, bag_id, bag_model_id, bag_type, slot_count, assoc_item_id)
              VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(character)
@@ -756,8 +756,8 @@ pub async fn find_in_carrying_bags(
     item_id: i32,
 ) -> sqlx::Result<Option<Item>> {
     let row: Option<ItemRow> = sqlx::query_as(&format!(
-        "SELECT {} FROM item i
-           JOIN bag b ON b.character_id = i.character_id AND b.bag_id = i.bag_id
+        "SELECT {} FROM t_item i
+           JOIN t_bag b ON b.character_id = i.character_id AND b.bag_id = i.bag_id
           WHERE i.character_id = $1
             AND i.id = $2
             AND b.bag_model_id BETWEEN $3 AND $4",
@@ -804,7 +804,7 @@ pub async fn take_from_stack(
 
     let mut tx = pool.begin().await?;
     let row: Option<ItemRow> = sqlx::query_as(&format!(
-        "SELECT {ITEM_COLUMNS} FROM item WHERE character_id = $1 AND id = $2 FOR UPDATE"
+        "SELECT {ITEM_COLUMNS} FROM t_item WHERE character_id = $1 AND id = $2 FOR UPDATE"
     ))
     .bind(character)
     .bind(item_id)
@@ -820,13 +820,13 @@ pub async fn take_from_stack(
 
     let remaining = item.quantity - count;
     if remaining == 0 {
-        sqlx::query("DELETE FROM item WHERE character_id = $1 AND id = $2")
+        sqlx::query("DELETE FROM t_item WHERE character_id = $1 AND id = $2")
             .bind(character)
             .bind(item_id)
             .execute(&mut *tx)
             .await?;
     } else {
-        sqlx::query("UPDATE item SET quantity = $3 WHERE character_id = $1 AND id = $2")
+        sqlx::query("UPDATE t_item SET quantity = $3 WHERE character_id = $1 AND id = $2")
             .bind(character)
             .bind(item_id)
             .bind(remaining)
@@ -894,7 +894,7 @@ pub async fn move_item(
 ) -> sqlx::Result<MoveOutcome> {
     let mut tx = pool.begin().await?;
     let row: Option<ItemRow> = sqlx::query_as(&format!(
-        "SELECT {ITEM_COLUMNS} FROM item WHERE character_id = $1 AND id = $2 FOR UPDATE"
+        "SELECT {ITEM_COLUMNS} FROM t_item WHERE character_id = $1 AND id = $2 FOR UPDATE"
     ))
     .bind(character)
     .bind(item_id)
@@ -918,7 +918,7 @@ pub async fn move_item(
     }
 
     let bag: Option<(i32,)> =
-        sqlx::query_as("SELECT slot_count FROM bag WHERE character_id = $1 AND bag_id = $2")
+        sqlx::query_as("SELECT slot_count FROM t_bag WHERE character_id = $1 AND bag_id = $2")
             .bind(character)
             .bind(bag_id)
             .fetch_optional(&mut *tx)
@@ -937,7 +937,7 @@ pub async fn move_item(
     }
 
     let occupant: Option<i32> = sqlx::query_scalar(
-        "SELECT id FROM item
+        "SELECT id FROM t_item
           WHERE character_id = $1 AND bag_id = $2 AND slot = $3 AND id <> $4",
     )
     .bind(character)
@@ -953,7 +953,7 @@ pub async fn move_item(
         });
     }
 
-    sqlx::query("UPDATE item SET bag_id = $3, slot = $4 WHERE character_id = $1 AND id = $2")
+    sqlx::query("UPDATE t_item SET bag_id = $3, slot = $4 WHERE character_id = $1 AND id = $2")
         .bind(character)
         .bind(item_id)
         .bind(bag_id)
@@ -984,12 +984,12 @@ pub async fn first_free_carrying_slot(
 ) -> sqlx::Result<Option<(i32, i32)>> {
     let row: Option<(i32, i32)> = sqlx::query_as(
         "SELECT b.bag_id, free.slot
-           FROM bag b
+           FROM t_bag b
            CROSS JOIN LATERAL generate_series(0, b.slot_count - 1) AS free(slot)
           WHERE b.character_id = $1
             AND b.bag_model_id BETWEEN $2 AND $3
             AND NOT EXISTS (
-                SELECT 1 FROM item i
+                SELECT 1 FROM t_item i
                  WHERE i.character_id = b.character_id
                    AND i.bag_id = b.bag_id
                    AND i.slot = free.slot

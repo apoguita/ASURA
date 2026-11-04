@@ -57,7 +57,7 @@ fn spawn_map_from_row(row: MapRow) -> SpawnMap {
 pub async fn spawn_map(pool: &PgPool, map_id: i32) -> sqlx::Result<Option<SpawnMap>> {
     let row: Option<MapRow> = sqlx::query_as(
         "SELECT map_id, map_type, map_file_id, spawn_x, spawn_y, spawn_plane, name
-           FROM map_config WHERE map_id = $1",
+           FROM t_map_config WHERE map_id = $1",
     )
     .bind(map_id)
     .fetch_optional(pool)
@@ -70,7 +70,7 @@ pub async fn spawn_map(pool: &PgPool, map_id: i32) -> sqlx::Result<Option<SpawnM
 /// capture's, kept because a map entered from a different portal has more than one.
 pub async fn spawn_points(pool: &PgPool, map_id: i32) -> sqlx::Result<Vec<(f32, f32, i16)>> {
     sqlx::query_as::<_, (f32, f32, i16)>(
-        "SELECT x, y, plane FROM map_spawn WHERE map_id = $1 ORDER BY idx",
+        "SELECT x, y, plane FROM t_map_spawn WHERE map_id = $1 ORDER BY idx",
     )
     .bind(map_id)
     .fetch_all(pool)
@@ -87,7 +87,7 @@ pub type PortalRow = (i32, f32, f32, Option<i32>, Option<f32>, Option<f32>);
 /// world then keeps its compiled doorway table, which is the behaviour it had before the table existed.
 pub async fn map_portals(pool: &PgPool) -> sqlx::Result<Vec<PortalRow>> {
     sqlx::query_as::<_, PortalRow>(
-        "SELECT map_id, x, y, to_map, arrive_x, arrive_y FROM map_portal ORDER BY map_id, idx",
+        "SELECT map_id, x, y, to_map, arrive_x, arrive_y FROM t_map_portal ORDER BY map_id, idx",
     )
     .fetch_all(pool)
     .await
@@ -100,14 +100,14 @@ pub async fn map_portals(pool: &PgPool) -> sqlx::Result<Vec<PortalRow>> {
 /// single-map test), never by default - a world hosting one map answers `/tp` with "not hosted" for the
 /// rest, and `/maps` prints one alias.
 pub async fn configured_map_ids(pool: &PgPool) -> sqlx::Result<Vec<i32>> {
-    sqlx::query_scalar("SELECT map_id FROM map_config ORDER BY map_id")
+    sqlx::query_scalar("SELECT map_id FROM t_map_config ORDER BY map_id")
         .fetch_all(pool)
         .await
 }
 
 /// A character's name, as the client should see it in the map.
 pub async fn character_name(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<String>> {
-    sqlx::query_scalar("SELECT name FROM characters WHERE id = $1")
+    sqlx::query_scalar("SELECT name FROM t_characters WHERE id = $1")
         .bind(character)
         .fetch_optional(pool)
         .await
@@ -162,7 +162,7 @@ pub async fn traits(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Trait
     let row: Option<(i64, i32, i64, i32, i32, i32, i32)> = sqlx::query_as(
         "SELECT appearance, primary_profession, unlocked_professions, gold, campaign::int,
                 secondary_profession::int, level::int
-           FROM characters WHERE id = $1",
+           FROM t_characters WHERE id = $1",
     )
     .bind(character)
     .fetch_optional(pool)
@@ -259,7 +259,7 @@ pub async fn settings(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Set
     let row: Option<CharacterRow> = sqlx::query_as(
         "SELECT last_outpost::int, map_id, appearance, campaign::int, level::int, is_pvp,
                 secondary_profession::int, helm_status::int
-           FROM characters WHERE id = $1",
+           FROM t_characters WHERE id = $1",
     )
     .bind(character)
     .fetch_optional(pool)
@@ -328,7 +328,7 @@ pub struct Position {
 /// range), so a caller must not be handed it as if it were a position.
 pub async fn position(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Position>> {
     let row: Option<(i32, f32, f32, Option<i16>)> =
-        sqlx::query_as("SELECT map_id, pos_x, pos_y, pos_plane FROM characters WHERE id = $1")
+        sqlx::query_as("SELECT map_id, pos_x, pos_y, pos_plane FROM t_characters WHERE id = $1")
             .bind(character)
             .fetch_optional(pool)
             .await?;
@@ -356,7 +356,7 @@ pub async fn record_position(
     plane: i16,
 ) -> sqlx::Result<bool> {
     let done = sqlx::query(
-        "UPDATE characters
+        "UPDATE t_characters
             SET map_id = $2, pos_x = $3, pos_y = $4, pos_plane = $5, updated_at = now()
           WHERE id = $1",
     )
@@ -377,7 +377,7 @@ pub async fn record_position(
 /// `characters.last_outpost` is that memory, and it is written only when the placement is an outpost, so a
 /// travel into an explorable cannot overwrite it.
 pub async fn remember_outpost(pool: &PgPool, character: Uuid, map_id: i32) -> sqlx::Result<bool> {
-    let done = sqlx::query("UPDATE characters SET last_outpost = $2 WHERE id = $1")
+    let done = sqlx::query("UPDATE t_characters SET last_outpost = $2 WHERE id = $1")
         .bind(character)
         .bind(map_id as i16)
         .execute(pool)
@@ -391,7 +391,7 @@ pub async fn remember_outpost(pool: &PgPool, character: Uuid, map_id: i32) -> sq
 /// `Ok(true)` means this call is the one that unlocked it.
 pub async fn unlock_instance(pool: &PgPool, character: Uuid, map_id: i32) -> sqlx::Result<bool> {
     let done = sqlx::query(
-        "INSERT INTO instance_unlock (character_id, map_id) VALUES ($1, $2)
+        "INSERT INTO t_instance_unlock (character_id, map_id) VALUES ($1, $2)
          ON CONFLICT (character_id, map_id) DO NOTHING",
     )
     .bind(character)
@@ -407,7 +407,7 @@ pub async fn unlock_instance(pool: &PgPool, character: Uuid, map_id: i32) -> sql
 /// the client's, not the database's.
 pub async fn unlocked_instances(pool: &PgPool, character: Uuid) -> sqlx::Result<Vec<i32>> {
     let rows: Vec<(i32,)> = sqlx::query_as(
-        "SELECT map_id FROM instance_unlock WHERE character_id = $1 ORDER BY unlocked_at, map_id",
+        "SELECT map_id FROM t_instance_unlock WHERE character_id = $1 ORDER BY unlocked_at, map_id",
     )
     .bind(character)
     .fetch_all(pool)
@@ -419,7 +419,7 @@ pub async fn unlocked_instances(pool: &PgPool, character: Uuid) -> sqlx::Result<
 pub async fn all_maps(pool: &PgPool) -> sqlx::Result<Vec<SpawnMap>> {
     let rows: Vec<MapRow> = sqlx::query_as(
         "SELECT map_id, map_type, map_file_id, spawn_x, spawn_y, spawn_plane, name
-           FROM map_config ORDER BY map_id",
+           FROM t_map_config ORDER BY map_id",
     )
     .fetch_all(pool)
     .await?;
