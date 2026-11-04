@@ -31,24 +31,26 @@ conditions of the next section hold for it.
 
 | # | layer | files (measured) | class | status |
 |---|---|---|---|---|
+| # | layer | files (measured) | class | status |
+|---|---|---|---|---|
 | 1 | wire and codec | `asura-protocol`, 16 files, 7,952 lines | evidence | `[-]` closed |
-| 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + some content | closed |
-| 3 | auth service | `asura-auth`, 6 files, 2,664 lines | rules | closed |
-| R | rules | `asura-rules`, 1 file, 208 lines, 8 tests; **no dependencies** | rules | open |
-| S | socket layer | `asura-gateway`, 3 files, 475 lines; depends on auth | transport | open |
-| 4 | web gate | `asura-webgate`, 2 files, 631 lines | rules | `[ ]` |
-| 5 | world connection and load | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `capture.rs`, `replay.rs` | rules + rates | `[ ]` |
-| 6 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | `[ ]` |
-| 7 | travel | `travel.rs`, `portals.rs`, `travel_targets.rs` | rules + content | `[~]` |
-| 8 | character | `creation.rs` | rules + content | `[ ]` |
-| 9 | items | `item.rs`, `pvp_items.rs` | rules + content | `[ ]` |
-| 10 | chat and commands | `chat.rs` | rules + one table | `[ ]` |
-| 11 | map data and pathing | `map_data.rs`, `pathfind.rs`, `gwdat.rs`, `fa_compress.rs`, `fa_compress_tables.rs`, `path_tables.rs`, `graph_dump.rs` | measured data | `[-]` |
-| 12 | cartography | `cartography.rs` | measured data | `[-]` |
-| 13 | content itself | four homes, see below | content | `[~]` |
-| 14 | supervision and operations | `asura-supervisor`, 10 files, 2,070 lines, `config/services.toml` | operations | `[x]` |
-| 15 | harness | `asura-fakeworld` 307 lines, 12 test files, 5 examples | harness | `[ ]` |
-| 16 | evidence | `recordings/`, `data/portals.json`, `client-patcher/`, `logs/` | evidence | `[-]` |
+| 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | closed |
+| 3 | rules | `asura-rules`, 1 file, 208 lines, 8 tests; **no dependencies** | rules | open |
+| 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | closed |
+| 5 | socket layer | `asura-gateway`, 3 files, 475 lines; depends on 4 | transport | open |
+| 6 | web gate | `asura-webgate`, 2 files, 631 lines | rules | `[ ]` |
+| 7 | world connection and load | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `capture.rs`, `replay.rs` | rules + rates | `[ ]` |
+| 8 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | `[ ]` |
+| 9 | travel | `travel.rs`, `portals.rs`, `travel_targets.rs` | rules + content | `[~]` |
+| 10 | character | `creation.rs` | rules + content | `[ ]` |
+| 11 | items | `item.rs`, `pvp_items.rs` | rules + content | `[ ]` |
+| 12 | chat and commands | `chat.rs` | rules + one table | `[ ]` |
+| 13 | map data and pathing | `map_data.rs`, `pathfind.rs`, `gwdat.rs`, `fa_compress.rs`, `fa_compress_tables.rs`, `path_tables.rs`, `graph_dump.rs` | measured data | `[-]` |
+| 14 | cartography | `cartography.rs` | measured data | `[-]` |
+| 15 | content itself | four homes, see layer 15 | content | `[~]` |
+| 16 | supervision and operations | `asura-supervisor`, 10 files, 2,070 lines, `config/services.toml` | operations | `[x]` |
+| 17 | harness | `asura-fakeworld` 307 lines, 12 test files, 5 examples | harness | `[ ]` |
+| 18 | evidence | `recordings/`, `data/portals.json`, `client-patcher/`, `logs/` | evidence | `[-]` |
 
 ## Layer 1 - wire and codec
 
@@ -60,7 +62,7 @@ Files: `packets.rs` 2,106 (782 rows, 403 consts), `game/mod.rs` 1,711, `game/app
 
 - [-] holds by design - the packet table is the specification (`AGENTS.md` #1)
 - [x] content that was misplaced here is moved out: `game/pvp_items.rs` (387 rows) is
-      `crates/asura-world/src/pvp_items.rs`, layer 9 - commit `fb8e508`, rows compared row for row
+      `crates/asura-world/src/pvp_items.rs`, layer 11 - commit `fb8e508`, rows compared row for row
       with the commit before, 93 protocol and 61 world unit tests pass
 - [x] test client gated: `client/peer.rs` behind the `test-client` feature (`docs/38`, D13) - commit
       `8e7448b`; `cargo check --workspace` and `--all-targets` exit 0, 93 protocol tests pass
@@ -125,10 +127,19 @@ Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
 - [x] `map_portal` is content with provenance (`0025_map_portals.sql`, a `source` column per row)
 - [-] the 214 content `INSERT`s retired - parked with the box above
 
-## Layer 3 - auth service
+## Layer 3 - rules (`asura-rules`)
+
+Files: `src/lib.rs` 208 lines, 8 tests.
+
+- [x] created because a protocol answer needed a game rule and no existing crate fits: `asura-db` is
+      storage and `asura-world` may not exist yet at login (`docs/38`, D25) - commit `4b09d17`
+- [ ] the next rule that needs a home goes here rather than into a service: party and instance policy
+      (`docs/32` phase 2) is the first candidate
+
+## Layer 4 - auth service (`asura-auth`)
 
 Files: `lib.rs` 947, `frontdoor.rs` 165, `main.rs` 115, 2 examples, 2 test files. `travel.rs` is the
-placement mechanism now; its rules left for `asura-rules` (layer 3b).
+placement mechanism now; its rules left for `asura-rules` (layer 3).
 
 - [x] the game rules leave the service: last outpost, the creation exemption and the default outpost
       are `asura-rules::placement`, a pure function with eight tests (`docs/38`, D25) - commit
@@ -152,16 +163,7 @@ The three crates are named, not numbered (R and S), because the numbers were a m
 `asura-rules` (no dependencies) <- `asura-auth` <- `asura-gateway`, one direction, and a label that
 reads "3b" suggests rules hangs off auth when it is the most independent crate in the workspace
 (`docs/38-layer-decisions.md`, D27).
-## Layer R - the rules layer (`asura-rules`, new)
-
-Files: `src/lib.rs` 208 lines, 8 tests.
-
-- [x] created because a protocol answer needed a game rule and no existing crate fits: `asura-db` is
-      storage and `asura-world` may not exist yet at login (`docs/38`, D25) - commit `4b09d17`
-- [ ] the next rule that needs a home goes here rather than into a service: party and instance policy
-      (`docs/32` phase 2) is the first candidate
-
-## Layer S - the socket layer (`asura-gateway`, new)
+## Layer 5 - socket layer (`asura-gateway`)
 
 Files: `src/lib.rs` 214, `src/frontdoor.rs` 176, `src/main.rs` 85. It listens on the address a client
 dials, answers the file check, reads the four classification bytes and hands the socket on
@@ -177,33 +179,33 @@ dials, answers the file check, reads the four classification bytes and hands the
       agree or a client is placed in a world this layer then refuses
 - [ ] `docs/02` and `docs/01` describe the layer; the architecture table in `docs/adr/0006` does not
 
-## Layer 4 - web gate
+## Layer 6 - web gate
 
 Files: `lib.rs` 528, `main.rs` 103.
 
 - [ ] the four endpoints' answers checked against `config/` for anything that is content
 - [ ] `/health` recorded as operational, not content
 
-## Layer 5 - world connection and load
+## Layer 7 - world connection and load
 
 Files: `connection.rs` 524, `dispatch.rs` 124, `world.rs` 201, `map.rs` 497, `capture.rs` 161,
 `replay.rs` 276.
 
-- [ ] `map.rs` split: the `map_config` read belongs to layer 2's content, the instance table and the
+- [ ] `map.rs` split: the `map_config` read belongs to layer 15, the instance table and the
       cartography frames belong to layers 1 and 12
 - [ ] `TICK_INTERVAL` 100 ms and `PING_INTERVAL` 5 s moved to the rates file, marked measured
 - [ ] the load block's message order recorded as a rule with its capture named
 
-## Layer 6 - instance and simulation
+## Layer 8 - instance and simulation
 
 Files: `instance.rs` 378, `agent.rs` 1,158, `player.rs` 305.
 
-- [ ] `TICK_INTERVAL` consumer and the tick's cadence recorded (layer 5 owns the value)
+- [ ] `TICK_INTERVAL` consumer and the tick's cadence recorded (layer 7 owns the value)
 - [ ] `POSITION_UPDATE_MAX_ELAPSED_MS = 2000` moved to the rates file
 - [ ] `EXPERIENCE_TEST_VALUE = 500` recorded as a stand-in, not moved
 - [ ] `REACH`-style unmeasured constants listed in one place
 
-## Layer 7 - travel
+## Layer 9 - travel
 
 Files: `travel.rs` 522, `portals.rs` 232, `travel_targets.rs` 164.
 
@@ -216,7 +218,7 @@ Files: `travel.rs` 522, `portals.rs` 232, `travel_targets.rs` 164.
 - [x] the `0x80C1` touch starts nothing: `travel::handle_travel_init` (`travel.rs:154-166`) prints
       the touch and returns. The code is the truth, so commit `8bcc029`'s title is wrong.
 
-## Layer 8 - character
+## Layer 10 - character
 
 Files: `creation.rs` 482.
 
@@ -224,7 +226,7 @@ Files: `creation.rs` 482.
       as code with the reason written down
 - [ ] starter outposts moved to `config/`
 
-## Layer 9 - items
+## Layer 11 - items
 
 Files: `item.rs` 525, `pvp_items.rs` 1,571.
 
@@ -234,24 +236,24 @@ Files: `item.rs` 525, `pvp_items.rs` 1,571.
 - [ ] `inventory/seed.rs` (122 lines) moved to `config/`
 - [ ] the bag order and the refusal shapes recorded as rules (they are not content)
 
-## Layer 10 - chat and commands
+## Layer 12 - chat and commands
 
 Files: `chat.rs` 349.
 
 - [ ] the `COMMANDS` table (`chat.rs:141`) moved to `config/`, or kept as code with the reason
 - [ ] the coded-string chat body recorded as a wire rule, not content
 
-## Layer 11 - map data and pathing
+## Layer 13 - map data and pathing
 
 - [-] holds by design - measured from the archive, not authored
 - [ ] `data/path-graphs.bin` recorded as a build artifact: 87,336,403 bytes, 142 maps
 - [ ] how a profile ships it recorded (it is not `config/`)
 
-## Layer 12 - cartography
+## Layer 14 - cartography
 
 - [-] holds by design - 64 x 128, eight empty bands, one `0x008A`
 
-## Layer 13 - content itself
+## Layer 15 - content itself
 
 Four homes today:
 
@@ -265,7 +267,7 @@ Four homes today:
 - [ ] one file layout decided and written down before the second layer moves
 - [ ] the `config/` directory created with the first layer that lands in it
 
-## Layer 14 - supervision and operations
+## Layer 16 - supervision and operations
 
 Files: `config.rs` 347, `supervise.rs` 571, `main.rs` 493, `control.rs` 128, `registry.rs` 114,
 `psql.rs` 70, `process.rs` 68, `status.rs` 34, `health.rs` 22, `tests/supervisor.rs` 223,
@@ -274,7 +276,7 @@ Files: `config.rs` 347, `supervise.rs` 571, `main.rs` 493, `control.rs` 128, `re
 - [x] already file-native: one TOML file drives every service (`config.rs:150`, `toml::from_str`)
 - [ ] `deploy-world` covered by a test (it has none)
 
-## Layer 15 - harness
+## Layer 17 - harness
 
 Files: `asura-fakeworld/src/main.rs` 307, `asura-world/tests/load.rs` 3,039,
 `asura-world/tests/end_to_end.rs` 344, `asura-auth/tests/login.rs` 708, `asura-auth/tests/travel.rs`
@@ -284,7 +286,7 @@ Files: `asura-fakeworld/src/main.rs` 307, `asura-world/tests/load.rs` 3,039,
 - [ ] 261 declared tests recorded, 2 ignored, with the ignore reasons named
 - [ ] every fixture that is content moved with its layer
 
-## Layer 16 - evidence
+## Layer 18 - evidence
 
 - [-] holds by design - never configuration, never edited
 
@@ -292,13 +294,14 @@ Files: `asura-fakeworld/src/main.rs` 307, `asura-world/tests/load.rs` 3,039,
 
 - [ ] the world declares a dependency on `asura-auth` (`crates/asura-world/Cargo.toml`) with no call
       site anywhere in the crate
-- [ ] `map.rs` straddles content, connection and cartography (layer 5 note)
-- [ ] layer 3 restates layer 1's map-type numbers instead of importing them
-- [ ] content in layer 1 (`pvp_items.rs`), layer 6 (`default_equipment.rs`), layer 7 (`portals.rs`,
-      `travel_targets.rs`), layer 2 (`inventory/seed.rs`) - four layers, five homes
+- [ ] `map.rs` straddles content, connection and cartography (layer 7 note)
+- [ ] layer 3 owns the map-type numbers; no service restates them
+- [ ] content in layer 10 (`default_equipment.rs`), layer 9 (`portals.rs`,
+      `travel_targets.rs`), layer 2 (`inventory/seed.rs`) - three layers, four homes
 
 ## How to update this file
 
 One box per commit. Tick the box, and append the commit hash and the evidence line - the command,
 the count, or the capture - on the same line. A box is never ticked because the work is planned,
 and a layer's `[x]` requires the six conditions at the top of this file.
+
