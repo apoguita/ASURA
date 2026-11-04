@@ -184,10 +184,10 @@ The rules that follow from that, and they are binding:
   holds **no provenance and no reporting**: "measured", "implemented", "unverified" are not
   configuration. Evidence lives in `docs/` with the recording it names beside it - the file answers
   *what it is*, the document answers *why we believe it*.
-- **`immutable` is a tag, and it appears only where it is true.** It means changing the value breaks what
-  the client expects - the client's own numbers. A value the server chooses carries no tag at all, and the
-  owner may change it. Never use `immutable` to mean "we would rather you did not": that is a rule the
-  owner did not ask for.
+- **`immutable` is a note to whoever edits the file**, not a check and not a policy: `true` means do not
+  change this value, because it is one of the client's own numbers and changing it breaks what the client
+  expects. It appears only where that is true. A value the server chooses carries no tag, and the owner may
+  change it. Never use `immutable` to mean "we would rather you did not".
 - **Values with no answer say so.** A key whose map has not been established is `null`, and the caller
   refuses the action with a logged reason instead of choosing on the player's behalf.
 - **A layer's file list is not a licence.** Before adding a number to a constant, ask which of the three

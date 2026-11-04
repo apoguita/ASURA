@@ -211,8 +211,10 @@ pub struct Described<T> {
     /// What it means, in the words the person reading the file needs.
     #[serde(default)]
     pub doc: Option<String>,
-    /// `true` only where changing the value would break what the client expects - the client's own
-    /// numbers. Absent, or `false`, means the owner may change it (`docs/38-layer-decisions.md`, D35).
+    /// A note to whoever opens the file: `true` means do not change this value - it is one of the
+    /// client's own numbers, and changing it breaks what the client expects. It is advice, not a check:
+    /// the server reads the value either way. Absent means the value is the owner's to change
+    /// (`docs/38-layer-decisions.md`, D35).
     #[serde(default)]
     pub immutable: bool,
 }
