@@ -35,7 +35,7 @@ conditions of the next section hold for it.
 |---|---|---|---|---|
 | 1 | wire and codec | `asura-protocol`, 16 files, 7,952 lines | evidence | `[-]` closed |
 | 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | closed |
-| 3 | rules | `asura-rules`, 1 file, 289 lines, 10 tests; **no dependencies** | rules | open |
+| 3 | rules | `asura-rules`, 1 file, 264 lines, 8 tests; depends on 1 for the client's `MapKinds` | rules | open |
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | closed |
 | 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | `[x]` closed |
 | 6 | web gate | `asura-webgate`, 2 files, 696 lines | rules | `[x]` closed |
