@@ -33,6 +33,17 @@ pub mod capture {
 
     /// Nothing is recorded.
     pub fn record(_direction: &str, _header: u16, _bytes: &[u8]) {}
+
+    /// The first bytes of a message, as hex, for the trace. The same helper the recorder carries, so a
+    /// serving build logs a message identically with no capture behind it.
+    pub fn hex_preview(bytes: &[u8]) -> String {
+        bytes
+            .iter()
+            .take(24)
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 /// The reference-stream replay, inert.

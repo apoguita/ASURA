@@ -499,7 +499,7 @@ pub async fn run(
                                 eprintln!(
                                     "world <- {:#06X} ({used} bytes): {}",
                                     frame.header(),
-                                    hex_preview(&frame.encode())
+                                    crate::capture::hex_preview(&frame.encode())
                                 );
                             }
                             if !answer(stream, session, frame, world, player, trace).await? {
@@ -518,20 +518,6 @@ pub async fn run(
         }
     }
     Ok(())
-}
-
-/// The first bytes of a message, as hex, for the trace.
-///
-/// When a client dies mid-load, the only evidence left is what it sent and what it was sent. A header
-/// and a size say which message; the first bytes say whether its contents were what the reference
-/// would have written.
-pub fn hex_preview(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .take(24)
-        .map(|byte| format!("{byte:02X}"))
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Scramble and write frames.

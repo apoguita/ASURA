@@ -744,6 +744,39 @@ character is refused.
 `LOAD_INFO` is `{agent, map_id(u16), is_explorable(u8), district(u32), language(u8), is_observer(u8),
 unk(u8)}`. The reference hardcodes `is_explorable = 1` with the comment `// what to put here?`.
 
+### 11.3a The order, as this server sends it, and the capture that shows it
+
+The block goes out unasked the moment the world has the connection, and the order inside it is a rule,
+not an accident: a client that receives the same messages in another order stops at the loading screen.
+Written down here because it lived only in `crates/asura-world/src/map.rs` (`load_block`), and the box in
+`docs/37-rework-layers.md` (layer 7) asked for exactly this.
+
+| # | message | header | what it carries |
+|---|---|---|---|
+| 1 | `INSTANCE_LOAD_HEAD` | `0x017C` | the load begins |
+| 2 | `INSTANCE_PLAYER_DATA_START` | `0x0186` | the player-data block opens |
+| 3 | `INSTANCE_LOAD_PLAYER_NAME` | `0x017D` | the character's name |
+| 4 | `INSTANCE_LOAD_INFO` | `0x019A` | agent, map id, is-explorable, district, language, observer |
+| 5 | `MAP_INIT_START`, `CARTOGRAPHY_DATA` | `0x008A`... | the exploration grid, once per instance |
+| 6 | `INSTANCE_TABLE` batches | `0x01A0` | the instances that exist, in the batches a live server sends |
+
+Then the world tick (`0x001E`) and the ping (`0x000C`, `0x000D`) join in, and the client's three requests
+are answered in the order they arrive - items (`0x8091`), spawn (`0x8088`), players (`0x8090`) - which is
+section 11.4 below. The item stream ends with the six-message download manifest
+(`GameSrv_SendDownloadManifest`), whose first `DONE` carries the `MapId_Count` sentinel 877 and whose
+second carries the map itself.
+
+**The capture that shows the head of that order:** `recordings/asura/world/live-client-session-20261027-222641.jsonl`,
+the first 24 server-to-client messages, recorded by `asura-world --capture` on a live client:
+
+```text
+017C 0186 017D 019A 001E 000C 001E 001E 000D 0144 0148 0161 013F 0161 013E 013F 013F 013F 013F 013F 0161 015A 013E 0161
+```
+
+The client survived that order (the session continues past it in the same file), which is what makes it
+the order to send. Its counts per load - 538 messages for map 166, one `0x017C` and one `0x019A` each -
+are in `recordings/asura/world/load-layers-20261031.jsonl`.
+
 ### 11.4 The three things the client asks for
 
 The client asks in the order **items (`0x8091`), spawn (`0x8088`), players (`0x8090`)**; the reference

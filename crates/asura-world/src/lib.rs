@@ -421,7 +421,7 @@ mod tests {
             player_id: PLAYER_ID,
             agent_id: AGENT_ID,
             traits,
-            unlocked: crate::map::UNLOCKED_MAP_ZEROS,
+            unlocked: crate::player::UNLOCKED_MAP_ZEROS,
         });
         let created = frames
             .iter()
@@ -448,7 +448,7 @@ mod tests {
             player_id: PLAYER_ID,
             agent_id: AGENT_ID,
             traits: db_game::Traits::default(),
-            unlocked: crate::map::UNLOCKED_MAP_ZEROS,
+            unlocked: crate::player::UNLOCKED_MAP_ZEROS,
         });
         let created = fallback
             .iter()
@@ -476,7 +476,7 @@ mod tests {
             player_id: PLAYER_ID,
             agent_id: AGENT_ID,
             traits: db_game::Traits::default(),
-            unlocked: crate::map::UNLOCKED_MAP_ZEROS,
+            unlocked: crate::player::UNLOCKED_MAP_ZEROS,
         });
         assert_eq!(
             frames.last().expect("a block").header(),
@@ -546,11 +546,11 @@ mod tests {
     /// "everywhere is locked" or "the wrong instance is open".
     #[test]
     fn the_unlock_bitmap_puts_each_instance_at_the_bit_the_client_reads() {
-        let bitmap = map::unlock_bitmap(&[148, 145, 0, 991, 992, -1]);
+        let bitmap = player::unlock_bitmap(&[148, 145, 0, 991, 992, -1]);
 
         assert_eq!(
             bitmap.len(),
-            map::UNLOCKED_MAP_ZEROS.len(),
+            player::UNLOCKED_MAP_ZEROS.len(),
             "31 words: the width the reference sends, and instances 0 to 991"
         );
         // 145 and 148 share word 4, so each bit is asked for on its own rather than the whole word.
@@ -634,7 +634,7 @@ mod tests {
             player_id: PLAYER_ID,
             agent_id: AGENT_ID,
             traits: db_game::Traits::default(),
-            unlocked: crate::map::UNLOCKED_MAP_ZEROS,
+            unlocked: crate::player::UNLOCKED_MAP_ZEROS,
         });
         let named: Vec<u16> = frames
             .iter()

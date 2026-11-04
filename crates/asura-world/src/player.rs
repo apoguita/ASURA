@@ -216,8 +216,8 @@ pub fn player_block(block: &PlayerBlock<'_>) -> Vec<Frame> {
     frames.push(game::map_update_unlocked_list([
         &[][..],
         &[],
-        UNLOCKED_MAP_ZEROS,
-        UNLOCKED_MAP_ZEROS,
+        crate::player::UNLOCKED_MAP_ZEROS,
+        crate::player::UNLOCKED_MAP_ZEROS,
         unlocked,
     ]));
     frames.push(game::instance_loaded(PLAYER_TEAM_TOKEN));
@@ -344,6 +344,35 @@ pub fn player_block(block: &PlayerBlock<'_>) -> Vec<Frame> {
     frames
 }
 
+// ---- the instances a character has reached, as the client addresses them ---------------------
+
+/// A zero-filled bitmap of the length the reference uses for a character with no progress: 31 words.
+///
+/// Copied from its trace, not chosen: `GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST` there carries two lists of
+/// 31 zero dwords (`02 00 00 00` twice, then 31 words of zeros, twice more). Sending the lists empty
+/// instead changes the *length* of a bitmap the client indexes by map id.
+pub const UNLOCKED_MAP_ZEROS: &[u32] = &[0u32; 31];
+
+/// The instance bitmap a character's reached instances become, in the client's own addressing.
+///
+/// **Read from the client's world context** (`docs/22-world-model.md`): the bitmap is an array of
+/// `u32` where instance `n` is bit `n % 32` of word `n / 32`. 31 words covers instances 0 to 991,
+/// which contains the reference's own `MapId_Count` sentinel of 877 (`MAP_ID_COUNT`), so a character
+/// can never outgrow the list the reference sends.
+///
+/// An id outside that range, or a negative one, is dropped rather than growing the list: the width is
+/// the message's, and an instance the client cannot address is not made addressable by a longer array.
+pub fn unlock_bitmap(instances: &[i32]) -> Vec<u32> {
+    let mut words = UNLOCKED_MAP_ZEROS.to_vec();
+    for &map_id in instances {
+        let index = usize::try_from(map_id).ok().map(|id| id / 32);
+        if let Some(word) = index.filter(|index| *index < words.len()) {
+            words[word] |= 1 << (map_id.rem_euclid(32) as u32);
+        }
+    }
+    words
+}
+
 // ---- the client asks who else is in the instance ------------------------------------------
 
 /// The client asks who else is here. This is the big block, and its last message
@@ -389,10 +418,10 @@ pub async fn handle_request_players(
     // The bitmaps the client is given: the character's own reached instances, and the one it is in even
     // if the database could not be read - a client told it is nowhere can offer nowhere.
     let unlocked = match db_game::unlocked_instances(&world.pool, player.character).await {
-        Ok(instances) => crate::map::unlock_bitmap(&instances),
+        Ok(instances) => unlock_bitmap(&instances),
         Err(err) => {
             eprintln!("world: could not read the reached instances, sending this one only: {err}");
-            crate::map::unlock_bitmap(&[here])
+            unlock_bitmap(&[here])
         }
     };
     let unlocked_at = load_started.elapsed();

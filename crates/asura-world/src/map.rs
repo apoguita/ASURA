@@ -80,33 +80,6 @@ pub fn extra_load_messages_suppressed() -> bool {
 /// (`... 01 02 6D 03 00 00 00 00`).
 pub const MAP_ID_COUNT: u16 = 877;
 
-/// A zero-filled bitmap of the length the reference uses for a character with no progress: 31 words.
-///
-/// Copied from its trace, not chosen: `GAME_SMSG_MAP_UPDATE_UNLOCKED_LIST` there carries two lists of
-/// 31 zero dwords (`02 00 00 00` twice, then 31 words of zeros, twice more). Sending the lists empty
-/// instead changes the *length* of a bitmap the client indexes by map id.
-pub const UNLOCKED_MAP_ZEROS: &[u32] = &[0u32; 31];
-
-/// The instance bitmap a character's reached instances become, in the client's own addressing.
-///
-/// **Read from the client's world context** (`docs/22-world-model.md`): the bitmap is an array of
-/// `u32` where instance `n` is bit `n % 32` of word `n / 32`. 31 words covers instances 0 to 991,
-/// which contains the reference's own `MapId_Count` sentinel of 877 (`MAP_ID_COUNT`), so a character
-/// can never outgrow the list the reference sends.
-///
-/// An id outside that range, or a negative one, is dropped rather than growing the list: the width is
-/// the message's, and an instance the client cannot address is not made addressable by a longer array.
-pub fn unlock_bitmap(instances: &[i32]) -> Vec<u32> {
-    let mut words = UNLOCKED_MAP_ZEROS.to_vec();
-    for &map_id in instances {
-        let index = usize::try_from(map_id).ok().map(|id| id / 32);
-        if let Some(word) = index.filter(|index| *index < words.len()) {
-            words[word] |= 1 << (map_id.rem_euclid(32) as u32);
-        }
-    }
-    words
-}
-
 /// The six-message manifest the reference sends after `READY_FOR_MAP_SPAWN`
 /// (`GameSrv_SendDownloadManifest`).
 ///

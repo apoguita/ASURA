@@ -222,15 +222,23 @@ spawn handler `agent.rs` and the player block `player.rs` (commit `8890603`).
       with the same shape so no call site reads a `cfg` (`docs/38`, D32). 55 tests pass in the
       serving build and 61 with `--features harness`, which is where the six instrument tests live
       - `crates/asura-world/src/harness_off.rs`
-- [ ] `map.rs` split: the `map_config` read belongs to layer 15, the instance table and the
-      cartography frames belong to layers 1 and 12
+- [x] `map.rs` split, and what it never owned left: the path graphs are `pathfind.rs`, the spawn
+      handler `agent.rs`, the catalogue entry `catalogue.rs`, the player block and the unlock facts
+      `player.rs`; the instance table was already the wire crate's and the cartography frames
+      `cartography.rs`'s. What is left is the load - two blocks, the manifest handshake, and the
+      order (`docs/03-protocol.md` 11.3a). The `map_config` read is content and waits on the pack
+      (D22) - commits `8890603` and `54cb1f2`, then the two relocations after them
 - [x] the two timings and the ping value left `connection.rs`: the world reads them from
       `config/Server/intervals.json` through `asura-config` (`docs/38`, D33), and the file marks the
       tick as measured, the ping interval as the reference's constant and the ping value as
       unverified. The same file answers the login path's probe timeout and the freshness window the
       socket layer routes by, so the three programs cannot disagree - 4 config, 55 world, 3 auth,
       4 gateway and 10 rules unit tests pass
-- [ ] the load block's message order recorded as a rule with its capture named
+- [x] the load block's message order is recorded with its capture named:
+      `docs/03-protocol.md` 11.3a lists the six messages in the order this server sends them, the
+      two that join afterwards, and the 24-message head from
+      `recordings/asura/world/live-client-session-20261027-222641.jsonl` that proves the order a
+      live client survives
 
 ## Layer 8 - instance and simulation
 
