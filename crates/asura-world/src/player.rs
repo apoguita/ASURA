@@ -122,17 +122,6 @@ pub const DEFAULT_PRIMARY_PROFESSION: u8 = 1;
 /// `02 00 00 00`), i.e. the bit for the profession above.
 pub const DEFAULT_UNLOCKED_PROFESSIONS: u32 = 2;
 
-/// Everything the client is told about the players in the instance, in the reference's order
-/// (`GameSrv_HandleInstanceLoadRequestPlayers`).
-///
-/// Two parameters are there for the two things this block no longer takes from a constant: `standing`,
-/// which places the agent where the character actually is (`WORLD_CREATE_AGENT`), and `inventory`, which
-/// says what the agent is wearing (`UPDATE_AGENT_VISUAL_EQUIPMENT`) - the nine ids read out of the
-/// equipped-items bag, because they belong to *this* character's items.
-// The block is built from the character's whole row-side state, and every argument is one of those facts
-// rather than a value computed here; a struct around them would only rename the call site. The same
-// allowance is used where this pattern already exists (`asura_db::inventory`, `asura_protocol::game`).
-#[allow(clippy::too_many_arguments)]
 /// Morale is a percentage around 100, and 100 is the value a live load carries for a character with no
 /// morale modifier (`dump4-after`, `worldcontext.morale`). Sending 0 left the client's morale at zero.
 const MORALE_FULL: u32 = 100;
@@ -142,16 +131,49 @@ const MORALE_FULL: u32 = 100;
 /// owner's eye, so this stays 1 until the column exists: a non-zero number is the proof that the
 /// message is carrying the field at all.
 const EXPERIENCE_TEST_VALUE: u32 = 500;
-pub fn player_block(
-    name: &str,
-    standing: Standing,
-    inventory: &Inventory,
-    started: Instant,
-    player_id: u32,
-    agent_id: u32,
-    traits: db_game::Traits,
-    unlocked: &[u32],
-) -> Vec<Frame> {
+
+/// What the player block is built from: everything a character's own messages carry.
+///
+/// A struct rather than eight positional arguments, for the reason `asura-rules` and
+/// `asura-protocol` record (`docs/38-layer-decisions.md`, D16): the id, the agent id and the traits are
+/// all small integers, so a swapped pair compiles and a client draws the wrong character.
+pub struct PlayerBlock<'a> {
+    /// The character's name, as the client shows it.
+    pub name: &'a str,
+    /// Where it stands: the position and plane the client draws it at.
+    pub standing: Standing,
+    /// Its bags and items, as rows were read.
+    pub inventory: &'a Inventory,
+    /// When this connection started, which the client's clock display uses.
+    pub started: Instant,
+    /// The player id this connection was given.
+    pub player_id: u32,
+    /// The agent id this connection was given.
+    pub agent_id: u32,
+    /// The character's own row: appearance, campaign, level and the rest.
+    pub traits: db_game::Traits,
+    /// The unlocked-map bitmap, in the client's own encoding.
+    pub unlocked: &'a [u32],
+}
+
+/// Everything the client is told about the players in the instance, in the reference's order
+/// (`GameSrv_HandleInstanceLoadRequestPlayers`).
+///
+/// Two of the block's fields are there for the two things it no longer takes from a constant:
+/// `standing`, which places the agent where the character actually is (`WORLD_CREATE_AGENT`), and
+/// `inventory`, which says what the agent is wearing (`UPDATE_AGENT_VISUAL_EQUIPMENT`) - the nine ids
+/// read out of the equipped-items bag, because they belong to *this* character's items.
+pub fn player_block(block: &PlayerBlock<'_>) -> Vec<Frame> {
+    let PlayerBlock {
+        name,
+        standing,
+        inventory,
+        started,
+        player_id,
+        agent_id,
+        traits,
+        unlocked,
+    } = *block;
     let mut frames = Vec::with_capacity(30);
 
     // The PvP unlocks. The reference sends its own fixed table of 387 unlockable items

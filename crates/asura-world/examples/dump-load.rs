@@ -60,16 +60,16 @@ fn main() {
         secondary_profession: 0,
         level: 1,
     };
-    dump(&player_block(
-        &name,
+    dump(&player_block(&asura_world::player::PlayerBlock {
+        name: &name,
         standing,
-        &inventory,
-        std::time::Instant::now(),
-        asura_world::PLAYER_ID,
-        asura_world::AGENT_ID,
+        inventory: &inventory,
+        started: std::time::Instant::now(),
+        player_id: asura_world::PLAYER_ID,
+        agent_id: asura_world::AGENT_ID,
         traits,
-        asura_world::map::UNLOCKED_MAP_ZEROS,
-    ));
+        unlocked: asura_world::map::UNLOCKED_MAP_ZEROS,
+    }));
 }
 
 fn dump(frames: &[Frame]) {

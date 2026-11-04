@@ -387,16 +387,16 @@ mod tests {
             secondary_profession: 0,
             level: 1,
         };
-        let frames = player_block(
-            "Asura",
+        let frames = player_block(&PlayerBlock {
+            name: "Asura",
             standing,
-            &inventory,
-            Instant::now(),
-            PLAYER_ID,
-            AGENT_ID,
+            inventory: &inventory,
+            started: Instant::now(),
+            player_id: PLAYER_ID,
+            agent_id: AGENT_ID,
             traits,
-            crate::map::UNLOCKED_MAP_ZEROS,
-        );
+            unlocked: crate::map::UNLOCKED_MAP_ZEROS,
+        });
         let created = frames
             .iter()
             .find(|frame| frame.header() == game::PLAYER_CREATE)
@@ -414,16 +414,16 @@ mod tests {
 
         // A character with no bits recorded still gets the reference's default, because all-zero bits say
         // `Profession_None` and the client cannot draw that.
-        let fallback = player_block(
-            "Asura",
+        let fallback = player_block(&PlayerBlock {
+            name: "Asura",
             standing,
-            &inventory,
-            Instant::now(),
-            PLAYER_ID,
-            AGENT_ID,
-            db_game::Traits::default(),
-            crate::map::UNLOCKED_MAP_ZEROS,
-        );
+            inventory: &inventory,
+            started: Instant::now(),
+            player_id: PLAYER_ID,
+            agent_id: AGENT_ID,
+            traits: db_game::Traits::default(),
+            unlocked: crate::map::UNLOCKED_MAP_ZEROS,
+        });
         let created = fallback
             .iter()
             .find(|frame| frame.header() == game::PLAYER_CREATE)
@@ -442,16 +442,16 @@ mod tests {
 
     #[test]
     fn the_block_ends_with_the_message_that_leaves_the_loading_screen() {
-        let frames = player_block(
-            "Asura",
-            Standing::from_map(&test_map()),
-            &db_inventory::default_inventory(),
-            Instant::now(),
-            PLAYER_ID,
-            AGENT_ID,
-            db_game::Traits::default(),
-            crate::map::UNLOCKED_MAP_ZEROS,
-        );
+        let frames = player_block(&PlayerBlock {
+            name: "Asura",
+            standing: Standing::from_map(&test_map()),
+            inventory: &db_inventory::default_inventory(),
+            started: Instant::now(),
+            player_id: PLAYER_ID,
+            agent_id: AGENT_ID,
+            traits: db_game::Traits::default(),
+            unlocked: crate::map::UNLOCKED_MAP_ZEROS,
+        });
         assert_eq!(
             frames.last().expect("a block").header(),
             game::INSTANCE_LOAD_FINISH
@@ -600,16 +600,16 @@ mod tests {
 
     #[test]
     fn the_player_block_carries_the_name_in_the_two_messages_that_name_a_character() {
-        let frames = player_block(
-            "Asura",
-            Standing::from_map(&test_map()),
-            &db_inventory::default_inventory(),
-            Instant::now(),
-            PLAYER_ID,
-            AGENT_ID,
-            db_game::Traits::default(),
-            crate::map::UNLOCKED_MAP_ZEROS,
-        );
+        let frames = player_block(&PlayerBlock {
+            name: "Asura",
+            standing: Standing::from_map(&test_map()),
+            inventory: &db_inventory::default_inventory(),
+            started: Instant::now(),
+            player_id: PLAYER_ID,
+            agent_id: AGENT_ID,
+            traits: db_game::Traits::default(),
+            unlocked: crate::map::UNLOCKED_MAP_ZEROS,
+        });
         let named: Vec<u16> = frames
             .iter()
             .filter(|frame| {

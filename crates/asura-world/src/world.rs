@@ -143,16 +143,16 @@ pub async fn handle_request_players(
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Players) => {
             replay.players.clone()
         }
-        _ => player_block(
-            &player.name,
-            player.standing(),
-            &player.inventory,
-            player.started,
-            player.player_id,
-            player.agent_id,
-            player.traits,
-            &unlocked,
-        ),
+        _ => player_block(&crate::player::PlayerBlock {
+            name: &player.name,
+            standing: player.standing(),
+            inventory: &player.inventory,
+            started: player.started,
+            player_id: player.player_id,
+            agent_id: player.agent_id,
+            traits: player.traits,
+            unlocked: &unlocked,
+        }),
     };
     let others = player.instance.others(player.player_id);
     eprintln!(
