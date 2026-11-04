@@ -15,5 +15,17 @@ Nothing reads this folder yet. Content still lives in the database, and it leave
 D22 describes: write the package, switch its readers, drop the table last. `Vanilla` is where the
 first content table (map settings) lands when that move is scheduled.
 
-The packaging format inside a pack is not chosen. It is not one loose file per map: D23 says a
-pack is the unit an author copies and edits.
+The packaging format inside a pack is chosen (`docs/38-layer-decisions.md`, D38). The maps live under
+`maps/`, and one map is reached by three names before its id:
+
+```
+config/World/Vanilla/maps/<campaign>/<area>/<subarea>/<map id>/basic.json
+```
+
+- `<campaign>` and `<area>` are the client's own `AreaInfo.campaign` and `AreaInfo.region` for that map;
+  `<subarea>` is its kind from the same record (`AreaInfo.type`) - the explorable areas, the missions,
+  the towns and outposts a region is split into.
+- `<map id>` is the map's id, and the folder holds that map's own files: `basic.json` today, `spawns.json`
+  and `portals.json` when they exist.
+- The instance table this server sends is built by walking this tree, so a folder's position is what
+  places a map; the walk is recursive and a map with no folder is a map the server does not know.
