@@ -149,11 +149,13 @@ pub async fn route(
 /// The freshness window for routing: the same rule the login path uses, so a client is never sent to a
 /// world this layer then refuses (`asura_rules`, `docs/38-layer-decisions.md` D29).
 fn world_freshness() -> f64 {
-    asura_rules::world_max_age_secs(
-        std::env::var(asura_rules::WORLD_MAX_AGE_ENV)
-            .ok()
-            .as_deref(),
-    )
+    // The same number the login path reads, from the same file (`asura_config`, D33); the environment
+    // variable still wins for a one-off experiment, as it does there.
+    std::env::var(asura_rules::WORLD_MAX_AGE_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|seconds| *seconds > 0.0)
+        .unwrap_or_else(|| asura_config::intervals().world_max_age_secs)
 }
 
 #[cfg(test)]

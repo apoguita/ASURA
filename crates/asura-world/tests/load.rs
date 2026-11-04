@@ -639,7 +639,7 @@ async fn a_placed_client_is_loaded_into_its_map() {
             reply.body()[2],
             reply.body()[3]
         ]),
-        asura_world::PING_VALUE
+        asura_world::connection::ping_value()
     );
 
     // ---- leaving releases the slot ----------------------------------------------------------

@@ -16,6 +16,9 @@ asura-protocol = { path = "../asura-protocol" }
 asura-db = { path = "../asura-db" }
 # The map kinds placement decides by: layer 3 owns the numbers, this crate reads them (D27).
 asura-rules = { path = "../asura-rules" }
+# The cadence this server runs at: tick, ping and the probe/freshness windows come from
+# config/Server/intervals.json, one file for every program that reads them (D33).
+asura-config = { path = "../asura-config" }
 tokio = { workspace = true }
 # The game connection's key exchange needs 20 bytes of real randomness per connection, from the
 # operating system (docs/adr/0009-crypto-primitives.md).

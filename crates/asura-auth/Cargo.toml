@@ -11,6 +11,8 @@ asura-protocol = { path = "../asura-protocol" }
 asura-db = { path = "../asura-db" }
 # The game rule that decides where a character enters (`docs/38-layer-decisions.md`, D25).
 asura-rules = { path = "../asura-rules" }
+# The intervals this service waits on come from config/Server/intervals.json (D33).
+asura-config = { path = "../asura-config" }
 tokio = { workspace = true }
 uuid = { workspace = true }
 getrandom = { workspace = true }

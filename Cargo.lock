@@ -12,12 +12,21 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 name = "asura-auth"
 version = "0.1.0"
 dependencies = [
+ "asura-config",
  "asura-db",
  "asura-protocol",
  "asura-rules",
  "getrandom 0.2.17",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "asura-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -42,6 +51,7 @@ name = "asura-gateway"
 version = "0.1.0"
 dependencies = [
  "asura-auth",
+ "asura-config",
  "asura-db",
  "asura-protocol",
  "asura-rules",
@@ -85,6 +95,7 @@ name = "asura-world"
 version = "0.1.0"
 dependencies = [
  "asura-auth",
+ "asura-config",
  "asura-db",
  "asura-gateway",
  "asura-protocol",

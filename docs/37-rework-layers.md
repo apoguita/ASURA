@@ -223,8 +223,12 @@ Files: `connection.rs` 524, `dispatch.rs` 124, `world.rs` 201, `map.rs` 497, `ca
       - `crates/asura-world/src/harness_off.rs`
 - [ ] `map.rs` split: the `map_config` read belongs to layer 15, the instance table and the
       cartography frames belong to layers 1 and 12
-- [ ] `TICK_INTERVAL` 100 ms and `PING_INTERVAL` 5 s moved to the rates file, marked measured
-- [ ] the load block's message order recorded as a rule with its capture named
+- [x] the two timings and the ping value left `connection.rs`: the world reads them from
+      `config/Server/intervals.json` through `asura-config` (`docs/38`, D33), and the file marks the
+      tick as measured, the ping interval as the reference's constant and the ping value as
+      unverified. The same file answers the login path's probe timeout and the freshness window the
+      socket layer routes by, so the three programs cannot disagree - 4 config, 55 world, 3 auth,
+      4 gateway and 10 rules unit tests pass- [ ] the load block's message order recorded as a rule with its capture named
 
 ## Layer 8 - instance and simulation
 

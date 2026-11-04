@@ -42,34 +42,33 @@ pub const STATUS_NETWORK_ERROR: u32 = 2;
 
 /// How stale a world's heartbeat may be before placement stops offering it.
 ///
-/// The number and the variable that overrides it are the rules crate's (`asura_rules`,
-/// `docs/38-layer-decisions.md` D29), because the socket layer routes a client by the same window: one
-/// answer, read here and there, instead of two constants that agree by hand.
-pub use asura_rules::DEFAULT_WORLD_MAX_AGE_SECS;
+/// The number comes from `config/Server/intervals.json` (`asura_config`, D33), because the socket layer
+/// routes a client by the same window: one file, read by both, instead of two constants that agree by
+/// hand. `ASURA_WORLD_MAX_AGE_SECS` still overrides it for a one-off experiment.
+pub fn world_max_age_secs() -> f64 {
+    static VALUE: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| {
+        override_secs().unwrap_or_else(|| asura_config::intervals().world_max_age_secs)
+    })
+}
 
-/// How long a candidate world's port has to answer before it is dropped from consideration.
-///
-/// A loopback world answers in microseconds; a world that has gone silent should not make the client
-/// wait for the operating system's connect timeout. `ASURA_WORLD_PROBE_TIMEOUT_MS` overrides it.
-pub const DEFAULT_PROBE_TIMEOUT: Duration = Duration::from_millis(500);
+/// `ASURA_WORLD_MAX_AGE_SECS`, when it names a positive number.
+fn override_secs() -> Option<f64> {
+    std::env::var(asura_rules::WORLD_MAX_AGE_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|seconds| *seconds > 0.0)
+}
 
 /// How many candidates are considered. The first that answers wins; more than a handful is a queue of
 /// dead worlds, and the refusal is the same either way.
 const MAX_CANDIDATES: i64 = 4;
 
-/// The freshness window in force, from `ASURA_WORLD_MAX_AGE_SECS` when it is set.
-pub fn world_max_age_secs() -> f64 {
-    static VALUE: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
-    *VALUE.get_or_init(|| {
-        asura_rules::world_max_age_secs(
-            std::env::var(asura_rules::WORLD_MAX_AGE_ENV)
-                .ok()
-                .as_deref(),
-        )
-    })
-}
-
-/// The probe timeout in force, from `ASURA_WORLD_PROBE_TIMEOUT_MS` when it is set.
+/// How long a candidate world's port has to answer before it is dropped from consideration.
+///
+/// A loopback world answers in microseconds; a world that has gone silent should not make the client
+/// wait for the operating system's connect timeout. From the intervals file (`asura_config`, D33);
+/// `ASURA_WORLD_PROBE_TIMEOUT_MS` still overrides it.
 pub fn probe_timeout() -> Duration {
     static VALUE: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
     *VALUE.get_or_init(|| {
@@ -78,7 +77,7 @@ pub fn probe_timeout() -> Duration {
             .and_then(|value| value.trim().parse::<u64>().ok())
             .filter(|millis| *millis > 0)
             .map(Duration::from_millis)
-            .unwrap_or(DEFAULT_PROBE_TIMEOUT)
+            .unwrap_or_else(|| asura_config::intervals().probe_timeout())
     })
 }
 
@@ -313,7 +312,7 @@ mod tests {
     fn the_defaults_are_the_ones_the_documentation_states() {
         // Read through the accessors only when the environment does not override them; the constants
         // are the documented values.
-        assert_eq!(DEFAULT_WORLD_MAX_AGE_SECS, 60.0);
-        assert_eq!(DEFAULT_PROBE_TIMEOUT, Duration::from_millis(500));
+        assert_eq!(world_max_age_secs(), 60.0);
+        assert_eq!(probe_timeout(), Duration::from_millis(500));
     }
 }

@@ -12,20 +12,32 @@
 
 use crate::*;
 
-/// How often the world's clock is sent.
+/// The cadence this world runs at: the tick, the ping and the value a ping is answered with.
 ///
-/// Measured from the live capture (`recordings/client/feature/movement/movement-sniff.log`): a `0x001E` every ~100 ms, carrying the
-/// real elapsed milliseconds since the previous one (median 81 ms). The frame is the reference's own
-/// 6-byte `GameSrv_UpdateWorldSimulationTick` (`GameMsg.h:521`); only the cadence is the measurement, and
-/// the reference's floor is 500 ms.
-pub const TICK_INTERVAL: Duration = Duration::from_millis(100);
+/// They are read from `config/Server/intervals.json` once per process (`asura_config`, D33), because they
+/// were constants in three crates and nothing listed them: the tick is measured from the live client
+/// (`recordings/client/feature/movement/movement-sniff.log`: a `0x001E` every ~100 ms, median 81 ms,
+/// where the reference's floor is 500 ms), the ping interval is the reference's
+/// `GAME_SRV_TIME_BETWEEN_PING_MS`, and the ping value is GWPS's 20, which our client has never been
+/// asked about.
+pub fn intervals() -> &'static asura_config::Intervals {
+    asura_config::intervals()
+}
 
-/// How often the server asks the client whether it is still there. The reference's constant is 5000 ms
-/// (`GAME_SRV_TIME_BETWEEN_PING_MS`).
-pub const PING_INTERVAL: Duration = Duration::from_secs(5);
+/// How often the world's clock is sent, as this machine's file states it.
+pub fn tick_interval() -> Duration {
+    intervals().tick()
+}
 
-/// The ping value the reference answers with. It is a constant, not a measurement: GWPS sends `20`.
-pub const PING_VALUE: u32 = 20;
+/// How often the server asks the client whether it is still there.
+pub fn ping_interval() -> Duration {
+    intervals().ping()
+}
+
+/// The ping value the server answers with.
+pub fn ping_value() -> u32 {
+    intervals().ping_value
+}
 
 /// Accept gameplay connections until the listener fails.
 pub async fn serve(listener: TcpListener, world: Arc<World>, trace: bool) -> io::Result<()> {
@@ -453,7 +465,7 @@ pub async fn run(
     // request and its players request, while this world sent 49 of them into exactly that window. The
     // client is inside its loading screen there and does not read, so every tick written at it is work
     // queued for the moment it comes back - a clock inside a load is a clock it was not built to take.
-    let mut ping = tokio::time::interval(PING_INTERVAL);
+    let mut ping = tokio::time::interval(ping_interval());
     let mut buffer = [0u8; 8192];
 
     'session: loop {
@@ -555,6 +567,6 @@ pub async fn handle_ping_request(
     session: &mut Session,
     trace: bool,
 ) -> Result<bool, GameError> {
-    send(stream, session, vec![game::ping_reply(PING_VALUE)], trace).await?;
+    send(stream, session, vec![game::ping_reply(ping_value())], trace).await?;
     Ok(true)
 }
