@@ -9,6 +9,8 @@ description = "The auth service: login, key exchange, sessions, and telling the 
 [dependencies]
 asura-protocol = { path = "../asura-protocol" }
 asura-db = { path = "../asura-db" }
+# The game rule that decides where a character enters (`docs/38-layer-decisions.md`, D25).
+asura-rules = { path = "../asura-rules" }
 tokio = { workspace = true }
 uuid = { workspace = true }
 getrandom = { workspace = true }
@@ -19,3 +21,6 @@ getrandom = { workspace = true }
 # request (`docs/38-layer-decisions.md`, D13), so the tests and `examples/probe.rs` ask for it here.
 tokio = { workspace = true }
 asura-protocol = { path = "../asura-protocol", features = ["test-client"] }
+
+[lints]
+workspace = true

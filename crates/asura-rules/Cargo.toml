@@ -1,0 +1,10 @@
+[package]
+name = "asura-rules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Game rules as pure decisions over data a caller has already read"
+
+[lints]
+workspace = true

@@ -171,7 +171,7 @@ async fn main() -> ExitCode {
                     characters += 1;
                     eprintln!(
                         "           character: {}",
-                        read_character_name(&frame.body())
+                        read_character_name(frame.body())
                     );
                 }
                 tables::AUTH_SMSG_ACCOUNT_SETTINGS => {

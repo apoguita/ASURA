@@ -94,7 +94,10 @@ pub enum ConnectionError {
     UnknownConnection(VersionError),
     /// A well-formed connection that belongs to a different program: a world server, not the auth
     /// service.
-    NotAnAuthConnection { kind: version::ConnectionKind },
+    NotAnAuthConnection {
+        /// The connection kind the first four bytes named.
+        kind: version::ConnectionKind,
+    },
     /// The first message was not a version message.
     BadVersion(VersionError),
     /// The key exchange did not complete.
@@ -430,7 +433,7 @@ async fn dispatch(
                 return Ok(true);
             };
 
-            let name = messages::decode_change_character(&frame.body())
+            let name = messages::decode_change_character(frame.body())
                 .map_err(ConnectionError::Message)?;
             let characters = db_login::characters(pool, account)
                 .await
@@ -489,7 +492,7 @@ async fn dispatch(
             if trace.on() {
                 eprintln!(
                     "auth <- access key, {} key unit(s) (the reference logs it and keeps nothing)",
-                    access_key_len(&frame.body())
+                    access_key_len(frame.body())
                 );
             }
             send_frames(
@@ -515,7 +518,7 @@ async fn dispatch(
             let status = match session.account {
                 None => messages::STATUS_NETWORK_ERROR,
                 Some(account) => {
-                    let name = messages::decode_change_character(&frame.body())
+                    let name = messages::decode_change_character(frame.body())
                         .map_err(ConnectionError::Message)?;
                     let characters = db_login::characters(pool, account)
                         .await
@@ -585,7 +588,7 @@ async fn dispatch(
         // nothing. A write that fails is logged and swallowed: the login already succeeded, and a
         // refusal now would only make the client ask again.
         tables::AUTH_CMSG_ACCEPT_EULA => {
-            let version = messages::decode_eula(&frame.body()).map_err(ConnectionError::Message)?;
+            let version = messages::decode_eula(frame.body()).map_err(ConnectionError::Message)?;
             if let Some(account) = session.account {
                 match db_account::record_eula(pool, account, i16::from(version)).await {
                     // Printed, not traced: "this account accepted the EULA" is an event, and the
@@ -602,7 +605,7 @@ async fn dispatch(
         // (`travel::answer`): the info message with an address, then the success response. The one
         // rule it exists to keep is that the client is never sent to a port nothing answers on.
         tables::AUTH_CMSG_REQUEST_GAME_INSTANCE => {
-            let request = messages::GameInstanceRequest::decode(&frame.body())
+            let request = messages::GameInstanceRequest::decode(frame.body())
                 .map_err(ConnectionError::Message)?;
             let replies = travel::answer(
                 pool,

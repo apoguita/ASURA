@@ -126,7 +126,7 @@ async fn main() -> ExitCode {
                 frame.header(),
                 name,
                 frame.len(),
-                hex(&frame.body())
+                hex(frame.body())
             );
             printed += 1;
         }
