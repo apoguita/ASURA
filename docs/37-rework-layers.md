@@ -111,6 +111,9 @@ Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
 - [x] the split is written at the source (`crates/asura-db/src/lib.rs`): which tables are operational
       state and which are content passing through, with the one-sentence test for a new table - commit
       `49681c2`
+- [x] no lint suppression left in the crate: `insert_row` takes an `ItemColumns` instead of fifteen
+      arguments, and `settings` reads a named `CharacterRow` instead of an eight-wide tuple - commit
+      `d3afedb`, 21 unit tests pass
 - [x] the crate adopts the lint policy (`docs/38`, D17): `missing_docs`, `unsafe_code` deny and
       `broken_intra_doc_links` cost 106 one-line docs and three doc links - commit `9925621`; clippy
       `-D warnings`, `cargo doc` and 21 unit tests pass
