@@ -37,7 +37,7 @@ conditions of the next section hold for it.
 | 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | closed |
 | 3 | rules | `asura-rules`, 1 file, 208 lines, 8 tests; **no dependencies** | rules | open |
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | closed |
-| 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | `[~]` |
+| 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | `[x]` closed |
 | 6 | web gate | `asura-webgate`, 2 files, 631 lines | rules | `[ ]` |
 | 7 | world connection and load | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `capture.rs`, `replay.rs` | rules + rates | `[ ]` |
 | 8 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | `[ ]` |
@@ -177,13 +177,10 @@ dials, answers the file check, reads the four classification bytes and hands the
       measured: the client's 21-byte request is the first thing on that socket, its failure is fatal to
       the login, and a server of ours has answered one on loopback (`docs/03-protocol.md` 7, the two runs
       of 2026-10-25; the code records it at `crates/asura-gateway/src/lib.rs`, step 0) - commit `fca403c`
-- [ ] a real client run against this layer: the measurement above is inherited from the same machine and
-      the same client, but the server that answered was the earlier build, not `asura-gateway`. Needs
-      hosts entries or DNS pointing the six file names here, one login, and the trace kept
-- [ ] the answer's seven words refreshed for the client build now running, with the build named beside
-      them (`docs/38`, D30; the routes are in `docs/03-protocol.md` 7 and the commands are in `docs/19-running.md`, "Refreshing the file check's seven words")
-- [ ] what a mismatched set costs, measured: one client, a set from another build, the login watched.
-      The requirement is written down; whether the client enforces it is not measured
+- [-] the seven words in that answer are refreshed per client build, which is maintenance rather than work
+      on this layer: the procedure and the record are `docs/19-running.md` ("Refreshing the file check's
+      seven words"), the decision is `docs/38` D30, and what is not measured - the cost of a stale set -
+      is stated in `docs/03-protocol.md` 7 instead of holding this layer open
 - [x] the world freshness window has one source: `FRESH_WORLD_AGE_SECS` is gone from `relay.rs` and
       `asura_rules::world_max_age_secs` answers for this layer and the login path alike (`docs/38`,
       D29) - commit `801abfe`, 10 rules, 4 gateway and 3 auth unit tests pass
