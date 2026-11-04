@@ -311,7 +311,7 @@ impl PortalAccountLogin {
     /// Read the message out of a received frame.
     pub fn decode(frame: &Frame) -> Result<Self, MessageError> {
         expect(frame, tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN)?;
-        let mut reader = Reader::new(&frame.body());
+        let mut reader = Reader::new(frame.body());
         let request = reader.u32("req_id")?;
         let user_id = reader.array16(16, "user_id")?;
         let session_id = reader.array16(16, "session_id")?;
@@ -364,7 +364,7 @@ impl RequestResponse {
 
     pub fn decode(frame: &Frame) -> Result<Self, MessageError> {
         expect(frame, tables::AUTH_SMSG_REQUEST_RESPONSE)?;
-        let mut reader = Reader::new(&frame.body());
+        let mut reader = Reader::new(frame.body());
         Ok(RequestResponse {
             request: reader.u32("req_id")?,
             status: reader.u32("status")?,
@@ -863,7 +863,8 @@ mod tests {
         // The EULA version sits between the 8 feature bytes and `unk5`: 4 + 4 + 4 + 8 + 8 + 16 + 16
         // + 4 + 2 + 8 = 74 bytes before it, and `unk5` (a dword) is all that follows.
         assert_eq!(
-            frame.body()[74], 26,
+            frame.body()[74],
+            26,
             "the accepted version is the byte we send"
         );
         assert_eq!(&frame.body()[75..79], &[3, 0, 0, 0], "unk5 after it");
@@ -1205,7 +1206,12 @@ mod tests {
         assert_eq!(hash.header(), tables::AUTH_CMSG_SEND_COMPUTER_HASH);
         assert_eq!(consumed, 22);
         assert_eq!(
-            u32::from_le_bytes([hash.body()[0], hash.body()[1], hash.body()[2], hash.body()[3]]),
+            u32::from_le_bytes([
+                hash.body()[0],
+                hash.body()[1],
+                hash.body()[2],
+                hash.body()[3]
+            ]),
             39112,
             "the hash message carries the client's build number"
         );
@@ -1272,7 +1278,7 @@ mod tests {
             Frame::decode_client_message(&bytes).expect("fixed size, walks by the table");
         assert_eq!(used, 26);
         assert_eq!(
-            GameInstanceRequest::decode(&decoded.body()).expect("decodes"),
+            GameInstanceRequest::decode(decoded.body()).expect("decodes"),
             GameInstanceRequest {
                 request: 7,
                 map_type: 0,
