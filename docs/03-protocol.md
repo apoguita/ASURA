@@ -608,7 +608,8 @@ Getting the current set is a measurement, not a guess, and there are three route
 1. **Capture the answer the client accepts.** `pktmon` filtered to port 6112, one login in open mode,
    then decode the pcap. This is how the captured set above was obtained, and it is exact by definition -
    it is the bytes the running client was answered with. It repeats once per client build. The pcap
-   decoder used then lived outside this tree; there is none here yet.
+   decoder used then lived outside this tree; `docs/19-running.md` ("Refreshing the file check's seven
+   words") has the commands that need no decoder, and what to record beside the set.
 2. **Check a set against the archive.** `crates/asura-world/src/gwdat.rs` reads `Gw.dat`'s file table, so
    a set can be confirmed present with sensible sizes before it is trusted. It cannot invent the set:
    which six files are named is the protocol's rule, not the archive's ordering.

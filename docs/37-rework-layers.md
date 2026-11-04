@@ -181,7 +181,7 @@ dials, answers the file check, reads the four classification bytes and hands the
       the same client, but the server that answered was the earlier build, not `asura-gateway`. Needs
       hosts entries or DNS pointing the six file names here, one login, and the trace kept
 - [ ] the answer's seven words refreshed for the client build now running, with the build named beside
-      them (`docs/38`, D30; the three routes for getting them are in `docs/03-protocol.md` 7)
+      them (`docs/38`, D30; the routes are in `docs/03-protocol.md` 7 and the commands are in `docs/19-running.md`, "Refreshing the file check's seven words")
 - [ ] what a mismatched set costs, measured: one client, a set from another build, the login watched.
       The requirement is written down; whether the client enforces it is not measured
 - [x] the world freshness window has one source: `FRESH_WORLD_AGE_SECS` is gone from `relay.rs` and
