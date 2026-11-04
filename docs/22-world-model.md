@@ -212,14 +212,15 @@ Two consequences, and they are binding:
 - **No map fact is guessed.** Not the region, not the campaign, not the name, not the blob id. A name is a
   row of the enum table; everything else is a read of the `AreaInfo` record; never a scrape from a wiki and
   never an inference from a coordinate.
-- **The pack's folder structure is generated from those two sources.** `config/World/Vanilla/maps/<campaign>/<area>/<subarea>/<map
-  id>/` is filled by a tool that takes the name from the enum, the campaign and area from the record's
-  `campaign` and `region`, and the subarea from the record's `type`
-  (`docs/38-layer-decisions.md`, D38). A map neither source answers for is not placed in a folder nobody
-  measured; it waits, and the log says so.
+- **The pack's folder structure is filled from those sources.** `config/World/Vanilla/maps/<campaign>/<area>/<subarea>/<map
+  id>/` holds 128 of the 137 ids today: the name tables resolved each id's place, and that place's own
+  page gave the area and the kind (`docs/38-layer-decisions.md`, D38, and the table in `docs/39-map-list.md`).
+  The other 9 sit in `maps/unplaced/`: their place was not answered, so they were not placed in a folder
+  nobody measured. The fold is a cross-check, not a measurement - the `AreaInfo` record is what confirms
+  all three, and a read of it has not been taken.
 
 The wiki's `List of locations` is a cross-check for the shape of the hierarchy - campaign, then area, then
-the area's explorable areas, missions and towns-and-outposts - and never the source of a number.
+the area's explorable areas, missions and towns-and-outposts - and never the source of a byte.
 
 The names themselves are copied into this repository as a reference, so the table is never lost again:
 `docs/39-map-list.md` (278 outposts, 378 explorables, and the pack's ids none of them names).

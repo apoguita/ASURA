@@ -785,3 +785,164 @@ ids the display string is not the enum's spelling: `75` is `"The Hall of Heroes"
 So a name is not settled by picking a table. The name the client shows is the one its `AreaInfo`
 record points at - `DecodeStringId(area->name_id)`, and no read of that record for these ids has been
 taken yet. Until it is, this file records what each source says and none of them is the answer.
+
+## The kinds of area, and where each one is listed
+
+The wiki keeps one page per kind of location and one category per kind, which is the closest thing to a
+classification of an area that is not the client's own:
+
+- `Explorable area` - instanced, the party that started it, resurrection at the nearest shrine; the page
+  carries one table per campaign and the regions inside it (`Ascalon`, `Northern Shiverpeaks`,
+  `Kryta`, `Maguuma Jungle`, `Crystal Desert`, `Southern Shiverpeaks`, `Ring of Fire Islands`,
+  `The Mists` for Prophecies).
+- The categories, with the number of pages each holds: `Explorable areas` 235, `Outposts` 105,
+  `Arenas` 77, `Dungeons` 26, `Towns` 18. Every location page is also in a campaign and a region
+  category, which is what the hierarchy is built from.
+
+The client's own answer is one number per map: `AreaInfo.type`, a `RegionType` - `ExplorableZone` 2,
+`Outpost` 10, `City` 13, `Dungeon` 18, `Arena` 1, `CooperativeMission` 6, and fourteen more
+(`py4gw/enums_src/region_enums.py`). It is read the same way the campaign and region are, from the record
+for that id, and it is the one this server acts on: the instance table's `is_explorable` and the load's
+`MapType` are both that number's relatives.
+
+## Where each map folder sits
+
+`config/World/Vanilla/maps/` is now `<campaign>/<area>/<kind>/<map id>/` for 128 of the
+137 ids (`docs/38-layer-decisions.md`, D38). Each row below is the read that placed it: the name from the
+client's tables resolved the place, and that place's own page gave the area and the kind.
+
+| id | campaign | area | kind | page read |
+|---|---|---|---|---|
+| 4 | Core | The Battle Isles | Explorable areas | Warriors Isle |
+| 5 | Core | The Battle Isles | Explorable areas | Hunters Isle |
+| 6 | Core | The Battle Isles | Explorable areas | Wizard's Isle |
+| 52 | Core | The Battle Isles | Explorable areas | Burning Isle |
+| 65 | Prophecies | Kryta | Arenas | D'Alessio Arena |
+| 75 | Core | The Mists | Explorable areas | The Hall of Heroes |
+| 76 | Core | The Mists | Arenas | Broken Tower |
+| 78 | Core | The Mists | Explorable areas | The Courtyard |
+| 79 | Core | The Mists | Arenas | Unholy Temples |
+| 80 | Core | The Mists | Arenas | Burial Mounds |
+| 83 | Core | The Rift | Arenas | The Vault |
+| 84 | Core | The Mists | Explorable areas | The Underworld |
+| 86 | Core | The Mists | Arenas | Sacred Temples |
+| 127 | Core | The Mists | Explorable areas | Scarred Earth |
+| 145 | Prophecies | Ascalon (pre-Searing) | Explorable areas | The Catacombs |
+| 146 | Prophecies | Ascalon (pre-Searing) | Explorable areas | Lakeside County |
+| 147 | Prophecies | Ascalon (pre-Searing) | Explorable areas | The Northlands |
+| 148 | Prophecies | Ascalon (pre-Searing) | Towns and Outposts | Ascalon City |
+| 149 | Prophecies | Ascalon (pre-Searing) | Missions | Ascalon Academy |
+| 150 | Prophecies | Ascalon (pre-Searing) | Missions | Ascalon Academy |
+| 151 | Prophecies | Ascalon (pre-Searing) | Missions | Ascalon Academy |
+| 160 | Prophecies | Ascalon (pre-Searing) | Explorable areas | Green Hills County |
+| 161 | Prophecies | Ascalon (pre-Searing) | Explorable areas | Wizard's Folly |
+| 162 | Prophecies | Ascalon (pre-Searing) | Explorable areas | Regent Valley |
+| 163 | Prophecies | Ascalon (pre-Searing) | Towns and Outposts | The Barradin Estate |
+| 164 | Prophecies | Ascalon (pre-Searing) | Towns and Outposts | Ashford Abbey |
+| 165 | Prophecies | Ascalon (pre-Searing) | Towns and Outposts | Foible's Fair |
+| 166 | Prophecies | Ascalon (pre-Searing) | Missions | Fort Ranik |
+| 167 | Core | The Battle Isles | Explorable areas | Burning Isle |
+| 168 | Core | The Battle Isles | Explorable areas | Druid's Isle |
+| 170 | Core | The Battle Isles | Explorable areas | Frozen Isle |
+| 171 | Core | The Battle Isles | Explorable areas | Warrior's Isle |
+| 173 | Core | The Battle Isles | Explorable areas | Wizard's Isle |
+| 174 | Core | The Battle Isles | Explorable areas | Nomad's Isle |
+| 175 | Core | The Battle Isles | Explorable areas | Isle of the Dead |
+| 176 | Core | The Battle Isles | Explorable areas | Frozen Isle |
+| 177 | Core | The Battle Isles | Explorable areas | Nomads Isle |
+| 178 | Core | The Battle Isles | Explorable areas | Druid's Isle |
+| 179 | Core | The Battle Isles | Explorable areas | Isle of the Dead |
+| 180 | Prophecies | Maguuma Jungle | Arenas | Fort Koga |
+| 182 | Prophecies | Crystal Desert | Arenas | Amnoon Arena |
+| 183 | Prophecies | Southern Shiverpeaks | Arenas | Deldrimor Arena |
+| 184 | Prophecies | Ring of Fire Island Chain | Arenas | The Crag |
+| 185 | Core | The Battle Isles | Explorable areas | The Underworld |
+| 186 | Core | The Battle Isles | Explorable areas | The Underworld |
+| 188 | Core | The Battle Isles | Arenas | Random Arenas |
+| 208 | Prophecies | Ascalon (pre-Searing) | Arenas | Heroes' Crypt |
+| 229 | Factions | Echovald Forest | Arenas | The Ancestral Lands |
+| 231 | Factions | The Jade Sea | Arenas | Kaanai Canyon |
+| 275 | Core | The Battle Isles | Explorable areas | Isle of Weeping Stone |
+| 276 | Core | The Battle Isles | Explorable areas | Isle of Jade |
+| 281 | Core | The Battle Isles | Missions | Zaishen Challenge |
+| 282 | Core | The Battle Isles | Missions | Zaishen Elite |
+| 299 | Factions | Echovald Forest | Arenas | Saltspray Beach |
+| 300 | Factions | The Jade Sea | Arenas | Etnaran Keys |
+| 308 | Prophecies | Ruins of Ascalon | Arenas | Ascalon Arena |
+| 314 | Prophecies | Northern Shiverpeaks | Arenas | Shiverpeak Arena |
+| 318 | Prophecies | Kryta | Arenas | D'Alessio Arena |
+| 319 | Prophecies | Crystal Desert | Arenas | Amnoon Arena |
+| 320 | Prophecies | Maguuma Jungle | Arenas | Fort Koga |
+| 321 | Prophecies | Ascalon (pre-Searing) | Arenas | Heroes' Crypt |
+| 322 | Prophecies | Northern Shiverpeaks | Arenas | Shiverpeak Arena |
+| 328 | Factions | The Jade Sea | Towns and Outposts | Saltspray Beach (Luxon) |
+| 329 | Factions | Echovald Forest | Towns and Outposts | Saltspray Beach (Kurzick) |
+| 330 | Core | The Battle Isles | Arenas | Heroes Ascent |
+| 331 | Factions | Echovald Forest | Towns and Outposts | Grenz Frontier (Luxon) |
+| 332 | Factions | Echovald Forest | Towns and Outposts | Grenz Frontier (Kurzick) |
+| 334 | Factions | Echovald Forest | Towns and Outposts | The Ancestral Lands (Kurzick) |
+| 335 | Factions | The Jade Sea | Towns and Outposts | Etnaran Keys (Luxon) |
+| 336 | Factions | The Jade Sea | Towns and Outposts | Etnaran Keys (Kurzick) |
+| 337 | Factions | The Jade Sea | Towns and Outposts | Kaanai Canyon (Luxon) |
+| 338 | Factions | The Jade Sea | Towns and Outposts | Kaanai Canyon (Kurzick) |
+| 339 | Prophecies | Kryta | Arenas | D'Alessio Arena |
+| 340 | Prophecies | Crystal Desert | Arenas | Amnoon Arena |
+| 341 | Prophecies | Maguuma Jungle | Arenas | Fort Koga |
+| 342 | Prophecies | Ascalon (pre-Searing) | Arenas | Heroes' Crypt |
+| 343 | Prophecies | Northern Shiverpeaks | Arenas | Shiverpeak Arena |
+| 352 | Factions | Kaineng City | Arenas | Brawler's Pit |
+| 353 | Factions | Echovald Forest | Arenas | Petrified Arena |
+| 354 | Factions | The Jade Sea | Arenas | Seabed Arena |
+| 355 | Core | The Battle Isles | Explorable areas | Isle of Weeping Stone |
+| 356 | Core | The Battle Isles | Explorable areas | Isle of Jade |
+| 357 | Core | The Battle Isles | Explorable areas | Imperial Isle |
+| 358 | Core | The Battle Isles | Explorable areas | Isle of Meditation |
+| 359 | Core | The Battle Isles | Explorable areas | Imperial Isle |
+| 360 | Core | The Battle Isles | Explorable areas | Isle of Meditation |
+| 366 | Factions | Shing Jea Island | Arenas | Shing Jea Arena |
+| 529 | Core | The Battle Isles | Towns and Outposts | Uncharted Isle |
+| 530 | Core | The Battle Isles | Towns and Outposts | Isle of Wurms |
+| 533 | Core | The Battle Isles | Missions | Uncharted Isle |
+| 534 | Core | The Battle Isles | Missions | Isle of Wurms |
+| 535 | Nightfall | Vabbi | Arenas | Ahmtur Arena |
+| 536 | Nightfall | Istan | Arenas | Sunspear Arena |
+| 537 | Core | The Battle Isles | Towns and Outposts | Corrupted Isle |
+| 538 | Core | The Battle Isles | Towns and Outposts | Isle of Solitude |
+| 541 | Core | The Battle Isles | Missions | Corrupted Isle |
+| 542 | Core | The Battle Isles | Missions | Isle of Solitude |
+| 547 | Nightfall | Vabbi | Arenas | Bombardment |
+| 551 | Nightfall | Kourna | Arenas | The Crossing |
+| 552 | Nightfall | The Desolation | Arenas | Desert Sands |
+| 593 | Core | The Mists | Arenas | Fetid River |
+| 596 | Core | The Mists | Arenas | Forgotten Shrines |
+| 598 | Core | The Mists | Arenas | Antechamber |
+| 709 | Nightfall | Kourna | Arenas | The Crossing |
+| 713 | Nightfall | Vabbi | Arenas | Bombardment |
+| 714 | Factions | Kaineng City | Explorable areas | Bukdek Byway |
+| 722 | Nightfall | Istan | Explorable areas | Plains of Jarin |
+| 723 | Eye of the North | Far Shiverpeaks | Arenas | Kysten Shore |
+| 724 | Eye of the North | Depths of Tyria | Arenas | Deepway Ruins |
+| 725 | Nightfall | Istan | Explorable areas | Plains of Jarin |
+| 787 | Core | The Battle Isles | Arenas | Dwayna vs Grenth |
+| 796 | Core | The Battle Isles | Arenas | Codex Arena |
+| 823 | Prophecies | Kryta | Arenas | D'Alessio Arena |
+| 824 | Prophecies | Crystal Desert | Arenas | Amnoon Arena |
+| 825 | Nightfall | Kourna | Arenas | Churranu Island Arena |
+| 826 | Prophecies | Maguuma Jungle | Arenas | Fort Koga |
+| 827 | Factions | Echovald Forest | Arenas | Petrified Arena |
+| 828 | Prophecies | Ascalon (pre-Searing) | Arenas | Heroes' Crypt |
+| 829 | Factions | The Jade Sea | Arenas | Seabed Arena |
+| 831 | Factions | Kaineng City | Arenas | Brawler's Pit |
+| 832 | Prophecies | Ring of Fire Island Chain | Arenas | The Crag |
+| 833 | Nightfall | Istan | Arenas | Sunspear Arena |
+| 834 | Factions | Shing Jea Island | Arenas | Shing Jea Arena |
+| 835 | Prophecies | Ruins of Ascalon | Arenas | Ascalon Arena |
+| 836 | Prophecies | Northern Shiverpeaks | Arenas | Shiverpeak Arena |
+| 880 | Eye of the North | Depths of Tyria | Dungeons | Forsaken Tunnels |
+| 881 | Eye of the North | Depths of Tyria | Dungeons | Forsaken Tunnels |
+| 882 | Eye of the North | Depths of Tyria | Dungeons | Forsaken Tunnels |
+
+The 9 left in `maps/unplaced/` are ids whose place neither a name table nor a page
+answered for: 74, 550, 594, 595, 599, 779, 877, 878, 879. They keep their folder and their instance value,
+so the table a client receives is unchanged; what they lack is a campaign and an area, and a folder
+nobody measured is a guess with a path on it.

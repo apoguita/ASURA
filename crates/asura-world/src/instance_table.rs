@@ -2,12 +2,12 @@
 //!
 //! A client cannot ask to travel to a map it does not know exists: `0x01A0` is how it learns, as
 //! `(instance, value)` pairs. Those pairs are no longer a transcribed constant - every map folder under
-//! `config/World/Vanilla/maps/<id>/` states its own `instance_value`, and this module walks them and
-//! builds the batches a load sends.
+//! `config/World/Vanilla/maps/` states its own `instance_value`, and this module walks them and builds
+//! the batches a load sends.
 //!
-//! The folders are flat while the campaign and region levels are still being filled in from the wiki's
-//! own list (`docs/38-layer-decisions.md`, D36). The walk is recursive, so moving a map into
-//! `Prophecies/Ascalon (pre-Searing)/148/` later changes no code here.
+//! A map is reached by three names before its own: `maps/<campaign>/<area>/<subarea>/<map id>/`
+//! (`docs/38-layer-decisions.md`, D38). Only the folder whose name is a map id is a map, and the walk
+//! goes as deep as the tree does, so adding a level there changes no code here.
 //!
 //! **What a map without a value means:** it is left out, and the log says so. Answering with a wrong
 //! value is worse than a destination the client cannot resolve yet.
@@ -61,24 +61,39 @@ impl InstanceTable {
 
 /// Every map record under `pack`, ordered by map id.
 ///
-/// A folder without `basic.json`, or a file that does not parse, is reported and skipped: the table is
-/// what a client can resolve, and one bad folder must not empty it. A map whose `map_id` disagrees with
-/// its folder name is skipped too, with both numbers in the log.
+/// Only a folder named after a map id is a map: `Prophecies/Ascalon (pre-Searing)/Missions/` holds maps
+/// but is not one, so it is walked through rather than read. A folder without `basic.json`, a file that
+/// does not parse, or a `map_id` that disagrees with the folder's name is reported and skipped: the table
+/// is what a client can resolve, and one bad folder must not empty it.
 pub fn walk(pack: &Path) -> (Vec<MapRecord>, Vec<String>) {
     let mut records: Vec<MapRecord> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
-
     let maps = pack.join(MAPS);
-    let Ok(entries) = std::fs::read_dir(&maps) else {
+    if !maps.is_dir() {
         notes.push(format!("{} is not readable", maps.display()));
-        return (records, notes);
-    };
+    } else {
+        visit(&maps, &mut records, &mut notes);
+    }
+    records.sort_by_key(|record| record.map_id);
+    (records, notes)
+}
 
+/// Read one map folder, or walk into a folder that is a level of the tree.
+fn visit(dir: &Path, records: &mut Vec<MapRecord>, notes: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        notes.push(format!("{} is not readable", dir.display()));
+        return;
+    };
     for entry in entries.flatten() {
         let folder = entry.path();
         if !folder.is_dir() {
             continue;
         }
+        let name = folder.file_name().and_then(|name| name.to_str()).unwrap_or("");
+        let Ok(folder_id) = name.parse::<i32>() else {
+            visit(&folder, records, notes);
+            continue;
+        };
         let file = folder.join(BASIC);
         let text = match std::fs::read_to_string(&file) {
             Ok(text) => text,
@@ -94,11 +109,6 @@ pub fn walk(pack: &Path) -> (Vec<MapRecord>, Vec<String>) {
                 continue;
             }
         };
-        let folder_id: i32 = folder
-            .file_name()
-            .and_then(|name| name.to_str())
-            .and_then(|name| name.parse().ok())
-            .unwrap_or(record.map_id);
         if folder_id != record.map_id {
             notes.push(format!(
                 "{}: folder is {folder_id}, file says {}; skipped",
@@ -109,9 +119,6 @@ pub fn walk(pack: &Path) -> (Vec<MapRecord>, Vec<String>) {
         }
         records.push(record);
     }
-
-    records.sort_by_key(|record| record.map_id);
-    (records, notes)
 }
 
 /// The table the world sends: every map the pack names, in map-id order, in batches a load uses.
@@ -180,6 +187,28 @@ mod tests {
         let (records, notes) = walk(&dir);
         assert!(records.is_empty(), "the disagreement is skipped");
         assert_eq!(notes.len(), 1, "and it is reported: {notes:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_map_is_found_below_the_three_names_that_place_it() {
+        let dir = std::env::temp_dir().join("asura-instance-table-nested");
+        let folder = dir
+            .join(MAPS)
+            .join("Prophecies")
+            .join("Ascalon (pre-Searing)")
+            .join("Missions")
+            .join("148");
+        std::fs::create_dir_all(&folder).expect("create");
+        std::fs::write(
+            folder.join(BASIC),
+            r#"{"map_id": 148, "instance_value": 3138712889}"#,
+        )
+        .expect("write");
+        let (records, notes) = walk(&dir);
+        assert!(notes.is_empty(), "the levels above a map are not errors: {notes:?}");
+        assert_eq!(records.len(), 1, "the map is found four levels down");
+        assert_eq!(records[0].map_id, 148);
         std::fs::remove_dir_all(&dir).ok();
     }
 }
