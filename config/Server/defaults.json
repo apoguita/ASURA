@@ -18,6 +18,14 @@
     "immutable": true,
     "doc": "The client's MapType value for the character-creation instance: the one destination that is a conversation rather than a place. The client asks for it by this type beside the creation map id. The client's number, as above."
   },
+  "creation_screen_unlocked_professions": {
+    "value": 2,
+    "doc": "The unlocked-professions bitmap the character-creation screen is told, before any character exists: bit 1, Warrior. It is the screen's default, not a character's state - a real character's bitmap is written at the confirm and read from its row on every load."
+  },
+  "name_max_units": {
+    "value": 20,
+    "doc": "How many UTF-16 units of a character name this server keeps from a creation confirm. The client sends a counted string; anything longer than this is cut to it before the name is written, because a name is stored and listed, never streamed."
+  },
   "creation_map": {
     "value": 0,
     "immutable": true,

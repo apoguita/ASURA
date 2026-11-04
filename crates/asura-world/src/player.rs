@@ -118,9 +118,23 @@ pub const PLAYER_TEAM_TOKEN: u32 = 0xBAAD_F00D;
 /// client can render.
 pub const DEFAULT_PRIMARY_PROFESSION: u8 = 1;
 
-/// The unlocked-profession bitmap the reference sends (`GAME_SMSG_PLAYER_UPDATE_UNLOCKED_PROFESSIONS`:
-/// `02 00 00 00`), i.e. the bit for the profession above.
-pub const DEFAULT_UNLOCKED_PROFESSIONS: u32 = 2;
+/// The unlocked-profession bitmap the creation screen is told, before a character exists
+/// (`GAME_SMSG_PLAYER_UPDATE_UNLOCKED_PROFESSIONS`: `02 00 00 00`) - read from
+/// `config/Server/defaults.json`. A real character's bitmap is written at the confirm and read from its
+/// row on every load, so this is the screen's default and nothing else's.
+pub fn creation_screen_unlocked_professions() -> u32 {
+    asura_config::defaults()
+        .map(|defaults| defaults.creation_screen_unlocked_professions())
+        .unwrap_or(0)
+}
+
+/// How many UTF-16 units of a character name the confirm keeps, from
+/// `config/Server/defaults.json` (`name_max_units`).
+pub fn name_max_units() -> usize {
+    asura_config::defaults()
+        .map(|defaults| defaults.name_max_units())
+        .unwrap_or(0)
+}
 
 /// Morale is a percentage around 100, and 100 is the value a live load carries for a character with no
 /// morale modifier (`dump4-after`, `worldcontext.morale`). Sending 0 left the client's morale at zero.

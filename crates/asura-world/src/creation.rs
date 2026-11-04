@@ -223,7 +223,7 @@ pub async fn handle_request_player(
     ));
     frames.push(game::player_update_unlocked_professions(
         agent_id,
-        DEFAULT_UNLOCKED_PROFESSIONS,
+        creation_screen_unlocked_professions(),
     ));
     frames.push(game::skillbar_update(agent_id, &[0; 8], &[0; 8], 1));
     frames.push(game::update_unlocked_skills(&[]));
@@ -360,7 +360,7 @@ pub async fn handle_confirm(
     }
     let units = u16::from_le_bytes([body[0], body[1]]) as usize;
     let name = String::from_utf16_lossy(
-        &(0..units.min(20))
+        &(0..units.min(name_max_units()))
             .map(|index| {
                 let at = 2 + index * 2;
                 u16::from_le_bytes([

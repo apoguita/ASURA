@@ -240,6 +240,10 @@ pub struct Defaults {
     pub map_type_main_explorable: Described<i32>,
     /// The client's `MapType` value for the character-creation instance.
     pub map_type_character_creation: Described<i32>,
+    /// The unlocked-professions bitmap the creation screen is told, before a character exists.
+    pub creation_screen_unlocked_professions: Described<u32>,
+    /// How many UTF-16 units of a character name the confirm keeps.
+    pub name_max_units: Described<usize>,
 }
 
 impl Defaults {
@@ -276,6 +280,16 @@ impl Defaults {
             keys.push("map_type_character_creation");
         }
         keys
+    }
+
+    /// The creation screen's unlocked-professions bitmap.
+    pub fn creation_screen_unlocked_professions(&self) -> u32 {
+        self.creation_screen_unlocked_professions.value
+    }
+
+    /// How many UTF-16 units of a character name are kept.
+    pub fn name_max_units(&self) -> usize {
+        self.name_max_units.value
     }
 
     /// The three map kinds the placement rule asks about, as one value.
@@ -370,6 +384,12 @@ mod tests {
             "the doc says who writes the real value, said: {doc}"
         );
         assert_eq!(defaults.creation_map(), 0, "the creation instance is map 0");
+        assert_eq!(
+            defaults.creation_screen_unlocked_professions(),
+            2,
+            "bit 1, Warrior"
+        );
+        assert_eq!(defaults.name_max_units(), 20);
         assert!(
             defaults
                 .creation_map
@@ -391,6 +411,8 @@ mod tests {
         let defaults = Defaults::from_json(
             r#"{"default_outpost": {"value": 163, "doc": "why this number", "immutable": false},
                     "creation_map": {"value": 0, "immutable": true},
+                    "creation_screen_unlocked_professions": {"value": 2},
+                    "name_max_units": {"value": 20},
                     "map_type_main_town": {"value": 0, "immutable": true},
                     "map_type_main_explorable": {"value": 1, "immutable": true},
                     "map_type_character_creation": {"value": 11, "immutable": true}}"#,
