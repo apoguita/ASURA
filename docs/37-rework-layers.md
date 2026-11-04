@@ -35,7 +35,7 @@ conditions of the next section hold for it.
 |---|---|---|---|---|
 | 1 | wire and codec | `asura-protocol`, 16 files, 7,952 lines | evidence | `[-]` closed |
 | 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | closed |
-| 3 | rules | `asura-rules`, 1 file, 264 lines, 8 tests; depends on 1 for the client's `MapKinds` | rules | open |
+| 3 | rules | `asura-rules`, 1 file, 283 lines, 9 tests; depends on 1 for the client's `MapKinds` | rules | `[x]` closed |
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | closed |
 | 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | `[x]` closed |
 | 6 | web gate | `asura-webgate`, 2 files, 696 lines | rules | `[x]` closed |
@@ -135,7 +135,7 @@ Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
 
 ## Layer 3 - rules (`asura-rules`)
 
-Files: `src/lib.rs` 274 lines, 8 tests, one dependency (`asura-protocol`, for the client's
+Files: `src/lib.rs` 283 lines, 9 tests, one dependency (`asura-protocol`, for the client's
 `MapKinds` type).
 
 - [x] created because a protocol answer needed a game rule and no existing crate fits: `asura-db` is
@@ -151,8 +151,10 @@ Files: `src/lib.rs` 274 lines, 8 tests, one dependency (`asura-protocol`, for th
 - [x] the blank-name rule is here rather than in the world: `name_is_acceptable(&str)`, called by the
       creation confirm in place of its own `trim().is_empty()`. The error code it answers with stays
       where the frame is built, because a code is protocol. 9 rule and 64 world unit tests pass
-- [ ] the next rule that needs a home goes here rather than into a service: party and instance policy
-      (`docs/32` phase 2) is the first candidate
+- [-] the home for the next rule, and this **holds**: a rule that a protocol answer needs belongs here
+      rather than in a service. Party and instance policy (`docs/32` phase 2) is the named candidate
+      and does not exist yet anywhere, so there is nothing to move - the layer is complete and this
+      line stays as the instruction that keeps it that way
 
 - [x] the layer holds no value of its own and reads only (`AGENTS.md` 4a, `docs/38` D34-D35): the
       fallback outpost, the creation map id and the client's three map kinds are
