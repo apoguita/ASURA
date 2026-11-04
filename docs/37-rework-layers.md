@@ -37,7 +37,7 @@ conditions of the next section hold for it.
 | 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | closed |
 | 3 | rules | `asura-rules`, 1 file, 208 lines, 8 tests; **no dependencies** | rules | open |
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | closed |
-| 5 | socket layer | `asura-gateway`, 3 files, 490 lines; depends on 4 | transport | `[~]` |
+| 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | `[~]` |
 | 6 | web gate | `asura-webgate`, 2 files, 631 lines | rules | `[ ]` |
 | 7 | world connection and load | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `capture.rs`, `replay.rs` | rules + rates | `[ ]` |
 | 8 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | `[ ]` |
@@ -165,7 +165,7 @@ The dependency runs one way: `asura-rules` (no dependencies) <- `asura-auth` <- 
 why the three are layers 3, 4 and 5 in that order (`docs/38-layer-decisions.md`, D27).
 ## Layer 5 - socket layer (`asura-gateway`)
 
-Files: `src/lib.rs` 214, `src/relay.rs` 176, `src/main.rs` 85. It listens on the address a client
+Files: `src/lib.rs` 230, `src/relay.rs` 174, `src/main.rs` 130. It listens on the address a client
 dials, answers the file check, reads the four classification bytes and hands the socket on
 (`docs/38`, D26).
 
@@ -173,8 +173,13 @@ dials, answers the file check, reads the four classification bytes and hands the
       `[services.auth]` starts `asura-gateway` - commit `be99de2`, so a client sees no change
 - [x] the crate adopts the lint policy (`docs/38`, D17) and `cargo doc` builds - commit `be99de2`
 - [x] the relay is named for what it does: `src/relay.rs`, not `frontdoor.rs`, which named the part after the whole crate - commit `46d0c82`
-- [ ] the file check is answered here rather than by the auth conversation: confirm against a client
-      that sends it first, then record the measurement beside the code
+- [x] the file check is answered here rather than by the auth conversation, and the sequence is
+      measured: the client's 21-byte request is the first thing on that socket, its failure is fatal to
+      the login, and a server of ours has answered one on loopback (`docs/03-protocol.md` 7, the two runs
+      of 2026-10-25; the code records it at `crates/asura-gateway/src/lib.rs`, step 0) - commit `fca403c`
+- [ ] a real client run against this layer: the measurement above is inherited from the same machine and
+      the same client, but the server that answered was the earlier build, not `asura-gateway`. Needs
+      hosts entries or DNS pointing the six file names here, one login, and the trace kept
 - [x] the world freshness window has one source: `FRESH_WORLD_AGE_SECS` is gone from `relay.rs` and
       `asura_rules::world_max_age_secs` answers for this layer and the login path alike (`docs/38`,
       D29) - commit `801abfe`, 10 rules, 4 gateway and 3 auth unit tests pass
