@@ -31,19 +31,26 @@ impl Map {
 
     /// `Map.IsOutpost()`.
     pub fn IsOutpost(map: &MapEntry) -> bool {
-        map.map_type == MAP_TYPE_MAIN_TOWN
+        map.map_type == map_kinds().main_town
     }
 
     /// `Map.IsExplorable()`.
     pub fn IsExplorable(map: &MapEntry) -> bool {
-        map.map_type == MAP_TYPE_MAIN_EXPLORABLE
+        map.map_type == map_kinds().main_explorable
     }
 }
 
-/// The three map kinds, owned by `asura-rules` (`crates/asura-rules/src/lib.rs`): placement decides by
-/// them before a world exists, so this crate reads them rather than keeping a second copy
-/// (`docs/38-layer-decisions.md`, D27).
-pub use asura_rules::{MAP_TYPE_CHARACTER_CREATION, MAP_TYPE_MAIN_EXPLORABLE, MAP_TYPE_MAIN_TOWN};
+/// The client's map kinds, as `config/Server/defaults.json` states them.
+///
+/// The world compares a catalogue row's `map_type` against these, so they arrive from the same file the
+/// login path reads rather than from a constant (`docs/38-layer-decisions.md`, D34). A world whose file
+/// cannot be read stops at start-up, which is what makes the `expect` here unreachable rather than a
+/// hazard.
+pub fn map_kinds() -> asura_protocol::game::MapKinds {
+    asura_config::defaults()
+        .expect("the world refuses to start without config/Server/defaults.json")
+        .map_kinds()
+}
 
 /// One map a world server publishes, with what the client needs to load it.
 #[derive(Debug, Clone, PartialEq)]

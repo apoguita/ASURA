@@ -114,6 +114,31 @@ pub struct Loaded {
     pub source: Source,
 }
 
+/// The workspace root, as this crate's own manifest directory sees it.
+///
+/// A service is started from the repository root and finds `config/` in its working directory; a test is
+/// started from the crate's directory and does not. Both are the same file, so both are tried, working
+/// directory first.
+fn workspace_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+}
+
+/// Resolve a configured path: absolute stays as it is, and a relative one is tried against the working
+/// directory and then against the workspace root.
+fn resolve(path: &str) -> std::path::PathBuf {
+    let candidate = std::path::Path::new(path);
+    if candidate.is_absolute() || candidate.exists() {
+        return candidate.to_path_buf();
+    }
+    let rooted = workspace_root().join(candidate);
+    if rooted.exists() {
+        return rooted;
+    }
+    candidate.to_path_buf()
+}
+
 /// The path in force: `ASURA_INTERVALS`, or [`DEFAULT_FILE`].
 pub fn path() -> String {
     match std::env::var(FILE_VARIABLE) {
@@ -126,7 +151,8 @@ pub fn path() -> String {
 /// that exists and does not parse is an error, because a server running at numbers nobody chose is worse
 /// than a server that refuses to start and says why.
 pub fn load() -> Result<Loaded, String> {
-    let path = path();
+    let path = resolve(&path());
+    let path = path.display().to_string();
     match std::fs::read_to_string(&path) {
         Ok(text) => Ok(Loaded {
             intervals: Intervals::from_json(&text)
@@ -202,6 +228,12 @@ pub struct Defaults {
     /// The creation instance's map id: the destination that is a conversation rather than a place, and
     /// the value a row carries when nothing has been written yet.
     pub creation_map: Described<i32>,
+    /// The client's `MapType` value for a town or outpost.
+    pub map_type_main_town: Described<i32>,
+    /// The client's `MapType` value for an explorable area.
+    pub map_type_main_explorable: Described<i32>,
+    /// The client's `MapType` value for the character-creation instance.
+    pub map_type_character_creation: Described<i32>,
 }
 
 impl Defaults {
@@ -219,6 +251,15 @@ impl Defaults {
     pub fn creation_map(&self) -> i32 {
         self.creation_map.value
     }
+
+    /// The three map kinds the placement rule asks about, as one value.
+    pub fn map_kinds(&self) -> asura_protocol::game::MapKinds {
+        asura_protocol::game::MapKinds {
+            main_town: self.map_type_main_town.value,
+            main_explorable: self.map_type_main_explorable.value,
+            character_creation: self.map_type_character_creation.value,
+        }
+    }
 }
 
 /// The defaults in force, read once per process.
@@ -233,6 +274,7 @@ pub fn defaults() -> Result<&'static Defaults, String> {
                 Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
                 _ => DEFAULTS_FILE.to_string(),
             };
+            let path = resolve(&path).display().to_string();
             match std::fs::read_to_string(&path) {
                 Ok(text) => Defaults::from_json(&text)
                     .map_err(|err| format!("{path} is not a valid defaults file: {err}"))
@@ -315,7 +357,10 @@ mod tests {
     fn a_key_may_carry_its_own_documentation() {
         let defaults = Defaults::from_json(
             r#"{"default_outpost": {"value": 163, "doc": "why this number"},
-                    "creation_map": {"value": 0}}"#,
+                    "creation_map": {"value": 0},
+                    "map_type_main_town": {"value": 0},
+                    "map_type_main_explorable": {"value": 1},
+                    "map_type_character_creation": {"value": 11}}"#,
         )
         .expect("parses");
         assert_eq!(defaults.default_outpost(), 163);

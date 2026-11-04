@@ -62,7 +62,7 @@ pub fn maps_answer(maps: &[MapEntry]) -> MappedMaps {
     for map in maps {
         // A creation instance is not a place: it is where a character is made, it has no alias, and
         // nobody travels to it. It stays out of the teleport table.
-        if map.map_type == crate::MAP_TYPE_CHARACTER_CREATION {
+        if map.map_type == crate::map_kinds().character_creation {
             continue;
         }
         if seen.contains(&map.map_id) {

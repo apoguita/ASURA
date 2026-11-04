@@ -400,12 +400,12 @@ pub async fn handle_request_players(
     let here = player.instance.map.map_id;
     // The last outpost this character stood in, kept for the base rule (docs/22-world-model.md): a travel
     // into an explorable must not overwrite it, which is why only an outpost is written here.
-    if player.instance.map.map_type == MAP_TYPE_MAIN_TOWN {
+    if player.instance.map.map_type == map_kinds().main_town {
         if let Err(err) = db_game::remember_outpost(&world.pool, player.character, here).await {
             eprintln!("world: could not remember the outpost {here}: {err}");
         }
     }
-    if player.instance.map.map_type != MAP_TYPE_CHARACTER_CREATION {
+    if player.instance.map.map_type != map_kinds().character_creation {
         match db_game::unlock_instance(&world.pool, player.character, here).await {
             Ok(true) => eprintln!(
                 "world: {:?} unlocked instance {here}: first arrival",

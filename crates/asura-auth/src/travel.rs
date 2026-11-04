@@ -172,9 +172,10 @@ pub async fn answer(
         },
         character,
         destination_type,
-        // Both from the defaults file, read above.
+        // Both from the defaults file, read above, plus the client's own map kinds.
         defaults.default_outpost(),
         empty,
+        defaults.map_kinds(),
     );
     match substituted {
         Some(asura_rules::Substituted::CreationNamedAsPlace(from)) => eprintln!(

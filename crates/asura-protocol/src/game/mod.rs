@@ -20,6 +20,22 @@
 
 /// The unlockable PvP item table, generated from the reference: 387 `(id, params)` pairs the client
 /// builds its item table from. Data rather than protocol, which is why it is generated and not typed.
+/// The client's `MapType` values, as configuration holds them.
+///
+/// Three numbers that mean "a town", "an explorable area" and "the creation instance" to the client. They
+/// live here because they are the client's vocabulary, and they are *values*, so a server reads them from
+/// `config/Server/defaults.json` rather than compiling them (`docs/38-layer-decisions.md`, D34): a file
+/// states them, a rule is handed them, and this type is what travels between the two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MapKinds {
+    /// A town or outpost: a destination the outpost rule never overrides.
+    pub main_town: i32,
+    /// An explorable area: a destination placement replaces with the last outpost.
+    pub main_explorable: i32,
+    /// The creation instance: the one kind that is a conversation rather than a place.
+    pub character_creation: i32,
+}
+
 pub mod appearance;
 /// Re-exported so `Appearance::...` reads the same as it did when the type lived here.
 pub use appearance::Appearance;

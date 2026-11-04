@@ -34,17 +34,6 @@ pub struct Character {
     pub last_outpost: i32,
 }
 
-/// `MapType` (`GmMaps.h`), as the map catalogue stores it - an `i32` column, which is why all three are
-/// `i32`. One home for the three numbers (`docs/38-layer-decisions.md`, D27): placement decides by them,
-/// so does the load, and the world used to keep a second copy of two of them.
-///
-/// `MapType_MainTown`: the outpost kind, which the outpost rule never overrides.
-pub const MAP_TYPE_MAIN_TOWN: i32 = 0;
-/// `MapType_MainExplorable`: an explorable area, which placement replaces with the last outpost.
-pub const MAP_TYPE_MAIN_EXPLORABLE: i32 = 1;
-/// `MapType_CharacterCreation`: the one kind that is a conversation rather than a place. The protocol
-/// carries a map type as `u32`, so a caller comparing a frame field casts this one.
-pub const MAP_TYPE_CHARACTER_CREATION: i32 = 11;
 /// Why a placement answer differs from what the client asked for. The caller logs it; the rule does
 /// not print.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +60,10 @@ pub enum Substituted {
 ///    the game puts the character in the last outpost it visited; with no last outpost, again the
 ///    fallback.
 ///
+/// `kinds` is what the client calls a town, an explorable area and the creation instance, read from
+/// `config/Server/defaults.json`. It arrives as an argument for the same reason the other two values
+/// do: this crate holds no value of its own.
+///
 /// `creation_map` is the creation instance's map id, from `config/Server/defaults.json`
 /// (`docs/38-layer-decisions.md`, D34): the one destination that is a conversation rather than a
 /// place, and the value a row carries when nothing has been written. It arrives as an argument for
@@ -89,9 +82,10 @@ pub fn placement(
     destination_type: Option<i32>,
     fallback_outpost: i32,
     creation_map: i32,
+    kinds: asura_protocol::game::MapKinds,
 ) -> (i32, Option<Substituted>) {
     // 1. A creation visit is its own destination.
-    if request.map_id == creation_map && request.map_type == MAP_TYPE_CHARACTER_CREATION as u32 {
+    if request.map_id == creation_map && request.map_type == kinds.character_creation as u32 {
         return (request.map_id, None);
     }
 
@@ -117,7 +111,7 @@ pub fn placement(
     let Some(map_type) = destination_type else {
         return (request.map_id, None);
     };
-    if map_type == MAP_TYPE_MAIN_TOWN {
+    if map_type == kinds.main_town {
         return (request.map_id, None);
     }
     if character.last_outpost == creation_map {
@@ -138,6 +132,13 @@ mod tests {
     /// The creation instance's map id, as the committed defaults file states it.
     const CREATION: i32 = 0;
 
+    /// The client's map kinds, as the committed defaults file states them.
+    const KINDS: asura_protocol::game::MapKinds = asura_protocol::game::MapKinds {
+        main_town: 0,
+        main_explorable: 1,
+        character_creation: 11,
+    };
+
     const FRESH: Character = Character {
         map_id: CREATION,
         last_outpost: CREATION,
@@ -147,10 +148,10 @@ mod tests {
     fn a_creation_visit_reaches_the_creation_instance() {
         let request = Requested {
             map_id: CREATION,
-            map_type: MAP_TYPE_CHARACTER_CREATION as u32,
+            map_type: KINDS.character_creation as u32,
         };
         assert_eq!(
-            placement(request, FRESH, Some(11), 148, CREATION),
+            placement(request, FRESH, Some(11), 148, CREATION, KINDS),
             (CREATION, None)
         );
     }
@@ -160,13 +161,13 @@ mod tests {
         // What the client sends after a creation confirm.
         let request = Requested {
             map_id: CREATION,
-            map_type: MAP_TYPE_MAIN_TOWN as u32,
+            map_type: KINDS.main_town as u32,
         };
         let character = Character {
             map_id: 212,
             last_outpost: CREATION,
         };
-        let (map, why) = placement(request, character, Some(11), 148, CREATION);
+        let (map, why) = placement(request, character, Some(11), 148, CREATION, KINDS);
         assert_eq!(map, 212, "the map the confirm wrote");
         assert_eq!(
             why,
@@ -178,14 +179,14 @@ mod tests {
     fn a_character_with_no_row_map_falls_back_to_its_last_outpost() {
         let request = Requested {
             map_id: CREATION,
-            map_type: MAP_TYPE_MAIN_TOWN as u32,
+            map_type: KINDS.main_town as u32,
         };
         let character = Character {
             map_id: CREATION,
             last_outpost: 163,
         };
         assert_eq!(
-            placement(request, character, Some(11), 148, CREATION).0,
+            placement(request, character, Some(11), 148, CREATION, KINDS).0,
             163
         );
     }
@@ -197,10 +198,10 @@ mod tests {
         // one up (D34).
         let request = Requested {
             map_id: CREATION,
-            map_type: MAP_TYPE_MAIN_TOWN as u32,
+            map_type: KINDS.main_town as u32,
         };
         assert_eq!(
-            placement(request, FRESH, Some(11), 148, CREATION),
+            placement(request, FRESH, Some(11), 148, CREATION, KINDS),
             (148, Some(Substituted::NothingToPlace))
         );
     }
@@ -209,14 +210,14 @@ mod tests {
     fn an_outpost_request_is_answered_as_asked() {
         let request = Requested {
             map_id: 163,
-            map_type: MAP_TYPE_MAIN_TOWN as u32,
+            map_type: KINDS.main_town as u32,
         };
         let character = Character {
             map_id: 163,
             last_outpost: 163,
         };
         assert_eq!(
-            placement(request, character, Some(0), 148, CREATION),
+            placement(request, character, Some(0), 148, CREATION, KINDS),
             (163, None)
         );
     }
@@ -232,7 +233,7 @@ mod tests {
             last_outpost: 148,
         };
         assert_eq!(
-            placement(request, character, Some(1), 148, CREATION),
+            placement(request, character, Some(1), 148, CREATION, KINDS),
             (148, Some(Substituted::NotAnOutpost))
         );
     }
@@ -244,7 +245,7 @@ mod tests {
             map_type: 1,
         };
         assert_eq!(
-            placement(request, FRESH, Some(1), 148, CREATION),
+            placement(request, FRESH, Some(1), 148, CREATION, KINDS),
             (148, Some(Substituted::NothingToPlace))
         );
     }
@@ -255,6 +256,9 @@ mod tests {
             map_id: 999,
             map_type: 1,
         };
-        assert_eq!(placement(request, FRESH, None, 148, CREATION), (999, None));
+        assert_eq!(
+            placement(request, FRESH, None, 148, CREATION, KINDS),
+            (999, None)
+        );
     }
 }

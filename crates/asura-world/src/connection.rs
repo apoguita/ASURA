@@ -314,7 +314,7 @@ pub async fn handle_connection(
         moved: false,
         // A creation instance is its own map type (`MapType_CharacterCreation`, 11): a connection that
         // arrived in one is there to make a character, and one that arrived in anything else cannot.
-        creation: if map_type == MAP_TYPE_CHARACTER_CREATION {
+        creation: if map_type == map_kinds().character_creation {
             Some(Creation::start())
         } else {
             None
@@ -396,7 +396,7 @@ pub async fn handle_connection(
     // arrives in the creation map without making a character is one whose client still believes it is
     // there. Saving this map would overwrite the outpost with the instance and strand the character -
     // measured 2026-10-28: every character that entered map 0 came back to map 0 on the next login.
-    if player.instance.map.map_type != MAP_TYPE_CHARACTER_CREATION {
+    if player.instance.map.map_type != map_kinds().character_creation {
         if let Err(err) = db_game::record_position(
             &world.pool,
             player.character,

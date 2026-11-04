@@ -24,10 +24,7 @@ use std::time::Duration;
 use asura_db::migrations::{self, EnsureError};
 use asura_db::{game as db_game, placement};
 use asura_protocol::Trace;
-use asura_world::{
-    serve, MapEntry, World, MAP_TYPE_CHARACTER_CREATION, MAP_TYPE_MAIN_EXPLORABLE,
-    MAP_TYPE_MAIN_TOWN,
-};
+use asura_world::{serve, MapEntry, World};
 
 /// How often the world tells the database it is alive. Placement stops offering a world whose
 /// heartbeat is older than a minute, so this is comfortably inside that window.
@@ -256,16 +253,19 @@ async fn main() -> ExitCode {
                 // live creation, it sends no spawn point and no map file id at all, only the load head,
                 // the player-data block and `CHAR_CREATION_START`. Every other map needs one, because
                 // the client is told which blob to load.
-                if map_file_id == 0 && configured.map_type != MAP_TYPE_CHARACTER_CREATION {
+                if map_file_id == 0
+                    && configured.map_type != asura_world::map_kinds().character_creation
+                {
                     eprintln!(
                         "asura-world: map {map_id} has no map_file_id; a client cannot load it"
                     );
                     return ExitCode::from(4);
                 }
-                if !matches!(
-                    configured.map_type,
-                    MAP_TYPE_MAIN_TOWN | MAP_TYPE_MAIN_EXPLORABLE | MAP_TYPE_CHARACTER_CREATION
-                ) {
+                let kinds = asura_world::map_kinds();
+                if configured.map_type != kinds.main_town
+                    && configured.map_type != kinds.main_explorable
+                    && configured.map_type != kinds.character_creation
+                {
                     // A world hosts what the reference hosts: main towns (0), explorable areas (1) and the
                     // character-creation instance (11). Explorable hosting used to be refused here on the
                     // theory that this server "cannot spawn anything into one" - but a world server does not

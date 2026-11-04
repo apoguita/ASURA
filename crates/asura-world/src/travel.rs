@@ -94,10 +94,11 @@ pub async fn load_map_on_demand(
     if map_file_id == 0 {
         return Ok(None);
     }
-    if !matches!(
-        configured.map_type,
-        MAP_TYPE_MAIN_TOWN | MAP_TYPE_MAIN_EXPLORABLE | MAP_TYPE_CHARACTER_CREATION
-    ) {
+    let kinds = map_kinds();
+    if configured.map_type != kinds.main_town
+        && configured.map_type != kinds.main_explorable
+        && configured.map_type != kinds.character_creation
+    {
         return Ok(None);
     }
     let entry = MapEntry {

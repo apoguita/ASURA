@@ -25,6 +25,7 @@ dependencies = [
 name = "asura-config"
 version = "0.1.0"
 dependencies = [
+ "asura-protocol",
  "serde",
  "serde_json",
 ]
@@ -70,6 +71,9 @@ dependencies = [
 [[package]]
 name = "asura-rules"
 version = "0.1.0"
+dependencies = [
+ "asura-protocol",
+]
 
 [[package]]
 name = "asura-supervisor"

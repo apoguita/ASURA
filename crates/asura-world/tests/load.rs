@@ -32,7 +32,7 @@ use asura_protocol::client::handshake;
 use asura_protocol::client::reference_client::ReferenceClient;
 use asura_protocol::client::Frame;
 use asura_protocol::game;
-use asura_world::{serve, MapEntry, World, MAP_TYPE_CHARACTER_CREATION};
+use asura_world::{serve, MapEntry, World};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -1139,7 +1139,7 @@ async fn the_default_map_list_is_the_whole_catalogue_and_tp_reaches_it() {
             .await
             .expect("read the map")
             .unwrap_or_else(|| panic!("map {map_id} is in the catalogue"));
-        if configured.map_type != MAP_TYPE_CHARACTER_CREATION {
+        if configured.map_type != asura_world::map_kinds().character_creation {
             assert!(configured.map_file_id > 0, "map {map_id} has a blob");
         }
         maps.push(MapEntry {
@@ -1165,7 +1165,7 @@ async fn the_default_map_list_is_the_whole_catalogue_and_tp_reaches_it() {
     // instance gets none: it is not a place (`chat::maps_answer`).
     let hosted_without_alias = maps
         .iter()
-        .filter(|map| map.map_type != MAP_TYPE_CHARACTER_CREATION)
+        .filter(|map| map.map_type != asura_world::map_kinds().character_creation)
         .filter(|map| {
             !asura_world::travel_targets::TRAVEL_TARGETS
                 .iter()
