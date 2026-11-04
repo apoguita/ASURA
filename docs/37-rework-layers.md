@@ -138,8 +138,9 @@ Files: `src/lib.rs` 208 lines, 8 tests.
 
 ## Layer 4 - auth service (`asura-auth`)
 
-Files: `lib.rs` 947, `frontdoor.rs` 165, `main.rs` 115, 2 examples, 2 test files. `travel.rs` is the
-placement mechanism now; its rules left for `asura-rules` (layer 3).
+Files: `src/lib.rs` 845 (the login conversation), `src/travel.rs` 291 (the placement mechanism: registry
+lookup, seat, transfer row), 2 examples. No `main.rs` and no listener - the socket layer owns those, and
+the integration tests live in `crates/asura-gateway/tests/`.
 
 - [x] the game rules leave the service: last outpost, the creation exemption and the default outpost
       are `asura-rules::placement`, a pure function with eight tests (`docs/38`, D25) - commit
@@ -159,10 +160,8 @@ placement mechanism now; its rules left for `asura-rules` (layer 3).
       `[services.auth]`) - commit `be99de2`, so a client sees no change
 - [x] `docs/00`, `docs/01`, `docs/02`, `docs/15`, `docs/17`, `docs/19` and `AGENTS.md` name the two new layers and the process that listens - commit `55f9b5a`
 
-The three crates are named, not numbered (R and S), because the numbers were a mistake: the graph is
-`asura-rules` (no dependencies) <- `asura-auth` <- `asura-gateway`, one direction, and a label that
-reads "3b" suggests rules hangs off auth when it is the most independent crate in the workspace
-(`docs/38-layer-decisions.md`, D27).
+The dependency runs one way: `asura-rules` (no dependencies) <- `asura-auth` <- `asura-gateway`, which is
+why the three are layers 3, 4 and 5 in that order (`docs/38-layer-decisions.md`, D27).
 ## Layer 5 - socket layer (`asura-gateway`)
 
 Files: `src/lib.rs` 214, `src/frontdoor.rs` 176, `src/main.rs` 85. It listens on the address a client
