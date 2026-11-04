@@ -39,7 +39,6 @@ pub struct MapKinds {
 pub mod appearance;
 /// Re-exported so `Appearance::...` reads the same as it did when the type lived here.
 pub use appearance::Appearance;
-pub mod instance_table;
 
 /// `GAME_SMSG_INSTANCE_LOAD_HEAD` (`0x017C`): 6 bytes. The first message a client receives on the
 /// game connection.

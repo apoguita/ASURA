@@ -50,7 +50,7 @@ pub fn load_block(map: &MapEntry, name: &str, agent_id: u32) -> Vec<Frame> {
     // instances that exist, so that a destination can be resolved at all. It goes in the load block
     // beside the exploration grid because that is the phase a live server sends it in - after the
     // instance info and before the client is asked to spawn anything.
-    for batch in game::instance_table::INSTANCE_TABLE {
+    for batch in crate::instance_table::INSTANCE_TABLE {
         frames.push(game::instance_table(batch));
     }
     frames

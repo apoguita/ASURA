@@ -77,6 +77,9 @@ pub mod dispatch;
 pub mod instance;
 pub mod item;
 
+/// The client's instance table: the destinations a load tells the client exist (data, D36).
+pub mod instance_table;
+
 pub mod map;
 
 pub mod player;
@@ -588,10 +591,10 @@ mod tests {
     /// a client message consumes exactly the bytes the builder wrote.
     #[test]
     fn the_instance_table_carries_what_the_capture_holds_and_frames_as_its_row_says() {
-        let batches: usize = game::instance_table::INSTANCE_TABLE.len();
+        let batches: usize = crate::instance_table::INSTANCE_TABLE.len();
         assert_eq!(batches, 10, "the live load carried ten of these");
 
-        let pairs: usize = game::instance_table::INSTANCE_TABLE
+        let pairs: usize = crate::instance_table::INSTANCE_TABLE
             .iter()
             .map(|batch| batch.len())
             .sum();
@@ -601,12 +604,12 @@ mod tests {
              ten values that were cut are absent rather than invented"
         );
         assert_eq!(
-            game::instance_table::INSTANCE_TABLE[0][0],
+            crate::instance_table::INSTANCE_TABLE[0][0],
             (148, 0xBB14_F539),
             "the first pair is the instance the capture was taken in"
         );
 
-        for batch in game::instance_table::INSTANCE_TABLE {
+        for batch in crate::instance_table::INSTANCE_TABLE {
             let frame = game::instance_table(batch);
             let bytes = frame.encode();
             assert_eq!(
