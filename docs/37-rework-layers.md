@@ -34,8 +34,8 @@ conditions of the next section hold for it.
 | 1 | wire and codec | `asura-protocol`, 16 files, 7,952 lines | evidence | `[-]` closed |
 | 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + some content | closed |
 | 3 | auth service | `asura-auth`, 6 files, 2,664 lines | rules | closed |
-| 3b | rules | `asura-rules`, 1 file, 208 lines, 8 tests | rules | `[-]` new, open |
-| 3c | socket layer | `asura-gateway`, 3 files, 475 lines | transport | new, open |
+| R | rules | `asura-rules`, 1 file, 208 lines, 8 tests; **no dependencies** | rules | open |
+| S | socket layer | `asura-gateway`, 3 files, 475 lines; depends on auth | transport | open |
 | 4 | web gate | `asura-webgate`, 2 files, 631 lines | rules | `[ ]` |
 | 5 | world connection and load | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `capture.rs`, `replay.rs` | rules + rates | `[ ]` |
 | 6 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | `[ ]` |
@@ -148,7 +148,11 @@ placement mechanism now; its rules left for `asura-rules` (layer 3b).
       `[services.auth]`) - commit `be99de2`, so a client sees no change
 - [x] `docs/00`, `docs/01`, `docs/02`, `docs/15`, `docs/17`, `docs/19` and `AGENTS.md` name the two new layers and the process that listens - commit `55f9b5a`
 
-## Layer 3b - the rules layer (`asura-rules`, new)
+The three crates are named, not numbered (R and S), because the numbers were a mistake: the graph is
+`asura-rules` (no dependencies) <- `asura-auth` <- `asura-gateway`, one direction, and a label that
+reads "3b" suggests rules hangs off auth when it is the most independent crate in the workspace
+(`docs/38-layer-decisions.md`, D27).
+## Layer R - the rules layer (`asura-rules`, new)
 
 Files: `src/lib.rs` 208 lines, 8 tests.
 
@@ -157,7 +161,7 @@ Files: `src/lib.rs` 208 lines, 8 tests.
 - [ ] the next rule that needs a home goes here rather than into a service: party and instance policy
       (`docs/32` phase 2) is the first candidate
 
-## Layer 3c - the socket layer (`asura-gateway`, new)
+## Layer S - the socket layer (`asura-gateway`, new)
 
 Files: `src/lib.rs` 214, `src/frontdoor.rs` 176, `src/main.rs` 85. It listens on the address a client
 dials, answers the file check, reads the four classification bytes and hands the socket on
