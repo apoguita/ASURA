@@ -19,11 +19,6 @@ pub const FILE: &str = "character_defaults.json";
 pub struct Value<T> {
     /// The value itself.
     pub value: T,
-    /// Whether changing it would break what the client expects. For these values it is `false`: a pack
-    /// may start characters at another level, with gold, or with a secondary profession, and the client
-    /// neither knows nor cares. The flag is reserved for the client's own contract (`docs/38`, D35).
-    #[serde(default)]
-    pub immutable: bool,
     /// What it means.
     #[serde(default)]
     pub doc: Option<String>,
@@ -63,21 +58,6 @@ impl CharacterDefaults {
     pub fn secondary_profession(&self) -> u8 {
         self.secondary_profession.value
     }
-
-    /// The values marked immutable, for the start-up line.
-    pub fn immutable_keys(&self) -> Vec<&'static str> {
-        let mut keys = Vec::new();
-        if self.level.immutable {
-            keys.push("level");
-        }
-        if self.gold.immutable {
-            keys.push("gold");
-        }
-        if self.secondary_profession.immutable {
-            keys.push("secondary_profession");
-        }
-        keys
-    }
 }
 
 /// Read `<pack>/character_defaults.json`. A missing file is an error: the confirm refuses the character
@@ -104,8 +84,8 @@ mod tests {
         assert_eq!(defaults.gold(), 0);
         assert_eq!(defaults.secondary_profession(), 0);
         assert!(
-            defaults.immutable_keys().is_empty(),
-            "a pack may change what a new character is worth; the client never sees it"
+            defaults.level.doc.is_some() && defaults.gold.doc.is_some(),
+            "every value says what it is"
         );
     }
 

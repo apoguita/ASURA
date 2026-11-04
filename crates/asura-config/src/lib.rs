@@ -211,12 +211,9 @@ pub struct Described<T> {
     /// What it means, in the words the person reading the file needs.
     #[serde(default)]
     pub doc: Option<String>,
-    /// Whether this value may be changed.
-    ///
-    /// A value the client itself defines is **immutable**: it is in the file so it can be read and
-    /// reviewed, not so it can be edited, and a server that changed it would only stop recognising what
-    /// its own client sends. The flag is required of every key in the base game's file so that the
-    /// distinction is stated rather than assumed (`docs/38-layer-decisions.md`, D34).
+    /// `true` only where changing the value would break what the client expects - the client's own
+    /// numbers. Absent, or `false`, means the owner may change it (`docs/38-layer-decisions.md`, D35).
+    #[serde(default)]
     pub immutable: bool,
 }
 
@@ -260,6 +257,8 @@ impl Defaults {
     }
 
     /// The keys this file marks immutable, in a stable order, for the start-up line.
+    ///
+    /// Only the client's own numbers are here; every other value in the file is the owner's to change.
     pub fn immutable_keys(&self) -> Vec<&'static str> {
         let mut keys = Vec::new();
         if self.creation_map.immutable {
@@ -273,9 +272,6 @@ impl Defaults {
         }
         if self.map_type_character_creation.immutable {
             keys.push("map_type_character_creation");
-        }
-        if self.default_outpost.immutable {
-            keys.push("default_outpost");
         }
         keys
     }
