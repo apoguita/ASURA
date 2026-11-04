@@ -45,6 +45,8 @@ pub enum Error {
     /// A gameplay connection could not be routed to the world the client named. The client's socket
     /// is closed without a message, which is what the reference does when it cannot place one.
     GameRoute(String),
+    /// The file check's bytes could not be read from `config/Server/file_check.json`.
+    FileCheck(String),
 }
 
 impl std::fmt::Display for Error {
@@ -57,6 +59,7 @@ impl std::fmt::Display for Error {
             }
             Error::Auth(err) => write!(f, "{err}"),
             Error::GameRoute(reason) => write!(f, "game connection not routed: {reason}"),
+            Error::FileCheck(reason) => write!(f, "the file check is not configured: {reason}"),
         }
     }
 }
@@ -161,12 +164,22 @@ pub async fn handle_connection(
     // the reference does not answer and the client tolerates unanswered (same capture). It belongs to
     // the file-server socket, not to the handshake that follows here; if it does arrive, this layer
     // classifies it as an unknown connection and closes, which the measurement says is harmless.
+    // The bytes are configuration (`config/Server/file_check.json`): the question the client compares
+    // whole and the answer it parses. A file that is missing or malformed is a start-up fault - this
+    // layer refuses to run without it rather than closing a socket the client is waiting on - so the
+    // read here is the same one `main` performed.
+    let check = match asura_config::file_check() {
+        Ok(check) => check,
+        Err(err) => return Err(Error::FileCheck(err)),
+    };
+    let request = check.request_bytes().map_err(Error::FileCheck)?;
+    let response = check.response_bytes().map_err(Error::FileCheck)?;
     read_until(&mut stream, &mut buffer, 1).await?;
-    while filecheck::starts_with_request(&buffer) {
-        buffer.drain(..filecheck::FILE_CHECK_REQUEST.len());
-        stream.write_all(&filecheck::FILE_CHECK_RESPONSE).await?;
+    while filecheck::starts_with_request(&buffer, &request) {
+        buffer.drain(..request.len());
+        stream.write_all(&response).await?;
         if trace.on() {
-            eprintln!("gateway <- file check, answered 32 bytes");
+            eprintln!("gateway <- file check, answered {} bytes", response.len());
         }
         if buffer.is_empty() {
             read_until(&mut stream, &mut buffer, 1).await?;

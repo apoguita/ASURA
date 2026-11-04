@@ -219,6 +219,90 @@ pub struct Described<T> {
     pub immutable: bool,
 }
 
+/// The file that holds the two byte strings of the client's file check.
+pub const FILE_CHECK_FILE: &str = "config/Server/file_check.json";
+
+/// The variable that names a different file-check file.
+pub const FILE_CHECK_VARIABLE: &str = "ASURA_FILE_CHECK";
+
+/// One byte string and what it is for.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct HexBytes {
+    /// The bytes, as space-separated hex pairs.
+    pub hex: String,
+    /// What the string is, and where the numbers came from.
+    #[serde(default)]
+    pub doc: Option<String>,
+}
+
+impl HexBytes {
+    /// The bytes themselves.
+    pub fn bytes(&self) -> Result<Vec<u8>, String> {
+        self.hex
+            .split_whitespace()
+            .map(|pair| u8::from_str_radix(pair, 16).map_err(|err| format!("{pair:?}: {err}")))
+            .collect()
+    }
+}
+
+/// The client's file check: the question it asks and the answer this server gives.
+///
+/// The bytes are the client's own - it compares the whole question and parses the answer as six
+/// `Gw.dat` file ids - so they are configuration rather than code: they change when the client's files
+/// change, and `docs/19-running.md` has the procedure for refreshing them.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct FileCheck {
+    /// The 21-byte question.
+    pub request: HexBytes,
+    /// The 32-byte answer.
+    pub response: HexBytes,
+}
+
+impl FileCheck {
+    /// Parse the file's text.
+    pub fn from_json(text: &str) -> Result<FileCheck, String> {
+        serde_json::from_str(text).map_err(|err| err.to_string())
+    }
+
+    /// The question's bytes.
+    pub fn request_bytes(&self) -> Result<Vec<u8>, String> {
+        self.request.bytes()
+    }
+
+    /// The answer's bytes.
+    pub fn response_bytes(&self) -> Result<Vec<u8>, String> {
+        self.response.bytes()
+    }
+}
+
+/// The file check in force, read once per process.
+///
+/// A missing file is an error: a socket layer that cannot answer the check refuses the client outright,
+/// which is the failure this file exists to prevent, so it says so at start-up rather than at the first
+/// login.
+pub fn file_check() -> Result<&'static FileCheck, String> {
+    static IN_FORCE: OnceLock<Result<FileCheck, String>> = OnceLock::new();
+    IN_FORCE
+        .get_or_init(|| {
+            let path = match std::env::var(FILE_CHECK_VARIABLE) {
+                Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
+                _ => FILE_CHECK_FILE.to_string(),
+            };
+            let path = resolve(&path).display().to_string();
+            match std::fs::read_to_string(&path) {
+                Ok(text) => FileCheck::from_json(&text)
+                    .map_err(|err| format!("{path} is not a valid file-check file: {err}"))
+                    .map(|check| {
+                        eprintln!("asura: file check from {path}");
+                        check
+                    }),
+                Err(err) => Err(format!("{path} is not readable: {err}")),
+            }
+        })
+        .as_ref()
+        .map_err(|err| err.clone())
+}
+
 /// The values a world falls back on when its rows say nothing.
 ///
 /// Every key is required and there is no built-in value: a world that placed a character somewhere
@@ -342,6 +426,33 @@ mod tests {
 
     /// The committed file, parsed the way a service parses it.
     const COMMITTED: &str = include_str!("../../../config/Server/intervals.json");
+
+    /// The committed file-check file, parsed the way the socket layer parses it.
+    const FILE_CHECK_COMMITTED: &str = include_str!("../../../config/Server/file_check.json");
+
+    #[test]
+    fn the_committed_file_check_is_the_two_strings_the_client_expects() {
+        let check = FileCheck::from_json(FILE_CHECK_COMMITTED).expect("the committed file parses");
+        let request = check.request_bytes().expect("hex");
+        let response = check.response_bytes().expect("hex");
+        assert_eq!(request.len(), 21, "the question the client compares whole");
+        assert_eq!(response.len(), 32, "the answer it parses");
+        assert_eq!(
+            &response[..4],
+            &[0xF1, 0x02, 0x20, 0x00],
+            "header 0x02F1, length 0x2000"
+        );
+        assert!(check.request.doc.is_some() && check.response.doc.is_some());
+    }
+
+    #[test]
+    fn a_byte_string_that_is_not_hex_is_an_error() {
+        let err = FileCheck::from_json(r#"{"request": {"hex": "zz"}, "response": {"hex": "f1"}}"#)
+            .expect("parses")
+            .request_bytes()
+            .expect_err("refused");
+        assert!(err.contains("zz"), "said: {err}");
+    }
 
     /// The committed defaults file, parsed the way the services parse it.
     const DEFAULTS_COMMITTED: &str = include_str!("../../../config/Server/defaults.json");

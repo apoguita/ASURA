@@ -16,7 +16,6 @@ use asura_auth::Trace;
 use asura_db::login as db;
 use asura_db::{PgPool, Uuid};
 use asura_gateway::serve;
-use asura_protocol::client::filecheck;
 use asura_protocol::client::handshake;
 use asura_protocol::client::messages::{self, RequestResponse};
 use asura_protocol::client::reference_client::{self, ReferenceClient};
@@ -544,17 +543,22 @@ async fn the_server_answers_the_file_check_before_anything_else() {
         return;
     };
 
+    // The bytes are configuration now (`config/Server/file_check.json`), so the test asks the same
+    // source the socket layer asks.
+    let check = asura_config::file_check().expect("the committed file-check file");
+    let request = check.request_bytes().expect("hex");
+    let response = check.response_bytes().expect("hex");
+
     let mut stream = harness.connect().await;
     stream
-        .write_all(&filecheck::FILE_CHECK_REQUEST)
+        .write_all(&request)
         .await
         .expect("write the file check");
 
-    let reply = read_exact(&mut stream, filecheck::FILE_CHECK_RESPONSE.len()).await;
+    let reply = read_exact(&mut stream, response.len()).await;
     assert_eq!(
-        reply,
-        filecheck::FILE_CHECK_RESPONSE.to_vec(),
-        "the file check is answered with the reference's bytes"
+        reply, response,
+        "the file check is answered with the configured bytes"
     );
 
     // The same connection carries the handshake and the login afterwards, because the reference keeps

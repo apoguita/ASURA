@@ -88,6 +88,14 @@ async fn main() -> ExitCode {
     // The fallback outpost has no default in code (`config/Server/placement.json`): a login that cannot
     // answer "where does a character with no history enter" has nothing to place anyone with, so the
     // service says so and stops instead of running on a number nobody chose (D34).
+    // The file check's bytes are configuration too: a socket layer that cannot answer the client's
+    // first question refuses the login outright, so it fails here rather than on a live connection.
+    if let Err(err) = asura_config::file_check() {
+        eprintln!("asura-gateway: {err}");
+        eprintln!("asura-gateway: refusing to start without a file-check file");
+        return ExitCode::from(4);
+    }
+
     if let Err(err) = asura_config::defaults() {
         eprintln!("asura-gateway: {err}");
         eprintln!("asura-gateway: refusing to start without a placement file");
