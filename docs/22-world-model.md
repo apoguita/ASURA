@@ -220,6 +220,9 @@ Two consequences, and they are binding:
 The wiki's `List of locations` is a cross-check for the shape of the hierarchy - campaign, then region, then
 location - and never the source of a number.
 
+The names themselves are copied into this repository as a reference, so the table is never lost again:
+`docs/39-map-list.md` (278 outposts, 378 explorables, and the pack's ids none of them names).
+
 ## Spawn points, and the outpost rule (owner, 2026-10-31)
 
 Stated by the owner, and stored here because both are base facts the whole server depends on:

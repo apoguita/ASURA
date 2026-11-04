@@ -31,7 +31,8 @@ is the source that answers the question; the `then` column is the cross-check.
   (`py4gw.enums_src.map_enums`, `py4gw.context.instance_info_context.AreaInfoStruct`; Reforged ships the
   same tables plus `GetMapInfo(map_id)`). So no map fact is guessed, hand-listed or scraped from a wiki:
   a name comes from the enum, the rest from the record. Reforged is the client patch this server's keys
-  and mutex patches pair with; Stealth is the read-only link to it.
+  and mutex patches pair with; Stealth is the read-only link to it. The names are copied into this
+  repository as a reference (`docs/39-map-list.md`), so the table is not read out of a checkout twice.
 - Its packages carry no licence grant, so what crosses back is a measurement in our words with our
   recording named beside it - never a file, an offset, a byte pattern or a table.
 - A wire size comes from a wire capture, never from the sniffer: the sniffer reports the client's message
