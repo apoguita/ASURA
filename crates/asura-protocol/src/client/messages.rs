@@ -145,29 +145,6 @@ impl<'a> Reader<'a> {
         Ok(out)
     }
 
-    /// A counted UTF-16 string: a `u32` length, then that many `u16` code units, then padding to the
-    /// field's capacity. The length is the number of code units, not bytes.
-    ///
-    /// This is the **server-to-client** shape the reference packs. It is kept for the tests and for
-    /// messages the reference pads; client messages use [`Reader::u16_utf16`].
-    #[allow(dead_code)]
-    fn utf16(&mut self, capacity: usize, field: &'static str) -> Result<String, MessageError> {
-        let count = self.u32(field)? as usize;
-        if count > capacity {
-            return Err(MessageError::TooLong {
-                field,
-                capacity,
-                got: count,
-            });
-        }
-        let bytes = self.take(capacity * 2, field)?;
-        let units: Vec<u16> = (0..count)
-            .map(|index| u16::from_le_bytes([bytes[index * 2], bytes[index * 2 + 1]]))
-            .collect();
-        Ok(char::decode_utf16(units)
-            .map(|result| result.unwrap_or(char::REPLACEMENT_CHARACTER))
-            .collect())
-    }
 }
 
 /// A message body under construction.
