@@ -20,9 +20,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use asura_auth::{serve as serve_auth, Trace};
+use asura_auth::Trace;
 use asura_db::login as db;
 use asura_db::{placement, PgPool, Uuid};
+use asura_gateway::serve as serve_auth;
 use asura_protocol::client::game_version::GameVersion;
 use asura_protocol::client::handshake;
 use asura_protocol::client::messages::{self, RequestResponse};

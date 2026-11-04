@@ -1,0 +1,23 @@
+[package]
+name = "asura-gateway"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The socket layer: accepts every client connection and decides which service answers it"
+
+[lints]
+workspace = true
+
+[dependencies]
+asura-protocol = { path = "../asura-protocol" }
+asura-db = { path = "../asura-db" }
+# The auth conversation is a library call: the gateway classifies a connection and hands it over
+# (`docs/38-layer-decisions.md`, D26).
+asura-auth = { path = "../asura-auth" }
+tokio = { workspace = true }
+getrandom = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+asura-protocol = { path = "../asura-protocol", features = ["test-client"] }

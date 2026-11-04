@@ -35,10 +35,13 @@ use asura_protocol::client::version::GAME_CMSG_VERSION_LEN;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use crate::ConnectionError;
-
-/// How long to wait for the world's port before giving up on a client's game connection.
+/// How long to wait for the world port before giving up on a client's game connection.
 pub const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// How old a worlds heartbeat may be and still be routed to, unless
+/// ASURA_WORLD_MAX_AGE_SECS says otherwise. The auth service applies the same window when it hands
+/// out a world, and the two must agree or a client is sent to a world this layer then refuses.
+pub const FRESH_WORLD_AGE_SECS: i64 = 60;
 
 /// Route a game connection to the world it named. Returns when either side closes.
 ///
@@ -50,7 +53,7 @@ pub async fn route(
     first_bytes: Vec<u8>,
     pool: &PgPool,
     trace: bool,
-) -> Result<(), ConnectionError> {
+) -> Result<(), String> {
     // ---- which world did the client name? ----------------------------------------------------
     //
     // `head` is every byte already taken off the client, and it is forwarded **whole**: a client that
@@ -63,13 +66,13 @@ pub async fn route(
         client
             .read_exact(&mut more)
             .await
-            .map_err(ConnectionError::Io)?;
+            .map_err(|err: std::io::Error| err.to_string())?;
         head.extend_from_slice(&more);
     }
     let (version, _) = GameVersion::decode(&head[..GAME_CMSG_VERSION_LEN]).map_err(|err| {
         // A game connection that is not a game connection: the reference closes it too.
-        eprintln!("auth: a game connection's version message is malformed ({err}); closing");
-        ConnectionError::GameRoute(err.to_string())
+        eprintln!("gateway: a game connection's version message is malformed ({err}); closing");
+        err.to_string()
     })?;
 
     if trace {
@@ -83,16 +86,13 @@ pub async fn route(
     let Some(endpoint) =
         placement::world_endpoint(pool, version.map_token as i32, world_freshness())
             .await
-            .map_err(ConnectionError::Database)?
+            .map_err(|err| err.to_string())?
     else {
         eprintln!(
             "auth: a game connection named world {} (map {}), which is not registered; closing",
             version.map_token, version.map_id
         );
-        return Err(ConnectionError::GameRoute(format!(
-            "world {} is not registered",
-            version.map_token
-        )));
+        return Err(format!("world {} is not registered", version.map_token));
     };
 
     let Ok(address) = format!("{}:{}", endpoint.address, endpoint.port).parse::<SocketAddr>()
@@ -101,10 +101,7 @@ pub async fn route(
             "auth: world {} registered an address that does not parse; closing the client",
             endpoint.world_id
         );
-        return Err(ConnectionError::GameRoute(format!(
-            "world {} has no usable address",
-            endpoint.world_id
-        )));
+        return Err(format!("world {} has no usable address", endpoint.world_id));
     };
 
     // ---- hand over ----------------------------------------------------------------------------
@@ -115,14 +112,14 @@ pub async fn route(
                 "auth: world {} at {address} is not answering ({err}); closing the client",
                 endpoint.world_id
             );
-            return Err(ConnectionError::GameRoute(err.to_string()));
+            return Err(err.to_string());
         }
         Err(_) => {
             eprintln!(
                 "auth: world {} at {address} did not accept within {CONNECT_TIMEOUT:?}",
                 endpoint.world_id
             );
-            return Err(ConnectionError::GameRoute("connect timed out".to_string()));
+            return Err("connect timed out".to_string());
         }
     };
 
@@ -133,7 +130,10 @@ pub async fn route(
         );
     }
 
-    world.write_all(&head).await.map_err(ConnectionError::Io)?;
+    world
+        .write_all(&head)
+        .await
+        .map_err(|err: std::io::Error| err.to_string())?;
 
     // From here the two sockets are one pipe. Nothing in this loop interprets a byte: the world does
     // the key exchange and the load, and the client sees the reference's sequence.
@@ -147,7 +147,7 @@ pub async fn route(
             }
             Ok(())
         }
-        Err(err) => Err(ConnectionError::Io(err)),
+        Err(err) => Err(err.to_string()),
     }
 }
 
@@ -160,7 +160,7 @@ fn world_freshness() -> f64 {
         .ok()
         .and_then(|value| value.trim().parse::<f64>().ok())
         .filter(|seconds| *seconds > 0.0)
-        .unwrap_or(crate::travel::DEFAULT_WORLD_MAX_AGE_SECS)
+        .unwrap_or(FRESH_WORLD_AGE_SECS as f64)
 }
 
 #[cfg(test)]

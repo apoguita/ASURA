@@ -21,6 +21,8 @@ getrandom = { workspace = true }
 # request (`docs/38-layer-decisions.md`, D13), so the tests and `examples/probe.rs` ask for it here.
 tokio = { workspace = true }
 asura-protocol = { path = "../asura-protocol", features = ["test-client"] }
+# The tests drive the socket layer, which is what accepts a client now (`docs/38`, D26).
+asura-gateway = { path = "../asura-gateway" }
 
 [lints]
 workspace = true

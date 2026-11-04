@@ -19,6 +19,8 @@ tokio = { workspace = true }
 # The end-to-end test drives both services in one process: a client logs in to the auth service, is
 # told where to go, and connects to the world server. That is the only test that proves the handoff.
 asura-auth = { path = "../asura-auth" }
+# The end-to-end test starts the stack the way the supervisor does: through the socket layer.
+asura-gateway = { path = "../asura-gateway" }
 # The tests speak the protocol through the fake client, which the wire layer compiles only on request
 # (`docs/38-layer-decisions.md`, D13).
 asura-protocol = { path = "../asura-protocol", features = ["test-client"] }

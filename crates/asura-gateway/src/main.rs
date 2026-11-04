@@ -14,8 +14,9 @@
 use std::net::SocketAddr;
 use std::process::ExitCode;
 
-use asura_auth::{serve, Trace};
 use asura_db::migrations::{self, EnsureError};
+use asura_gateway::serve;
+use asura_protocol::Trace;
 
 const DEFAULT_BIND: &str = "127.0.0.1:6112";
 
@@ -36,7 +37,7 @@ async fn main() -> ExitCode {
         Some(value) => match value.parse::<SocketAddr>() {
             Ok(address) => address,
             Err(err) => {
-                eprintln!("asura-auth: --bind {value:?} is not an address: {err}");
+                eprintln!("asura-gateway: --bind {value:?} is not an address: {err}");
                 return ExitCode::from(2);
             }
         },
@@ -44,7 +45,7 @@ async fn main() -> ExitCode {
             Ok(value) if !value.trim().is_empty() => match value.trim().parse() {
                 Ok(address) => address,
                 Err(err) => {
-                    eprintln!("asura-auth: ASURA_AUTH_BIND {value:?} is not an address: {err}");
+                    eprintln!("asura-gateway: ASURA_AUTH_BIND {value:?} is not an address: {err}");
                     return ExitCode::from(2);
                 }
             },
@@ -54,19 +55,19 @@ async fn main() -> ExitCode {
 
     let Some(database_url) = asura_db::config::database_url() else {
         eprintln!(
-            "asura-auth: no {}. Set it, or copy .env.example to .env and run tools/db-setup.ps1.",
+            "asura-gateway: no {}. Set it, or copy .env.example to .env and run tools/db-setup.ps1.",
             asura_db::config::DATABASE_URL_VARIABLE
         );
         return ExitCode::from(2);
     };
 
     eprintln!("asura-auth {} starting", env!("CARGO_PKG_VERSION"));
-    eprintln!("asura-auth: database ready, connecting");
+    eprintln!("asura-gateway: database ready, connecting");
 
     let pool = match asura_db::placement::connect(&database_url, 8).await {
         Ok(pool) => pool,
         Err(err) => {
-            eprintln!("asura-auth: could not connect to the database: {err}");
+            eprintln!("asura-gateway: could not connect to the database: {err}");
             return ExitCode::FAILURE;
         }
     };
@@ -74,12 +75,12 @@ async fn main() -> ExitCode {
     match migrations::ensure_current(&pool).await {
         Ok(()) => {}
         Err(EnsureError::TooOld(too_old)) => {
-            eprintln!("asura-auth: {too_old}");
-            eprintln!("asura-auth: refusing to start against a stale schema");
+            eprintln!("asura-gateway: {too_old}");
+            eprintln!("asura-gateway: refusing to start against a stale schema");
             return ExitCode::from(3);
         }
         Err(EnsureError::Database(err)) => {
-            eprintln!("asura-auth: could not read the schema version: {err}");
+            eprintln!("asura-gateway: could not read the schema version: {err}");
             return ExitCode::FAILURE;
         }
     }
@@ -87,13 +88,13 @@ async fn main() -> ExitCode {
     let listener = match tokio::net::TcpListener::bind(bind).await {
         Ok(listener) => listener,
         Err(err) => {
-            eprintln!("asura-auth: could not bind {bind}: {err}");
+            eprintln!("asura-gateway: could not bind {bind}: {err}");
             return ExitCode::FAILURE;
         }
     };
 
     if let Err(err) = serve(listener, pool, Trace::from_environment()).await {
-        eprintln!("asura-auth: the listener stopped: {err}");
+        eprintln!("asura-gateway: the listener stopped: {err}");
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS

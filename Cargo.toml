@@ -9,6 +9,7 @@ members = [
     "crates/asura-fakeworld",
     "crates/asura-supervisor",
     "crates/asura-rules",
+    "crates/asura-gateway",
 ]
 
 [workspace.package]
