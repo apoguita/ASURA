@@ -156,6 +156,7 @@ the integration tests live in `crates/asura-gateway/tests/`.
 - [x] the relay left auth: the socket layer is `crates/asura-gateway` - listener, file check,
       classification, relay (`docs/38`, D26) - commit `be99de2`; auth is a library call from it and
       has no `main.rs`
+- [x] the settings blob carried the wrong column for the client: `last_outpost` now sends `characters.map_id` (D28) - commit `836cdfa`; the login batch test against the live database proves the 62 bytes
 - [x] the supervisor starts `asura-gateway` on the auth port (`config/services.toml`,
       `[services.auth]`) - commit `be99de2`, so a client sees no change
 - [x] `docs/00`, `docs/01`, `docs/02`, `docs/15`, `docs/17`, `docs/19` and `AGENTS.md` name the two new layers and the process that listens - commit `55f9b5a`

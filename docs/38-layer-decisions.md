@@ -39,6 +39,8 @@ for now, the named condition would change it), **open** (not decided).
 
 | D27 | The layers are numbered 1 to 18 in dependency order, and the two new crates take the numbers their position earns: 3 rules, 4 auth, 5 socket layer, with every later layer shifted by two. No crate dev-depends on a crate that depends on it | accepted | The owner challenge, 2026-11-03: labels reading `3b` and `3c` said rules depends on auth when the graph runs the other way, and `asura-auth` had a dev-dependency on `asura-gateway` that closed a cycle cargo permits and layering does not. Renaming the crates instead of renumbering left two schemes; the owner asked for one | commit `827472b` (the cycle), `docs/37-rework-layers.md` (numbers 1-18) |
 
+| D28 | Two facts, two fields: `characters.map_id` is the map the character is in (the references `DbCharacter.last_outpost`, which the login settings blob carries), and `characters.last_outpost` is our own memory of the outpost the login rule placed it in, which a creation does not set. Settings exposes both | accepted | `e96a909` pointed `Settings.last_outpost` at the new memory while the blob kept reading it, so every character went to the client as map 0 and the character list showed no data; the fix sends `map_id` and the database test asserts both fields separately | commit `836cdfa`, `crates/asura-auth/src/lib.rs`, `crates/asura-db/src/game.rs` |
+
 ## How to add an entry
 
 One row per decision, appended. Quote the reason in one sentence, name the evidence as `file:line`
