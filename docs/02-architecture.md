@@ -8,10 +8,18 @@ our client and is under experiment (`docs/adr/0005-gwps-reference-only.md`).
 
 | component | how many | what it does | state |
 |---|---|---|---|
-| **auth service** (`asura-auth`) | 1 (+ standby) | login, key exchange, sessions, character list/select; tells the client which world to join | sessions in memory, accounts in `auth` |
+| **socket layer** (`asura-gateway`) | 1 per auth address | accepts every client connection, answers the file check, reads the four classification bytes, and hands the socket to the auth conversation or to a world | no state; it is the program that listens on 6112 (`config/services.toml`, `[services.auth]`) |
+| **auth service** (`asura-auth`) | a library inside the socket layer | login, key exchange, sessions, character list/select; tells the client which world to join | sessions in memory, accounts in `auth` |
+| **rules** (`asura-rules`) | a library, called by any service | the game rules a protocol answer needs, as pure functions over data the caller read: where a character enters the game | none - no I/O, no state |
 | **world server** (`asura-world`) | many | maps, players, instances, placement, character persistence | instances in memory; nothing that survives a restart |
 | **database** (`asura-db`) | 1 (+ standby) | the shared truth and the coordination channel | everything |
 | **content service** | 1+ | game assets (`Gw.dat` streaming) | outside ASURA |
+
+The first three are separate because their jobs are separate (`docs/38-layer-decisions.md`, D25,
+D26). A client opens two connections to the same address, so something has to classify before any
+service speaks: that is the socket layer, and it is why the auth service has no listener of its own.
+A rule that a protocol answer needs - "where does this character enter" - is neither protocol nor
+storage, so it lives in `asura-rules` and the service supplies the data.
 
 Correspondence with AzerothCore, so that any structural question can be answered by reading their
 tree: `authservice` -> auth service; `worldserver` (a realm) -> world server; `realmlist` + realm flags ->

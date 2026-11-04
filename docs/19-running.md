@@ -31,9 +31,9 @@ What that one command does, in order:
 3. builds the services (fast when up to date);
 4. seeds the dev identities and the map catalogue (the rows a fresh database needs);
 5. starts the services in their dependency order - the order a service's `depends_on` names, and
-   alphabetical among services that declare none, which today is all three: auth `127.0.0.1:6112`,
-   web gate `127.0.0.1:6601`, world `8001` on `6113` (`crates/asura-supervisor/src/config.rs:192-200`,
-   `config/services.toml`);
+   alphabetical among services that declare none, which today is all three: the socket layer on
+   `127.0.0.1:6112` (`asura-gateway`, service name `auth`), web gate `127.0.0.1:6601`, world `8001` on
+   `6113` (`crates/asura-supervisor/src/config.rs:192-200`, `config/services.toml`);
 6. registers every service it started in the database's `service` table, and keeps the rows fresh;
 7. watches them until Ctrl+C or `stop` - a crashed service is retried at most 5 times, 2 s apart, then reported FAILED (it never restarts forever).
 

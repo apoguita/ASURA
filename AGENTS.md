@@ -191,7 +191,8 @@ the question that would sharpen it, never with a conclusion.
 | start everything | `asura-supervisor start` (the one start path on Windows and Linux) |
 | runbook: what to run, what success looks like | `docs/19-running.md` |
 | packet catalogue, framing, field layouts | `crates/asura-protocol/src/packets.rs`, `docs/03-protocol.md` |
-| the login path, both directions | `crates/asura-auth/`, `docs/06-reference-session.md` |
+| the socket layer, and the login path | `crates/asura-gateway/`, `crates/asura-auth/`, `docs/06-reference-session.md` |
+| game rules a protocol answer needs | `crates/asura-rules/`, `docs/38-layer-decisions.md` |
 | world, movement, pathing, inventory | `crates/asura-world/` |
 | database, placement, inventory rows | `crates/asura-db/` |
 | portal HTTP service | `crates/asura-webgate/` |

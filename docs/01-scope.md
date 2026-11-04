@@ -8,10 +8,14 @@ Which component owns what, in an ASURA stack built on AzerothCore's structure
 | component | responsiblity |
 |---|---|
 | **web gate** (`asura-webgate`) | the portal the client asks before any login: four `/Spawned/WebGate` endpoints and `/health` |
-| **auth service** | answers the client's login and tells it which world to join; also relays the gameplay socket |
+| **socket layer** (`asura-gateway`) | the program that listens on the client's address: accepts, answers the file check, classifies the connection, and either hands it to the auth conversation or relays it to a world |
+| **auth service** (`asura-auth`) | the login conversation, as a library the socket layer calls: key exchange, session, character list and select, EULA, settings |
 | **world server** | everything a player experiences: maps, instances, placement, character state |
 | **database** | the shared truth and the coordination channel between the others |
 | **supervisor** (`asura-supervisor`) | starts, stops, restarts, builds and reports the services above, from `config/services.toml` |
+
+Two of those are libraries rather than processes: `asura-auth` and `asura-rules`, the crate that holds
+a game rule a protocol answer needs (`docs/38-layer-decisions.md`, D25, D26).
 
 These are the process kinds this machine runs, and `config/services.toml` is the list. The auth
 service is small and long-lived; world servers are interchangeable and disposable; the database is what
