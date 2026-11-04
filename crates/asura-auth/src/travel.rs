@@ -42,9 +42,10 @@ pub const STATUS_NETWORK_ERROR: u32 = 2;
 
 /// How stale a world's heartbeat may be before placement stops offering it.
 ///
-/// The default matches the reaper's threshold in the M2 scenario, so "too old to offer" and "too old
-/// to keep leases" are the same number. `ASURA_WORLD_MAX_AGE_SECS` overrides it.
-pub const DEFAULT_WORLD_MAX_AGE_SECS: f64 = 60.0;
+/// The number and the variable that overrides it are the rules crate's (`asura_rules`,
+/// `docs/38-layer-decisions.md` D29), because the socket layer routes a client by the same window: one
+/// answer, read here and there, instead of two constants that agree by hand.
+pub use asura_rules::DEFAULT_WORLD_MAX_AGE_SECS;
 
 /// How long a candidate world's port has to answer before it is dropped from consideration.
 ///
@@ -60,11 +61,11 @@ const MAX_CANDIDATES: i64 = 4;
 pub fn world_max_age_secs() -> f64 {
     static VALUE: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
     *VALUE.get_or_init(|| {
-        std::env::var("ASURA_WORLD_MAX_AGE_SECS")
-            .ok()
-            .and_then(|value| value.trim().parse::<f64>().ok())
-            .filter(|seconds| *seconds > 0.0)
-            .unwrap_or(DEFAULT_WORLD_MAX_AGE_SECS)
+        asura_rules::world_max_age_secs(
+            std::env::var(asura_rules::WORLD_MAX_AGE_ENV)
+                .ok()
+                .as_deref(),
+        )
     })
 }
 

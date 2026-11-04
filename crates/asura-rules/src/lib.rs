@@ -10,7 +10,7 @@
 //! from the auth service, from the world, and from a test with no database.
 //!
 //! The rules are the owner's, recorded in `docs/22-world-model.md` ("Spawn points, and the outpost
-//! rule") and `docs/38-layer-decisions.md` (D18, D19).
+//! rule") and `docs/38-layer-decisions.md` (D18, D19, D29).
 
 /// What the client asked for: a map id and the map type it named with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +39,30 @@ pub const MAP_TYPE_MAIN_TOWN: i32 = 0;
 /// Where a character with no history enters: Ascalon City, the stand-in outpost for a campaign whose
 /// own starting outpost this tree has not measured (`docs/22-world-model.md`).
 pub const DEFAULT_OUTPOST: i32 = 148;
+
+/// How long a world's heartbeat counts as alive.
+///
+/// Two services need the same number: the login path, before it offers a world, and the socket layer,
+/// before it routes a client to one. Kept as two constants, they held together by hand, and a drift
+/// puts a client in a world the next step then refuses (`docs/38-layer-decisions.md`, D29). It is a
+/// rule about the game's own state, which is what this crate is for.
+pub const DEFAULT_WORLD_MAX_AGE_SECS: f64 = 60.0;
+
+/// The variable that overrides [`DEFAULT_WORLD_MAX_AGE_SECS`]. Spelled once here so both services read
+/// the same name.
+pub const WORLD_MAX_AGE_ENV: &str = "ASURA_WORLD_MAX_AGE_SECS";
+
+/// The freshness window in force, given what the caller read out of [`WORLD_MAX_AGE_ENV`].
+///
+/// The caller reads the variable and hands the text in, which keeps this crate out of the process
+/// environment. A value that is not a number, or is zero or less, is not an override: the default
+/// stands.
+pub fn world_max_age_secs(override_secs: Option<&str>) -> f64 {
+    override_secs
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|seconds| *seconds > 0.0)
+        .unwrap_or(DEFAULT_WORLD_MAX_AGE_SECS)
+}
 
 /// Why a placement answer differs from what the client asked for. The caller logs it; the rule does
 /// not print.
@@ -221,5 +245,28 @@ mod tests {
             map_type: 1,
         };
         assert_eq!(placement(request, FRESH, None), (999, None));
+    }
+
+    #[test]
+    fn the_freshness_window_is_a_minute_unless_it_is_overridden() {
+        assert_eq!(world_max_age_secs(None), DEFAULT_WORLD_MAX_AGE_SECS);
+        assert_eq!(
+            world_max_age_secs(None),
+            60.0,
+            "the number the reaper and the login path already used"
+        );
+        assert_eq!(world_max_age_secs(Some("15")), 15.0);
+        assert_eq!(world_max_age_secs(Some(" 2.5 ")), 2.5);
+    }
+
+    #[test]
+    fn a_freshness_override_that_is_not_a_positive_number_is_ignored() {
+        for bad in ["", "  ", "soon", "0", "-5"] {
+            assert_eq!(
+                world_max_age_secs(Some(bad)),
+                DEFAULT_WORLD_MAX_AGE_SECS,
+                "{bad:?} is not a window"
+            );
+        }
     }
 }

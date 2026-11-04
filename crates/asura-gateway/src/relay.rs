@@ -38,11 +38,6 @@ use tokio::net::TcpStream;
 /// How long to wait for the world port before giving up on a client's game connection.
 pub const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// How old a worlds heartbeat may be and still be routed to, unless
-/// ASURA_WORLD_MAX_AGE_SECS says otherwise. The auth service applies the same window when it hands
-/// out a world, and the two must agree or a client is sent to a world this layer then refuses.
-pub const FRESH_WORLD_AGE_SECS: i64 = 60;
-
 /// Route a game connection to the world it named. Returns when either side closes.
 ///
 /// `first_bytes` is what the caller has already read: the four bytes it classified the connection
@@ -151,16 +146,14 @@ pub async fn route(
     }
 }
 
-/// The freshness window for routing, from `ASURA_WORLD_MAX_AGE_SECS` when it is set.
-///
-/// The same variable the placement decision reads, and the same default: routing a client to a world
-/// that placement already considers dead would only reproduce the failure it exists to prevent.
+/// The freshness window for routing: the same rule the login path uses, so a client is never sent to a
+/// world this layer then refuses (`asura_rules`, `docs/38-layer-decisions.md` D29).
 fn world_freshness() -> f64 {
-    std::env::var("ASURA_WORLD_MAX_AGE_SECS")
-        .ok()
-        .and_then(|value| value.trim().parse::<f64>().ok())
-        .filter(|seconds| *seconds > 0.0)
-        .unwrap_or(FRESH_WORLD_AGE_SECS as f64)
+    asura_rules::world_max_age_secs(
+        std::env::var(asura_rules::WORLD_MAX_AGE_ENV)
+            .ok()
+            .as_deref(),
+    )
 }
 
 #[cfg(test)]
