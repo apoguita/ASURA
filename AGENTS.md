@@ -14,7 +14,7 @@ is the source that answers the question; the `then` column is the cross-check.
 
 | the question | first | then | governed by |
 |---|---|---|---|
-| what the **running client** does: its state, its archive, what it sends and receives | **Py4GW Stealth**, by hand - 32-bit Python, elevated, `tools/sniff-capture.py`, `tools/gen-portal-table.py` | a client-side capture under `recordings/client/` | `docs/adr/0013-py4gw-stealth-is-our-link-to-the-client.md` |
+| what the **running client** does: its state, its archive, what it sends and receives, **and its own catalogs** - every map's id, name, region, campaign and blob id | **Py4GW Stealth**, by hand - 32-bit Python, elevated, `tools/sniff-capture.py`, `tools/gen-portal-table.py` | a client-side capture under `recordings/client/` | `docs/adr/0013-py4gw-stealth-is-our-link-to-the-client.md` |
 | what the **client does with** what we send: asserts, codecs, enums, map dimensions | Eden | a crash log read by hand | `docs/adr/0012-eden-is-a-source.md` |
 | what our **server must send**, byte for byte | a wire capture: `recordings/gwps/`, `recordings/asura/` | GWPS's own C source | `docs/03-protocol.md`, `docs/adr/0010-gwps-is-the-floor.md` |
 | what **Rurik** measured, and what is left to port | `docs/20-rurik-gap.md` | Rurik's `studies/` | `docs/adr/0011-rurik-is-a-source.md` |
@@ -24,6 +24,14 @@ is the source that answers the question; the `then` column is the cross-check.
   own open-file, image and `AMET` code, and it reads what the client sends and receives at the handler
   table pointer and the send wrapper the client itself uses. No other source here sees the client
   running, so a question that needs the client running is answered there and not by a document.
+- **Its catalogs are complete, and the naming is already solved.** A map name is not a per-map lookup:
+  the client's own tables name every map - 278 outposts and 378 explorables, id to name and name to id
+  (`name_to_map_id`). Beside them one `AreaInfo` record per map id carries that map's campaign, region,
+  type, party sizes and `Gw.dat` blob id. Py4GW carries both, read-only
+  (`py4gw.enums_src.map_enums`, `py4gw.context.instance_info_context.AreaInfoStruct`; Reforged ships the
+  same tables plus `GetMapInfo(map_id)`). So no map fact is guessed, hand-listed or scraped from a wiki:
+  a name comes from the enum, the rest from the record. Reforged is the client patch this server's keys
+  and mutex patches pair with; Stealth is the read-only link to it.
 - Its packages carry no licence grant, so what crosses back is a measurement in our words with our
   recording named beside it - never a file, an offset, a byte pattern or a table.
 - A wire size comes from a wire capture, never from the sniffer: the sniffer reports the client's message

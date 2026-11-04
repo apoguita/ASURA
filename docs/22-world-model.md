@@ -191,6 +191,35 @@ because provenance is a measurement and the pack is not the place for one.
 An unknown or newer source falls back to 148, stated in the pack's `fallback` entry, so a stand-in is
 visible in the log rather than mistaken for a measurement.
 
+## Map identity, and where it comes from
+
+Every fact this server needs about a map - its id, its name, its region, its campaign, the `Gw.dat` blob it
+loads - is in the client, and the **Py4GW link is the way to read it**. Two of the three come as complete
+tables, not as a per-map lookup:
+
+- **Names are a table, and the table is complete.** The client's own enum tables name every map: 278
+  outposts and 378 explorables, keyed by map id, plus the reverse `name_to_map_id`
+  (`py4gw.enums_src/map_enums.py`, transcribed there from Reforged's
+  `Py4GWCoreLib/enums_src/Map_enums.py`). An id is named by reading that table, and a name is turned back
+  into an id by the reverse one, with no running client involved.
+- **Campaign, region, type and blob are one record per map id.** The client keeps an `AreaInfo` for each
+  map id - `campaign`, `region` (`Region_Kryta` 0 ... `Region_DevRegion` 27), `type`, the party sizes and
+  `file_id` - readable read-only through `AreaInfoStruct`, and `GetMapInfo(map_id)` reads it for any map,
+  not only the current one. `CampaignName` and `RegionTypeName` name those numbers.
+
+Two consequences, and they are binding:
+
+- **No map fact is guessed.** Not the region, not the campaign, not the name, not the blob id. A name is a
+  row of the enum table; everything else is a read of the `AreaInfo` record; never a scrape from a wiki and
+  never an inference from a coordinate.
+- **The pack's folder structure is generated from those two sources.** `config/World/Vanilla/<Campaign>/<Region>/<map
+  id>/` is filled by a tool that takes the name from the enum and the campaign and region from the record
+  (`docs/38-layer-decisions.md`, D36). A map neither source answers for is not placed in a folder nobody
+  measured; it waits, and the log says so.
+
+The wiki's `List of locations` is a cross-check for the shape of the hierarchy - campaign, then region, then
+location - and never the source of a number.
+
 ## Spawn points, and the outpost rule (owner, 2026-10-31)
 
 Stated by the owner, and stored here because both are base facts the whole server depends on:
