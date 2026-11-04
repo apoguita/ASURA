@@ -105,6 +105,8 @@ dependencies = [
  "asura-protocol",
  "asura-rules",
  "getrandom 0.2.17",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

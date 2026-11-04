@@ -75,10 +75,13 @@ pub mod instance;
 pub mod item;
 
 pub mod map;
+
 pub mod player;
 /// The client's unlockable-PvP-item table: content of this layer, moved out of the wire crate
 /// (`docs/38-layer-decisions.md`, D11).
 pub mod pvp_items;
+/// Where a created character is spawned, by its expansion source (config/World/Vanilla/).
+pub mod spawns;
 pub mod travel;
 pub mod world;
 

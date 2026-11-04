@@ -20,6 +20,9 @@ asura-rules = { path = "../asura-rules" }
 # config/Server/intervals.json, one file for every program that reads them (D33).
 asura-config = { path = "../asura-config" }
 tokio = { workspace = true }
+# The world pack is data (`config/World/Vanilla/`): its files are JSON, read at start-up (D23, D24).
+serde = { workspace = true }
+serde_json = { workspace = true }
 # The game connection's key exchange needs 20 bytes of real randomness per connection, from the
 # operating system (docs/adr/0009-crypto-primitives.md).
 getrandom = { workspace = true }

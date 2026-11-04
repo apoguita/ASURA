@@ -1,0 +1,47 @@
+{
+  "note": "Where a character is spawned when it is created, keyed by the expansion source the character belongs to (the creation screen asks the player for it; the confirm writes this map into the character's row before the client reconnects into it). Measured values name what measured them. A source with no measured map says so, and a source with no map at all (pvp) is null: the creation refuses that character instead of putting it somewhere nobody has seen.",
+  "spawns": [
+    {
+      "campaign": 1,
+      "source": "prophecies",
+      "map_id": 148,
+      "measured": true,
+      "doc": "Ascalon City (pre-Searing). Measured: every campaign-1 character this server has created has loaded it (world log: 'created character ... campaign 1 profession 3')."
+    },
+    {
+      "campaign": 2,
+      "source": "factions",
+      "map_id": 212,
+      "measured": true,
+      "doc": "Monastery Overlook. Measured on a live creation: the client was redirected to map 212, blob 156969, at (-2132, 1054) plane 0 (recordings/client/feature/character_creation/character_creation-live-necro_factions.jsonl, the 0x01A6, 0x0099 and 0x0196 after the confirm)."
+    },
+    {
+      "campaign": 3,
+      "source": "nightfall",
+      "map_id": 449,
+      "measured": false,
+      "doc": "Kamadan, Jewel of Istan. In the catalogue, and the client's own ordering puts Nightfall after Factions - but no creation has named it yet, so this is not a measurement. The first Nightfall character tells us whether it is right."
+    },
+    {
+      "campaign": 4,
+      "source": "eye_of_the_north",
+      "map_id": 642,
+      "measured": false,
+      "doc": "The Eye of the North outpost. In the catalogue, same reasoning as Nightfall, same lack of a creation that names it."
+    },
+    {
+      "campaign": 0,
+      "source": "pvp",
+      "map_id": null,
+      "measured": false,
+      "doc": "A PvP character (campaign 0, 'none'). NOT IMPLEMENTED: no live PvP character has been created against this server, so no spawn map has been measured. Null rather than a guess - the confirm refuses a PvP character until a measurement fills this in."
+    }
+  ],
+  "fallback": {
+    "campaign": 255,
+    "source": "fallback",
+    "map_id": 148,
+    "immutable": false,
+    "doc": "Where a character goes when its expansion source is not one of the entries above - an unknown or newer source. A stand-in, not a measurement: Ascalon City pre-Searing is a real map this world hosts, which is better than a loading screen for a map that does not exist."
+  }
+}
