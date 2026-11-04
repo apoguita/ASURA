@@ -58,11 +58,6 @@ pub use crate::packets::auth as tables;
 /// The game family's view of the same table: the lookups and constants a world connection uses.
 pub use crate::packets::game as game_tables;
 
-/// The login batch's fixed data: the 591-byte blob `AUTH_SMSG_ACCOUNT_SETTINGS` carries on every
-/// login, copied from the reference's own literal and sent by `messages::account_settings`.
-/// Real payload, not a test fixture.
-pub mod account_settings;
-
 pub use crate::packets::Packet as Entry;
 pub use arc4::Arc4;
 pub use frame::{Frame, FrameError};

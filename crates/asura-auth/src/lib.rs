@@ -703,7 +703,21 @@ async fn answer_login(
             .map_err(ConnectionError::Message)?,
         );
     }
-    replies.push(messages::account_settings(login.request));
+    // The settings blob is configuration (`config/Server/account_settings.json`): the client's own
+    // payload, answered with the bytes the file states. A file that cannot be read refuses the reply
+    // rather than sending a shorter message.
+    let account_settings = match asura_config::account_settings() {
+        Ok(settings) => settings.bytes(),
+        Err(err) => Err(err),
+    };
+    let account_settings = match account_settings {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            eprintln!("auth: the account settings blob is not usable: {err}");
+            return Ok(replies);
+        }
+    };
+    replies.push(messages::account_settings(login.request, &account_settings));
     replies.push(messages::friend_stream_end(login.request));
     replies.push(messages::account_info(
         login.request,

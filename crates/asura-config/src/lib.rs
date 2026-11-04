@@ -219,6 +219,55 @@ pub struct Described<T> {
     pub immutable: bool,
 }
 
+/// The file that holds the login batch's settings payload.
+pub const ACCOUNT_SETTINGS_FILE: &str = "config/Server/account_settings.json";
+
+/// The variable that names a different account-settings file.
+pub const ACCOUNT_SETTINGS_VARIABLE: &str = "ASURA_ACCOUNT_SETTINGS";
+
+/// The login batch's settings blob.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct AccountSettings {
+    /// The blob, as a hex string.
+    pub data: HexBytes,
+}
+
+impl AccountSettings {
+    /// Parse the file's text.
+    pub fn from_json(text: &str) -> Result<AccountSettings, String> {
+        serde_json::from_str(text).map_err(|err| err.to_string())
+    }
+
+    /// The bytes the login is answered with.
+    pub fn bytes(&self) -> Result<Vec<u8>, String> {
+        self.data.bytes()
+    }
+}
+
+/// The account-settings blob in force, read once per process.
+pub fn account_settings() -> Result<&'static AccountSettings, String> {
+    static IN_FORCE: OnceLock<Result<AccountSettings, String>> = OnceLock::new();
+    IN_FORCE
+        .get_or_init(|| {
+            let path = match std::env::var(ACCOUNT_SETTINGS_VARIABLE) {
+                Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
+                _ => ACCOUNT_SETTINGS_FILE.to_string(),
+            };
+            let path = resolve(&path).display().to_string();
+            match std::fs::read_to_string(&path) {
+                Ok(text) => AccountSettings::from_json(&text)
+                    .map_err(|err| format!("{path} is not a valid account-settings file: {err}"))
+                    .map(|settings| {
+                        eprintln!("asura: account settings from {path}");
+                        settings
+                    }),
+                Err(err) => Err(format!("{path} is not readable: {err}")),
+            }
+        })
+        .as_ref()
+        .map_err(|err| err.clone())
+}
+
 /// The file that holds the two byte strings of the client's file check.
 pub const FILE_CHECK_FILE: &str = "config/Server/file_check.json";
 
@@ -426,6 +475,19 @@ mod tests {
 
     /// The committed file, parsed the way a service parses it.
     const COMMITTED: &str = include_str!("../../../config/Server/intervals.json");
+
+    /// The committed account-settings file, parsed the way the login path parses it.
+    const ACCOUNT_SETTINGS_COMMITTED: &str =
+        include_str!("../../../config/Server/account_settings.json");
+
+    #[test]
+    fn the_committed_account_settings_is_the_blob_a_login_is_answered_with() {
+        let settings = AccountSettings::from_json(ACCOUNT_SETTINGS_COMMITTED)
+            .expect("the committed file parses");
+        let bytes = settings.bytes().expect("hex");
+        assert_eq!(bytes.len(), 591, "the blob the reference sends");
+        assert_eq!(&bytes[..2], &[0x08, 0x00], "the blob's own first field");
+    }
 
     /// The committed file-check file, parsed the way the socket layer parses it.
     const FILE_CHECK_COMMITTED: &str = include_str!("../../../config/Server/file_check.json");

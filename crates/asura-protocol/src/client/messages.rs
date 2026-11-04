@@ -567,10 +567,9 @@ pub fn decode_eula(body: &[u8]) -> Result<u8, MessageError> {
 /// Layout (`AuthSrv_AccountSettings`): `req_id`, a **u16** `n_data`, then exactly that many bytes of
 /// data. Measured from the reference's own output: `16 00 | 01 00 00 00 | 4f 02 <591 bytes>` -
 /// **599 bytes**, where the table says 2058. The blob is copied from the reference's own literal
-/// ([`super::account_settings::ACCOUNT_SETTINGS_DATA`]); nothing here knows what most of it means, and it
+/// (`config/Server/account_settings.json`, `asura-config`); nothing here knows what most of it means, and it
 /// is sent because it is what the reference sends.
-pub fn account_settings(request: u32) -> Frame {
-    let data = super::account_settings::ACCOUNT_SETTINGS_DATA;
+pub fn account_settings(request: u32, data: &[u8]) -> Frame {
     let mut writer = Writer::new();
     writer.u32(request).u16(data.len() as u16);
     writer.bytes.extend_from_slice(data);
@@ -756,7 +755,7 @@ mod tests {
 
         // Measured from a live reference reply (`tools/inspect-reply.py`): the two messages the batch
         // carries in the middle are 599 and 77 bytes, not the table's 2058 and 275.
-        let settings = account_settings(7);
+        let settings = account_settings(7, &[0x08; 591]);
         assert_eq!(settings.len(), 599);
         let info = account_info(7, [0x44; 16], Some([0x55; 16]), 24);
         assert_eq!(info.len(), 81);
@@ -814,26 +813,20 @@ mod tests {
     }
 
     #[test]
-    fn the_account_settings_carry_the_reference_blob_and_no_more() {
+    fn the_account_settings_frame_a_blob_and_pad_nothing_after_it() {
         // The count is a u16 and the data is exactly that long: measured, `16 00 | req_id | 4f 02
-        // <591 bytes>` - 599 bytes total, where the table's padded maximum is 2058.
-        let frame = account_settings(0x1234);
+        // <591 bytes>` - 599 bytes total, where the table's padded maximum is 2058. The blob itself is
+        // configuration (`config/Server/account_settings.json`), so this test supplies its own bytes.
+        let blob = [0x08u8; 591];
+        let frame = account_settings(0x1234, &blob);
         let body = &frame.body();
         assert_eq!(
             u32::from_le_bytes([body[0], body[1], body[2], body[3]]),
             0x1234
         );
         let declared = u16::from_le_bytes([body[4], body[5]]) as usize;
-        assert_eq!(
-            declared,
-            super::super::account_settings::ACCOUNT_SETTINGS_DATA.len()
-        );
         assert_eq!(declared, 591, "the reference's blob is 591 bytes");
-        assert_eq!(
-            &body[6..6 + declared],
-            super::super::account_settings::ACCOUNT_SETTINGS_DATA,
-            "the blob is copied verbatim"
-        );
+        assert_eq!(&body[6..6 + declared], &blob, "the blob is copied verbatim");
         assert_eq!(body.len(), 6 + declared, "nothing is padded after the data");
     }
 
