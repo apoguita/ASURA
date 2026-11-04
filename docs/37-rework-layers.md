@@ -142,7 +142,7 @@ placement mechanism now; its rules left for `asura-rules` (layer 3b).
       has no `main.rs`
 - [x] the supervisor starts `asura-gateway` on the auth port (`config/services.toml`,
       `[services.auth]`) - commit `be99de2`, so a client sees no change
-- [ ] `docs/15`, `docs/17` and `docs/19` still name `asura-auth` as the process on 6112
+- [x] `docs/00`, `docs/01`, `docs/02`, `docs/15`, `docs/17`, `docs/19` and `AGENTS.md` name the two new layers and the process that listens - commit `55f9b5a`
 
 ## Layer 3b - the rules layer (`asura-rules`, new)
 
