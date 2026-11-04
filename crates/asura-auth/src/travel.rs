@@ -54,7 +54,7 @@ pub fn world_max_age_secs() -> f64 {
 
 /// `ASURA_WORLD_MAX_AGE_SECS`, when it names a positive number.
 fn override_secs() -> Option<f64> {
-    std::env::var(asura_rules::WORLD_MAX_AGE_ENV)
+    std::env::var(asura_config::MAX_AGE_VARIABLE)
         .ok()
         .and_then(|value| value.trim().parse::<f64>().ok())
         .filter(|seconds| *seconds > 0.0)

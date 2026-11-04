@@ -151,7 +151,7 @@ pub async fn route(
 fn world_freshness() -> f64 {
     // The same number the login path reads, from the same file (`asura_config`, D33); the environment
     // variable still wins for a one-off experiment, as it does there.
-    std::env::var(asura_rules::WORLD_MAX_AGE_ENV)
+    std::env::var(asura_config::MAX_AGE_VARIABLE)
         .ok()
         .and_then(|value| value.trim().parse::<f64>().ok())
         .filter(|seconds| *seconds > 0.0)

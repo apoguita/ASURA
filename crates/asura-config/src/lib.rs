@@ -22,6 +22,10 @@ pub const DEFAULT_FILE: &str = "config/Server/intervals.json";
 /// The variable that names a different file, for an experiment.
 pub const FILE_VARIABLE: &str = "ASURA_INTERVALS";
 
+/// The variable that overrides `world_max_age_secs` for one run. Spelled here, next to the file that
+/// carries the default, so both readers name it the same way.
+pub const MAX_AGE_VARIABLE: &str = "ASURA_WORLD_MAX_AGE_SECS";
+
 /// Every interval this server runs at.
 ///
 /// The defaults are the numbers the three crates already used, so a checkout with no file behaves
