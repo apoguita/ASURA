@@ -144,17 +144,39 @@ pub async fn answer(
     /// Where a character with no history enters: Ascalon City, the Prophecies starting outpost, which is the
     /// one `creation::starting_outpost` picks for a campaign character (`0017_starter_outpost.sql`).
     const DEFAULT_OUTPOST: i32 = 148;
-    let map_id = if map_id == CREATION_MAP && request.map_type != MAP_TYPE_CHARACTER_CREATION {
+    // The client makes this request twice around a creation: once with `map_type` 11, which is a visit
+    // to make a character, and once with type 0 after the confirm, which is the mistaken one
+    // (`logs/auth.log`: `travel to map 0 (type 11, ...)` then `travel to map 0 (type 0, region 0,
+    // district 0, language 4294967295)`). The mistaken one is answered with the map the character was
+    // written into - a creation confirm stores its starter outpost in `characters.map_id` - and only
+    // then with the last outpost. Answering it with map 0 again leaves the client on a loading screen
+    // forever, because map 0 has no blob.
+    let mistaken_creation_request =
+        map_id == CREATION_MAP && request.map_type != MAP_TYPE_CHARACTER_CREATION;
+    let map_id = if mistaken_creation_request {
         match asura_db::game::settings(pool, character_id).await {
-            Ok(Some(settings)) if i32::from(settings.last_outpost) != CREATION_MAP => {
+            Ok(Some(settings)) => {
+                let row_map = settings.map_id;
+                let outpost = i32::from(settings.last_outpost);
+                let answer = if row_map != CREATION_MAP {
+                    row_map
+                } else if outpost != CREATION_MAP {
+                    outpost
+                } else {
+                    DEFAULT_OUTPOST
+                };
                 eprintln!(
-                    "auth: the client named the creation instance as a place; placing it in map {} \
-                     instead, which is where the character's row says it is",
-                    settings.last_outpost
+                    "auth: the client named the creation instance as a place; placing it in map \
+                     {answer} instead ({})",
+                    if row_map != CREATION_MAP {
+                        "the character's row"
+                    } else {
+                        "its last outpost"
+                    }
                 );
-                i32::from(settings.last_outpost)
+                answer
             }
-            _ => map_id,
+            _ => DEFAULT_OUTPOST,
         }
     } else {
         map_id
@@ -168,13 +190,14 @@ pub async fn answer(
     // reconnect after a travel names a map the world has already decided, and a request for an outpost is
     // answered as asked.
     let map_id = match asura_db::game::spawn_map(pool, map_id).await {
-        // The creation instance is a destination in its own right: a client that asks for it is about
-        // to make a character, and the base rule must not capture it. Without this the request is
-        // answered with the last outpost and the creation screen never opens (`logs/auth.log`:
-        // "map 0 is not an outpost (type 11)" twice, then a loading screen the client cannot leave).
+        // The base rule exempts two destinations. A main town is where the rule sends a character. The
+        // creation instance is exempt only when the *request* says it is a creation visit
+        // (`map_type` 11): a client asking for map 0 to make a character must reach map 0, while the
+        // type-0 request that follows the confirm is already answered above.
         Ok(Some(placed))
             if placed.map_type != MAP_TYPE_MAIN_TOWN
-                && placed.map_type != MAP_TYPE_CHARACTER_CREATION as i32 =>
+                && !(placed.map_type == MAP_TYPE_CHARACTER_CREATION as i32
+                    && request.map_type == MAP_TYPE_CHARACTER_CREATION) =>
         {
             match asura_db::game::settings(pool, character_id).await {
                 Ok(Some(settings)) => {

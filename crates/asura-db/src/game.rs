@@ -193,6 +193,9 @@ pub struct ArmourPiece {
 pub struct Settings {
     /// The map the character was last in (`last_outpost` in the reference's row).
     pub last_outpost: u16,
+    /// The row's own `characters.map_id`: the map the character is in, before the outpost rule runs.
+    /// A creation confirm writes the starter outpost here, which is why the auth service reads it.
+    pub map_id: i32,
     /// The packed `Appearance` word, exactly as `create_character` stored it.
     pub appearance: u32,
     pub campaign: u8,
@@ -221,7 +224,8 @@ pub async fn settings(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Set
     .bind(character)
     .fetch_optional(pool)
     .await?;
-    let Some((last_outpost, _map_id, appearance, campaign, level, is_pvp, secondary, helm)) = row
+    let Some((last_outpost, row_map_id, appearance, campaign, level, is_pvp, secondary, helm)) =
+        row
     else {
         return Ok(None);
     };
@@ -244,6 +248,7 @@ pub async fn settings(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Set
         // The outpost the character was last *placed* in. It is not `map_id`, which records the map it was
         // last in - explorables included (docs/22-world-model.md, the outpost rule).
         last_outpost: u16::try_from(last_outpost).unwrap_or(0),
+        map_id: row_map_id,
         appearance: appearance as u32,
         campaign: campaign as u8,
         level: level as u8,
