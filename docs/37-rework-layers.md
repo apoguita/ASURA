@@ -105,12 +105,16 @@ Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
 `inventory/seed.rs` 122, `placement.rs` 609, `login.rs` 245, `account.rs` 44, `catalog.rs` 110,
 `portal.rs` 108, `lib.rs` 230, plus `migrations/0001`-`0025`.
 
-- [ ] physical schema stays SQL: 25 migrations, 14 tables
-- [ ] content rows identified and counted: 214 `INSERT`s in `0013`, `0014`, `0016`-`0022`
-- [ ] `map_config` content moved to `config/`
-- [ ] `map_spawn` content moved to `config/` (no reader today: `game::spawn_points` has no caller)
+- [x] physical schema stays SQL: 25 migrations, 14 tables (`docs/38`, D21)
+- [ ] content rows counted and named: 214 `INSERT`s in `0013`, `0014`, `0016`-`0022`, plus
+      `map_config`, `map_spawn` and `map_portal` (`0025`)
+- [ ] the split written into the migrations themselves: which tables are content (leaving) and which
+      are operational state (staying) - D21 names both lists
+- [-] `map_config`, `map_spawn` and the 214 `INSERT`s leave for `config/` - **parked**: D20 settles
+      the destination and the owner deferred the move, so these three boxes wait for that decision,
+      not for layer 2 work
 - [x] `map_portal` is content with provenance (`0025_map_portals.sql`, a `source` column per row)
-- [ ] the 214 content `INSERT`s retired, in their own commit, after the files match them
+- [-] the 214 content `INSERT`s retired - parked with the box above
 
 ## Layer 3 - auth service
 
