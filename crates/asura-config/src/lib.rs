@@ -211,6 +211,13 @@ pub struct Described<T> {
     /// What it means, in the words the person reading the file needs.
     #[serde(default)]
     pub doc: Option<String>,
+    /// Whether this value may be changed.
+    ///
+    /// A value the client itself defines is **immutable**: it is in the file so it can be read and
+    /// reviewed, not so it can be edited, and a server that changed it would only stop recognising what
+    /// its own client sends. The flag is required of every key in the base game's file so that the
+    /// distinction is stated rather than assumed (`docs/38-layer-decisions.md`, D34).
+    pub immutable: bool,
 }
 
 /// The values a world falls back on when its rows say nothing.
@@ -252,6 +259,27 @@ impl Defaults {
         self.creation_map.value
     }
 
+    /// The keys this file marks immutable, in a stable order, for the start-up line.
+    pub fn immutable_keys(&self) -> Vec<&'static str> {
+        let mut keys = Vec::new();
+        if self.creation_map.immutable {
+            keys.push("creation_map");
+        }
+        if self.map_type_main_town.immutable {
+            keys.push("map_type_main_town");
+        }
+        if self.map_type_main_explorable.immutable {
+            keys.push("map_type_main_explorable");
+        }
+        if self.map_type_character_creation.immutable {
+            keys.push("map_type_character_creation");
+        }
+        if self.default_outpost.immutable {
+            keys.push("default_outpost");
+        }
+        keys
+    }
+
     /// The three map kinds the placement rule asks about, as one value.
     pub fn map_kinds(&self) -> asura_protocol::game::MapKinds {
         asura_protocol::game::MapKinds {
@@ -280,6 +308,13 @@ pub fn defaults() -> Result<&'static Defaults, String> {
                     .map_err(|err| format!("{path} is not a valid defaults file: {err}"))
                     .map(|defaults| {
                         eprintln!("asura: defaults from {path}");
+                        let fixed = defaults.immutable_keys();
+                        if !fixed.is_empty() {
+                            eprintln!(
+                                "asura: immutable (the client's contract, stated for review): {}",
+                                fixed.join(", ")
+                            );
+                        }
                         defaults
                     }),
                 Err(err) => Err(format!("{path} is not readable: {err}")),
@@ -356,11 +391,11 @@ mod tests {
     #[test]
     fn a_key_may_carry_its_own_documentation() {
         let defaults = Defaults::from_json(
-            r#"{"default_outpost": {"value": 163, "doc": "why this number"},
-                    "creation_map": {"value": 0},
-                    "map_type_main_town": {"value": 0},
-                    "map_type_main_explorable": {"value": 1},
-                    "map_type_character_creation": {"value": 11}}"#,
+            r#"{"default_outpost": {"value": 163, "doc": "why this number", "immutable": false},
+                    "creation_map": {"value": 0, "immutable": true},
+                    "map_type_main_town": {"value": 0, "immutable": true},
+                    "map_type_main_explorable": {"value": 1, "immutable": true},
+                    "map_type_character_creation": {"value": 11, "immutable": true}}"#,
         )
         .expect("parses");
         assert_eq!(defaults.default_outpost(), 163);
