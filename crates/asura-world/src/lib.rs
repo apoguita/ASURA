@@ -73,6 +73,9 @@ pub mod instance;
 pub mod item;
 pub mod map;
 pub mod player;
+/// The client's unlockable-PvP-item table: content of this layer, moved out of the wire crate
+/// (`docs/38-layer-decisions.md`, D11).
+pub mod pvp_items;
 pub mod travel;
 pub mod world;
 

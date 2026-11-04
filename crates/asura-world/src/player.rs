@@ -155,11 +155,12 @@ pub fn player_block(
     let mut frames = Vec::with_capacity(30);
 
     // The PvP unlocks. The reference sends its own fixed table of 387 unlockable items
-    // (`GameSrv_SendPvpItems`, generated into `game::pvp_items`), and the client builds its
-    // unlockable-item table from them, so they are copied rather than skipped.
+    // (`GameSrv_SendPvpItems`), which this crate carries as content (`crate::pvp_items`, layer 9),
+    // and the client builds its unlockable-item table from them, so they are copied rather than
+    // skipped. The message builder stays in the wire crate; only the rows moved.
     frames.push(game::pvp_update_unlocked_skills(&[]));
     frames.push(game::pvp_update_unlocked_heroes(&[0xFFFF_FFFF; 8]));
-    for item in game::pvp_items::PVP_ITEMS {
+    for item in crate::pvp_items::PVP_ITEMS {
         frames.push(game::pvp_item_stream_add(item.id, item.params));
     }
     frames.push(game::pvp_item_stream_end());
