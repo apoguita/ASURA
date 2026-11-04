@@ -82,15 +82,17 @@ Files: `packets.rs` (2,105; 782 rows, 403 consts), `game/mod.rs` (1,754; 109 con
 - [x] rename `client/peer.rs` to `client/reference_client.rs`: it is a fake client, not a peer -
       54 references across four test files and two examples - commit `af8c24a` (which also
       rustfmt'd those files, taking them off the workspace's fmt list)
-- [ ] split the two `frame` functions in `client/messages.rs` (`:334` returns
-      `Result<Frame, MessageError>`, `:359` returns `Frame`): 104 `.frame()` call sites, so the
-      rename is mechanical but wide
-- [ ] `pack`/`unpack` (`game/mod.rs:389`, `:401`) move to their own `codec.rs`: they are word
-      bit-fields, not message builders
-- [ ] `client/game.rs` becomes `client/game_version.rs`: two modules are called `game` today, one
-      per direction
-- [ ] a `[lints]` policy in the workspace manifest: `clippy::all` warn,
-      `rustdoc::broken_intra_doc_links` deny, `#![warn(missing_docs)]` in `lib.rs`
+- [x] split the two `frame` functions in `client/messages.rs`: the fallible one is
+      `PortalAccountLogin::try_to_frame`, the infallible `RequestResponse::frame` keeps its name -
+      commit `1e450c8`, six call sites
+- [x] `pack`/`unpack` and the `Appearance` they belong to are `game/appearance.rs`, not a `codec.rs`
+      (D16) - commit `13c9e72`, three call sites unchanged through the re-export
+- [x] `client/game.rs` is `client/game_version.rs`: two modules were called `game`, one per
+      direction - commit `33666f8`
+- [x] the lint policy is written and the crate opts in (`docs/38`, D17): `missing_docs` warn,
+      `unsafe_code` deny, `clippy::all` warn, `broken_intra_doc_links` deny - commit `fb112aa`,
+      which also documented the 70 items the policy exposed and allowed one `unsafe` (ARC4's
+      zeroization) with its SAFETY reason
 
 ## Layer 2 - storage and schema
 
