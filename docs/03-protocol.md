@@ -256,7 +256,9 @@ The server half of the experiment is pinned by
 `a_connection_to_an_unhosted_map_is_loaded_on_demand` and
 `a_travel_to_an_unhosted_map_is_loaded_on_demand` (`crates/asura-world/tests/load.rs`): the
 connection or transfer names the unhosted map, its entry and pool row appear when it is demanded,
-and the client lands in the destination's own configured spawn point.
+and the client lands on the destination's own spawn data - a random point of its spawn list for an
+outpost, the catalogue row's coordinate when the pack states no list (`docs/22-world-model.md`,
+"Spawn points, and the outpost rule").
 
 ### 5d. Path graphs without `Gw.dat` (the dump)
 

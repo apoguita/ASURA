@@ -32,6 +32,7 @@ fn main() {
         map_type: 0,
         spawn: (6602.0, 4485.0),
         spawn_plane: 0,
+        spawns: Vec::new(),
         name: "Lakeside County".to_string(),
         capacity: 8,
     };

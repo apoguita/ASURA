@@ -9,8 +9,9 @@
 //! (`docs/38-layer-decisions.md`, D33).
 //!
 //! Two files, one concern each: `config/Server/intervals.json` for the cadences ([`Intervals`]) and
-//! `config/Server/movement.json` for the movement tolerances ([`Movement`]). Both are read once per
-//! process and then held, because re-reading either mid-session would make one server run by two rules.
+//! `config/Server/movement.json` for the movement tolerances ([`Movement`]), plus the spawn placement
+//! (`config/Server/spawns.json`, [`Spawns`]). All are read once per process and then held, because
+//! re-reading one mid-session would make one server run by two rules.
 //!
 //! Precedence, and it is deliberate: an environment variable overrides the file, and the file overrides
 //! the built-in default. The env variable is what a one-off experiment uses; the file is what a machine
@@ -265,6 +266,82 @@ pub fn movement() -> &'static Movement {
                     "asura: movement file {path} is not readable: {err}; using the built-in defaults"
                 );
                 Movement::default()
+            }
+        }
+    })
+}
+
+/// The file that holds this machine's spawn placement.
+pub const SPAWNS_FILE: &str = "config/Server/spawns.json";
+
+/// The variable that names a different spawns file, for an experiment.
+pub const SPAWNS_VARIABLE: &str = "ASURA_SPAWNS";
+
+/// How this machine places a character around the spawn point it entered at.
+///
+/// Same shape and same precedence as [`Movement`]: an environment variable overrides the file, the
+/// file overrides the built-in default, and the built-in default is what a checkout with no
+/// `config/` runs on. Read once per process, because a radius that changed mid-session would spread
+/// one arrival and stack the next.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Spawns {
+    /// How far from its spawn point a character lands: the radius of the circle the arrival is
+    /// scattered over (`crates/asura-world/src/agent.rs`, `Standing::at_spawn`).
+    pub spawn_scatter: Described<f32>,
+}
+
+impl Default for Spawns {
+    fn default() -> Self {
+        Spawns {
+            spawn_scatter: Described {
+                value: 250.0,
+                doc: None,
+                immutable: false,
+            },
+        }
+    }
+}
+
+impl Spawns {
+    /// Parse the file's text.
+    pub fn from_json(text: &str) -> Result<Spawns, String> {
+        serde_json::from_str(text).map_err(|err| err.to_string())
+    }
+
+    /// The scatter radius, as the number rather than the wrapper.
+    pub fn spawn_scatter(&self) -> f32 {
+        self.spawn_scatter.value
+    }
+}
+
+/// The spawn placement in force, read once per process.
+pub fn spawns() -> &'static Spawns {
+    static IN_FORCE: OnceLock<Spawns> = OnceLock::new();
+    IN_FORCE.get_or_init(|| {
+        let path = match std::env::var(SPAWNS_VARIABLE) {
+            Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
+            _ => SPAWNS_FILE.to_string(),
+        };
+        let path = resolve(&path).display().to_string();
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match Spawns::from_json(&text) {
+                Ok(spawns) => {
+                    eprintln!("asura: spawn placement from {path}");
+                    spawns
+                }
+                Err(err) => {
+                    // A broken file is not worth crashing a running world over, but it must be visible:
+                    // silently falling back would scatter every arrival over a radius nobody chose.
+                    eprintln!("asura: {path} is not a valid spawns file: {err}; using the built-in defaults");
+                    Spawns::default()
+                }
+            },
+            Err(err) => {
+                eprintln!(
+                    "asura: spawns file {path} is not readable: {err}; using the built-in defaults"
+                );
+                Spawns::default()
             }
         }
     })
@@ -629,6 +706,33 @@ mod tests {
         let err = Movement::from_json(r#"{"max_allowed_correction_x": {"value": 1}}"#)
             .expect_err("a misspelled key would otherwise run at the fallback");
         assert!(err.contains("unknown field"), "{err}");
+    }
+
+    /// The committed spawns file, parsed the way `asura-world` parses it.
+    const SPAWNS_COMMITTED: &str = include_str!("../../../config/Server/spawns.json");
+
+    #[test]
+    fn the_committed_spawns_file_states_and_documents_the_scatter() {
+        // The owner's radius lives in the file, so the file is what is asserted; the `doc` sentence is
+        // required for the same reason every other server key carries one.
+        let spawns = Spawns::from_json(SPAWNS_COMMITTED).expect("the committed file parses");
+        assert_eq!(
+            spawns.spawn_scatter(),
+            250.0,
+            "the radius this machine runs at"
+        );
+        assert!(
+            spawns
+                .spawn_scatter
+                .doc
+                .as_deref()
+                .is_some_and(|doc| doc.contains("spawn point")),
+            "the file says what the number means"
+        );
+        assert!(
+            !spawns.spawn_scatter.immutable,
+            "it is the owner's number, not the client's"
+        );
     }
 
     #[test]

@@ -285,6 +285,9 @@ async fn main() -> ExitCode {
                     map_type: configured.map_type,
                     spawn: (configured.spawn_x, configured.spawn_y),
                     spawn_plane: configured.spawn_plane as u16,
+                    spawns: asura_world::map_spawns::for_map(*map_id)
+                        .map(<[_]>::to_vec)
+                        .unwrap_or_default(),
                     name: configured.name.clone(),
                     capacity,
                 });
@@ -382,6 +385,10 @@ async fn main() -> ExitCode {
         eprintln!("asura-world: refusing to start without the character spawn table");
         return ExitCode::from(4);
     }
+    // The map spawn lists are content as well - `spawns.json` in each map folder - and they are read
+    // here so a bad edit is reported at start-up rather than on somebody's next travel. A map without
+    // a file is not an error: its catalogue row's single coordinate answers instead (`Standing`).
+    asura_world::map_spawns::table();
 
     let listener = match tokio::net::TcpListener::bind(bind).await {
         Ok(listener) => listener,

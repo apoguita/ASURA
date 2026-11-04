@@ -370,6 +370,26 @@ pub async fn record_position(
     Ok(done.rows_affected() > 0)
 }
 
+/// Forget where a character stood, so the next arrival cannot resume it.
+///
+/// A travel does not preserve a position - only a disconnect does (`docs/22-world-model.md`, the
+/// owner's rule of 2026-11-05) - so a travel that is not a portal walk calls this before the
+/// redirect: the destination then stands where its own spawn list says instead of where the
+/// character last was. `pos_plane IS NULL` is what "never saved" means
+/// ([`position`]), so clearing it reads back as a character that has never been played. `map_id` is
+/// left alone: it is the map the character is in, which the arrival itself records.
+pub async fn forget_position(pool: &PgPool, character: Uuid) -> sqlx::Result<bool> {
+    let done = sqlx::query(
+        "UPDATE t_characters
+            SET pos_plane = NULL, updated_at = now()
+          WHERE id = $1",
+    )
+    .bind(character)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected() > 0)
+}
+
 /// Record the last **outpost** a character was placed in.
 ///
 /// The owner's base rule (docs/22-world-model.md, "Spawn points, and the outpost rule"): a character that

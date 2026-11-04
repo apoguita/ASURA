@@ -90,6 +90,9 @@ pub struct AgentState {
     pub agent_id: u32,
     pub position: (f32, f32),
     pub plane: u16,
+    /// Which way the agent faces while it is not walking, as the unit vector the world announced when
+    /// it created the agent. The spawn point's angle lands here.
+    pub facing: (f32, f32),
     /// The reference's `last_position_update`, in milliseconds since the connection started.
     pub last_report: Option<Instant>,
     /// The agent's walking speed, which is what the budget is computed from.
@@ -122,12 +125,19 @@ pub struct Motion {
 }
 
 impl AgentState {
-    /// A new agent, standing where the map says a character arrives.
-    pub fn new(agent_id: u32, position: (f32, f32), plane: u16, speed_base: f32) -> AgentState {
+    /// A new agent, standing where the connection placed it, facing the spawn point's direction.
+    pub fn new(
+        agent_id: u32,
+        position: (f32, f32),
+        plane: u16,
+        facing: (f32, f32),
+        speed_base: f32,
+    ) -> AgentState {
         AgentState {
             agent_id,
             position,
             plane,
+            facing,
             last_report: None,
             speed_base,
             motion: Motion::default(),
@@ -411,23 +421,69 @@ pub const AGENT_PROPERTY_VALUE64: u32 = 64;
 
 /// Where a character stands as it enters a map.
 ///
-/// Two sources, and which one applies is the whole of the persistence rule: the position the character
-/// was saved at when it last left **if it was saved in this map**, and otherwise the map's own spawn
-/// point. A character that has never been played has no saved position, and one that was saved in a
-/// different map is arriving here for the first time (`asura_db::game::position`).
+/// Two rules, and which one applies is the whole of the persistence rule:
+///
+/// * an **outpost** (a main town) is entered at a **random point of its own spawn list**, the pack's
+///   `spawns.json`, facing the direction that point states. Travel never preserves a position: every
+///   time a character enters an outpost it stands on a random spawn point from that list, which is
+///   the owner's rule (2026-10-31, restated 2026-11-05: "every time we enter an outpost is on a
+///   random spawn point from the list");
+/// * every other map keeps the position the character was saved at when it last left **if it was
+///   saved in this map**, and otherwise the map's own single spawn point. That is the disconnect
+///   case: a character that comes back to the map it left stands where it left.
+///
+/// A character that has never been played has no saved position, and one that was saved in a
+/// different map is arriving here for the first time (`asura_db::game::position`). The facing of a
+/// saved position is not stored, so a resumed character keeps the default direction.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Standing {
     pub position: (f32, f32),
     pub plane: u16,
+    /// Which way the character faces on arrival, as the unit vector
+    /// `GAME_SMSG_WORLD_CREATE_AGENT` carries.
+    pub direction: (f32, f32),
 }
 
 impl Standing {
-    /// The map's own spawn point: where the map row says a character arrives.
+    /// The map's own single spawn point: where the catalogue row says a character arrives.
     pub fn from_map(map: &MapEntry) -> Standing {
         Standing {
             position: map.spawn,
             plane: map.spawn_plane,
+            direction: (1.0, 0.0),
         }
+    }
+
+    /// One of the map's own spawn points, **scattered around it**: a random point inside a
+    /// [`spawn_scatter`]-unit circle, on the point's plane, facing the point's own angle.
+    ///
+    /// A spawn point is not a pin - the owner's rule, 2026-11-05: "when we spawn we should get our
+    /// position randomized 250 units around a circle from the spawn point" (`docs/36-game-rules-ledger.md`
+    /// R13's soft scatter). The radius is `config/Server/spawns.json`'s `spawn_scatter`, not a compiled
+    /// constant, so an operator changes it without a rebuild. The scatter keeps the point's plane: the
+    /// graph that would say which plane a scattered coordinate lands on is not loaded on every machine
+    /// (no `Gw.dat`, no graph), so the point's own plane is the one answer that is always right.
+    pub fn at_spawn(spawn: &crate::map_spawns::MapSpawn) -> Result<Standing, GameError> {
+        let (dx, dy) = scatter(spawn_scatter())?;
+        Ok(Standing {
+            position: (spawn.x + dx, spawn.y + dy),
+            plane: spawn.plane,
+            direction: spawn.direction(),
+        })
+    }
+
+    /// Where a character stands as a connection enters `map`.
+    ///
+    /// An outpost with a spawn list is entered at a random point of that list, scattered around it;
+    /// without a list (no `spawns.json` for the map) there is nothing to pick from and the catalogue
+    /// row answers. Every other map keeps the saved position when it belongs to this map: that is a
+    /// disconnect coming back, and the one case travel does not own.
+    pub fn arrival(map: &MapEntry, saved: Option<db_game::Position>) -> Result<Standing, GameError> {
+        if map.map_type == map_kinds().main_town && !map.spawns.is_empty() {
+            let index = (crate::random_u32()? as usize) % map.spawns.len();
+            return Standing::at_spawn(&map.spawns[index]);
+        }
+        Ok(Standing::resume(map, saved))
     }
 
     /// This character's standing, from what the database remembers about it.
@@ -440,10 +496,31 @@ impl Standing {
             Some(saved) if saved.map_id == map.map_id => Standing {
                 position: (saved.x, saved.y),
                 plane: saved.plane.max(0) as u16,
+                direction: (1.0, 0.0),
             },
             _ => Standing::from_map(map),
         }
     }
+}
+
+/// How far from its spawn point a character lands: the radius of the circle the position is scattered
+/// over. It is a value this machine chooses, so it lives in `config/Server/spawns.json`
+/// (`asura_config::spawns`, D34, D35) and this is the read; the built-in 250-unit fallback is what a
+/// checkout with no `config/` runs on (`crates/asura-world/src/agent.rs`, [`Standing::at_spawn`]).
+pub fn spawn_scatter() -> f32 {
+    asura_config::spawns().spawn_scatter()
+}
+
+/// A random offset inside a `radius`-unit circle: an even angle and a radius whose square is uniform,
+/// which spreads the points over the area instead of bunching them at the centre.
+fn scatter(radius: f32) -> Result<(f32, f32), GameError> {
+    let angle = (crate::random_u32()? as f64 / u32::MAX as f64) * std::f64::consts::TAU;
+    let scale = (crate::random_u32()? as f64 / u32::MAX as f64).sqrt();
+    let distance = f64::from(radius) * scale;
+    Ok((
+        (angle.cos() * distance) as f32,
+        (angle.sin() * distance) as f32,
+    ))
 }
 
 /// What the finder said about a walk.
@@ -818,6 +895,7 @@ pub async fn handle_position_update(
         let standing = Standing {
             position: slot.agent.position,
             plane: slot.agent.plane,
+            direction: slot.agent.facing,
         };
         if move_trace_on() {
             slot.move_stats.reports += 1;
@@ -951,6 +1029,7 @@ pub async fn handle_cancel_movement(
         let stood = Standing {
             position: slot.agent.position,
             plane: slot.agent.plane,
+            direction: slot.agent.facing,
         };
         (
             was_walking,
@@ -1024,6 +1103,7 @@ pub async fn handle_last_position(
         let believed = Standing {
             position: slot.agent.position,
             plane: slot.agent.plane,
+            direction: slot.agent.facing,
         };
         let taken = slot.agent.adopt_correction(position, plane);
         let distance = {
@@ -1106,7 +1186,7 @@ mod tests {
     use super::*;
 
     pub fn agent() -> AgentState {
-        AgentState::new(1, (6602.0, 4485.0), 0, 288.0)
+        AgentState::new(1, (6602.0, 4485.0), 0, (1.0, 0.0), 288.0)
     }
 
     #[test]

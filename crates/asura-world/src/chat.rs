@@ -313,6 +313,9 @@ pub async fn handle_chat_message(
                                         map_type: configured.map_type,
                                         spawn: (configured.spawn_x, configured.spawn_y),
                                         spawn_plane: configured.spawn_plane as u16,
+                                        spawns: crate::map_spawns::for_map(map_id)
+                                            .map(<[_]>::to_vec)
+                                            .unwrap_or_default(),
                                         name: configured.name.clone(),
                                         capacity: world.capacity,
                                     });

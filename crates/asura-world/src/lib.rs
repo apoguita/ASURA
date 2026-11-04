@@ -82,6 +82,9 @@ pub mod instance_table;
 
 pub mod map;
 
+/// The spawn points a map carries, read from the world pack (`config/World/<pack>/.../spawns.json`).
+pub mod map_spawns;
+
 pub mod player;
 /// The client's unlockable-PvP-item table: content of this layer, moved out of the wire crate
 /// (`docs/38-layer-decisions.md`, D11).
@@ -297,6 +300,7 @@ mod tests {
             map_type: 0,
             spawn: (6602.0, 4485.0),
             spawn_plane: 0,
+            spawns: Vec::new(),
             name: "Lakeside County".to_string(),
             capacity: 8,
         }
@@ -710,7 +714,8 @@ mod tests {
             Standing::resume(&map, Some(saved)),
             Standing {
                 position: (6700.0, 4400.0),
-                plane: 3
+                plane: 3,
+                direction: (1.0, 0.0)
             }
         );
 
@@ -729,11 +734,145 @@ mod tests {
     }
 
     #[test]
+    fn an_outpost_is_entered_at_a_random_point_of_its_own_spawn_list() {
+        let mut map = test_map();
+        // Far enough apart that the 250-unit scatter cannot reach from one to the other.
+        map.spawns = vec![
+            crate::map_spawns::MapSpawn {
+                idx: 0,
+                x: 0.0,
+                y: 0.0,
+                plane: 0,
+                angle: Some(0.0),
+            },
+            crate::map_spawns::MapSpawn {
+                idx: 1,
+                x: 1000.0,
+                y: 0.0,
+                plane: 0,
+                angle: Some(std::f32::consts::PI),
+            },
+        ];
+        // A saved position from the same map is ignored: a travel never resumes one.
+        let saved = db_game::Position {
+            map_id: map.map_id,
+            x: 9.0,
+            y: 9.0,
+            plane: 0,
+        };
+        let mut seen = [false; 2];
+        for _ in 0..64 {
+            let standing = Standing::arrival(&map, Some(saved)).expect("a spawn point");
+            let from_first = standing.position.0.hypot(standing.position.1);
+            let from_second = (standing.position.0 - 1000.0).hypot(standing.position.1);
+            if from_first <= crate::spawn_scatter() + 0.5 {
+                seen[0] = true;
+                assert_eq!(standing.direction, (1.0, 0.0), "the point's own angle");
+            } else if from_second <= crate::spawn_scatter() + 0.5 {
+                seen[1] = true;
+                assert!(
+                    standing.direction.1.abs() < 1e-6
+                        && (standing.direction.0 + 1.0).abs() < 1e-6,
+                    "half a turn faces -x: {:?}",
+                    standing.direction
+                );
+            } else {
+                panic!(
+                    "entered at {:?}, which is not inside either point's scatter circle",
+                    standing.position
+                );
+            }
+        }
+        assert!(
+            seen[0] && seen[1],
+            "both points of the list are reachable: {seen:?}"
+        );
+    }
+
+    #[test]
+    fn an_outpost_without_a_list_and_every_other_map_keep_the_persistence_rule() {
+        let saved = db_game::Position {
+            map_id: 146,
+            x: 6700.0,
+            y: 4400.0,
+            plane: 0,
+        };
+        // An outpost the pack states no list for: the old answer, the saved position.
+        let outpost = test_map();
+        assert_eq!(
+            Standing::arrival(&outpost, Some(saved)).expect("a standing"),
+            Standing::resume(&outpost, Some(saved)),
+            "nothing to randomise from"
+        );
+
+        // An explorable with a list is not randomised either: its arrival is the doorway's landing,
+        // which arrives as the saved position, or the map's own spawn.
+        let mut explorable = test_map();
+        explorable.map_type = 1;
+        explorable.spawns = outpost_list();
+        assert_eq!(
+            Standing::arrival(&explorable, Some(saved)).expect("a standing"),
+            Standing::resume(&explorable, Some(saved)),
+            "an explorable keeps where it left"
+        );
+    }
+
+    fn outpost_list() -> Vec<crate::map_spawns::MapSpawn> {
+        vec![crate::map_spawns::MapSpawn {
+            idx: 0,
+            x: 1.0,
+            y: 2.0,
+            plane: 0,
+            angle: None,
+        }]
+    }
+
+    #[test]
+    fn the_spawn_points_angle_is_what_the_agent_is_created_facing() {
+        // A spawn entry that states an angle arrives as the direction the agent is created with
+        // (`0x0020`, direction x then y), not the default (1, 0) the world used to always send.
+        let standing = Standing {
+            position: (1.0, 2.0),
+            plane: 0,
+            direction: (0.0, 1.0),
+        };
+        let inventory = db_inventory::default_inventory();
+        let frames = player_block(&PlayerBlock {
+            name: "Asura",
+            standing,
+            inventory: &inventory,
+            started: Instant::now(),
+            player_id: PLAYER_ID,
+            agent_id: AGENT_ID,
+            traits: db_game::Traits::default(),
+            unlocked: crate::player::UNLOCKED_MAP_ZEROS,
+        });
+        let agent = frames
+            .iter()
+            .find(|frame| frame.header() == game::WORLD_CREATE_AGENT)
+            .expect("an agent");
+        let float_at = |at: usize| {
+            f32::from_le_bytes([
+                agent.body()[at],
+                agent.body()[at + 1],
+                agent.body()[at + 2],
+                agent.body()[at + 3],
+            ])
+        };
+        assert_eq!(
+            (float_at(20), float_at(24)),
+            (0.0, 1.0),
+            "the spawn point's facing, not the default"
+        );
+    }
+
+    #[test]
     fn the_spawn_point_is_the_standing_position() {
         let map = test_map();
         let standing = Standing {
             position: (6700.0, 4400.0),
             plane: 2,
+            direction: (1.0, 0.0),
         };
         let frames = spawn_block(&map, standing);
         assert_eq!(frames.len(), 1);

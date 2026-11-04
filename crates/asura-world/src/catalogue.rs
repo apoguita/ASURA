@@ -61,11 +61,16 @@ pub struct MapEntry {
     pub map_file_id: u32,
     /// 0 for an outpost, 1 for an explorable area.
     pub map_type: i32,
-    /// Where a character stands on entering. The reference's own coordinates, read back from a live
-    /// client in the rig; (0, 0) is outside the walkable geometry on every map measured so far.
+    /// The single coordinate the catalogue row carries, used when the map's own spawn list is empty.
+    /// The reference's own coordinate, read back from a live client in the rig; (0, 0) is outside
+    /// the walkable geometry on every map measured so far.
     pub spawn: (f32, f32),
     /// The plane inside the map blob.
     pub spawn_plane: u16,
+    /// The map's spawn points, as the pack states them (`spawns.json`, `docs/38-layer-decisions.md`
+    /// D39). An outpost is entered at one of these, picked at random; an empty list means the pack
+    /// states none, and [`crate::Standing::from_map`] answers instead.
+    pub spawns: Vec<crate::map_spawns::MapSpawn>,
     /// What the map is called, for `/maps` and the log. Empty is allowed: a map without a name prints
     /// its id, which is a worse answer than the reference's and not a broken one.
     pub name: String,

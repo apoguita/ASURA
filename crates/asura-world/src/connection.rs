@@ -259,21 +259,24 @@ pub async fn handle_connection(
         }
     }
 
-    // Where the character stands: where it left, if it left from this map.
+    // Where the character stands: a random point of an outpost's own spawn list, or - for every
+    // other map - where it left, if it left from this map (`Standing::arrival`).
     let saved = db_game::position(&world.pool, character)
         .await
         .map_err(GameError::Database)?;
-    let standing = Standing::resume(&map, saved);
+    let standing = Standing::arrival(&map, saved)?;
 
     eprintln!(
         "world: {name:?} joined map {} (file id {}) on world {}, standing at ({:.1}, {:.1}) plane \
-         {} with {} bag(s) and {} item(s)",
+         {} facing ({:.2}, {:.2}) with {} bag(s) and {} item(s)",
         map.map_id,
         map.map_file_id,
         world.world_id,
         standing.position.0,
         standing.position.1,
         standing.plane,
+        standing.direction.0,
+        standing.direction.1,
         inventory.bags.len(),
         inventory.items.len()
     );
@@ -375,6 +378,11 @@ pub async fn handle_connection(
     // player leaves it. Written *before* the lease goes back, and best-effort: a failed save must not
     // turn an ordinary logout into an error, and losing a position is cheaper than refusing a player
     // its way out.
+    //
+    // **Unless it travelled.** A travel does not preserve a position - only a disconnect does - so a
+    // redirected connection writes nothing: the destination's arrival must not read a coordinate
+    // from the map the client is leaving, and a portal crossing has already written the landing it
+    // needs when the crossing started (`travel::begin_transfer`).
     let stood = player.standing();
     let left = stood.position;
     let left_plane = stood.plane;
@@ -396,7 +404,7 @@ pub async fn handle_connection(
     // arrives in the creation map without making a character is one whose client still believes it is
     // there. Saving this map would overwrite the outpost with the instance and strand the character -
     // measured 2026-10-28: every character that entered map 0 came back to map 0 on the next login.
-    if player.instance.map.map_type != map_kinds().character_creation {
+    if !player.moved && player.instance.map.map_type != map_kinds().character_creation {
         if let Err(err) = db_game::record_position(
             &world.pool,
             player.character,
@@ -428,8 +436,16 @@ pub async fn handle_connection(
         eprintln!("world: could not release the lease of the leaving player: {err}");
     }
     eprintln!(
-        "world: {:?} left map {} from ({:.1}, {:.1}) plane {left_plane}, saved",
-        player.name, player.instance.map.map_id, left.0, left.1
+        "world: {:?} left map {} from ({:.1}, {:.1}) plane {left_plane}, {}",
+        player.name,
+        player.instance.map.map_id,
+        left.0,
+        left.1,
+        if player.moved {
+            "not saved (the connection was redirected to another map)"
+        } else {
+            "saved"
+        }
     );
     if move_trace_on() {
         eprintln!(

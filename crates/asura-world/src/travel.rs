@@ -107,6 +107,9 @@ pub async fn load_map_on_demand(
         map_type: configured.map_type,
         spawn: (configured.spawn_x, configured.spawn_y),
         spawn_plane: configured.spawn_plane as u16,
+        spawns: crate::map_spawns::for_map(map_id)
+            .map(<[_]>::to_vec)
+            .unwrap_or_default(),
         name: configured.name.clone(),
         capacity: world.capacity,
     };
@@ -264,7 +267,7 @@ pub async fn teleport(
         eprintln!("world: You are already here.");
         return Ok(true);
     }
-    begin_transfer(stream, session, world, player, target, trace).await
+    begin_transfer(stream, session, world, player, target, None, trace).await
 }
 
 /// The client's own request, from the world map: `GAME_CMSG_PARTY_TRAVEL` (`0x80B1`).
@@ -308,7 +311,7 @@ pub async fn handle_party_travel(
         eprintln!("world: instance {map_id} cannot be served by this world; the travel is refused");
         return Ok(true);
     };
-    begin_transfer(stream, session, world, player, destination, trace).await
+    begin_transfer(stream, session, world, player, destination, None, trace).await
 }
 
 /// The instance a travel names, demand-loaded when this world hosts it only on demand.
@@ -426,15 +429,10 @@ async fn portal_at_position(
         return Ok(true);
     };
     // The landing point recorded for this door - per door, not per instance. It is written as the
-    // character's position in the destination before the redirect, so the connection the client opens
-    // stands where the live server put it, instead of on the instance's configured spawn.
-    if let (Some(to_instance), Some((ax, ay))) = (portal.to_instance, portal.arrive) {
-        if let Err(err) =
-            db_game::record_position(&world.pool, player.character, to_instance, ax, ay, 0).await
-        {
-            eprintln!("world: could not write the landing point for instance {to_instance}: {err}");
-        }
-    }
+    // character's position in the destination when the crossing starts (`begin_transfer`), so the
+    // connection the client opens stands where the live server put it, instead of on the instance's
+    // configured spawn. An outpost ignores it: its own spawn list decides, at random.
+    let landing = portal.arrive;
     let Some(to_instance) = portal.to_instance else {
         eprintln!(
             "world: {:?} is standing in a travel portal of instance {instance} at ({:.0}, {:.0}); \
@@ -453,23 +451,37 @@ async fn portal_at_position(
         );
         return Ok(true);
     };
-    begin_transfer(stream, session, world, player, destination, trace).await
+    begin_transfer(stream, session, world, player, destination, landing, trace).await
 }
 
-/// The cycle itself: the seat on the destination, the transfer row, and the pair that sends the client
-/// on its way.
+/// The cycle itself: the arriving position, the seat on the destination, the transfer row, and the
+/// pair that sends the client on its way.
 ///
-/// Every trigger ends here - `/tp`, the world map's request (`0x80B1`) and, once this world has a portal
-/// table, a crossing (`0x80C1`) - because the reference has one cycle and not one per trigger.
+/// Every trigger ends here - `/tp`, the world map's request (`0x80B1`) and a crossing (`0x80C1`) -
+/// because the reference has one cycle and not one per trigger.
+///
+/// `landing` is where the destination puts the arriving character, when the trigger knows: a portal
+/// crossing hands over that doorway's landing point (the entrance spawn). Every other travel passes
+/// `None`, which **clears** the saved position: a travel does not preserve where a character was, only
+/// a disconnect does, and an outpost arrival picks its own spawn point at random regardless
+/// (`Standing::arrival`).
 async fn begin_transfer(
     stream: &mut TcpStream,
     session: &mut Session,
     world: &World,
     player: &mut Player,
     destination: MapEntry,
+    landing: Option<(f32, f32)>,
     trace: bool,
 ) -> Result<bool, GameError> {
     let to_map = destination.map_id;
+
+    // A travel the client is told to make needs an address the client can dial; this is a property of
+    // the world, so it is checked before anything is written.
+    let std::net::SocketAddr::V4(public) = world.public else {
+        eprintln!("world: a travel needs an IPv4 advertised address; refused");
+        return Ok(true);
+    };
 
     // The seat on the destination. `reserve` gives up this session's current lease in the same
     // transaction, which is exactly a transfer's accounting: one seat, moved.
@@ -497,10 +509,26 @@ async fn begin_transfer(
     .await
     .map_err(GameError::Database)?;
 
-    let std::net::SocketAddr::V4(public) = world.public else {
-        eprintln!("world: a travel needs an IPv4 advertised address; refused");
-        return Ok(true);
-    };
+    // The arriving position is the destination's to decide, and it is written once the travel is
+    // committed (a refused travel above writes nothing, so the character keeps the position it is
+    // standing in) and before the redirect, so the connection the client is about to open reads it.
+    // Best-effort: a failed write must not refuse a travel the player asked for, and a spawn point is
+    // the worst case if it does.
+    match landing {
+        Some((x, y)) => {
+            if let Err(err) =
+                db_game::record_position(&world.pool, player.character, to_map, x, y, 0).await
+            {
+                eprintln!("world: could not write the landing point for instance {to_map}: {err}");
+            }
+        }
+        None => {
+            if let Err(err) = db_game::forget_position(&world.pool, player.character).await {
+                eprintln!("world: could not clear the saved position for the travel: {err}");
+            }
+        }
+    }
+
     // The flag is 0 by default, not the destination's kind, and `explorable_flag_for` says why: at 1 an
     // explorable's load waits 4.3 s here. `ASURA_TRAVEL_EXPLORABLE=auto` restores live's value.
     let is_explorable = explorable_flag_for(destination.map_type);

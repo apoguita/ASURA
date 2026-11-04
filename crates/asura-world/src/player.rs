@@ -310,7 +310,7 @@ pub fn player_block(block: &PlayerBlock<'_>) -> Vec<Frame> {
         agent_type: game::AGENT_TYPE_LIVING,
         position: standing.position,
         plane: standing.plane,
-        direction: (1.0, 0.0),
+        direction: standing.direction,
         speed_base: game::PLAYER_SPEED_BASE,
         player_team_token: PLAYER_TEAM_TOKEN,
     }));

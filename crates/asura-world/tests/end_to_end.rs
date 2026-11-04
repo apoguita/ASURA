@@ -123,6 +123,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
             map_type: 0,
             spawn: SPAWN,
             spawn_plane: 0,
+            spawns: Vec::new(),
             name: "Lakeside County".to_string(),
             capacity: 2,
         }],

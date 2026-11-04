@@ -79,6 +79,7 @@ impl Instance {
                     agent_id,
                     standing.position,
                     standing.plane,
+                    standing.direction,
                     game::PLAYER_SPEED_BASE,
                 ),
                 name,
@@ -151,11 +152,13 @@ impl Instance {
         self.with_slot(player_id, |slot| slot.move_stats)
     }
 
-    /// Where a player's agent is now: the server's own copy, not where it entered.
+    /// Where a player's agent is now: the server's own copy, not where it entered. The direction is
+    /// the facing the agent was created with, so a spawn point's angle survives into the load block.
     pub fn standing(&self, player_id: u32) -> Option<Standing> {
         self.with_slot(player_id, |slot| Standing {
             position: slot.agent.position,
             plane: slot.agent.plane,
+            direction: slot.agent.facing,
         })
     }
 
@@ -316,6 +319,7 @@ impl From<&Slot> for PeerView {
             standing: Standing {
                 position: slot.agent.position,
                 plane: slot.agent.plane,
+                direction: slot.agent.facing,
             },
             equipped: slot.equipped,
         }
@@ -346,7 +350,7 @@ pub fn introduction(peer: &PeerView) -> Vec<Frame> {
             agent_type: game::AGENT_TYPE_LIVING,
             position: peer.standing.position,
             plane: peer.standing.plane,
-            direction: (1.0, 0.0),
+            direction: peer.standing.direction,
             speed_base: game::PLAYER_SPEED_BASE,
             player_team_token: PLAYER_TEAM_TOKEN,
         }),

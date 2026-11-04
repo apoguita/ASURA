@@ -2,7 +2,7 @@
 
 How this machine runs ASURA, as opposed to what the world contains.
 
-Four files today:
+Five files today:
 
 - `config/services.toml`, one level up: which services start, their arguments, ports, health checks
   and log paths. It is the supervisor's own file.
@@ -19,6 +19,10 @@ Four files today:
   today - `max_allowed_correction`, how far a client may place itself when it cancels a walk and
   still be believed. The reference's own value is 100 and is the fallback in code; this machine runs
   it at 150. Read by `asura-config`, once per process, same precedence as the intervals file.
+- `config/Server/spawns.json`: how a character is placed around the spawn point it entered at. One
+  key today - `spawn_scatter`, the radius in map units of the circle a character lands in around a
+  random point of the map's own spawn list (250 here; zero stacks everyone on the point). Read by
+  `asura-config`, once per process, same precedence as the movement file.
 
 What does not belong here: anything that describes the game. A map, a spawn point, a doorway or a
 quest is world content, and lives in a package under `config/World/`

@@ -239,18 +239,19 @@ Stated by the owner, and stored here because both are base facts the whole serve
 > load - even if we are in an instance - (unless it was a disconnect, which we will implement further) we
 > need to be moved to the LAST outpost they visited. That means we need to keep track of where we travel."
 
-**Three sources of a position, and this world has one of the three.**
+**Three sources of a position, and this world has two of the three.**
 
 | source | what it is | here |
 |---|---|---|
-| entry spawn list | each instance has several spawn points and entry picks one, randomised | **one** per entry (`map_config.spawn_x/spawn_y/spawn_plane`), always the same. The reference's extra rows are already stored: `map_spawn` holds 1-4 per map (migrations `0021`, `0022`) and no code reads them - `asura_db::game::spawn_points` (`crates/asura-db/src/game.rs:69`) has no caller |
-| entrance spawns | the positions used when a character arrives from an explorable, near the door it came through | modelled per doorway: a crossing writes that door's recorded landing point as the character's position in the destination before the redirect (`crates/asura-world/src/travel.rs:408-414`), so the client wakes on the landing rather than on the instance's spawn. A doorway with no recorded landing still cannot fire |
+| entry spawn list | each instance has several spawn points and entry picks one, randomised | **implemented 2026-11-05**: every entry into an **outpost** takes a **random point of the map's own list** (`config/World/<pack>/maps/.../spawns.json`, `crates/asura-world/src/map_spawns.rs`), lands **scattered up to 250 units around it** (the radius is `config/Server/spawns.json`'s `spawn_scatter`, a server setting, not a compiled constant) on the point's plane, and the agent is created facing that point's `angle` (`Standing::at_spawn`, `crates/asura-world/src/agent.rs`). The list arrives with the map entry (`MapEntry.spawns`); a map whose pack states no list falls back to `map_config.spawn_x/spawn_y/spawn_plane`. The reference's own extra rows are still stored and still unread: `map_spawn` holds 1-4 per map (migrations `0021`, `0022`) and `asura_db::game::spawn_points` has no caller |
+| entrance spawns | the positions used when a character arrives from an explorable, near the door it came through | modelled per doorway: a crossing hands that door's recorded landing point to the transfer (`crates/asura-world/src/travel.rs`, `begin_transfer`), which writes it as the character's position in the destination before the redirect, so the client wakes on the landing. An **outpost ignores it** and picks a random point of its list instead (the owner's 2026-11-05 rule below); a doorway with no recorded landing still cannot fire |
 | quest placement | a quest can decide where in the instance a character appears | not modelled |
 
 The archive carries these: the client's map data has three spawn lists, each entry a position, a facing
 angle and a four-character zone tag, with a numeric tag naming the instance it belongs to
 (`docs/22-world-model.md`, answer 5). `Map.Pathing.GetSpawnData(map_id)` reads them through the same
-instrument that produced `data/portals.json`, so they can be dumped per instance the same way.
+instrument that produced `data/portals.json`, so they can be dumped per instance the same way; until
+then the pack's `spawns.json` is the list a map is entered from.
 
 **The base rule, and what it costs.**
 
@@ -276,6 +277,21 @@ Two consequences:
 (`asura_db::game::remember_outpost`, `crates/asura-db/src/game.rs:308`) and substituted when the auth
 service answers the client's request for an instance (`crates/asura-auth/src/travel.rs:163-196`). The
 disconnect exception is still open.
+
+**The entry spawn, 2026-11-05 (owner).** "We should not travel and preserve position except on a
+disconnect; every time we enter an outpost is on a random spawn point from the list", and "when we
+spawn we should get our position randomized 250 units around a circle from the spawn point". So a
+**travel** never carries a position: `/tp` and the world map's request clear the saved position before
+the redirect (`asura_db::game::forget_position`), and a redirected connection's teardown writes nothing
+(`crates/asura-world/src/connection.rs`). A connection that ends **without** a travel is a disconnect,
+and that one still saves where the character stood. The outpost's random point is taken on **every**
+arrival, portal walk included - that is the discrepancy the owner saw when travelling from Lakeside
+County into Ascalon City: the character stood on the doorway's landing, the "last known position",
+instead of somewhere around a point of the city's own list. The landing is still scattered over a
+250-unit circle whose radius is `config/Server/spawns.json`'s `spawn_scatter` (the owner's 250 units,
+a server setting an operator can change without a rebuild). The pack's list for Ascalon City
+(pre-Searing), map 148, states two points with their angles; the file is
+`config/World/Vanilla/maps/Prophecies/Ascalon (pre-Searing)/Outposts/148/spawns.json`.
 
 ## Instances, districts, and party travel (owner, 2026-11-02)
 

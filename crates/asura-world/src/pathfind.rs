@@ -1420,6 +1420,7 @@ mod tests {
             map_type: 1,
             spawn: (6602.0, 4485.0),
             spawn_plane: 0,
+            spawns: Vec::new(),
             name: "Lakeside County".to_string(),
             capacity: 2,
         }]);
