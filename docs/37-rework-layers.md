@@ -106,8 +106,14 @@ Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
 `portal.rs` 108, `lib.rs` 230, plus `migrations/0001`-`0025`.
 
 - [x] physical schema stays SQL: 25 migrations, 14 tables (`docs/38`, D21)
-- [ ] content rows counted and named: 214 `INSERT`s in `0013`, `0014`, `0016`-`0022`, plus
+- [x] content rows counted and named: 214 `INSERT`s in `0013`, `0014`, `0016`-`0022`, plus
       `map_config`, `map_spawn` and `map_portal` (`0025`)
+- [x] the split is written at the source (`crates/asura-db/src/lib.rs`): which tables are operational
+      state and which are content passing through, with the one-sentence test for a new table - commit
+      `49681c2`
+- [x] the crate adopts the lint policy (`docs/38`, D17): `missing_docs`, `unsafe_code` deny and
+      `broken_intra_doc_links` cost 106 one-line docs and three doc links - commit `9925621`; clippy
+      `-D warnings`, `cargo doc` and 21 unit tests pass
 - [ ] the split written into the migrations themselves: which tables are content (leaving) and which
       are operational state (staying) - D21 names both lists
 - [-] `map_config`, `map_spawn` and the 214 `INSERT`s leave for `config/` - **parked**: D20 settles
