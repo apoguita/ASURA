@@ -26,7 +26,7 @@
 //! `map_token`/`player_token` to a transfer it was told about will happily serve anyone. GWPS compares
 //! both, plus the character id, and drops the connection on a mismatch (`AuthSrv_DoPostHandshake`).
 //!
-//! Like the auth version message, this one is *not* a [`super::frame::Frame`]: it has a `u32` header
+//! Like the auth version message, this one is *not* a [`Frame`](crate::client::frame::Frame): it has a `u32` header
 //! rather than a `u16`, and it arrives before the key exchange, so it is read as a bare structure.
 
 use super::version::{GameVersionError, GAME_CMSG_VERSION_LEN};

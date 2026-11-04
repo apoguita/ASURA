@@ -32,13 +32,24 @@ pub const STATUS_INVALID_CHARNAME: u32 = 23;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MessageError {
     /// The frame carries a different header than this message expects.
-    UnexpectedHeader { got: u16, expected: u16 },
+    UnexpectedHeader {
+        /// The header the frame carries.
+        got: u16,
+        /// The header this message must carry.
+        expected: u16,
+    },
     /// The body ended early: the reference's layout needs more bytes.
-    Truncated { field: &'static str },
+    Truncated {
+        /// Which field ran out of bytes.
+        field: &'static str,
+    },
     /// A counted string or array was longer than the field that must hold it.
     TooLong {
+        /// Which field overflowed.
         field: &'static str,
+        /// How many units the field holds.
         capacity: usize,
+        /// How many were written or read.
         got: usize,
     },
 }
@@ -309,6 +320,7 @@ pub struct PortalAccountLogin {
 
 impl PortalAccountLogin {
     /// Read the message out of a received frame.
+    /// Read an answer back, which the reference client does and the server never needs.
     pub fn decode(frame: &Frame) -> Result<Self, MessageError> {
         expect(frame, tables::AUTH_CMSG_PORTAL_ACCOUNT_LOGIN)?;
         let mut reader = Reader::new(frame.body());
@@ -330,7 +342,7 @@ impl PortalAccountLogin {
         })
     }
 
-    /// Build the message, which is what the reference client in [`super::reference_client`] does.
+    /// Build the message, which is what the reference client in `super::reference_client` does.
     ///
     /// Fallible, because the character name must fit its counted field: a builder that can refuse
     /// says so in its name. `RequestResponse::frame` cannot fail and does not carry the prefix.
@@ -354,17 +366,21 @@ impl PortalAccountLogin {
 /// `AUTH_SMSG_REQUEST_RESPONSE` (`0x0003`): the answer to any request, success or not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RequestResponse {
+    /// The `req_id` of the request being answered.
     pub request: u32,
+    /// 0 for success; the reference's nonzero codes are the client's own error dialog.
     pub status: u32,
 }
 
 impl RequestResponse {
+    /// The 10-byte answer. Infallible: both fields are fixed-width dwords.
     pub fn frame(&self) -> Frame {
         let mut writer = Writer::new();
         writer.u32(self.request).u32(self.status);
         Frame::new(tables::AUTH_SMSG_REQUEST_RESPONSE, writer.into_body())
     }
 
+    /// Read an answer back, which the reference client does and the server never needs.
     pub fn decode(frame: &Frame) -> Result<Self, MessageError> {
         expect(frame, tables::AUTH_SMSG_REQUEST_RESPONSE)?;
         let mut reader = Reader::new(frame.body());
@@ -425,6 +441,7 @@ pub struct CharacterSettings {
     pub campaign: u8,
     /// Four bits on the wire (`LEVEL_BITS`).
     pub level: u8,
+    /// Whether the character was created for PvP, where the client hides PvE-only surfaces.
     pub is_pvp: bool,
     /// Four bits on the wire.
     pub secondary_profession: u8,
@@ -658,12 +675,17 @@ pub const ADDRESS_FAMILY_INET6: u16 = 23;
 /// is fixed-size in both directions, so it is one of the few where the table is the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GameInstanceRequest {
+    /// The `req_id` this request answers.
     pub request: u32,
     /// 0 for an outpost, 1 for an explorable area (`MapType_FromInt`).
     pub map_type: u32,
+    /// The instance the client asks for.
     pub map_id: u32,
+    /// The region the client names; it is a capacity hint, never a permission.
     pub region: u32,
+    /// The district the client names; 0 means "any".
     pub district: u32,
+    /// The client's language id, which the row stores and nothing else reads.
     pub language: u32,
 }
 

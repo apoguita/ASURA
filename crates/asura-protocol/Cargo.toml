@@ -16,3 +16,6 @@ num-bigint-dig = { workspace = true }
 # `asura-auth/examples/probe.rs`, never by the server's own code. Off by default, so a production
 # build of the wire layer carries no test client.
 test-client = []
+
+[lints]
+workspace = true

@@ -7,7 +7,7 @@
 //! (`docs/HANDOFF.md`, "The objective"), so a packet's identity is a copied fact, not a design:
 //! each row carries the header, the reference's index, its size, its name and its field layout,
 //! and those columns are never edited here. What *is* maintained here is what a session learns
-//! about a packet: its [`Status`] and its evidence.
+//! about a packet: its [`Status`](crate::packets::Status) and its evidence.
 //!
 //! ## The two columns that are facts
 //!
@@ -18,8 +18,8 @@
 //!
 //! ## The two columns a session edits
 //!
-//! * [`Status`] says how far a packet is known: unnamed, named, observed, emitted, handled, or
-//!   inferred. It is the project's progress number, and [`progress`] counts it.
+//! * [`Status`](crate::packets::Status) says how far a packet is known: unnamed, named, observed, emitted, handled, or
+//!   inferred. It is the project's progress number, and [`progress`](crate::packets::progress) counts it.
 //! * `evidence` names where the claim comes from: a capture under `recordings/`, a section of
 //!   `docs/03-protocol.md`, a `file:line`. A name or a function that is a guess says so, and the
 //!   evidence is the thing that makes it a fact.
@@ -133,6 +133,7 @@ pub enum FieldKind {
 /// One field: its kind and, for the kinds that carry a count or a length, that number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Field {
+    /// What the field holds and how it is counted.
     pub kind: FieldKind,
     /// `field.length` in the reference: the unit capacity, the blob size, or 0 when unused.
     pub length: u16,
@@ -2379,9 +2380,9 @@ pub mod game {
     pub const GAME_CMSG_COMPUTER_INFO: u16 = 0x800A;
     /// `GAME_CMSG_COMPUTER_HASH` (`0x800B`).
     pub const GAME_CMSG_COMPUTER_HASH: u16 = 0x800B;
-    /// `GAME_CMSG_INSTANCE_QUERY` (`0x8093`).
     /// `GAME_SMSG_PLAYER_UPDATE_FLAGS` (`0x003C`).
     pub const GAME_SMSG_PLAYER_UPDATE_FLAGS: u16 = 0x003C;
+    /// `GAME_CMSG_INSTANCE_QUERY` (`0x8093`).
     pub const GAME_CMSG_INSTANCE_QUERY: u16 = 0x8093;
 }
 

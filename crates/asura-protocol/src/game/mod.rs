@@ -15,8 +15,8 @@
 //!   write the count themselves instead of mirroring a struct.
 //!
 //! Everything here is server-to-client. The client-to-server messages a world server must *read* are
-//! framed by the generated game table ([`super::client::game_tables`]) through
-//! [`super::client::Frame::decode_game_message`].
+//! framed by the generated game table (`super::client::game_tables`) through
+//! `super::client::Frame::decode_game_message`.
 
 /// The unlockable PvP item table, generated from the reference: 387 `(id, params)` pairs the client
 /// builds its item table from. Data rather than protocol, which is why it is generated and not typed.
@@ -626,16 +626,27 @@ pub fn inventory_create_bag(
 /// UTF-16 code units that are not necessarily characters, and its modifiers are the client's own dwords.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NamedItem {
+    /// The item's own id in the item table.
     pub id: u32,
+    /// The `Gw.dat` file id the client draws the model from.
     pub file_id: u32,
+    /// The item's kind code (`GmItem.h`); the client groups bags and dyes by it.
     pub item_type: u8,
+    /// Which dye slot mask applies; zero for an undyed item.
     pub dye_tint: u8,
+    /// The four packed dye colours, four bits each.
     pub dye_colors: u16,
+    /// Crafting materials the item carries or needs, as the reference packs them.
     pub materials: u16,
+    /// The reference's own unverified byte; copied, not reasoned about.
     pub unk1: u8,
+    /// Item flags: identified, customized, equipped and the rest.
     pub flags: u32,
+    /// The item's value in gold, as the client shows it.
     pub value: u32,
+    /// The model id the client draws, which for some item kinds is not `file_id`.
     pub model_id: u32,
+    /// How many are in the stack; 1 for a non-stackable item.
     pub quantity: u32,
     /// The name, as UTF-16 code units, at most 64.
     pub name: Vec<u16>,
@@ -1103,15 +1114,21 @@ pub fn player_create(
 /// ground (`AgentType_Item`); everything else is what the reference fills from its `GmAgent`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CreateAgent {
+    /// The id the rest of the stream refers to this body by.
     pub agent_id: u32,
+    /// What the client draws: a character class word for a player, an item model for a drop.
     pub model_id: u32,
     /// `AgentType_Living` (1) for a player, `AgentType_Item` (4) for a dropped item.
     pub agent_type: u8,
-
+    /// Where the body stands, in the map's own units.
     pub position: (f32, f32),
+    /// The pathing plane, not a height.
     pub plane: u16,
+    /// Which way it faces, as a unit vector.
     pub direction: (f32, f32),
+    /// Walking speed the client uses until a `0x002B` says otherwise.
     pub speed_base: f32,
+    /// The team the body belongs to; 0 for a neutral body.
     pub player_team_token: u32,
 }
 

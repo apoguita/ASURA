@@ -51,17 +51,26 @@ pub enum FrameError {
     /// `needed` is the whole frame size once the header has been read, or [`HEADER_LEN`] while
     /// even the header is incomplete (GWPS's `ERR_NOT_ENOUGH_DATA` / `ERR_WOULDBLOCK` distinction
     /// collapses into this one signal, because both mean "wait").
-    Incomplete { needed: usize },
+    Incomplete {
+        /// The whole frame size once the header is read, or the header size while it is not.
+        needed: usize,
+    },
     /// A header that is not in the auth table. GWPS logs the bytes and closes the connection
     /// rather than guess; so does this.
-    UnknownHeader { header: u16 },
+    UnknownHeader {
+        /// The header that is in no auth-table row.
+        header: u16,
+    },
     /// The body is not the size this header requires.
     ///
     /// Only [`Frame::encode_validated`] can raise this: a received frame's size came from the
     /// table, so it cannot disagree with it. On the sending side this is the `007` trap.
     SizeMismatch {
+        /// The header whose size was checked.
         header: u16,
+        /// The body size actually built.
         got: usize,
+        /// The size the table requires for that header.
         expected: usize,
     },
 }
