@@ -164,8 +164,9 @@ the question that would sharpen it, never with a conclusion.
 Three kinds of thing, kept apart (`docs/38-layer-decisions.md`, D34, D35):
 
 1. **The client's vocabulary** - `MapType` 0/1/11, message headers, field layouts. The wire layer's,
-   documented there. A file may *state* these values for review and must mark them `immutable`, but
-   changing one changes what this server believes, never what the client does.
+   documented there. A file may *state* these values for review and must mark them `immutable`:
+   changing one does not change what the client does, it only stops this server recognising what its
+   own client sends.
 2. **Values that describe the world** - who spawns where, where a character with no history enters, the
    map catalogue, the cadences this machine runs at. These are **files**, never compiled constants.
 3. **Decisions** - "this destination is not an outpost, so put the character in its last one". These are
@@ -179,10 +180,14 @@ The rules that follow from that, and they are binding:
 - **Where the files go.** `config/Server/` for what this machine runs on (the intervals, the values a
   world falls back on - `asura-config` reads them). `config/World/<pack>/` for what the world contains,
   one JSON per concern, `Vanilla` as the faithful base (`docs/38`, D23, D24).
-- **What a config file holds: values.** One key per value, each with a sentence saying what it means, and
-  `immutable` where it may not be changed. It holds **no provenance and no reporting**: "measured",
-  "implemented", "unverified" are not configuration. Evidence lives in `docs/` with the recording it names
-  beside it - the file answers *what it is*, the document answers *why we believe it*.
+- **What a config file holds: values.** One key per value, each with a sentence saying what it means. It
+  holds **no provenance and no reporting**: "measured", "implemented", "unverified" are not
+  configuration. Evidence lives in `docs/` with the recording it names beside it - the file answers
+  *what it is*, the document answers *why we believe it*.
+- **`immutable` means one thing: changing it breaks what the client expects.** The client's own numbers
+  are immutable; a value the server chooses is not, and the owner may change any of those. `level 1`,
+  `gold 0`, a starting outpost, a fallback map - all adjustable, and none of them carry the flag. Never use
+  `immutable` to mean "we would rather you did not": that is a rule the owner did not ask for.
 - **Values with no answer say so.** A key whose map has not been established is `null`, and the caller
   refuses the action with a logged reason instead of choosing on the player's behalf.
 - **A layer's file list is not a licence.** Before adding a number to a constant, ask which of the three

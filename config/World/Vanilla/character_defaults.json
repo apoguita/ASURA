@@ -2,17 +2,17 @@
   "note": "What a character is given the moment it is created. The confirm writes these onto the character's row, together with the appearance word and the profession the creation screen chose. The unlocked-profession bitmap is not here: it is one bit for the chosen profession, which the confirm derives rather than reads.",
   "level": {
     "value": 1,
-    "immutable": true,
+    "immutable": false,
     "doc": "The level a new character starts at. One, because a character that has never played has earned nothing."
   },
   "gold": {
     "value": 0,
-    "immutable": true,
+    "immutable": false,
     "doc": "The gold a new character starts with."
   },
   "secondary_profession": {
     "value": 0,
-    "immutable": true,
+    "immutable": false,
     "doc": "The secondary profession of a new character: none. The creation flow has no secondary profession - the reference sets one only through CHAR_CREATION_CHANGE_PROF, and its confirm leaves the field zero."
   }
 }

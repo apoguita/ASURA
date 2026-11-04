@@ -19,7 +19,9 @@ pub const FILE: &str = "character_defaults.json";
 pub struct Value<T> {
     /// The value itself.
     pub value: T,
-    /// Whether it may be changed.
+    /// Whether changing it would break what the client expects. For these values it is `false`: a pack
+    /// may start characters at another level, with gold, or with a secondary profession, and the client
+    /// neither knows nor cares. The flag is reserved for the client's own contract (`docs/38`, D35).
     #[serde(default)]
     pub immutable: bool,
     /// What it means.
@@ -101,10 +103,9 @@ mod tests {
         assert_eq!(defaults.level(), 1);
         assert_eq!(defaults.gold(), 0);
         assert_eq!(defaults.secondary_profession(), 0);
-        assert_eq!(
-            defaults.immutable_keys(),
-            vec!["level", "gold", "secondary_profession"],
-            "a new character's starting state is the creation contract"
+        assert!(
+            defaults.immutable_keys().is_empty(),
+            "a pack may change what a new character is worth; the client never sees it"
         );
     }
 
