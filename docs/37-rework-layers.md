@@ -37,7 +37,7 @@ conditions of the next section hold for it.
 | 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | closed |
 | 3 | rules | `asura-rules`, 1 file, 208 lines, 8 tests; **no dependencies** | rules | open |
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | closed |
-| 5 | socket layer | `asura-gateway`, 3 files, 475 lines; depends on 4 | transport | open |
+| 5 | socket layer | `asura-gateway`, 3 files, 490 lines; depends on 4 | transport | `[~]` |
 | 6 | web gate | `asura-webgate`, 2 files, 631 lines | rules | `[ ]` |
 | 7 | world connection and load | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `capture.rs`, `replay.rs` | rules + rates | `[ ]` |
 | 8 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | `[ ]` |
@@ -175,10 +175,12 @@ dials, answers the file check, reads the four classification bytes and hands the
 - [x] the relay is named for what it does: `src/relay.rs`, not `frontdoor.rs`, which named the part after the whole crate - commit `46d0c82`
 - [ ] the file check is answered here rather than by the auth conversation: confirm against a client
       that sends it first, then record the measurement beside the code
-- [ ] `relay.rs` keeps its own copy of the world freshness window (`FRESH_WORLD_AGE_SECS`,
-      `relay.rs`), duplicating `ASURA_WORLD_MAX_AGE_SECS` in `asura-auth::travel`; the two must
-      agree or a client is placed in a world this layer then refuses
-- [ ] `docs/02` and `docs/01` describe the layer; the architecture table in `docs/adr/0006` does not
+- [x] the world freshness window has one source: `FRESH_WORLD_AGE_SECS` is gone from `relay.rs` and
+      `asura_rules::world_max_age_secs` answers for this layer and the login path alike (`docs/38`,
+      D29) - commit `801abfe`, 10 rules, 4 gateway and 3 auth unit tests pass
+- [x] `docs/01` and `docs/02` describe the layer, and `docs/adr/0006` carries the correspondences
+      (accept loop, the auth conversation it calls, the socket it does not pass) and the one deviation
+      named - commit `801abfe`, `docs/adr/0006` "Correspondence between the two systems"
 
 ## Layer 6 - web gate
 
