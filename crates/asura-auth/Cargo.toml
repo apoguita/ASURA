@@ -16,13 +16,12 @@ uuid = { workspace = true }
 getrandom = { workspace = true }
 
 [dev-dependencies]
-# The end-to-end test drives the real listener over a loopback socket, using the reference client in
-# `asura-protocol::client::peer`. No game client is involved. The fake client is compiled only on
-# request (`docs/38-layer-decisions.md`, D13), so the tests and `examples/probe.rs` ask for it here.
+# `examples/probe.rs` and `examples/login.rs` speak the protocol directly through the fake client,
+# which is compiled only on request (`docs/38-layer-decisions.md`, D13). The end-to-end tests drive the
+# socket layer, so they live there (`crates/asura-gateway/tests/`): a dev-dependency on it here would
+# make the two crates depend on each other.
 tokio = { workspace = true }
 asura-protocol = { path = "../asura-protocol", features = ["test-client"] }
-# The tests drive the socket layer, which is what accepts a client now (`docs/38`, D26).
-asura-gateway = { path = "../asura-gateway" }
 
 [lints]
 workspace = true

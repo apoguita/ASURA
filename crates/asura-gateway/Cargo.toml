@@ -21,3 +21,4 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 asura-protocol = { path = "../asura-protocol", features = ["test-client"] }
+tokio = { workspace = true }
