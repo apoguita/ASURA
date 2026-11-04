@@ -129,7 +129,8 @@ Files: `packets.rs` 2,106 (782 rows, 403 consts), `game/mod.rs` 1,711, `game/app
 
 - [x] the instance table is data, not a codec: it moved to `crates/asura-world/src/instance_table.rs`
       (where it is sent), and `docs/38` D36 gives it its real home - constructed from the pack's map
-      folders when the pack exists. That step is layer 15's, not this layer's
+      folders. That step landed: the pairs are walked out of `config/World/Vanilla/maps/`, 137 of them,
+      and the wire crate holds none
 - [x] the default appearance is a value: `config/World/Vanilla/character_defaults.json` (`appearance`),
       and `Appearance` is a pure codec again
 - [x] the file check's two byte strings are the client's payload: `config/Server/file_check.json`, with
