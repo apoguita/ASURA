@@ -1,4 +1,4 @@
-﻿//! The reads a world server needs: which map blob to load, where to spawn, and who the character is.
+//! The reads a world server needs: which map blob to load, where to spawn, and who the character is.
 //!
 //! Small on purpose. A world server owns the gameplay connection and its own in-memory simulation;
 //! what it takes from the database is the handful of facts a client cannot be told without, and what
@@ -219,15 +219,44 @@ pub struct Settings {
     pub pieces: Vec<ArmourPiece>,
 }
 
+/// One `characters` row, as [`settings`] reads it: the columns the settings block is built from.
+struct CharacterRow {
+    last_outpost: i32,
+    map_id: i32,
+    appearance: i32,
+    campaign: i32,
+    level: i32,
+    is_pvp: bool,
+    secondary_profession: i32,
+    helm_status: i32,
+}
+
+// Decoded by column name, which is why the query casts every narrow column to `int`: one row type for
+// the settings block, and a column renamed in the SQL fails here rather than in a client assertion.
+// Hand-written because the crate does not enable sqlx's derive macros - see `Cargo.toml`.
+impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for CharacterRow {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        use sqlx::Row;
+        Ok(CharacterRow {
+            last_outpost: row.try_get("last_outpost")?,
+            map_id: row.try_get("map_id")?,
+            appearance: row.try_get("appearance")?,
+            campaign: row.try_get("campaign")?,
+            level: row.try_get("level")?,
+            is_pvp: row.try_get("is_pvp")?,
+            secondary_profession: row.try_get("secondary_profession")?,
+            helm_status: row.try_get("helm_status")?,
+        })
+    }
+}
 /// The settings of one character, or `None` if there is no such row.
 pub async fn settings(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Settings>> {
     // The casts are not decoration: `smallint` and `integer` decode into different Rust types, and a
     // database that has one of each (a development database that has had migrations applied by hand) is
     // not worth a runtime error. Everything comes back as `int` and is narrowed below.
-    // One row, decoded in one go. The tuple is wide because the row is, and a struct for it would be used
-    // once and named nowhere else.
-    #[allow(clippy::type_complexity)]
-    let row: Option<(i32, i32, i64, i32, i32, bool, i32, i32)> = sqlx::query_as(
+    // One row, decoded in one go. Named fields rather than an eight-wide tuple, so a column added in
+    // the wrong order is a compile error instead of a swapped value (`docs/38-layer-decisions.md`, D16).
+    let row: Option<CharacterRow> = sqlx::query_as(
         "SELECT last_outpost::int, map_id, appearance, campaign::int, level::int, is_pvp,
                 secondary_profession::int, helm_status::int
            FROM characters WHERE id = $1",
@@ -235,8 +264,16 @@ pub async fn settings(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Set
     .bind(character)
     .fetch_optional(pool)
     .await?;
-    let Some((last_outpost, row_map_id, appearance, campaign, level, is_pvp, secondary, helm)) =
-        row
+    let Some(CharacterRow {
+        last_outpost,
+        map_id: row_map_id,
+        appearance,
+        campaign,
+        level,
+        is_pvp,
+        secondary_profession: secondary,
+        helm_status: helm,
+    }) = row
     else {
         return Ok(None);
     };

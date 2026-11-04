@@ -523,26 +523,7 @@ pub async fn create_character(
 
 /// One item row from the generated seed, returning the id the sequence gave it.
 async fn insert_item(tx: &mut PgConnection, character: Uuid, seed: &SeedItem) -> sqlx::Result<i32> {
-    insert_row(
-        tx,
-        character,
-        seed.bag_id,
-        seed.slot,
-        seed.file_id,
-        seed.item_type,
-        seed.model_id,
-        seed.dye_tint,
-        seed.dye_colors,
-        seed.materials,
-        seed.unk1,
-        seed.flags,
-        seed.value,
-        seed.quantity,
-        seed.profession,
-        seed.name,
-        seed.modifiers,
-    )
-    .await
+    insert_row(tx, character, ItemColumns::from(seed)).await
 }
 
 /// One item row from a runtime set, returning the id the sequence gave it.
@@ -551,32 +532,15 @@ async fn insert_new_item(
     character: Uuid,
     item: &NewItem,
 ) -> sqlx::Result<i32> {
-    insert_row(
-        tx,
-        character,
-        item.bag_id,
-        item.slot,
-        item.file_id,
-        item.item_type,
-        item.model_id,
-        item.dye_tint,
-        item.dye_colors,
-        item.materials,
-        item.unk1,
-        item.flags,
-        item.value,
-        item.quantity,
-        item.profession,
-        &item.name,
-        &item.modifiers,
-    )
-    .await
+    insert_row(tx, character, ItemColumns::from(item)).await
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn insert_row(
-    tx: &mut PgConnection,
-    character: Uuid,
+/// The sixteen columns one `item` INSERT writes, borrowed from whichever record produced them.
+///
+/// A struct rather than fifteen positional arguments: `SeedItem` and `NewItem` carry the same columns
+/// with different ownership, so one borrow view serves both and a swapped pair cannot compile
+/// (`docs/38-layer-decisions.md`, D16).
+struct ItemColumns<'a> {
     bag_id: Option<i32>,
     slot: Option<i32>,
     file_id: i64,
@@ -590,8 +554,58 @@ async fn insert_row(
     value: i32,
     quantity: i32,
     profession: i32,
-    name: &[i32],
-    modifiers: &[i64],
+    name: &'a [i32],
+    modifiers: &'a [i64],
+}
+
+impl<'a> From<&'a SeedItem> for ItemColumns<'a> {
+    fn from(item: &'a SeedItem) -> Self {
+        ItemColumns {
+            bag_id: item.bag_id,
+            slot: item.slot,
+            file_id: item.file_id,
+            item_type: item.item_type,
+            model_id: item.model_id,
+            dye_tint: item.dye_tint,
+            dye_colors: item.dye_colors,
+            materials: item.materials,
+            unk1: item.unk1,
+            flags: item.flags,
+            value: item.value,
+            quantity: item.quantity,
+            profession: item.profession,
+            name: item.name,
+            modifiers: item.modifiers,
+        }
+    }
+}
+
+impl<'a> From<&'a NewItem> for ItemColumns<'a> {
+    fn from(item: &'a NewItem) -> Self {
+        ItemColumns {
+            bag_id: item.bag_id,
+            slot: item.slot,
+            file_id: item.file_id,
+            item_type: item.item_type,
+            model_id: item.model_id,
+            dye_tint: item.dye_tint,
+            dye_colors: item.dye_colors,
+            materials: item.materials,
+            unk1: item.unk1,
+            flags: item.flags,
+            value: item.value,
+            quantity: item.quantity,
+            profession: item.profession,
+            name: &item.name,
+            modifiers: &item.modifiers,
+        }
+    }
+}
+
+async fn insert_row(
+    tx: &mut PgConnection,
+    character: Uuid,
+    item: ItemColumns<'_>,
 ) -> sqlx::Result<i32> {
     sqlx::query_scalar(
         "INSERT INTO item (character_id, bag_id, slot, file_id, item_type, model_id, dye_tint,
@@ -601,21 +615,21 @@ async fn insert_row(
          RETURNING id",
     )
     .bind(character)
-    .bind(bag_id)
-    .bind(slot)
-    .bind(file_id)
-    .bind(item_type)
-    .bind(model_id)
-    .bind(dye_tint)
-    .bind(dye_colors)
-    .bind(materials)
-    .bind(unk1)
-    .bind(flags)
-    .bind(value)
-    .bind(quantity)
-    .bind(profession)
-    .bind(name.to_vec())
-    .bind(modifiers.to_vec())
+    .bind(item.bag_id)
+    .bind(item.slot)
+    .bind(item.file_id)
+    .bind(item.item_type)
+    .bind(item.model_id)
+    .bind(item.dye_tint)
+    .bind(item.dye_colors)
+    .bind(item.materials)
+    .bind(item.unk1)
+    .bind(item.flags)
+    .bind(item.value)
+    .bind(item.quantity)
+    .bind(item.profession)
+    .bind(item.name.to_vec())
+    .bind(item.modifiers.to_vec())
     .fetch_one(tx)
     .await
 }
