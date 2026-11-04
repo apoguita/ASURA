@@ -38,7 +38,7 @@ conditions of the next section hold for it.
 | 3 | rules | `asura-rules`, 1 file, 208 lines, 8 tests; **no dependencies** | rules | open |
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | closed |
 | 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | `[x]` closed |
-| 6 | web gate | `asura-webgate`, 2 files, 631 lines | rules | `[ ]` |
+| 6 | web gate | `asura-webgate`, 2 files, 696 lines | rules | `[x]` closed |
 | 7 | world connection and load | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `capture.rs`, `replay.rs` | rules + rates | `[ ]` |
 | 8 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | `[ ]` |
 | 9 | travel | `travel.rs`, `portals.rs`, `travel_targets.rs` | rules + content | `[~]` |
@@ -190,10 +190,20 @@ dials, answers the file check, reads the four classification bytes and hands the
 
 ## Layer 6 - web gate
 
-Files: `lib.rs` 528, `main.rs` 103.
+Files: `lib.rs` 581, `main.rs` 115. The portal web gate: the four HTTP answers the
+client takes its identity from before it logs in (`docs/03-protocol.md` #4), plus `/health`.
 
-- [ ] the four endpoints' answers checked against `config/` for anything that is content
-- [ ] `/health` recorded as operational, not content
+- [x] the four answers checked and they hold no content: every body is a fixed reference string or
+      a database lookup - the session id is minted, `UserId` and `Token` come from `asura_db::portal`,
+      and the rest (`:John.10`, the `ResumeToken` placeholder, `Alias` `gw1`, `Created` 2005-01-01) is
+      copied from the reference's `webgate.py:90-92` and belongs to the wire, like a field layout. The
+      crate reads no file at all: `lib.rs` has no `std::fs` and no `include_str`, and its only settings
+      are the bind address and the database URL (`main.rs:39,51`). The account list is rows, seeded by
+      `tools/seed-dev.sql:15` - operational state under `docs/38`, D21 - checked against `lib.rs` 130-196
+- [x] `/health` recorded as operational: a `GET` that answers `ok` so the supervisor can ask "are you
+      alive", added by this project and not one of the reference's routes (`lib.rs:14-15,190-193`, and
+      the route table says so again). Not content, and nothing reads it but supervision - checked against
+      `main.rs:39,51` and `config/services.toml` (`[services.webgate]`, `health = { tcp = ... }`)
 
 ## Layer 7 - world connection and load
 
