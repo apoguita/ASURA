@@ -409,7 +409,7 @@ mod tests {
     fn the_block_sends_the_characters_own_appearance_not_the_default() {
         // The reference's load block carries whatever `HandleCharCreationConfirm` stored
         // (`GameSrv.c:1869-1886`). Before the traits existed this server sent
-        // `Appearance::REFERENCE_DEFAULT` to everyone, so every character looked the same.
+        // one default appearance to everyone, so every character looked the same.
         let map = test_map();
         let standing = Standing::from_map(&map);
         let inventory = db_inventory::default_inventory();
@@ -470,8 +470,11 @@ mod tests {
                 created.body()[10],
                 created.body()[11]
             ]),
-            game::Appearance::REFERENCE_DEFAULT.pack(),
-            "an unrecorded appearance falls back to the reference's default"
+            crate::character_defaults::load(&crate::spawns::pack())
+                .expect("the committed character defaults")
+                .appearance()
+                .pack(),
+            "an unrecorded appearance falls back to the configured default"
         );
     }
 

@@ -36,6 +36,45 @@ pub struct CharacterDefaults {
     pub gold: Value<u32>,
     /// The secondary profession of a new character.
     pub secondary_profession: Value<u8>,
+    /// The look of a character with no appearance recorded.
+    pub appearance: Value<AppearanceDefaults>,
+}
+
+/// An appearance as the file states it: the client's own bit field, one field per key.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct AppearanceDefaults {
+    /// 1 bit.
+    pub sex: u8,
+    /// 4 bits.
+    pub height: u8,
+    /// 5 bits.
+    pub skin_color: u8,
+    /// 5 bits.
+    pub hair_color: u8,
+    /// 5 bits.
+    pub face_style: u8,
+    /// 4 bits.
+    pub primary_profession: u8,
+    /// 6 bits.
+    pub hair_style: u8,
+    /// 2 bits: 0 Prophecies, 1 Factions, 2 Nightfall.
+    pub race: u8,
+}
+
+impl AppearanceDefaults {
+    /// The wire type this file's values describe.
+    pub fn to_appearance(&self) -> asura_protocol::game::Appearance {
+        asura_protocol::game::Appearance {
+            sex: self.sex,
+            height: self.height,
+            skin_color: self.skin_color,
+            hair_color: self.hair_color,
+            face_style: self.face_style,
+            primary_profession: self.primary_profession,
+            hair_style: self.hair_style,
+            race: self.race,
+        }
+    }
 }
 
 impl CharacterDefaults {
@@ -57,6 +96,11 @@ impl CharacterDefaults {
     /// The secondary profession, as the number rather than the wrapper.
     pub fn secondary_profession(&self) -> u8 {
         self.secondary_profession.value
+    }
+
+    /// The look of a character with no appearance of its own.
+    pub fn appearance(&self) -> asura_protocol::game::Appearance {
+        self.appearance.value.to_appearance()
     }
 }
 
@@ -83,6 +127,11 @@ mod tests {
         assert_eq!(defaults.level(), 1);
         assert_eq!(defaults.gold(), 0);
         assert_eq!(defaults.secondary_profession(), 0);
+        assert_eq!(
+            defaults.appearance().pack(),
+            0x0310_0000,
+            "profession 1 and hair style 3, the bits the reference sends"
+        );
         assert!(
             defaults.level.doc.is_some() && defaults.gold.doc.is_some(),
             "every value says what it is"

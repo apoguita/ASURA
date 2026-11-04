@@ -10,6 +10,10 @@
 /// appearance says `Profession_None` with hair style 0 -- a model it has no data for. The reference's
 /// own character sends `0x03100000` in `GAME_SMSG_PLAYER_CREATE` (its own trace, read by
 /// `tools/compare-load.py`), which decodes as profession 1 and hair style 3.
+///
+/// The *default* the server sends for a character with no bits of its own is not here: that is a value,
+/// and it is `config/World/Vanilla/character_defaults.json` (`appearance`). This type only packs and
+/// unpacks a word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Appearance {
     /// 1 bit.
@@ -31,19 +35,6 @@ pub struct Appearance {
 }
 
 impl Appearance {
-    /// The appearance the reference reports for its default character: profession 1 (Warrior) and
-    /// hair style 3, everything else zero. It is a copy of the wire, not a design.
-    pub const REFERENCE_DEFAULT: Appearance = Appearance {
-        sex: 0,
-        height: 0,
-        skin_color: 0,
-        hair_color: 0,
-        face_style: 0,
-        primary_profession: 1,
-        hair_style: 3,
-        race: 0,
-    };
-
     /// Pack into the wire's 32-bit word, in the client's field order.
     pub fn pack(&self) -> u32 {
         (u32::from(self.sex) & 0x1)

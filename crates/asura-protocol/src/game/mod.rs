@@ -1840,31 +1840,34 @@ mod tests {
         );
     }
 
+    /// The word the reference's own `PLAYER_CREATE` carries for its character: profession 1 (Warrior) and
+    /// hair style 3, everything else zero. Written out here because this crate packs and unpacks a word;
+    /// the *default* a server sends for a character with no bits of its own is a value, and it lives in
+    /// `config/World/Vanilla/character_defaults.json`.
+    const REFERENCE_WORD: u32 = 0x0310_0000;
+
     #[test]
     fn the_appearance_bitfield_matches_the_clients_own_word() {
-        // The reference's `PLAYER_CREATE` carries 0x03100000 for its character. If this packing is
-        // wrong the client builds a model out of nonsense, so the number is asserted from the wire.
-        assert_eq!(Appearance::REFERENCE_DEFAULT.pack(), 0x0310_0000);
-        let unpacked = Appearance::unpack(0x0310_0000);
+        // If this packing is wrong the client builds a model out of nonsense, so the number is asserted
+        // from the wire.
+        let unpacked = Appearance::unpack(REFERENCE_WORD);
         assert_eq!(unpacked.primary_profession, 1, "Warrior");
         assert_eq!(unpacked.hair_style, 3);
         assert_eq!(unpacked.race, 0, "Prophecies");
         assert_eq!(unpacked.sex, 0);
         assert_eq!(unpacked.height, 0);
         assert_eq!(
-            Appearance::unpack(Appearance::REFERENCE_DEFAULT.pack()),
-            Appearance::REFERENCE_DEFAULT
+            unpacked.pack(),
+            REFERENCE_WORD,
+            "packing what was unpacked returns the same word"
         );
     }
 
     #[test]
-    fn a_zero_appearance_is_not_the_default_one() {
+    fn a_zero_appearance_is_not_the_references_word() {
         // The bug this exists to prevent: 0 packs to profession 0 (Profession_None) and hair 0, which
         // is a character model the client has no data for.
-        assert_ne!(
-            Appearance::default().pack(),
-            Appearance::REFERENCE_DEFAULT.pack()
-        );
+        assert_ne!(Appearance::default().pack(), REFERENCE_WORD);
         assert_eq!(Appearance::unpack(0).primary_profession, 0);
     }
 

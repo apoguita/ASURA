@@ -82,11 +82,26 @@ impl CharacterSpawns {
 }
 
 /// The pack in force: `ASURA_WORLD_PACK`, or [`DEFAULT_PACK`].
+///
+/// A world is started from the repository root and finds the pack in its working directory; a test is
+/// started from the crate's directory and does not. Both are the same folder, so a relative path that is
+/// not there is retried against the workspace root this crate was built in.
 pub fn pack() -> PathBuf {
-    match std::env::var(PACK_VARIABLE) {
+    let configured = match std::env::var(PACK_VARIABLE) {
         Ok(value) if !value.trim().is_empty() => PathBuf::from(value.trim()),
         _ => PathBuf::from(DEFAULT_PACK),
+    };
+    if configured.is_absolute() || configured.exists() {
+        return configured;
     }
+    let rooted = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join(&configured);
+    if rooted.exists() {
+        return rooted;
+    }
+    configured
 }
 
 /// Read `<pack>/character_spawn.json`.

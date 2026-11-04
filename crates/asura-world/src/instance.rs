@@ -333,7 +333,9 @@ pub fn introduction(peer: &PeerView) -> Vec<Frame> {
         game::player_create(
             peer.player_id,
             peer.agent_id,
-            game::Appearance::REFERENCE_DEFAULT.pack(),
+            crate::character_defaults::load(&crate::spawns::pack())
+                .map(|defaults| defaults.appearance().pack())
+                .unwrap_or_default(),
             &peer.name,
         ),
         game::player_update_party_size(peer.player_id, 1),

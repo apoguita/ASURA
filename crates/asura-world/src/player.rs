@@ -283,7 +283,12 @@ pub fn player_block(block: &PlayerBlock<'_>) -> Vec<Frame> {
     // The appearance the client chose, or the reference's default for a character with no bits recorded:
     // all-zero bits say `Profession_None`, which is not a character the client can draw.
     let appearance = if traits.appearance == 0 {
-        game::Appearance::REFERENCE_DEFAULT.pack()
+        // The look for a character with no bits of its own
+        // (`config/World/Vanilla/character_defaults.json`, `appearance`): all-zero bits are
+        // `Profession_None`, which the client cannot draw.
+        crate::character_defaults::load(&crate::spawns::pack())
+            .map(|defaults| defaults.appearance().pack())
+            .unwrap_or_default()
     } else {
         traits.appearance
     };
