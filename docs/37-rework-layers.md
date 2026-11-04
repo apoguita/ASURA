@@ -153,7 +153,7 @@ the integration tests live in `crates/asura-gateway/tests/`.
       commit `4b09d17`; clippy `-D warnings` and `cargo doc` pass
 - [x] no lint suppression, no dead code: the three error variants only classification and routing could
       raise left with those jobs - commit `099b0f0`
-- [x] `frontdoor.rs` left auth: the socket layer is `crates/asura-gateway` - listener, file check,
+- [x] the relay left auth: the socket layer is `crates/asura-gateway` - listener, file check,
       classification, relay (`docs/38`, D26) - commit `be99de2`; auth is a library call from it and
       has no `main.rs`
 - [x] the supervisor starts `asura-gateway` on the auth port (`config/services.toml`,
@@ -164,17 +164,18 @@ The dependency runs one way: `asura-rules` (no dependencies) <- `asura-auth` <- 
 why the three are layers 3, 4 and 5 in that order (`docs/38-layer-decisions.md`, D27).
 ## Layer 5 - socket layer (`asura-gateway`)
 
-Files: `src/lib.rs` 214, `src/frontdoor.rs` 176, `src/main.rs` 85. It listens on the address a client
+Files: `src/lib.rs` 214, `src/relay.rs` 176, `src/main.rs` 85. It listens on the address a client
 dials, answers the file check, reads the four classification bytes and hands the socket on
 (`docs/38`, D26).
 
 - [x] created and wired: `asura-auth` has no listener and no `main.rs`, and `config/services.toml`
       `[services.auth]` starts `asura-gateway` - commit `be99de2`, so a client sees no change
 - [x] the crate adopts the lint policy (`docs/38`, D17) and `cargo doc` builds - commit `be99de2`
+- [x] the relay is named for what it does: `src/relay.rs`, not `frontdoor.rs`, which named the part after the whole crate - commit `46d0c82`
 - [ ] the file check is answered here rather than by the auth conversation: confirm against a client
       that sends it first, then record the measurement beside the code
-- [ ] `frontdoor.rs` keeps its own copy of the world freshness window (`FRESH_WORLD_AGE_SECS`,
-      `frontdoor.rs`), duplicating `ASURA_WORLD_MAX_AGE_SECS` in `asura-auth::travel`; the two must
+- [ ] `relay.rs` keeps its own copy of the world freshness window (`FRESH_WORLD_AGE_SECS`,
+      `relay.rs`), duplicating `ASURA_WORLD_MAX_AGE_SECS` in `asura-auth::travel`; the two must
       agree or a client is placed in a world this layer then refuses
 - [ ] `docs/02` and `docs/01` describe the layer; the architecture table in `docs/adr/0006` does not
 
