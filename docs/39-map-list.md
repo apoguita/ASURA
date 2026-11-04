@@ -11,6 +11,8 @@ and nothing in `crates/` reads it. What it answers is one question - what is map
   `name_to_map_id`), transcribed there from Reforged's `Py4GWCoreLib/enums_src/Map_enums.py`.
 - They are **complete tables**, not a per-map lookup: every outpost and every explorable has a row, and
   the reverse maps exist, so an id names a map and a name names an id with no client running.
+- The 43 ids these tables do not carry are named from GWCA's `MapID` enum instead (below), which is a
+  name table too; neither source carries a campaign or a region.
 - Campaign and region are **not** in these tables. They are one `AreaInfo` record per map id
   (`campaign`, `region`, `type`, `file_id`; `py4gw/context/instance_info_context.py`), read from a
   client through `GetMapInfo(map_id)`. This list names maps; it does not place them in a campaign or a
@@ -692,10 +694,73 @@ a load for.
 
 ## The pack's ids these tables do not name (43)
 
-These have a folder and an instance value in `config/World/Vanilla/maps/`, and no row in either table.
-They are named by the client's `AreaInfo` record (`name_id`) or not at all; they are not invented here.
+These have a folder and an instance value in `config/World/Vanilla/maps/`, and no row in either of the
+two tables above. They are not gaps and they are not unused: they are rows of the same live instance
+table, and they are the arena and mission twins of the named maps - `_mission` and `_mission2` copies
+that share an instance value with their outpost - plus the level splits of the pre-Searing dungeons.
 
-74, 185, 186, 229, 231, 299, 355, 356, 357, 358, 366, 533, 534, 535, 541, 542, 594, 595, 599, 709, 713, 714, 779, 787, 823, 824, 825, 826, 827, 828, 829, 831, 832, 833, 834, 835, 836, 877, 878, 879, 880, 881, 882
+Their names come from GWCA's `MapID` enum (`GWToolboxpp`, `Dependencies/GWCA/include/GWCA/Constants/
+Maps.h`, commit `1ce867e5`): an enumeration of the game's map ids, which names every one of the 137
+ids in the pack. The suffixes are that enum's own way of telling apart ids that share a location.
+
+| id | name in the MapID enum |
+|---|---|
+| 74 | Tournament_6 |
+| 185 | The_Underworld_gvg_mission |
+| 186 | The_Underworld_guild_hall |
+| 229 | The_Ancestral_Lands_mission |
+| 231 | Kaanai_Canyon_mission |
+| 299 | Saltspray_Beach_mission |
+| 355 | Isle_of_Weeping_Stone_mission |
+| 356 | Isle_of_Jade_mission |
+| 357 | Imperial_Isle_mission |
+| 358 | Isle_of_Meditation_mission |
+| 366 | Shing_Jea_Arena_mission |
+| 533 | Uncharted_Isle_mission |
+| 534 | Isle_of_Wurms_mission |
+| 535 | Ahmtur_Arena_mission |
+| 541 | Corrupted_Isle_mission |
+| 542 | Isle_of_Solitude_mission |
+| 594 | Overlook_mission |
+| 595 | Cemetery_mission |
+| 599 | Collision_mission |
+| 709 | The_Crossing_mission2 |
+| 713 | Bombardment_mission2 |
+| 714 | Desert_Sands_mission2 |
+| 779 | Piken_Square_pre_Searing_outpost |
+| 787 | Dwayna_vs_Grenth_gvg |
+| 823 | DAlessio_Arena_mission4 |
+| 824 | Amnoon_Arena_mission4 |
+| 825 | Churranu_Island_Arena_mission2 |
+| 826 | Fort_Koga_mission4 |
+| 827 | Petrified_Arena_mission2 |
+| 828 | Heroes_Crypt_mission4 |
+| 829 | Seabed_Arena_mission2 |
+| 831 | Brawlers_Pit_mission2 |
+| 832 | The_Crag_mission2 |
+| 833 | Sunspear_Arena_mission2 |
+| 834 | Shing_Jea_Arena_mission2 |
+| 835 | Ascalon_Arena_mission2 |
+| 836 | Shiverpeak_Arena_mission4 |
+| 877 | Forsaken_Tunnels_Presearing_Level2 |
+| 878 | Forsaken_Tunnels_Presearing_Level3 |
+| 879 | Unknown_879 |
+| 880 | Forsaken_Tunnels_Level1 |
+| 881 | Forsaken_Tunnels_Level2 |
+| 882 | Forsaken_Tunnels_Level3 |
 
 Id 474 appears in both tables. It is copied as it stands rather than deduplicated: the client's own
 tables are the witness, and a choice between them would be ours.
+
+## Where the rest of the map data lives
+
+GWToolboxpp at the same commit (`1ce867e5`) answers three more questions about maps, and none of them
+is a campaign or a region:
+
+- `GWToolboxdll/Constants/MapAdjacency.h` - which maps touch which: groups of adjacent maps, which is
+  what cross-map pathing needs.
+- `GWToolboxdll/Modules/Resources.cpp` - a map's name is `DecodeStringId(area->name_id)`, the client's
+  string table keyed by the `AreaInfo` record's `name_id`; a region's name is one fixed enum string per
+  `GW::Region` (`Region_Ascalon` and `Region_Presearing` share one, `Region_NorthernShiverpeaks` does
+  not distinguish north from south).
+- `GWToolboxdll/Windows/Pathfinding/maps_constant_data.h` - per-map constants the pathfinder reads.
