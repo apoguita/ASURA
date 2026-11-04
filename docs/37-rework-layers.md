@@ -20,6 +20,26 @@ conditions of the next section hold for it.
 5. **`.\tools\ascii-check.ps1` exits 0** and the tests the change touches pass.
 6. **A real client was tested** wherever the layer is client-visible.
 
+## The audit: why no layer is closed
+
+Every layer's boxes were ticked from work that was done, and that turned out not to answer the question
+that matters. Layer 1 read `[-]` holds by design while it carried 137 hand-copied instance pairs, two
+file-check payloads, a 591-byte login payload and a default appearance - data, in a layer of codecs. A
+ticked box says a task was done; it does not say the layer is clean.
+
+So each layer is audited, once, by the four questions from `AGENTS.md` 4a, file by file:
+
+1. Does the file hold **the client's vocabulary** - its own enum values, header numbers, payloads?
+2. Does it hold **values that describe the world** - maps, spawns, defaults, cadences?
+3. Does it hold **runtime state** - rows that change while the server runs?
+4. Does it hold a **decision** - "when X then Y" over data the caller already passes in?
+
+Anything that is none of those is ordinary code and stays. Anything that is (1) or (2) is a candidate for
+a file; (3) belongs to the layer that owns the entity; (4) belongs to layer 3.
+
+A layer is closed when its boxes are done **and** its audit finds nothing left to move. Until then it is
+`audit pending`, including the layers that read `closed` before this section existed.
+
 ## Notation
 
 - `[ ]` open - not started
@@ -33,24 +53,24 @@ conditions of the next section hold for it.
 |---|---|---|---|---|
 | # | layer | files (measured) | class | status |
 |---|---|---|---|---|
-| 1 | wire and codec | `asura-protocol`, 16 files, 7,952 lines | evidence | `[-]` closed |
-| 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | closed |
-| 3 | rules | `asura-rules`, 1 file, 283 lines, 9 tests; depends on 1 for the client's `MapKinds` | rules | `[x]` closed |
-| 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | closed |
-| 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | `[x]` closed |
-| 6 | web gate | `asura-webgate`, 2 files, 696 lines | rules | `[x]` closed |
-| 7 | sessions | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `catalogue.rs`; `capture.rs` and `replay.rs` behind `harness` | rules + rates | `[x]` closed |
-| 8 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | `[ ]` |
-| 9 | travel | `travel.rs`, `portals.rs`, `travel_targets.rs` | rules + content | `[~]` |
-| 10 | character | `creation.rs` | rules + content | `[ ]` |
-| 11 | items | `item.rs`, `pvp_items.rs` | rules + content | `[ ]` |
-| 12 | chat and commands | `chat.rs` | rules + one table | `[ ]` |
-| 13 | map data and pathing | `map_data.rs`, `pathfind.rs`, `gwdat.rs`, `fa_compress.rs`, `fa_compress_tables.rs`, `path_tables.rs`, `graph_dump.rs` | measured data | `[-]` |
-| 14 | cartography | `cartography.rs` | measured data | `[-]` |
-| 15 | content itself | four homes, see layer 15 | content | `[~]` |
-| 16 | supervision and operations | `asura-supervisor`, 10 files, 2,070 lines, `config/services.toml` | operations | `[x]` |
-| 17 | harness | `asura-fakeworld` 307 lines, 12 test files, 5 examples | harness | `[ ]` |
-| 18 | evidence | `recordings/`, `data/portals.json`, `client-patcher/`, `logs/` | evidence | `[-]` |
+| 1 | wire and codec | `asura-protocol`, 16 files, 7,952 lines | evidence | audit pending |
+| 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | audit pending |
+| 3 | rules | `asura-rules`, 1 file, 283 lines, 9 tests; depends on 1 for the client's `MapKinds` | rules | audit pending |
+| 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | audit pending |
+| 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | audit pending |
+| 6 | web gate | `asura-webgate`, 2 files, 696 lines | rules | audit pending |
+| 7 | sessions | `asura-world`: `connection.rs`, `dispatch.rs`, `world.rs`, `map.rs`, `catalogue.rs`; `capture.rs` and `replay.rs` behind `harness` | rules + rates | audit pending |
+| 8 | instance and simulation | `instance.rs`, `agent.rs`, `player.rs` | rules + rates | audit pending |
+| 9 | travel | `travel.rs`, `portals.rs`, `travel_targets.rs` | rules + content | audit pending |
+| 10 | character | `creation.rs` | rules + content | audit pending |
+| 11 | items | `item.rs`, `pvp_items.rs` | rules + content | audit pending |
+| 12 | chat and commands | `chat.rs` | rules + one table | audit pending |
+| 13 | map data and pathing | `map_data.rs`, `pathfind.rs`, `gwdat.rs`, `fa_compress.rs`, `fa_compress_tables.rs`, `path_tables.rs`, `graph_dump.rs` | measured data | audit pending |
+| 14 | cartography | `cartography.rs` | measured data | audit pending |
+| 15 | content itself | four homes, see layer 15 | content | audit pending |
+| 16 | supervision and operations | `asura-supervisor`, 10 files, 2,070 lines, `config/services.toml` | operations | audit pending |
+| 17 | harness | `asura-fakeworld` 307 lines, 12 test files, 5 examples | harness | audit pending |
+| 18 | evidence | `recordings/`, `data/portals.json`, `client-patcher/`, `logs/` | evidence | audit pending |
 
 ## Layer 1 - wire and codec
 
