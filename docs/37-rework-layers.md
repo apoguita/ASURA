@@ -66,6 +66,12 @@ Files: `packets.rs` (2,105; 782 rows, 403 consts), `game/mod.rs` (1,754; 109 con
       every login (`messages.rs:577`), so it stays in the wire layer
 - [x] header numbers have one source: `MAP_INIT_START` and `INSTANCE_TABLE` aliased `packets.rs`, the
       last two literals of 66 - commit `31b5bfa`, 93 protocol tests pass
+- [x] the layer passes the repository's own checks: `cargo clippy -p asura-protocol --all-targets
+      -- -D warnings` and `cargo fmt --check` are both clean for this crate - commits `f62ee4a`
+      (two needless borrows) and `276a8c2` (rustfmt on `frame.rs`)
+- [ ] the thirteen files `cargo fmt --all --check` still rewrites live in `asura-auth` (3) and
+      `asura-world` (10); each belongs to its own layer, so CI stays red until layers 3 and 5-10
+      are visited
 
 ## Layer 2 - storage and schema
 
