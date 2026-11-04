@@ -589,53 +589,25 @@ mod tests {
         );
     }
 
-    /// The instance table the client is given: the batches a live load carried, each framed at the row's
-    /// own layout (a `u8` count then `{u16 instance, u32 value}` pairs), and the same walker that frames
-    /// a client message consumes exactly the bytes the builder wrote.
     #[test]
-    fn the_instance_table_carries_what_the_capture_holds_and_frames_as_its_row_says() {
-        let batches: usize = crate::instance_table::INSTANCE_TABLE.len();
-        assert_eq!(batches, 10, "the live load carried ten of these");
+    fn the_instance_table_is_walked_from_the_pack_and_framed_by_the_wire_layer() {
+        // The pairs are the pack's map folders (`instance_table`, `docs/38` D36): 137 maps, ordered by
+        // id, framed as `0x01A0` batches of at most fifteen.
+        let (table, notes) = crate::instance_table::table_for(&crate::instance_table::pack());
+        assert!(notes.is_empty(), "the committed pack parses: {notes:?}");
+        assert_eq!(table.pairs.len(), 137, "the maps the recording named");
+        assert!(table.pairs.contains(&(148, 0xBB14_F539)));
 
-        let pairs: usize = crate::instance_table::INSTANCE_TABLE
-            .iter()
-            .map(|batch| batch.len())
-            .sum();
-        assert_eq!(
-            pairs, 137,
-            "137 of the live table's 147 pairs: every recorded message was four bytes short, and the \
-             ten values that were cut are absent rather than invented"
-        );
-        assert_eq!(
-            crate::instance_table::INSTANCE_TABLE[0][0],
-            (148, 0xBB14_F539),
-            "the first pair is the instance the capture was taken in"
-        );
-
-        for batch in crate::instance_table::INSTANCE_TABLE {
-            let frame = game::instance_table(batch);
-            let bytes = frame.encode();
+        let frames = table.frames();
+        assert_eq!(frames.len(), 10, "137 pairs in batches of fifteen");
+        for frame in &frames {
             assert_eq!(
-                bytes.len(),
-                2 + 1 + batch.len() * 6,
-                "a u8 count then {} pairs",
-                batch.len()
-            );
-            assert_eq!(
-                bytes[2] as usize,
-                batch.len(),
-                "the count is the number of pairs"
-            );
-            let (_, used) =
-                Frame::decode_game_message(&bytes, false).expect("the walker frames the table");
-            assert_eq!(
-                used,
-                bytes.len(),
-                "the row's layout and the builder agree byte for byte"
+                frame.header(),
+                crate::game::INSTANCE_TABLE,
+                "the table's own header"
             );
         }
     }
-
     #[test]
     fn the_player_block_carries_the_name_in_the_two_messages_that_name_a_character() {
         let frames = player_block(&PlayerBlock {

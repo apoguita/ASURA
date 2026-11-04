@@ -1,184 +1,185 @@
-//! The client's instance table: the destinations a load tells the client exist.
+//! The client's instance table, constructed from the pack's map folders.
 //!
-//! This is **data**, and it lives here because the world is what sends it - the wire layer keeps only the
-//! codec (`asura_protocol::game::instance_table(batch)`). The eventual home is the world pack, where the
-//! table is constructed by walking the map folders and their regions (`docs/38-layer-decisions.md`, D36);
-//! until that pack exists this is the only copy of a number a client needs to resolve a destination, so it
-//! stays here rather than being dropped.
+//! A client cannot ask to travel to a map it does not know exists: `0x01A0` is how it learns, as
+//! `(instance, value)` pairs. Those pairs are no longer a transcribed constant - every map folder under
+//! `config/World/Vanilla/maps/<id>/` states its own `instance_value`, and this module walks them and
+//! builds the batches a load sends.
 //!
-//! Each entry is `(instance, value)`: the instance id is the number every other message in this tree uses
-//! (148 for Ascalon City), and the second number is the one a live server sent with it - four instances at
-//! a time share a value, so it is the identity of the region or base map they belong to rather than an
-//! instance of its own. Nothing in this tree computes it, and nothing may: it is game data, so it is
-//! copied.
+//! The folders are flat while the campaign and region levels are still being filled in from the wiki's
+//! own list (`docs/38-layer-decisions.md`, D36). The walk is recursive, so moving a map into
+//! `Prophecies/Ascalon (pre-Searing)/148/` later changes no code here.
 //!
-//! **Ten values are missing, and this file does not invent them.** Every recorded message is four bytes
-//! short of its own struct: the last pair's instance id arrives and its value does not. So the pairs below
-//! are exactly those the capture holds - 137 of 147 - and the ten that lost their value are absent rather
-//! than zero-filled. A re-capture, or a read of the same context through the instrument, would fill them.
-//!
-//! Transcribed from `recordings/client/feature/maps/pre-searing-load-3.jsonl`, the load of instance 148,
-//! which carries ten such messages. The transcription was by hand; `docs/37-rework-layers.md` layer 1
-//! records that as a defect with its target.
+//! **What a map without a value means:** it is left out, and the log says so. Answering with a wrong
+//! value is worse than a destination the client cannot resolve yet.
 
-/// One message's worth of the table, in the order the live server sent them.
-#[rustfmt::skip]
-pub const INSTANCE_TABLE: &[&[(u16, u32)]] = &[
-    &[
-        (0x0094, 0xBB14F539),
-        (0x0091, 0xF15FBD2A),
-        (0x0092, 0x140AB7CE),
-        (0x0093, 0x4106ABB8),
-        (0x0095, 0x53E130C4),
-        (0x0096, 0x53E0B8E1),
-        (0x0097, 0x4C94ECA3),
-        (0x00A0, 0x5808F8FE),
-        (0x00A1, 0x127956FA),
-        (0x00A2, 0x3252A63F),
-        (0x00A3, 0xB9642F2E),
-        (0x00A4, 0x8302BE3A),
-        (0x00A5, 0xBAC5F32C),
-        (0x00A6, 0xD50F5EEF),
-        (0x030B, 0x2ECE130E),
-    ],
-    &[
-        (0x036D, 0x83363DF2),
-        (0x036E, 0xDDA8ED13),
-        (0x036F, 0xEC69C5C5),
-        (0x0370, 0xFAFB5A03),
-        (0x0371, 0xDDCF140B),
-        (0x0372, 0x00A1C46D),
-        (0x0004, 0x38358EFD),
-        (0x0005, 0x40B22E33),
-        (0x0006, 0x5BA1FC10),
-        (0x0034, 0x64D7C237),
-        (0x0041, 0x197A39CC),
-        (0x00A7, 0xE7E038FA),
-        (0x00A8, 0xE6AC387F),
-        (0x00AA, 0x7775BC0C),
-        (0x00AB, 0x2AEBFD2C),
-    ],
-    &[
-        (0x00AD, 0xF9CCF965),
-        (0x00AE, 0x6089159B),
-        (0x00AF, 0x9DAE54F1),
-        (0x00B0, 0x3D59115C),
-        (0x00B1, 0xE12941C7),
-        (0x00B2, 0xFD0DE0BA),
-        (0x00B3, 0x6A38BC27),
-        (0x00B4, 0xBF665D0E),
-        (0x00B6, 0x7082A801),
-        (0x00B7, 0x50B45092),
-        (0x00B8, 0xE8D93087),
-        (0x00B9, 0x7B5FEA4B),
-        (0x00BA, 0x92997C74),
-        (0x00BC, 0x94B52135),
-        (0x00D0, 0x1B9D723B),
-    ],
-    &[
-        (0x00E5, 0xC97E02D3),
-        (0x00E7, 0x3C33D3FE),
-        (0x0113, 0x42F7E14F),
-        (0x0114, 0x3F3A389E),
-        (0x0119, 0x927BE9D0),
-        (0x011A, 0x2F7A33CF),
-        (0x012B, 0xADF48E4F),
-        (0x012C, 0x2A1F50F6),
-        (0x0134, 0xDD703DDC),
-        (0x013A, 0xDC81BD3F),
-        (0x0148, 0xD2F9994D),
-        (0x0149, 0xFC073626),
-        (0x014A, 0x0236DEB6),
-        (0x014B, 0xB833C069),
-        (0x014C, 0x419D42A9),
-    ],
-    &[
-        (0x014E, 0xD990182A),
-        (0x014F, 0x08FBEF17),
-        (0x0150, 0x61C48AB8),
-        (0x0151, 0x76B82300),
-        (0x0152, 0x894E5510),
-        (0x0160, 0x8A175D9A),
-        (0x0161, 0x6EF00A04),
-        (0x0162, 0xD1F2D4B9),
-        (0x0163, 0x657E4CDC),
-        (0x0164, 0xC2612DA6),
-        (0x0165, 0xC8FA557D),
-        (0x0166, 0x08182BA0),
-        (0x0167, 0xD0F0DDB8),
-        (0x0168, 0x558E78E3),
-        (0x016E, 0xE71BBFAF),
-    ],
-    &[
-        (0x0211, 0x25C51274),
-        (0x0212, 0x811F0886),
-        (0x0215, 0x9C854CA0),
-        (0x0216, 0xDAA09EB9),
-        (0x0217, 0x02F4DDF3),
-        (0x0218, 0x0EA2469B),
-        (0x0219, 0x6CABA99F),
-        (0x021A, 0x35D68E13),
-        (0x021D, 0xD4B6DE24),
-        (0x021E, 0x41E3489A),
-        (0x0223, 0xE465AB43),
-        (0x0226, 0xABAE6AC0),
-        (0x0227, 0xC60D20D2),
-        (0x0228, 0x6594413A),
-        (0x02C5, 0xC60D20D2),
-    ],
-    &[
-        (0x02C9, 0xE465AB43),
-        (0x02CA, 0x6594413A),
-        (0x02D2, 0x45B01681),
-        (0x02D3, 0x149F4969),
-        (0x02D4, 0x4A69F096),
-        (0x02D5, 0x16CD1727),
-        (0x0313, 0x93B94BE3),
-        (0x031C, 0x1B6C4FEE),
-        (0x0337, 0x197A39CC),
-        (0x0338, 0x7082A801),
-        (0x0339, 0x52611169),
-        (0x033A, 0xBF665D0E),
-        (0x033B, 0x6EF00A04),
-        (0x033C, 0x1B9D723B),
-        (0x033D, 0xD1F2D4B9),
-    ],
-    &[
-        (0x033F, 0x8A175D9A),
-        (0x0340, 0xE8D93087),
-        (0x0341, 0x0EA2469B),
-        (0x0342, 0xE71BBFAF),
-        (0x0343, 0xDD703DDC),
-        (0x0344, 0xDC81BD3F),
-        (0x004A, 0x24436ED1),
-        (0x004B, 0x61D289F6),
-        (0x004C, 0x016E766D),
-        (0x004E, 0x8E568920),
-        (0x004F, 0xE09FAF3C),
-        (0x0050, 0x727F1667),
-        (0x0053, 0xE33FD1DC),
-        (0x0054, 0xB5E6D06A),
-        (0x0056, 0x7BA745C8),
-    ],
-    &[
-        (0x007F, 0x4E51DB04),
-        (0x013E, 0x197A39CC),
-        (0x013F, 0x7082A801),
-        (0x0140, 0xBF665D0E),
-        (0x0141, 0x1B9D723B),
-        (0x0142, 0xDC81BD3F),
-        (0x0153, 0x197A39CC),
-        (0x0154, 0x7082A801),
-        (0x0155, 0xBF665D0E),
-        (0x0156, 0x1B9D723B),
-        (0x0157, 0xDC81BD3F),
-        (0x0251, 0xD28697DB),
-        (0x0252, 0x0024D555),
-        (0x0253, 0xA558B4FC),
-        (0x0254, 0x64CDC80A),
-    ],
-    &[
-        (0x0256, 0x90E188F8),
-        (0x0257, 0x30B4E018),
-    ],
-];
+use std::path::{Path, PathBuf};
+
+use asura_protocol::client::Frame;
+use asura_protocol::game;
+
+/// The folder inside a pack that holds one folder per map.
+pub const MAPS: &str = "maps";
+
+/// The file each map folder holds.
+pub const BASIC: &str = "basic.json";
+
+/// The pairs one `0x01A0` message carries, which is the capacity a live server sends.
+pub const BATCH: usize = 15;
+
+/// One map as its folder states it.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct MapRecord {
+    /// The map id, which is also the folder's name.
+    pub map_id: i32,
+    /// The value a live load sent with it in `0x01A0`.
+    pub instance_value: u32,
+    /// Free text for whoever opens the file.
+    #[serde(default)]
+    pub doc: Option<String>,
+}
+
+impl MapRecord {
+    /// Parse one map's file.
+    pub fn from_json(text: &str) -> Result<MapRecord, String> {
+        serde_json::from_str(text).map_err(|err| err.to_string())
+    }
+}
+
+/// The pairs to send, in the batch shape a load uses.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct InstanceTable {
+    /// `(map id, instance value)` per map, ordered by map id.
+    pub pairs: Vec<(u16, u32)>,
+}
+
+impl InstanceTable {
+    /// The frames: `0x01A0` messages of at most [`BATCH`] pairs each.
+    pub fn frames(&self) -> Vec<Frame> {
+        self.pairs.chunks(BATCH).map(game::instance_table).collect()
+    }
+}
+
+/// Every map record under `pack`, ordered by map id.
+///
+/// A folder without `basic.json`, or a file that does not parse, is reported and skipped: the table is
+/// what a client can resolve, and one bad folder must not empty it. A map whose `map_id` disagrees with
+/// its folder name is skipped too, with both numbers in the log.
+pub fn walk(pack: &Path) -> (Vec<MapRecord>, Vec<String>) {
+    let mut records: Vec<MapRecord> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
+
+    let maps = pack.join(MAPS);
+    let Ok(entries) = std::fs::read_dir(&maps) else {
+        notes.push(format!("{} is not readable", maps.display()));
+        return (records, notes);
+    };
+
+    for entry in entries.flatten() {
+        let folder = entry.path();
+        if !folder.is_dir() {
+            continue;
+        }
+        let file = folder.join(BASIC);
+        let text = match std::fs::read_to_string(&file) {
+            Ok(text) => text,
+            Err(err) => {
+                notes.push(format!("{}: {err}", file.display()));
+                continue;
+            }
+        };
+        let record = match MapRecord::from_json(&text) {
+            Ok(record) => record,
+            Err(err) => {
+                notes.push(format!("{}: {err}", file.display()));
+                continue;
+            }
+        };
+        let folder_id: i32 = folder
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.parse().ok())
+            .unwrap_or(record.map_id);
+        if folder_id != record.map_id {
+            notes.push(format!(
+                "{}: folder is {folder_id}, file says {}; skipped",
+                file.display(),
+                record.map_id
+            ));
+            continue;
+        }
+        records.push(record);
+    }
+
+    records.sort_by_key(|record| record.map_id);
+    (records, notes)
+}
+
+/// The table the world sends: every map the pack names, in map-id order, in batches a load uses.
+pub fn table_for(pack: &Path) -> (InstanceTable, Vec<String>) {
+    let (records, notes) = walk(pack);
+    let pairs = records
+        .into_iter()
+        .filter_map(|record| {
+            u16::try_from(record.map_id)
+                .ok()
+                .map(|map_id| (map_id, record.instance_value))
+        })
+        .collect();
+    (InstanceTable { pairs }, notes)
+}
+
+/// The pack folder a world reads: `ASURA_WORLD_PACK`, or the default.
+pub fn pack() -> PathBuf {
+    crate::spawns::pack()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pack_names_every_map_the_recording_carried() {
+        let (table, notes) = table_for(&pack());
+        assert!(
+            notes.is_empty(),
+            "a folder that does not parse must not be silent: {notes:?}"
+        );
+        assert_eq!(
+            table.pairs.len(),
+            137,
+            "the pairs the live load of instance 148 carried"
+        );
+        assert!(
+            table.pairs.contains(&(148, 0xBB14_F539)),
+            "the instance the recording was taken in is in the table"
+        );
+        assert!(
+            table.pairs.windows(2).all(|pair| pair[0].0 < pair[1].0),
+            "ordered by map id, so a load is stable between runs"
+        );
+    }
+
+    #[test]
+    fn the_table_frames_in_batches_a_client_expects() {
+        let (table, _) = table_for(&pack());
+        let frames = table.frames();
+        assert_eq!(frames.len(), table.pairs.len().div_ceil(BATCH));
+        // A batch is a u16 count then the pairs: two-byte header, count, six bytes each.
+        for (index, frame) in frames.iter().enumerate() {
+            let expected = table.pairs.chunks(BATCH).nth(index).expect("a batch").len();
+            assert_eq!(frame.body().len(), 1 + expected * 6);
+        }
+    }
+
+    #[test]
+    fn a_folder_that_disagrees_with_its_file_is_skipped_and_reported() {
+        let dir = std::env::temp_dir().join("asura-instance-table-test");
+        let folder = dir.join(MAPS).join("001");
+        std::fs::create_dir_all(&folder).expect("create");
+        std::fs::write(folder.join(BASIC), r#"{"map_id": 2, "instance_value": 1}"#).expect("write");
+        let (records, notes) = walk(&dir);
+        assert!(records.is_empty(), "the disagreement is skipped");
+        assert_eq!(notes.len(), 1, "and it is reported: {notes:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

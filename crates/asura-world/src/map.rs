@@ -46,13 +46,16 @@ pub fn load_block(map: &MapEntry, name: &str, agent_id: u32) -> Vec<Frame> {
     frames.extend(crate::cartography::init_frames(
         crate::cartography::grid_for(map.map_id),
     ));
-    // The client's instance table, in the batches a live server sends it (`game::instance_table`): the
-    // instances that exist, so that a destination can be resolved at all. It goes in the load block
-    // beside the exploration grid because that is the phase a live server sends it in - after the
-    // instance info and before the client is asked to spawn anything.
-    for batch in crate::instance_table::INSTANCE_TABLE {
-        frames.push(game::instance_table(batch));
+    // The client's instance table, in the batches a live server sends it: the instances that exist, so
+    // that a destination can be resolved at all. It goes in the load block beside the exploration grid
+    // because that is the phase a live server sends it in - after the instance info and before the client
+    // is asked to spawn anything. The pairs are the pack's map folders (`docs/38` D36), built here and
+    // framed by the wire layer.
+    let (table, notes) = crate::instance_table::table_for(&crate::instance_table::pack());
+    for note in &notes {
+        eprintln!("world: instance table: {note}");
     }
+    frames.extend(table.frames());
     frames
 }
 
