@@ -434,11 +434,14 @@ outpost into an explorable and the crossing contained **no client message at all
 
 Zero `0x00C1` in that file. So the world is what decides that the player reached a portal and sends the
 same eight-message stream `/tp` and the world map produce (`docs/03` 5f, the eight messages below). The
-implementation therefore has a **portal table**: for each instance, the travel portals' positions and
-which instance each leads to - read from the instance's own props, which is where the client draws them
-from (`crates/asura-world/src/portals.rs`, generated from `data/portals.json`; `docs/22-world-model.md`,
-answer 3). A doorway a walk reaches fires the crossing; the `0x80C1` arm still names the touch and starts
-nothing (`crates/asura-world/src/travel.rs:154-166`).
+implementation therefore has a **doorway table**: where a map's doors are, which instance each leads to,
+and where a character arriving through one stands. The table is the pack's `portals.json` files - `arches`
+state the wall as its two endpoints, `arrivals` the point and facing per map arrived from - and the
+measured tables (`crates/asura-world/src/portals.rs`, generated from `data/portals.json`, plus the
+`map_portal` rows) answer for a map the pack does not describe. A crossing fires when the step from the
+last believed position to this one passes **through** a wall (`crates/asura-world/src/travel.rs`,
+`portal_crossed`); a point-shaped doorway still counts within `REACH`. The `0x80C1` arm still names the
+touch and starts nothing (`crates/asura-world/src/travel.rs`).
 
 The `0x00C1` messages seen in `captures/zone-ref2-012225.jsonl` are therefore **not** the crossing; they
 are the client asking about instances, and what they are owed is still open.

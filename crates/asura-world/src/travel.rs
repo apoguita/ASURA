@@ -329,64 +329,19 @@ async fn resolve_instance(world: &World, map_id: i32) -> Result<Option<MapEntry>
         .map_err(GameError::Database)
 }
 
-/// A doorway was reached: the third trigger of the same cycle.
+/// A crossing decided from the player's **own step**: where the character stood before this report and
+/// where it stands after it.
 ///
-/// `/tp`, the world map's request (`0x80B1`) and this one all end in [`begin_transfer`]. This is the trigger
-/// a live server works out for itself: a real crossing contains **no client message at all**
-/// (`docs/03-protocol.md` 5f, `login-to-portal-20261031-003720.jsonl`), so the world compares the position
-/// it is already being sent with the doorways of the instance it is hosting (`crate::portals`).
+/// This is the rule a doorway wants, and the only one. The world hosts the map's doorways from the pack
+/// (`config/World/<pack>/.../portals.json`, [`crate::portals`]), where an arch is the **wall** a character
+/// crosses - the owner's rule, 2026-11-05: "the portal is an invisible wall we cross ... should be a
+/// plane". So the test is whether the step from the last believed position to this one passes through
+/// the wall; touching it, or walking beside it, is not crossing it. A doorway still records its
+/// destination, and a wall that names none does nothing and says so.
 ///
-/// A doorway whose destination is not recorded fires nothing and says so, naming the coordinates. That line
-/// is the measurement which fills the next row - and it is why an unmeasured doorway is safer than a guess.
-pub async fn portal_reached(
-    stream: &mut TcpStream,
-    session: &mut Session,
-    world: &World,
-    player: &mut Player,
-    trace: bool,
-) -> Result<bool, GameError> {
-    let (x, y) = player.standing().position;
-    portal_at_position(stream, session, world, player, x, y, trace).await
-}
-
-/// A doorway reached by a **walk that is only being asked for**: `0x803E` `MOVE_TO_COORD` names the
-/// coordinate the click sends the character toward (`crates/asura-world/src/agent.rs`), and it arrives
-/// before the walk does. Without this, a click that lands the character inside a doorway can end with its
-/// last position report outside `portals::REACH`, and no crossing fires until the player moves again - the
-/// way back that only worked once the portal was touched a second time (measured 2026-10-31).
-pub async fn portal_target_reached(
-    stream: &mut TcpStream,
-    session: &mut Session,
-    frame: &Frame,
-    world: &World,
-    player: &mut Player,
-    trace: bool,
-) -> Result<bool, GameError> {
-    if frame.body().len() < 8 {
-        return Ok(true);
-    }
-    let x = f32::from_le_bytes([
-        frame.body()[0],
-        frame.body()[1],
-        frame.body()[2],
-        frame.body()[3],
-    ]);
-    let y = f32::from_le_bytes([
-        frame.body()[4],
-        frame.body()[5],
-        frame.body()[6],
-        frame.body()[7],
-    ]);
-    portal_at_position(stream, session, world, player, x, y, trace).await
-}
-
-/// A crossing decided from the player's **own step**: where the character stood before this report and where
-/// it stands after it.
-///
-/// This is the rule a doorway wants, and the only one: the segment between two consecutive positions is the
-/// movement the client actually performed, so a step taken through a door crosses it, a click that names a
-/// place beyond a door does not fire early, and nothing depends on where a report happened to stop. The
-/// doorway still carries the destination; a door without one does nothing and says so.
+/// The **arrival** belongs to the receiving map: a crossing hands over the destination's own arrival for
+/// the map it came from (`portals::arrival`), which `begin_transfer` writes as the character's position
+/// before the redirect, and which the arrival connection reads back to stand on - and face along.
 pub async fn portal_crossed(
     stream: &mut TcpStream,
     session: &mut Session,
@@ -396,54 +351,45 @@ pub async fn portal_crossed(
     to: (f32, f32),
     trace: bool,
 ) -> Result<bool, GameError> {
-    if player.moved {
-        return Ok(true);
-    }
-    let instance = player.instance.map.map_id;
-    match crate::portals::portal_along(instance, from, to) {
-        Some(portal) => {
-            portal_at_position(stream, session, world, player, portal.x, portal.y, trace).await
-        }
-        None => Ok(true),
-    }
-}
-/// The crossing, for a doorway reached at `(x, y)`.
-async fn portal_at_position(
-    stream: &mut TcpStream,
-    session: &mut Session,
-    world: &World,
-    player: &mut Player,
-    x: f32,
-    y: f32,
-    trace: bool,
-) -> Result<bool, GameError> {
     // A crossing already in flight owns this connection: its seat belongs to the destination and the
-    // client is about to reconnect, so a further position report from inside the doorway must not start a
-    // second one. Without this a walk into a door can send two redirects, and a client given two
-    // reconnects takes its time to settle.
+    // client is about to reconnect, so a further step must not start a second one. Without this a walk
+    // into a door can send two redirects, and a client given two reconnects takes its time to settle.
     if player.moved {
         return Ok(true);
     }
     let instance = player.instance.map.map_id;
-    let Some(portal) = crate::portals::portal_at(instance, x, y) else {
+    let Some(crossed) = crate::portals::crossed(instance, from, to) else {
         return Ok(true);
     };
-    // The landing point recorded for this door - per door, not per instance. It is written as the
-    // character's position in the destination when the crossing starts (`begin_transfer`), so the
-    // connection the client opens stands where the live server put it, instead of on the instance's
-    // configured spawn. An outpost ignores it: its own spawn list decides, at random.
-    let landing = portal.arrive;
-    let Some(to_instance) = portal.to_instance else {
+    let Some(to_instance) = crossed.to_instance else {
         eprintln!(
-            "world: {:?} is standing in a travel portal of instance {instance} at ({:.0}, {:.0}); \
-             no destination is recorded for that doorway",
-            player.name, portal.x, portal.y
+            "world: {:?} crossed a doorway of instance {instance} from ({:.0}, {:.0}) to \
+             ({:.0}, {:.0}); no destination is recorded for that doorway",
+            player.name, from.0, from.1, to.0, to.1
         );
         return Ok(true);
     };
+    // The receiving map decides where the traveller stands. An arrival it states for this instance is a
+    // position and a facing; without one the destination falls back to its own spawn point.
+    let arrival = crate::portals::arrival(to_instance, instance);
+    let landing = arrival.map(|arrival| (arrival.x, arrival.y));
     eprintln!(
-        "world: {:?} reached the portal at ({:.0}, {:.0}) in instance {instance}: crossing to {to_instance}",
-        player.name, portal.x, portal.y
+        "world: {:?} crossed the doorway of instance {instance} at ({:.0}, {:.0}) -> ({:.0}, {:.0}): \
+         crossing to {to_instance}{}",
+        player.name,
+        from.0,
+        from.1,
+        to.0,
+        to.1,
+        match arrival {
+            Some(arrival) => format!(
+                " (arrival at ({:.1}, {:.1}) facing {})",
+                arrival.x,
+                arrival.y,
+                arrival.angle.unwrap_or(0.0)
+            ),
+            None => " (no arrival stated; the destination's spawn point answers)".to_string(),
+        }
     );
     let Some(destination) = resolve_instance(world, to_instance).await? else {
         eprintln!(

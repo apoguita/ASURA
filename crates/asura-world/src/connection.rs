@@ -315,6 +315,7 @@ pub async fn handle_connection(
         session_id: transfer.session_id,
         account_id: transfer.account_id,
         moved: false,
+        last_step: None,
         // A creation instance is its own map type (`MapType_CharacterCreation`, 11): a connection that
         // arrived in one is there to make a character, and one that arrived in anything else cannot.
         creation: if map_type == map_kinds().character_creation {

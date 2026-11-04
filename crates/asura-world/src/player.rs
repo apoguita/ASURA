@@ -40,6 +40,11 @@ pub struct Player {
     /// Set when this connection has been redirected to another map. Its teardown must then leave the
     /// lease alone: the seat it holds now belongs to the connection the client is about to open.
     pub moved: bool,
+    /// The segment the last accepted movement moved the agent along: where the server believed it stood
+    /// before the report or correction, and where it believes it stands now. The doorway test reads it
+    /// after the movement handler returns (`travel::portal_crossed`) - a doorway is a wall, and the step
+    /// that passes through it is the crossing.
+    pub last_step: Option<((f32, f32), (f32, f32))>,
     /// What a character-creation connection has chosen so far: `Some` when this connection is in a
     /// creation instance (map type 11), which is the reference's `MapType_CharacterCreation`.
     pub creation: Option<Creation>,

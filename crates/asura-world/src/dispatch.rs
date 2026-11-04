@@ -45,7 +45,11 @@ pub async fn answer(
             let answer =
                 agent::handle_position_update(stream, session, &frame, world, player, trace).await;
 
-            travel::portal_reached(stream, session, world, player, trace).await?;
+            // The step the report moved the agent along: the doorway test is the wall the step crosses
+            // (`travel::portal_crossed`, `config/World/<pack>/.../portals.json`).
+            if let Some((from, to)) = player.last_step.take() {
+                travel::portal_crossed(stream, session, world, player, from, to, trace).await?;
+            }
             answer
         }
 
@@ -55,7 +59,11 @@ pub async fn answer(
 
         msg::GAME_CMSG_LAST_POS_BEFORE_MOVE_CANCELED => {
             let answer = agent::handle_last_position(stream, session, &frame, player, trace).await;
-            travel::portal_reached(stream, session, world, player, trace).await?;
+            // A correction the server accepted is a movement the reports lagged behind; it crosses a
+            // doorway the same way a walk does.
+            if let Some((from, to)) = player.last_step.take() {
+                travel::portal_crossed(stream, session, world, player, from, to, trace).await?;
+            }
             answer
         }
 

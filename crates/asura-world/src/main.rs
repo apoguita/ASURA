@@ -389,6 +389,10 @@ async fn main() -> ExitCode {
     // here so a bad edit is reported at start-up rather than on somebody's next travel. A map without
     // a file is not an error: its catalogue row's single coordinate answers instead (`Standing`).
     asura_world::map_spawns::table();
+    // The doorways and the arrival points are the pack's `portals.json` files, the same tree. Read here
+    // for the same reason: a map without one falls back to the measured tables `map_portal` installs
+    // above (`crate::portals`).
+    asura_world::portals::table_pack();
 
     let listener = match tokio::net::TcpListener::bind(bind).await {
         Ok(listener) => listener,

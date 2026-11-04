@@ -790,6 +790,46 @@ mod tests {
     }
 
     #[test]
+    fn a_doorway_arrival_is_placed_where_the_receiving_map_states_it() {
+        // The pack states, for 148, where a character arriving from another map stands and faces. A
+        // saved position equal to that point is that arrival, and it wins over the outpost's random
+        // spawn (an outpost's *other* entries are a random point of its spawn list).
+        let Some(arrival) = crate::portals::table_pack()
+            .get(&148)
+            .and_then(|map| map.arrivals.first())
+            .copied()
+        else {
+            panic!("the committed pack states an arrival for Ascalon City");
+        };
+        let mut map = test_map();
+        map.map_id = 148;
+        map.spawns = vec![crate::map_spawns::MapSpawn {
+            idx: 0,
+            x: 1.0,
+            y: 2.0,
+            plane: 0,
+            angle: None,
+        }];
+        let saved = db_game::Position {
+            map_id: 148,
+            x: arrival.x,
+            y: arrival.y,
+            plane: 0,
+        };
+        let standing = Standing::arrival(&map, Some(saved)).expect("an arrival");
+        assert_eq!(
+            standing.position,
+            (arrival.x, arrival.y),
+            "the stated arrival point, not a random spawn"
+        );
+        assert_eq!(
+            standing.direction,
+            arrival.direction(),
+            "facing the arrival's own angle"
+        );
+    }
+
+    #[test]
     fn an_outpost_without_a_list_and_every_other_map_keep_the_persistence_rule() {
         let saved = db_game::Position {
             map_id: 146,

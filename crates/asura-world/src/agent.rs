@@ -421,20 +421,23 @@ pub const AGENT_PROPERTY_VALUE64: u32 = 64;
 
 /// Where a character stands as it enters a map.
 ///
-/// Two rules, and which one applies is the whole of the persistence rule:
+/// Three rules, and which one applies is the whole of the arrival rule ([`Standing::arrival`]):
 ///
+/// * a **doorway arrival** stands on the point the receiving map states for the map it came from
+///   (`portals.json`'s `arrivals`), facing that arrival's angle - a portal walk is placed by the door,
+///   not by a random spawn point;
 /// * an **outpost** (a main town) is entered at a **random point of its own spawn list**, the pack's
-///   `spawns.json`, facing the direction that point states. Travel never preserves a position: every
-///   time a character enters an outpost it stands on a random spawn point from that list, which is
-///   the owner's rule (2026-10-31, restated 2026-11-05: "every time we enter an outpost is on a
-///   random spawn point from the list");
+///   `spawns.json`, scattered around it and facing the direction that point states: every other way
+///   into an outpost - the world map, `/tp`, a login - stands on a random spawn point from that list,
+///   which is the owner's rule (2026-10-31, restated 2026-11-05);
 /// * every other map keeps the position the character was saved at when it last left **if it was
 ///   saved in this map**, and otherwise the map's own single spawn point. That is the disconnect
 ///   case: a character that comes back to the map it left stands where it left.
 ///
 /// A character that has never been played has no saved position, and one that was saved in a
 /// different map is arriving here for the first time (`asura_db::game::position`). The facing of a
-/// saved position is not stored, so a resumed character keeps the default direction.
+/// saved position is not stored; a doorway arrival takes its facing from the map's arrival entry, and
+/// a resumed character keeps the default direction.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Standing {
     pub position: (f32, f32),
@@ -474,11 +477,26 @@ impl Standing {
 
     /// Where a character stands as a connection enters `map`.
     ///
-    /// An outpost with a spawn list is entered at a random point of that list, scattered around it;
-    /// without a list (no `spawns.json` for the map) there is nothing to pick from and the catalogue
-    /// row answers. Every other map keeps the saved position when it belongs to this map: that is a
-    /// disconnect coming back, and the one case travel does not own.
+    /// Three rules, in this order:
+    ///
+    /// 1. an **arrival** the receiving map states for the doorway that brought the character here
+    ///    (`portals.json`'s `arrivals`, keyed by the map it came from): the crossing wrote that point as
+    ///    the saved position before the redirect, so a saved position that is one of the map's arrivals
+    ///    is a doorway arrival, and it stands **there**, facing the arrival's angle;
+    /// 2. an **outpost** with a spawn list is entered at a random point of that list, scattered around it
+    ///    ([`Standing::at_spawn`]) - a world-map request or a `/tp` picks one at random;
+    /// 3. every other map keeps the saved position when it belongs to this map (a disconnect coming
+    ///    back), and the catalogue row's single coordinate otherwise.
     pub fn arrival(map: &MapEntry, saved: Option<db_game::Position>) -> Result<Standing, GameError> {
+        if let Some(saved) = saved.filter(|saved| saved.map_id == map.map_id) {
+            if let Some(arrival) = crate::portals::arrival_at(map.map_id, (saved.x, saved.y)) {
+                return Ok(Standing {
+                    position: (arrival.x, arrival.y),
+                    plane: saved.plane.max(0) as u16,
+                    direction: arrival.direction(),
+                });
+            }
+        }
         if map.map_type == map_kinds().main_town && !map.spawns.is_empty() {
             let index = (crate::random_u32()? as usize) % map.spawns.len();
             return Standing::at_spawn(&map.spawns[index]);
@@ -992,6 +1010,16 @@ pub async fn handle_position_update(
         return Ok(true);
     };
     let (adopted, standing, reply) = outcome;
+    // The step the report moved the agent along: the doorway test reads it after this handler returns
+    // (`travel::portal_crossed`), because the crossing is judged by the path, not by where a report
+    // happened to land.
+    player.last_step = if adopted == Adopted::Refused {
+        None
+    } else if before.position == standing.position {
+        None
+    } else {
+        Some((before.position, standing.position))
+    };
     instance.broadcast(player.player_id, &reply);
     send(stream, session, reply, trace).await?;
     if trace {
@@ -1126,6 +1154,14 @@ pub async fn handle_last_position(
         instance.broadcast(player.player_id, &reply);
         send(stream, session, reply, trace).await?;
     }
+    // A correction the client was allowed to make is a movement it made while the reports lagged: the
+    // step from where the server believed it stood to where it says it stood is a step the doorway
+    // test reads (`travel::portal_crossed`).
+    player.last_step = if taken && believed.position != position {
+        Some((believed.position, position))
+    } else {
+        None
+    };
     if move_trace_on() {
         // The distance is what decides and the ceiling is configuration, so the trace names both: a
         // refusal is otherwise indistinguishable from a plane mismatch without it.

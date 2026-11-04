@@ -244,7 +244,7 @@ Stated by the owner, and stored here because both are base facts the whole serve
 | source | what it is | here |
 |---|---|---|
 | entry spawn list | each instance has several spawn points and entry picks one, randomised | **implemented 2026-11-05**: every entry into an **outpost** takes a **random point of the map's own list** (`config/World/<pack>/maps/.../spawns.json`, `crates/asura-world/src/map_spawns.rs`), lands **scattered up to 250 units around it** (the radius is `config/Server/spawns.json`'s `spawn_scatter`, a server setting, not a compiled constant) on the point's plane, and the agent is created facing that point's `angle` (`Standing::at_spawn`, `crates/asura-world/src/agent.rs`). The list arrives with the map entry (`MapEntry.spawns`); a map whose pack states no list falls back to `map_config.spawn_x/spawn_y/spawn_plane`. The reference's own extra rows are still stored and still unread: `map_spawn` holds 1-4 per map (migrations `0021`, `0022`) and `asura_db::game::spawn_points` has no caller |
-| entrance spawns | the positions used when a character arrives from an explorable, near the door it came through | modelled per doorway: a crossing hands that door's recorded landing point to the transfer (`crates/asura-world/src/travel.rs`, `begin_transfer`), which writes it as the character's position in the destination before the redirect, so the client wakes on the landing. An **outpost ignores it** and picks a random point of its list instead (the owner's 2026-11-05 rule below); a doorway with no recorded landing still cannot fire |
+| entrance spawns | the positions used when a character arrives from an explorable, near the door it came through | **implemented 2026-11-05**: the **receiving map** owns them - its `portals.json` states, per map it can be entered from, the point and the facing (`arrivals`). A crossing reads that entry and writes it as the character's position before the redirect; the arrival connection stands there and faces that angle (`Standing::arrival`, `crates/asura-world/src/portals.rs`). A doorway is a **wall** stated as two endpoints (`arches`): a crossing counts only when the step passes through it, and a point-shaped doorway still counts within `REACH`. An outpost's *other* ways in (the world map, `/tp`, a login) pick a random spawn point instead - see the row above |
 | quest placement | a quest can decide where in the instance a character appears | not modelled |
 
 The archive carries these: the client's map data has three spawn lists, each entry a position, a facing
@@ -284,14 +284,20 @@ spawn we should get our position randomized 250 units around a circle from the s
 **travel** never carries a position: `/tp` and the world map's request clear the saved position before
 the redirect (`asura_db::game::forget_position`), and a redirected connection's teardown writes nothing
 (`crates/asura-world/src/connection.rs`). A connection that ends **without** a travel is a disconnect,
-and that one still saves where the character stood. The outpost's random point is taken on **every**
-arrival, portal walk included - that is the discrepancy the owner saw when travelling from Lakeside
-County into Ascalon City: the character stood on the doorway's landing, the "last known position",
-instead of somewhere around a point of the city's own list. The landing is still scattered over a
-250-unit circle whose radius is `config/Server/spawns.json`'s `spawn_scatter` (the owner's 250 units,
-a server setting an operator can change without a rebuild). The pack's list for Ascalon City
-(pre-Searing), map 148, states two points with their angles; the file is
+and that one still saves where the character stood. A world-map request or `/tp` into an outpost then
+stands on a random point of the city's own spawn list, scattered over a 250-unit circle whose radius is
+`config/Server/spawns.json`'s `spawn_scatter`, facing that point's angle. The pack's list for Ascalon
+City (pre-Searing), map 148, states two points with their angles; the file is
 `config/World/Vanilla/maps/Prophecies/Ascalon (pre-Searing)/Outposts/148/spawns.json`.
+
+**A doorway arrival is the door's, not a spawn point (owner, 2026-11-05).** "Portal travels are not
+respecting our portals files, nor our arrival point"; "the portal is an invisible wall we cross ... it
+should be a plane". The doorways are the pack's `portals.json` files: `arches` state the wall as its two
+endpoints and the map it leads to, and `arrivals` state, per map the character comes from, the point it
+stands on and the facing. A crossing is the step that passes **through** the wall (a segment test, not a
+distance), and the arrival stands where the receiving map's arrival entry says - so walking from Lakeside
+County into Ascalon City puts the character at the city's stated point, facing its stated angle, while
+the outpost's random spawn list only answers the entries that are not doorways.
 
 ## Instances, districts, and party travel (owner, 2026-11-02)
 
@@ -321,7 +327,7 @@ messages, and a lost member is held as **soft-disconnected** (`Player.flags` bit
 disconnect.
 | **Unlocks** | Travel is gated on unlocked maps, and a character starts with **one**. A scripted or forced travel **unlocks the destination at arrival** rather than being refused. |
 | **World-map travel** | Reaches **outposts only**, and only an **unlocked** one. Anything else is reached by portal or by a scripted travel. |
-| **Entry spawn** | Outposts carry many scattered spawn points. Any travel that is not a portal walk picks one **at random** and places the character **scattered around it** - random offset and facing. Soft spread, not stacking. A **portal walk** uses the arrival position the destination provides, falling back to a point **near the portal** when there is none. |
+| **Entry spawn** | Outposts carry many scattered spawn points. Any travel that is not a portal walk picks one **at random** and places the character **scattered around it** - random offset and facing. Soft spread, not stacking. A **portal walk** uses the arrival position the destination provides (the destination map's `portals.json` `arrivals` entry for the map it came from); with none, the destination's own spawn point answers. |
 | **Party size** | Starts small, capped at **8** for most content, **12** in some game modes, **25** in some instances. A tunable, not a constant. |
 | **Party persistence** | Travel does not break a party. It disbands only on a script or when the destination's **cap is smaller** than the party. Leadership never changes, except one focused dungeon that randomises positions. |
 | **Member disconnect** | A disconnect is the same for the leader as for anyone else: the party remains, and that member's **heroes and henchmen deactivate until it reconnects**. |
