@@ -125,11 +125,29 @@ Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
 
 ## Layer 3 - auth service
 
-Files: `lib.rs` 947, `travel.rs` 306, `frontdoor.rs` 165, `main.rs` 115, 2 examples, 2 test files.
+Files: `lib.rs` 947, `frontdoor.rs` 165, `main.rs` 115, 2 examples, 2 test files. `travel.rs` is the
+placement mechanism now; its rules left for `asura-rules` (layer 3b).
 
-- [ ] the placement rule's own copies of the map-type numbers replaced by one source
-- [ ] `DEFAULT_OUTPOST = 148` moved to `config/`, or recorded as a rule that stays
-- [ ] `DEFAULT_OUTPOST`'s stand-in for unmeasured campaigns recorded where it is read
+- [x] the game rules leave the service: last outpost, the creation exemption and the default outpost
+      are `asura-rules::placement`, a pure function with eight tests (`docs/38`, D25) - commit
+      `4b09d17`; `travel.rs` keeps the registry lookup, the seat and the transfer row
+- [x] the map-type numbers have one source: `asura-rules` owns `MAP_TYPE_*`, `CREATION_MAP` and
+      `DEFAULT_OUTPOST` - commit `4b09d17`
+- [x] `DEFAULT_OUTPOST`'s stand-in for unmeasured campaigns recorded where it is defined
+      (`crates/asura-rules/src/lib.rs`) - commit `4b09d17`
+- [x] the crate adopts the lint policy (`docs/38`, D17): seven needless borrows and one field doc -
+      commit `4b09d17`; clippy `-D warnings` and `cargo doc` pass
+- [ ] `frontdoor.rs` is transport, not auth: decide whether it stays colocated because the client
+      dials this address, or becomes its own layer
+
+## Layer 3b - the rules layer (`asura-rules`, new)
+
+Files: `src/lib.rs` (~300 lines, 8 tests).
+
+- [x] created because a protocol answer needed a game rule and no existing crate fits: `asura-db` is
+      storage and `asura-world` may not exist yet at login (`docs/38`, D25) - commit `4b09d17`
+- [ ] the next rule that needs a home goes here rather than into a service: party and instance policy
+      (`docs/32` phase 2) is the first candidate
 
 ## Layer 4 - web gate
 
