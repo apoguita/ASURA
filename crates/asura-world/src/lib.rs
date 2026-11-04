@@ -65,12 +65,15 @@ pub use tokio::net::{TcpListener, TcpStream};
 // module.
 // -------------------------------------------------------------------------------------------
 
+/// The map catalogue: one entry per map, and the questions a server answers about it.
+pub mod catalogue;
 pub mod chat;
 pub mod connection;
 pub mod creation;
 pub mod dispatch;
 pub mod instance;
 pub mod item;
+
 pub mod map;
 pub mod player;
 /// The client's unlockable-PvP-item table: content of this layer, moved out of the wire crate
@@ -79,11 +82,16 @@ pub mod pvp_items;
 pub mod travel;
 pub mod world;
 
+pub use catalogue::*;
 pub use connection::*;
 pub use creation::*;
 pub use instance::*;
 pub use item::*;
 pub use map::*;
+
+/// The graph API, as the world's start-up and its tests name it: PathGraphs and the two helpers that
+/// import one from an archive.
+pub use pathfind::{find_path_blob, import_graph, PathGraphs};
 pub use player::*;
 pub use travel::*;
 pub use world::*;

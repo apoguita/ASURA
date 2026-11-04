@@ -993,6 +993,24 @@ pub async fn handle_last_position(
     Ok(true)
 }
 
+// ---- the client asks where to stand --------------------------------------------------------
+
+pub async fn handle_request_spawn(
+    stream: &mut TcpStream,
+    session: &mut Session,
+    world: &World,
+    player: &mut Player,
+    trace: bool,
+) -> Result<bool, GameError> {
+    let replay = world.replay.as_ref();
+    let block = match replay {
+        Some(replay) if replay.pick.wants(crate::replay::BlockName::Spawn) => replay.spawn.clone(),
+        _ => spawn_block(&player.instance.map, player.standing()),
+    };
+    send(stream, session, block, trace).await?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

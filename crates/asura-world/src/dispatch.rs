@@ -26,11 +26,11 @@ pub async fn answer(
         }
 
         msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_SPAWN => {
-            map::handle_request_spawn(stream, session, world, player, trace).await
+            agent::handle_request_spawn(stream, session, world, player, trace).await
         }
 
         msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_PLAYERS => {
-            world::handle_request_players(stream, session, world, player, trace).await
+            player::handle_request_players(stream, session, world, player, trace).await
         }
 
         msg::GAME_CMSG_PING_REQUEST => {
