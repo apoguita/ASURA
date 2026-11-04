@@ -139,6 +139,11 @@ Files: `src/lib.rs` 208 lines, 8 tests.
 
 - [x] created because a protocol answer needed a game rule and no existing crate fits: `asura-db` is
       storage and `asura-world` may not exist yet at login (`docs/38`, D25) - commit `4b09d17`
+- [x] the rule holds no value of its own (`docs/38`, D34): `DEFAULT_OUTPOST` is gone, and
+      `placement` answers `Option<i32>` - `None` with `Substituted::NothingToPlace` when the
+      character's row names neither a map nor an outpost. The outpost a character enters is written
+      by character creation, by a scripted event and by travelling; the login refuses with the
+      reference's network error instead of inventing one. 10 rule and 3 auth unit tests pass
 - [ ] the next rule that needs a home goes here rather than into a service: party and instance policy
       (`docs/32` phase 2) is the first candidate
 
