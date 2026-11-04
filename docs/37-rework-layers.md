@@ -352,7 +352,14 @@ Files: `chat.rs` 349.
 
 ## Layer 14 - cartography
 
-- [-] holds by design - 64 x 128, eight empty bands, one `0x008A`
+- [-] holds by design, and it is a **frame without a feature** (`docs/38` D37): the grid's dimensions
+      (64 x 128 for Tyria) and the band format are measured, and every band the world sends is empty
+      because a character's exploration progress has no schema here. The bytes are therefore correct
+      for a fresh character and wrong for everyone else - not a default chosen for convenience, an
+      unimplemented feature
+- [ ] the exploration bits exist: a table of explored cells per character per continent, the encoder
+      for the client's band format in both directions, and an update path as the character walks. Until
+      then every load announces a grid nobody has explored
 
 ## Layer 15 - content itself
 
