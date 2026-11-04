@@ -310,20 +310,25 @@ async fn print_registry() {
     }
 }
 
-/// Build the three services the list starts.
+/// Build the services the list starts.
+///
+/// The packages are read **from the list**, not written here: each service's `exe` names the binary, and
+/// the binary's stem is its package (`target/debug/asura-gateway` -> `asura-gateway`). The list used to be
+/// hardcoded, and it still named `asura-auth` after the socket layer was carved out of it (D26) - so
+/// `start` rebuilt a crate that produces no binary and started a stale `asura-gateway`, which then
+/// refused to run against a config it did not know. A service the list runs is now always a service this
+/// builds.
 fn build_services(fallback: Option<&config::Config>) -> Result<(), String> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let packages = packages_to_build(fallback);
+    let mut args: Vec<String> = vec!["build".to_string(), "--offline".to_string()];
+    for package in &packages {
+        args.push("-p".to_string());
+        args.push(package.clone());
+    }
+    eprintln!("asura-supervisor: building {}", packages.join(", "));
     let tried = std::process::Command::new(cargo)
-        .args([
-            "build",
-            "--offline",
-            "-p",
-            "asura-auth",
-            "-p",
-            "asura-world",
-            "-p",
-            "asura-webgate",
-        ])
+        .args(&args)
         .current_dir(config::repo_root())
         .status();
     match tried {
@@ -348,6 +353,37 @@ fn build_services(fallback: Option<&config::Config>) -> Result<(), String> {
             )),
         },
     }
+}
+
+/// The packages to build: one per binary the config starts, deduplicated and sorted.
+///
+/// With no config - `asura-supervisor build` before a list exists - the three services this repository
+/// has are built by name.
+fn packages_to_build(config: Option<&config::Config>) -> Vec<String> {
+    let mut packages: Vec<String> = config
+        .map(|config| {
+            config
+                .services
+                .values()
+                .filter_map(|service| {
+                    std::path::Path::new(&service.exe)
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if packages.is_empty() {
+        packages = vec![
+            "asura-gateway".to_string(),
+            "asura-world".to_string(),
+            "asura-webgate".to_string(),
+        ];
+    }
+    packages.sort();
+    packages.dedup();
+    packages
 }
 
 /// The rows a fresh database needs - the two steps the old start script ran before starting the
