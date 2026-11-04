@@ -571,10 +571,10 @@ pub fn decode_eula(body: &[u8]) -> Result<u8, MessageError> {
 /// Layout (`AuthSrv_AccountSettings`): `req_id`, a **u16** `n_data`, then exactly that many bytes of
 /// data. Measured from the reference's own output: `16 00 | 01 00 00 00 | 4f 02 <591 bytes>` -
 /// **599 bytes**, where the table says 2058. The blob is copied from the reference's own literal
-/// ([`super::login_fixtures::ACCOUNT_SETTINGS_DATA`]); nothing here knows what most of it means, and it
+/// ([`super::account_settings::ACCOUNT_SETTINGS_DATA`]); nothing here knows what most of it means, and it
 /// is sent because it is what the reference sends.
 pub fn account_settings(request: u32) -> Frame {
-    let data = super::login_fixtures::ACCOUNT_SETTINGS_DATA;
+    let data = super::account_settings::ACCOUNT_SETTINGS_DATA;
     let mut writer = Writer::new();
     writer.u32(request).u16(data.len() as u16);
     writer.bytes.extend_from_slice(data);
@@ -825,12 +825,12 @@ mod tests {
         let declared = u16::from_le_bytes([body[4], body[5]]) as usize;
         assert_eq!(
             declared,
-            super::super::login_fixtures::ACCOUNT_SETTINGS_DATA.len()
+            super::super::account_settings::ACCOUNT_SETTINGS_DATA.len()
         );
         assert_eq!(declared, 591, "the reference's blob is 591 bytes");
         assert_eq!(
             &body[6..6 + declared],
-            super::super::login_fixtures::ACCOUNT_SETTINGS_DATA,
+            super::super::account_settings::ACCOUNT_SETTINGS_DATA,
             "the blob is copied verbatim"
         );
         assert_eq!(body.len(), 6 + declared, "nothing is padded after the data");
