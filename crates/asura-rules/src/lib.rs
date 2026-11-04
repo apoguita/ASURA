@@ -32,10 +32,17 @@ pub struct Character {
 
 /// The creation instance's map id. The client calls it type 11 and asks for map 0.
 pub const CREATION_MAP: i32 = 0;
-/// `MapType_CharacterCreation`.
-pub const MAP_TYPE_CHARACTER_CREATION: u32 = 11;
+/// `MapType` (`GmMaps.h`), as the map catalogue stores it - an `i32` column, which is why all three are
+/// `i32`. One home for the three numbers (`docs/38-layer-decisions.md`, D27): placement decides by them,
+/// so does the load, and the world used to keep a second copy of two of them.
+///
 /// `MapType_MainTown`: the outpost kind, which the outpost rule never overrides.
 pub const MAP_TYPE_MAIN_TOWN: i32 = 0;
+/// `MapType_MainExplorable`: an explorable area, which placement replaces with the last outpost.
+pub const MAP_TYPE_MAIN_EXPLORABLE: i32 = 1;
+/// `MapType_CharacterCreation`: the one kind that is a conversation rather than a place. The protocol
+/// carries a map type as `u32`, so a caller comparing a frame field casts this one.
+pub const MAP_TYPE_CHARACTER_CREATION: i32 = 11;
 /// Where a character with no history enters: Ascalon City, the stand-in outpost for a campaign whose
 /// own starting outpost this tree has not measured (`docs/22-world-model.md`).
 pub const DEFAULT_OUTPOST: i32 = 148;
@@ -95,7 +102,7 @@ pub fn placement(
     destination_type: Option<i32>,
 ) -> (i32, Option<Substituted>) {
     // 1. A creation visit is its own destination.
-    if request.map_id == CREATION_MAP && request.map_type == MAP_TYPE_CHARACTER_CREATION {
+    if request.map_id == CREATION_MAP && request.map_type == MAP_TYPE_CHARACTER_CREATION as u32 {
         return (request.map_id, None);
     }
 
@@ -151,7 +158,7 @@ mod tests {
     fn a_creation_visit_reaches_the_creation_instance() {
         let request = Requested {
             map_id: CREATION_MAP,
-            map_type: MAP_TYPE_CHARACTER_CREATION,
+            map_type: MAP_TYPE_CHARACTER_CREATION as u32,
         };
         assert_eq!(placement(request, FRESH, Some(11)), (CREATION_MAP, None));
     }

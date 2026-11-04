@@ -44,15 +44,10 @@ impl Map {
     }
 }
 
-/// `MapType_CharacterCreation` (`GmMap.h`): the instance a new character is made in. The reference hosts it
-/// as a map of its own, which is why `main.rs` accepts it alongside a main town.
-pub const MAP_TYPE_CHARACTER_CREATION: i32 = 11;
-
-/// MapType_MainTown (0) and MapType_MainExplorable (1), the GmMap.h names for the two kinds of place a
-/// client walks around in.
-pub const MAP_TYPE_MAIN_TOWN: i32 = 0;
-
-pub const MAP_TYPE_MAIN_EXPLORABLE: i32 = 1;
+/// The three map kinds, owned by `asura-rules` (`crates/asura-rules/src/lib.rs`): placement decides by
+/// them before a world exists, so this crate reads them rather than keeping a second copy
+/// (`docs/38-layer-decisions.md`, D27).
+pub use asura_rules::{MAP_TYPE_CHARACTER_CREATION, MAP_TYPE_MAIN_EXPLORABLE, MAP_TYPE_MAIN_TOWN};
 
 /// One map a world server publishes, with what the client needs to load it.
 #[derive(Debug, Clone, PartialEq)]

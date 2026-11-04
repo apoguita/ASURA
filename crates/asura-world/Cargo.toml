@@ -9,6 +9,8 @@ description = "A world server: maps, instances, placement, and character persist
 [dependencies]
 asura-protocol = { path = "../asura-protocol" }
 asura-db = { path = "../asura-db" }
+# The map kinds placement decides by: layer 3 owns the numbers, this crate reads them (D27).
+asura-rules = { path = "../asura-rules" }
 tokio = { workspace = true }
 # The game connection's key exchange needs 20 bytes of real randomness per connection, from the
 # operating system (docs/adr/0009-crypto-primitives.md).
