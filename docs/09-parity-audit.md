@@ -152,8 +152,8 @@ never seen one appear - in either server.
 
 | Behaviour | GWPS | ASURA | Verdict |
 |---|---|---|---|
-| Player speaks on `!` | Ungated broadcast of the text + `CHAT_MESSAGE_LOCAL` on `Channel_All` as `[channel, 0]` (`GmChat.c:259-277`, `290`) | `player_chat_line` - the coded-string body in 121-unit `CHAT_MESSAGE_CORE` fragments, then `chat_message_local` as 5 bytes, `[playerId, channel]` (`game/mod.rs:236-316`) | 1:1 (effect), and deliberately **not** 1:1 in bytes: the live wire is a word and a byte (Rurik), and its order is the reverse of the reference's (`doors-20261031-095754.jsonl` seq 12328) |
-| Player speaks on `#` / `$` | Same path with `Channel_Group` / `Channel_Trade` (`GmChat.c:293-294`) | Same, and `!`/`$` also go to the instance while `#` returns to the speaker (`chat.rs:236-244`) | 1:1 (effect) |
+| Player speaks on `!` | Ungated broadcast of the text + `CHAT_MESSAGE_LOCAL` on `Channel_All` (`GmChat.c:259-277`, `290`) | `chat_message_core` + `chat_message_local(PLAYER_ID, CHANNEL_ALL)` (`lib.rs:1010-1030`) | 1:1 (effect) - bytes on the wire in both, visible in neither |
+| Player speaks on `#` / `$` | Same path with `Channel_Group` / `Channel_Trade` (`GmChat.c:293-294`) | Same (`lib.rs:1011-1015`) | 1:1 (effect) |
 | Player speaks on `@`, `%`, `"` | Silently ignored (`GmChat.c:291-298`) | Ignored (`lib.rs:1086-1095`) | 1:1 |
 | Player speaks on any other channel | Error log, `ERR_BAD_USER_DATA` (`GmChat.c:300-302`) | Prints a refusal line (`lib.rs:1096-1099`) | 1:1 (effect) |
 | `/maps` | Chat aliases via the gated sender **plus** an unconditional `log_info` table: `Teleport targets (N aliases, every one with a map config):` then `  /tp %-15s -> map %3d  %s` (`GmCommands.c:113-152`) | The same table, printed, character for character (`maps_answer`, `lib.rs:1497-1529`); the chat half is printed only under trace and never sent (`lib.rs:1063-1078`) | 1:1 |

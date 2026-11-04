@@ -94,13 +94,8 @@ answer in the reference funnels through `GameSrv_SendSystemChatMessage` or
 `GameSrv_SendInvalidCommand`, and both return before touching the wire unless `GWPS_CHAT=1`; a
 player's line is not gated either way. So the reference's `/maps` is useful because it prints on the
 *server*, and this one prints in the same place, in the same format, and puts no byte on the wire --
-which is the crash that first showed the reference's layouts for the chat family were guesses. What
-this server sends now: a **coded-string** body in 121-unit `0x005D` fragments, and **5 bytes, a word
-and a byte, `[playerId, channel]`** for `0x0061`/`0x005E` - the size from the Rurik project's live read
-(the only witness), and the order from
-`recordings/client/feature/travel/doors-20261031-095754.jsonl` seq 12328, a retail client's struct that
-also shows the reference's `[channel, 0]` to be reversed. That struct is evidence of the order, not of
-the size (`docs/HANDOFF.md` decisions, 2026-11-01). `/tp` acts in both servers now: the
+which is the same crash that made the reference's layouts settle: `0x005D`, `0x005E` and `0x0061`
+appear in no capture, and sending one here crashed a live client. `/tp` acts in both servers now: the
 same world-initiated travel -- a slot reserved, a transfer row written, `TRANSFER_GAME_SERVER_INFO`
 and then `MAP_UPDATE_CURRENT` sent -- implemented at `crates/asura-world/src/travel.rs:181` and
 reached from the chat command at `crates/asura-world/src/chat.rs:339`.

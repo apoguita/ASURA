@@ -618,10 +618,10 @@ pub static PACKETS: &[Packet] = &[
     Packet { conn: Conn::Game, header: 0x005B, index:  91, size:     6, name: None, from_client: false, status: Status::Unnamed, evidence: &[], fields: &[Field { kind: FieldKind::MsgHeader, length: 91 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Packet { conn: Conn::Game, header: 0x005C, index:  92, size:    14, name: None, from_client: false, status: Status::Unnamed, evidence: &[], fields: &[Field { kind: FieldKind::MsgHeader, length: 92 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Packet { conn: Conn::Game, header: 0x005D, index:  93, size:   250, name: Some("GAME_SMSG_CHAT_MESSAGE_CORE"), from_client: false, status: Status::Emitted, evidence: &[], fields: &[Field { kind: FieldKind::MsgHeader, length: 93 }, Field { kind: FieldKind::String16, length: 122 }] },
-    Packet { conn: Conn::Game, header: 0x005E, index:  94, size:     5, name: Some("GAME_SMSG_CHAT_MESSAGE_SERVER"), from_client: false, status: Status::Emitted, evidence: &["Rurik, studies/chat/FINDINGS.md section 1: the live wire carries a word and a byte, 5 bytes - the only witness for this size, and a client rendered a line sent that way", "recordings/client/feature/travel/doors-20261031-095754.jsonl seq 12328: the same message in a retail client's own struct is [0, 10], subject player then channel - the order here, and the reverse of the reference's [channel, 0]. A client struct is evidence of an order, never of a size (docs/03 5e)"], fields: &[Field { kind: FieldKind::MsgHeader, length: 94 }, Field { kind: FieldKind::Word, length: 0 }, Field { kind: FieldKind::Byte, length: 0 }] },
+    Packet { conn: Conn::Game, header: 0x005E, index:  94, size:    10, name: Some("GAME_SMSG_CHAT_MESSAGE_SERVER"), from_client: false, status: Status::Emitted, evidence: &[], fields: &[Field { kind: FieldKind::MsgHeader, length: 94 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Packet { conn: Conn::Game, header: 0x005F, index:  95, size:    28, name: Some("GAME_SMSG_CHAT_MESSAGE_NPC"), from_client: false, status: Status::Known, evidence: &[], fields: &[Field { kind: FieldKind::MsgHeader, length: 95 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::String16, length: 8 }] },
     Packet { conn: Conn::Game, header: 0x0060, index:  96, size:    86, name: Some("GAME_SMSG_CHAT_MESSAGE_GLOBAL"), from_client: false, status: Status::Known, evidence: &[], fields: &[Field { kind: FieldKind::MsgHeader, length: 96 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::String16, length: 32 }, Field { kind: FieldKind::String16, length: 6 }] },
-    Packet { conn: Conn::Game, header: 0x0061, index:  97, size:     5, name: Some("GAME_SMSG_CHAT_MESSAGE_LOCAL"), from_client: false, status: Status::Emitted, evidence: &["Rurik, studies/chat/FINDINGS.md section 1: a word and a byte, 5 bytes, and a client rendered the line - the only witness, since 0x0061 is in no capture of ours", "recordings/client/feature/travel/doors-20261031-095754.jsonl seq 12328: the sibling 0x005E shows the player-first order in a retail client's struct (evidence of an order, never of a size)"], fields: &[Field { kind: FieldKind::MsgHeader, length: 97 }, Field { kind: FieldKind::Word, length: 0 }, Field { kind: FieldKind::Byte, length: 0 }] },
+    Packet { conn: Conn::Game, header: 0x0061, index:  97, size:    10, name: Some("GAME_SMSG_CHAT_MESSAGE_LOCAL"), from_client: false, status: Status::Emitted, evidence: &[], fields: &[Field { kind: FieldKind::MsgHeader, length: 97 }, Field { kind: FieldKind::Dword, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Packet { conn: Conn::Game, header: 0x0062, index:  98, size:    10, name: Some("GAME_SMSG_HERO_BEHAVIOR"), from_client: false, status: Status::Known, evidence: &[], fields: &[Field { kind: FieldKind::MsgHeader, length: 98 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::Dword, length: 0 }] },
     Packet { conn: Conn::Game, header: 0x0063, index:  99, size:    10, name: None, from_client: false, status: Status::Unnamed, evidence: &[], fields: &[Field { kind: FieldKind::MsgHeader, length: 99 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::AgentId, length: 0 }] },
     Packet { conn: Conn::Game, header: 0x0064, index: 100, size:     8, name: Some("GAME_SMSG_HERO_SKILL_STATUS"), from_client: false, status: Status::Known, evidence: &[], fields: &[Field { kind: FieldKind::MsgHeader, length: 100 }, Field { kind: FieldKind::AgentId, length: 0 }, Field { kind: FieldKind::Byte, length: 0 }, Field { kind: FieldKind::Byte, length: 0 }] },
@@ -1768,7 +1768,7 @@ pub mod game {
     /// `GAME_SMSG_CHAT_MESSAGE_CORE` (declared maximum 250 bytes; header `0x005D`).
     pub const GAME_SMSG_CHAT_MESSAGE_CORE: u16 = 0x005D;
 
-    /// `GAME_SMSG_CHAT_MESSAGE_SERVER` (5 bytes, a word and a byte; header `0x005E`).
+    /// `GAME_SMSG_CHAT_MESSAGE_SERVER` (declared maximum 10 bytes; header `0x005E`).
     pub const GAME_SMSG_CHAT_MESSAGE_SERVER: u16 = 0x005E;
 
     /// `GAME_SMSG_CHAT_MESSAGE_NPC` (declared maximum 28 bytes; header `0x005F`).
@@ -1777,7 +1777,7 @@ pub mod game {
     /// `GAME_SMSG_CHAT_MESSAGE_GLOBAL` (declared maximum 86 bytes; header `0x0060`).
     pub const GAME_SMSG_CHAT_MESSAGE_GLOBAL: u16 = 0x0060;
 
-    /// `GAME_SMSG_CHAT_MESSAGE_LOCAL` (5 bytes, a word and a byte; header `0x0061`).
+    /// `GAME_SMSG_CHAT_MESSAGE_LOCAL` (declared maximum 10 bytes; header `0x0061`).
     pub const GAME_SMSG_CHAT_MESSAGE_LOCAL: u16 = 0x0061;
 
     /// `GAME_SMSG_HERO_BEHAVIOR` (declared maximum 10 bytes; header `0x0062`).

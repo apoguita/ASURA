@@ -233,85 +233,22 @@ pub fn chat_message_core(text: &str) -> crate::client::Frame {
     Builder::new(CHAT_MESSAGE_CORE).text(text, 122).frame()
 }
 
-/// The leading word of a player's All-channel chat body: string id 8, the All-chat body wrapper.
-/// Measured by the Rurik project on the live wire (3 of 3 channel-3 player bodies) and seen to
-/// render on its own client (`studies/chat/FINDINGS.md`); restated here, not copied.
-pub const CHAT_BODY_WRAPPER: u16 = 0x0108;
-/// The marker that opens a literal run inside a coded string (string id 7).
-pub const CODED_LITERAL_START: u16 = 0x0107;
-/// The terminator that closes a literal run (a marker word, below `0x100`).
-pub const CODED_LITERAL_END: u16 = 0x0001;
-/// Units per `CHAT_MESSAGE_CORE` fragment: the declared 122 minus one, which is where both multi-part
-/// live lines split (Rurik, `FRAGMENT_UNITS`).
-pub const CHAT_FRAGMENT_UNITS: usize = 121;
-
-/// A typed chat line as the coded string the client renders: wrapper, literal start, the text,
-/// literal end.
-///
-/// **Why not plain text.** `CHAT_MESSAGE_CORE` carries a *coded* string: a word below `0x100` is a
-/// control marker and a word at or above it is a string id. Plain ASCII is all below `0x100`, so a
-/// bare "hello" opens with a marker the client does not expect and it asserts
-/// (`TextApi.cpp(585)`, `(codedString[0] & ~WORD_BIT_MORE) >= WORD_VALUE_BASE`) and closes - the
-/// crash a chat line caused here. Units below `0x20` are dropped from the typed text so a stray
-/// control code cannot end the literal early.
-pub fn chat_body_units(text: &str) -> Vec<u16> {
-    let mut units = vec![CHAT_BODY_WRAPPER, CODED_LITERAL_START];
-    units.extend(text.encode_utf16().filter(|unit| *unit >= 0x20));
-    units.push(CODED_LITERAL_END);
-    units
-}
-
-/// One player's chat line, ready to send: the coded body in `CHAT_MESSAGE_CORE` fragments of at most
-/// [`CHAT_FRAGMENT_UNITS`] units, then the `CHAT_MESSAGE_LOCAL` tag that commits the line to
-/// `channel` under `player_id`.
-pub fn player_chat_line(player_id: u32, channel: u32, text: &str) -> Vec<crate::client::Frame> {
-    let body = chat_body_units(text);
-    let mut frames: Vec<crate::client::Frame> = body
-        .chunks(CHAT_FRAGMENT_UNITS)
-        .map(|part| {
-            Builder::new(CHAT_MESSAGE_CORE)
-                .units(part, CHAT_FRAGMENT_UNITS)
-                .frame()
-        })
-        .collect();
-    frames.push(chat_message_local(player_id, channel));
-    frames
-}
-
-/// `GAME_SMSG_CHAT_MESSAGE_LOCAL`: who is speaking, and on which channel - **a word and a byte, 5
-/// bytes**, `[playerId, channel]`.
-///
-/// The generated table said two dwords (10 bytes) and that is not what a client accepts. The live wire,
-/// as the Rurik project captured it from ArenaNet's server and replayed it to a client that rendered the
-/// line and stayed connected, carries the player number as a word and the channel as a byte
-/// (`studies/chat/FINDINGS.md` section 1). That project is the only witness for this size, which is said
-/// here rather than hidden: `0x0061` is in no capture of ours.
-///
-/// The **order** has a second witness. A retail client's capture of the live server carries the sibling
-/// `0x005E` as a 12-byte client struct holding `[0, 10]` - subject player, then channel
-/// (`recordings/client/feature/travel/doors-20261031-095754.jsonl` seq 12328) - which is the reverse of
-/// GWPS's `[channel, 0]`, and which is the same order read here. That struct is evidence of the order and
-/// not of the size: a sniffer records the client's own struct, with native-width fields and zero padding,
-/// and never a wire size (`docs/03-protocol.md` 5e, `docs/HANDOFF.md` decisions, 2026-11-01).
+/// `GAME_SMSG_CHAT_MESSAGE_LOCAL`: who is speaking, and on which channel.
 pub fn chat_message_local(player_id: u32, channel: u32) -> crate::client::Frame {
     Builder::new(CHAT_MESSAGE_LOCAL)
-        .u16(player_id as u16)
-        .u8(channel as u8)
+        .u32(player_id)
+        .u32(channel)
         .frame()
 }
 
-/// `GAME_SMSG_CHAT_MESSAGE_SERVER`: a server-composed line, committed under the player it is *about* on
-/// a channel - **a word and a byte, 5 bytes**, `[playerId, channel]`, the same shape as
-/// `CHAT_MESSAGE_LOCAL`.
+/// `GAME_SMSG_CHAT_MESSAGE_SERVER`: the server itself speaking on a channel.
 ///
-/// Rurik captured it live as `[subject playerId, channel]` (the `/bow` reply, `[1, 6]`) and saw the line
-/// render, and the retail capture above reads the same order in the client's own struct. The two-dword
-/// form was the generated table's; GWPS sends `[channel, 0]` in it, so the reference is wrong in both
-/// the size and the order.
-pub fn chat_message_server(subject_player_id: u32, channel: u32) -> crate::client::Frame {
+/// The second dword is not in the reference's struct and is zero on the wire; the table declares the
+/// message at 10 bytes, and a client given 6 reads two bytes of the next message as part of this one.
+pub fn chat_message_server(channel: u32) -> crate::client::Frame {
     Builder::new(CHAT_MESSAGE_SERVER)
-        .u16(subject_player_id as u16)
-        .u8(channel as u8)
+        .u32(channel)
+        .u32(0)
         .frame()
 }
 
@@ -1619,8 +1556,8 @@ mod tests {
         // The unnamed form is fixed at 25 bytes; the named one has no fixed size at all.
         assert_eq!(wire(&create_unnamed_item(&NamedItem::default())), 25);
         assert_eq!(wire(&item_set_profession(3, 1)), 7);
-        assert_eq!(wire(&chat_message_local(1, CHANNEL_ALL)), 5);
-        assert_eq!(wire(&chat_message_server(1, CHANNEL_WARNING)), 5);
+        assert_eq!(wire(&chat_message_local(1, CHANNEL_ALL)), 10);
+        assert_eq!(wire(&chat_message_server(CHANNEL_WARNING)), 10);
         assert_eq!(wire(&update_gold_storage(1, 0)), 8);
         assert_eq!(wire(&faction_max(FACTION_MAX_KURZICK, 0)), 6);
         assert_eq!(wire(&hard_mode_unlocked(1)), 3);
@@ -1950,33 +1887,5 @@ mod tests {
         assert_eq!(&bytes[0..2], &0x0099u16.to_le_bytes());
         assert_eq!(&bytes[2..4], &146u16.to_le_bytes());
         assert_eq!(bytes[4], 0);
-    }
-    /// A typed line is a coded string: wrapper, literal start, the text, literal end, and a long line is
-    /// split into 121-unit fragments before the one tag. The tag is a word and a byte (5 bytes), and its
-    /// order - the player first - has a second witness in a retail capture's client struct.
-    #[test]
-    fn a_chat_line_is_a_coded_string_not_plain_text() {
-        let units = chat_body_units("hello");
-        assert_eq!(
-            units,
-            vec![0x0108, 0x0107, 0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x0001]
-        );
-        assert!(units[0] >= 0x100, "the first word must be a string id, not a marker");
-
-        let frames = player_chat_line(1, CHANNEL_ALL, "hello");
-        assert_eq!(frames.len(), 2);
-        assert_eq!(frames[0].header(), CHAT_MESSAGE_CORE);
-        assert_eq!(wire(&frames[0]), 2 + 2 + 2 * 8);
-        assert_eq!(frames[1].header(), CHAT_MESSAGE_LOCAL);
-        assert_eq!(
-            frames[1].bytes(),
-            &[0x61, 0x00, 0x01, 0x00, 0x03],
-            "Rurik's live `6100 0100 03`: header, the player word, the channel byte"
-        );
-
-        let long = "x".repeat(200);
-        let frames = player_chat_line(1, CHANNEL_ALL, &long);
-        assert_eq!(frames.len(), 3, "203 units: two CORE fragments and the tag");
-        assert_eq!(wire(&frames[0]), 2 + 2 + 2 * CHAT_FRAGMENT_UNITS);
     }
 }

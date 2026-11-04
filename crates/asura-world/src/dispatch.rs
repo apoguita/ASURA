@@ -48,16 +48,10 @@ pub async fn answer(
             answer
         }
 
-        // The client's own travel announcement: the player touched a travel object. This is the
-        // client's own witness that it reached a door - `travel::handle_travel_init` prints what it
-        // carries, which is the measurement a doorway table is built from. `portal_reached` then
-        // applies the crossing test a position report would; the client sends no report while it walks,
-        // so on a touch this arm is the only thing that can fire.
-        msg::GAME_CMSG_TRAVEL_INIT => {
-            let answer = travel::handle_travel_init(&frame, player, trace);
-            travel::portal_reached(stream, session, world, player, trace).await?;
-            answer
-        }
+        // The client's own travel announcement: the player touched a travel object. Named rather than
+        // left to the fallthrough, because the line it prints is the measurement a portal table is
+        // built from - see `travel::handle_travel_init` for what it carries and what is still missing.
+        msg::GAME_CMSG_TRAVEL_INIT => travel::handle_travel_init(&frame, player, trace),
 
         // The world map's request. The client has already decided which instance it wants; this carries
         // the decision out with the same cycle `/tp` uses.

@@ -189,10 +189,8 @@ names below are what to *read* with it:
    capture. Accepts it: an outpost looks like the live one, and the gate question becomes one walk.
 3. **Name the rest of the unnamed rows** from the same capture and move them off `Unnamed`: `0x011F`,
    `0x012F` and `0x8092` are what is left of this page's list (`docs/28-headers-to-name.md`).
-4. **~~The portal touch.~~ Delivered**: a doorway a walk reaches starts the transfer
-   (`crates/asura-world/src/travel.rs:364-433`), and the `0x80C1` arm now runs the same crossing test
-   (`crates/asura-world/src/dispatch.rs:56-60`). The portal agent the message names is not the lookup key
-   yet - the doorway is found by the character's position.
+4. **~~The portal touch.~~ Partly delivered**: a doorway a walk reaches starts the transfer
+   (`crates/asura-world/src/travel.rs:364-433`); the `0x80C1` arm still only logs (`travel.rs:154-166`).
 
 Items 1 and 2 change what a client sees and need the client to accept them; item 3 changes nothing on the
 wire. None of them is a guess about behaviour: each reproduces messages a live server sent, in the order

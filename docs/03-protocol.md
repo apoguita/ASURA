@@ -435,16 +435,8 @@ same eight-message stream `/tp` and the world map produce (`docs/03` 5f, the eig
 implementation therefore has a **portal table**: for each instance, the travel portals' positions and
 which instance each leads to - read from the instance's own props, which is where the client draws them
 from (`crates/asura-world/src/portals.rs`, generated from `data/portals.json`; `docs/22-world-model.md`,
-answer 3). A doorway a walk reaches fires the crossing, and so does a touch: the `0x80C1` arm names the
-touch and then applies the same crossing test a position report does
-(`crates/asura-world/src/dispatch.rs:56-60`, `travel::portal_reached`).
-
-The table itself is **content**, not a compiled constant: `asura-world` reads `map_portal` once at
-start-up (`crates/asura-db/migrations/0025_map_portals.sql`, `asura_db::game::map_portals`,
-`portals::install`) and keeps the compiled `PORTALS` table only as the fallback for a database with no
-rows there. That is `docs/32-world-simulation-plan.md` Phase 1's read model, so a doorway is edited with
-no rebuild. Table order is the trigger order and is not re-ranked: `CROSSED` before `PORTALS` while the
-compiled table answers, and the rows' own `(map_id, idx)` order when the database does.
+answer 3). A doorway a walk reaches fires the crossing; the `0x80C1` arm still names the touch and starts
+nothing (`crates/asura-world/src/travel.rs:154-166`).
 
 The `0x00C1` messages seen in `captures/zone-ref2-012225.jsonl` are therefore **not** the crossing; they
 are the client asking about instances, and what they are owed is still open.
@@ -546,19 +538,15 @@ then `0x0099`), reached from a different trigger:
   from the archive are the same ordering, and the table can be derived offline, like the path graphs.
 
 **What this world does with `0x80C1` today.** `travel::handle_travel_init`
-(`crates/asura-world/src/travel.rs`) names the touch as an event, and the arm then runs the same crossing
-test a position report runs - the doorway is found by the character's position, not by the agent the
-message carries:
+(`crates/asura-world/src/travel.rs`) names the touch as an event and starts nothing:
 
 ```
 world: "name" touched a travel object in map 148 'Ascalon City (pre-Searing)': TRAVEL_INIT agent
-       0x0000003A, second 0x00000000; checking the doorways at the character's position
+       0x0000003A, second 0x00000000; no portal row names that agent, so no travel starts
 ```
 
 That line is the measurement a portal table is built from - which portal, in which instance - and it is
-printed without `ASURA_TRACE`, because it is the event, not a packet. The agent id is not the lookup key
-yet: a portal row keyed by the instance and the agent the message names is the next step, and until then a
-touch only crosses where a recorded doorway is already within `portals::REACH`.
+printed without `ASURA_TRACE`, because it is the event, not a packet.
 
 ## 6. Traps that cost real time in GWPS
 
@@ -848,40 +836,17 @@ message a working drop needs is a measurement this project does not have yet.
 
 `GAME_CMSG_SEND_CHAT_MESSAGE` (`0x8064`) is `{agent_id u32, text String16}`; the first unit of the text is
 the channel: `!` all, `#` group, `$` trade, `/` a command, and `@`/`%`/`"` are dropped, as the reference
-drops them. A player's line is answered with one or more `CHAT_MESSAGE_CORE` (`0x005D`) fragments carrying
-the text and then one `CHAT_MESSAGE_LOCAL` (`0x0061`, speaker and channel) - and that pair is **sent**,
-exactly as the reference sends it: `GmChat.c:259-277` is not behind the reference's chat switch.
-
-The body of `0x005D` is a **coded string**, not plain text: a word at or above `0x100` is a string id and a
-word below it is a control marker, so a bare ASCII line asserts the client's coded-string check
-(`TextApi.cpp(585)`). A player's All-channel line is therefore four parts - `0x0108` (the All-chat body
-wrapper), `0x0107` (opens a literal run), the text as UTF-16 units, `0x0001` (closes it) - and a line longer
-than 121 units continues in another `0x005D` fragment, 121 being the declared 122 minus one. The coded body
-and the 121-unit split are the Rurik project's live reading (`studies/chat/FINDINGS.md` sections 1-5), which
-replayed them to a client that rendered the line and stayed connected, and the same capture of ours shows a
-live `0x005D` body carrying string ids rather than a count and ASCII
-(`recordings/client/feature/travel/doors-20261031-095754.jsonl` seq 12327).
-
-`0x0061` and `0x005E` are **5 bytes: a word and a byte**, `[playerId, channel]`. That size has one
-witness - the Rurik project's live read (`studies/chat/FINDINGS.md` section 1), which replayed it to a
-client that rendered the line and stayed connected - and the word must be said out loud because `0x0061`
-appears in no capture of ours.
-
-The **order** has a second, independent witness. A retail client's capture of the live server carries
-`0x005E` as a 12-byte client struct holding `[0, 10]`
-(`recordings/client/feature/travel/doors-20261031-095754.jsonl` seq 12328): the subject player first,
-then the channel, which is the reverse of the reference's `[channel, 0]`. The reference's field order is
-therefore wrong and this server's is the live one. The struct is evidence of the order and **not** of the
-size: a sniffer records the client's own struct - four-byte header, native-width fields, zero padding -
-and never a wire size (section 5e, `docs/HANDOFF.md` decisions, 2026-11-01). That is why the same
-12-byte struct is equally consistent with a 5-byte and a 10-byte wire form, and why the size rests on
-the live read alone.
+drops them. A player's line is answered with two messages - `CHAT_MESSAGE_CORE` (`0x005D`) carrying the text
+and `CHAT_MESSAGE_LOCAL` (`0x0061`, speaker and channel) - and that pair is **sent**, exactly as the
+reference sends it: `GmChat.c:259-277` is not behind the reference's chat switch.
 
 The answers the *server* generates are the other half, and they are printed, not sent. Every GM answer and
 every "unknown command" in the reference funnels through `GameSrv_SendSystemChatMessage` or
 `GameSrv_SendInvalidCommand`, and both return before touching the wire unless `GWPS_CHAT=1`
 (`GmChat.c:150-153`, `GmChat.c:209-212`). So the reference's `/maps` answer is a log line; this server's
-`/maps` answer is a console line; neither puts a byte on the wire. That is parity, not a switch.
+`/maps` answer is a console line; neither puts a byte on the wire. That is parity, not a switch. No chat text
+has ever reached a screen in either server, and sending it here crashed a live client - `0x005D`, `0x005E`
+and `0x0061` appear in no capture, so the layouts are guesses.
 
 Nothing in this build is behind a switch (#11). The split above is what the reference does, not what this
 server enables: a spoken line goes out; a generated answer is printed.
