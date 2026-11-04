@@ -85,6 +85,15 @@ async fn main() -> ExitCode {
         }
     }
 
+    // The fallback outpost has no default in code (`config/Server/placement.json`): a login that cannot
+    // answer "where does a character with no history enter" has nothing to place anyone with, so the
+    // service says so and stops instead of running on a number nobody chose (D34).
+    if let Err(err) = asura_config::placement() {
+        eprintln!("asura-gateway: {err}");
+        eprintln!("asura-gateway: refusing to start without a placement file");
+        return ExitCode::from(4);
+    }
+
     let listener = match tokio::net::TcpListener::bind(bind).await {
         Ok(listener) => listener,
         Err(err) => {

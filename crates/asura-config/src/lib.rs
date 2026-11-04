@@ -177,26 +177,19 @@ pub const PLACEMENT_VARIABLE: &str = "ASURA_PLACEMENT";
 /// (`docs/22-world-model.md`), so it belongs beside the other values a machine runs on and not inside a
 /// decision (`docs/38-layer-decisions.md`, D34).
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 pub struct Placement {
     /// Free text for whoever opens the file; never read by the server.
     #[serde(default)]
     pub note: Option<String>,
-    /// Where a character with no placement history is put.
+    /// Where a character with no placement history is put. **Required**: there is no default in code,
+    /// because a fallback outpost is a value the world owns and a compiled one would only be a number
+    /// somebody forgot to configure (`docs/38-layer-decisions.md`, D34).
     pub default_outpost: i32,
 }
 
-impl Default for Placement {
-    fn default() -> Self {
-        Placement {
-            note: None,
-            default_outpost: 148,
-        }
-    }
-}
-
 impl Placement {
-    /// Parse the file's text.
+    /// Parse the file's text. A file without `default_outpost` is an error, not a default.
     pub fn from_json(text: &str) -> Result<Placement, String> {
         serde_json::from_str(text).map_err(|err| err.to_string())
     }
@@ -204,36 +197,29 @@ impl Placement {
 
 /// The placement values in force, read once per process.
 ///
-/// A missing file is the defaults, and a file that does not parse is reported rather than silently
-/// ignored: a server placing characters somewhere nobody chose is worse than one that says why.
-pub fn placement() -> &'static Placement {
-    static IN_FORCE: OnceLock<Placement> = OnceLock::new();
-    IN_FORCE.get_or_init(|| {
-        let path = match std::env::var(PLACEMENT_VARIABLE) {
-            Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
-            _ => PLACEMENT_FILE.to_string(),
-        };
-        match std::fs::read_to_string(&path) {
-            Ok(text) => match Placement::from_json(&text) {
-                Ok(placement) => {
-                    eprintln!("asura: placement from {path}");
-                    placement
-                }
-                Err(err) => {
-                    eprintln!("asura: {path} is not a valid placement file: {err}; using the defaults");
-                    Placement::default()
-                }
-            },
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                eprintln!("asura: no placement file at {path}; using the defaults");
-                Placement::default()
+/// There is no built-in value: a missing file, an unreadable one, or one without `default_outpost` is an
+/// error, and the service that needs it refuses to start. A server that placed characters somewhere
+/// nobody configured would be running on a number that does not exist.
+pub fn placement() -> Result<&'static Placement, String> {
+    static IN_FORCE: OnceLock<Result<Placement, String>> = OnceLock::new();
+    IN_FORCE
+        .get_or_init(|| {
+            let path = match std::env::var(PLACEMENT_VARIABLE) {
+                Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
+                _ => PLACEMENT_FILE.to_string(),
+            };
+            match std::fs::read_to_string(&path) {
+                Ok(text) => Placement::from_json(&text)
+                    .map_err(|err| format!("{path} is not a valid placement file: {err}"))
+                    .map(|placement| {
+                        eprintln!("asura: placement from {path}");
+                        placement
+                    }),
+                Err(err) => Err(format!("{path} is not readable: {err}")),
             }
-            Err(err) => {
-                eprintln!("asura: {path} is not readable: {err}; using the defaults");
-                Placement::default()
-            }
-        }
-    })
+        })
+        .as_ref()
+        .map_err(|err| err.clone())
 }
 
 #[cfg(test)]
@@ -271,13 +257,19 @@ mod tests {
         let placement =
             Placement::from_json(PLACEMENT_COMMITTED).expect("the committed file parses");
         assert_eq!(
-            placement.default_outpost,
-            Placement::default().default_outpost
+            placement.default_outpost, 148,
+            "the base game's starting outpost"
         );
         assert!(
             placement.note.is_some(),
             "the file says where its number came from"
         );
+    }
+
+    #[test]
+    fn a_placement_file_without_the_outpost_is_an_error_not_a_default() {
+        let err = Placement::from_json(r#"{"note": "nothing here"}"#).expect_err("refused");
+        assert!(err.contains("default_outpost"), "said: {err}");
     }
 
     #[test]

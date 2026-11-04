@@ -140,7 +140,9 @@ Files: `src/lib.rs` 208 lines, 8 tests.
 - [x] created because a protocol answer needed a game rule and no existing crate fits: `asura-db` is
       storage and `asura-world` may not exist yet at login (`docs/38`, D25) - commit `4b09d17`
 - [x] the rule holds no value of its own (`docs/38`, D34): `DEFAULT_OUTPOST` is gone. The fallback
-      outpost is `config/Server/placement.json` (`default_outpost`, read by `asura-config`), and it
+      outpost is `config/Server/placement.json` (`default_outpost`, read by `asura-config`), it has no
+      built-in default in code - the key is required and `asura-gateway` refuses to start without the
+      file - and it
       arrives at `placement` as an argument, which answers with it plus
       `Substituted::NothingToPlace` when the character's row names neither a map nor an outpost. The
       outpost a character enters is written by character creation, by a scripted event and by
