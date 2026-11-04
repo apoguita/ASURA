@@ -57,7 +57,9 @@ Files: `packets.rs` (2,105; 782 rows, 403 consts), `game/mod.rs` (1,754; 109 con
 `lib.rs` 153.
 
 - [-] holds by design - the packet table is the specification (`AGENTS.md` #1)
-- [ ] content that is misplaced here is moved out: `game/pvp_items.rs`, 1,567 lines of item rows
+- [x] content that was misplaced here is moved out: `game/pvp_items.rs` (387 rows) is
+      `crates/asura-world/src/pvp_items.rs`, layer 9 - commit `fb8e508`, rows compared row for row
+      with the commit before, 93 protocol and 61 world unit tests pass
 - [x] test client gated: `client/peer.rs` behind the `test-client` feature (`docs/38`, D13) - commit
       `8e7448b`; `cargo check --workspace` and `--all-targets` exit 0, 93 protocol tests pass
 - [x] `client/login_fixtures.rs` is payload, not a fixture: `messages::account_settings` sends it on
@@ -135,8 +137,11 @@ Files: `creation.rs` 482.
 
 ## Layer 9 - items
 
-Files: `item.rs` 525.
+Files: `item.rs` 525, `pvp_items.rs` 1,571.
 
+- [x] `pvp_items.rs` arrived here from the wire layer: 387 unlockable-PvP-item rows, frozen, one
+      reader (`player.rs:162`) - commit `fb8e508`
+- [ ] `pvp_items.rs` decided: a `config/` file or a Rust table kept as evidence (D11, after D12)
 - [ ] `inventory/seed.rs` (122 lines) moved to `config/`
 - [ ] the bag order and the refusal shapes recorded as rules (they are not content)
 
