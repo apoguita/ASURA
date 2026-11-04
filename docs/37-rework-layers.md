@@ -139,6 +139,8 @@ placement mechanism now; its rules left for `asura-rules` (layer 3b).
       (`crates/asura-rules/src/lib.rs`) - commit `4b09d17`
 - [x] the crate adopts the lint policy (`docs/38`, D17): seven needless borrows and one field doc -
       commit `4b09d17`; clippy `-D warnings` and `cargo doc` pass
+- [x] no lint suppression, no dead code: the three error variants only classification and routing could
+      raise left with those jobs - commit `099b0f0`
 - [x] `frontdoor.rs` left auth: the socket layer is `crates/asura-gateway` - listener, file check,
       classification, relay (`docs/38`, D26) - commit `be99de2`; auth is a library call from it and
       has no `main.rs`
