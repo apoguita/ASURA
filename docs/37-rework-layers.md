@@ -77,10 +77,11 @@ Files: `packets.rs` (2,105; 782 rows, 403 consts), `game/mod.rs` (1,754; 109 con
 
 ### Layer 1 naming, in the order the rule exposes it
 
-- [ ] rename `client/login_fixtures.rs` to `client/account_settings.rs`: it is a 591-byte payload,
-      not a fixture - 5 call sites, all inside `messages.rs`
-- [ ] rename `client/peer.rs` to `client/reference_client.rs`: it is a fake client, not a peer -
-      54 references across four test files and `asura-auth/examples/probe.rs`
+- [x] rename `client/login_fixtures.rs` to `client/account_settings.rs`: it is a 591-byte payload,
+      not a fixture - 5 references, all inside `messages.rs` - commit `7a8112b`
+- [x] rename `client/peer.rs` to `client/reference_client.rs`: it is a fake client, not a peer -
+      54 references across four test files and two examples - commit `af8c24a` (which also
+      rustfmt'd those files, taking them off the workspace's fmt list)
 - [ ] split the two `frame` functions in `client/messages.rs` (`:334` returns
       `Result<Frame, MessageError>`, `:359` returns `Frame`): 104 `.frame()` call sites, so the
       rename is mechanical but wide
