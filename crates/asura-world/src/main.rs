@@ -370,6 +370,19 @@ async fn main() -> ExitCode {
     // started below, once the world exists: it now also carries the player count and the drain
     // (S3), which need the world itself.
 
+    // The pack is configuration: read once here, and a bad file stops the world before it serves anyone
+    // rather than on the first character creation or the first load block.
+    if let Err(err) = asura_world::character_defaults::current() {
+        eprintln!("asura-world: {err}");
+        eprintln!("asura-world: refusing to start without the character defaults");
+        return ExitCode::from(4);
+    }
+    if let Err(err) = asura_world::spawns::current() {
+        eprintln!("asura-world: {err}");
+        eprintln!("asura-world: refusing to start without the character spawn table");
+        return ExitCode::from(4);
+    }
+
     let listener = match tokio::net::TcpListener::bind(bind).await {
         Ok(listener) => listener,
         Err(err) => {

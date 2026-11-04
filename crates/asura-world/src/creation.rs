@@ -397,7 +397,7 @@ pub async fn handle_confirm(
     // What a new character is worth is the pack's (`config/World/Vanilla/character_defaults.json`):
     // level, gold and secondary profession are values the world states. The unlocked-profession bitmap is
     // not among them - it is one bit for the profession the player chose, which the confirm derives.
-    let defaults = match crate::character_defaults::load(&crate::spawns::pack()) {
+    let defaults = match crate::character_defaults::current() {
         Ok(defaults) => defaults,
         Err(err) => {
             eprintln!("world: cannot create {name:?}: {err}");
@@ -430,7 +430,7 @@ pub async fn handle_confirm(
     // file (`config/World/Vanilla/character_spawn.json`, `docs/38`, D23, D24), not a match in this file:
     // one map per expansion source. A source with no map at all (a PvP character) is refused rather
     // than guessed.
-    let spawns = match crate::spawns::load(&crate::spawns::pack()) {
+    let spawns = match crate::spawns::current() {
         Ok(spawns) => spawns,
         Err(err) => {
             eprintln!("world: cannot create {name:?}: {err}");

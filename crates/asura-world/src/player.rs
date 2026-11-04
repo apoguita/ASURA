@@ -286,7 +286,7 @@ pub fn player_block(block: &PlayerBlock<'_>) -> Vec<Frame> {
         // The look for a character with no bits of its own
         // (`config/World/Vanilla/character_defaults.json`, `appearance`): all-zero bits are
         // `Profession_None`, which the client cannot draw.
-        crate::character_defaults::load(&crate::spawns::pack())
+        crate::character_defaults::current()
             .map(|defaults| defaults.appearance().pack())
             .unwrap_or_default()
     } else {

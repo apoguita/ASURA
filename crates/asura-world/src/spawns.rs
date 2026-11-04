@@ -117,6 +117,26 @@ pub fn load(pack: &Path) -> Result<CharacterSpawns, String> {
         .map_err(|err| format!("{} is not a spawn file: {err}", path.display()))
 }
 
+/// The pack's spawn table, read once per process.
+///
+/// A file read per character creation would be a live link to the disk in the middle of serving, which is
+/// what the database exists to avoid. The pack is configuration: read at first use, held, and checked at
+/// start-up so a bad file fails there rather than on somebody's first character.
+pub fn current() -> Result<&'static CharacterSpawns, String> {
+    static IN_FORCE: std::sync::OnceLock<Result<CharacterSpawns, String>> =
+        std::sync::OnceLock::new();
+    IN_FORCE
+        .get_or_init(|| {
+            let path = pack();
+            load(&path).map(|spawns| {
+                eprintln!("asura: character spawns from {}", path.display());
+                spawns
+            })
+        })
+        .as_ref()
+        .map_err(|err| err.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

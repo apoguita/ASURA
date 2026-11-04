@@ -114,6 +114,25 @@ pub fn load(pack: &Path) -> Result<CharacterDefaults, String> {
         .map_err(|err| format!("{} is not a character defaults file: {err}", path.display()))
 }
 
+/// What a new character is worth, read once per process.
+///
+/// The pack is configuration, so it is read at first use and held rather than re-read on every creation;
+/// start-up checks it so a bad file fails there.
+pub fn current() -> Result<&'static CharacterDefaults, String> {
+    static IN_FORCE: std::sync::OnceLock<Result<CharacterDefaults, String>> =
+        std::sync::OnceLock::new();
+    IN_FORCE
+        .get_or_init(|| {
+            let path = crate::spawns::pack();
+            load(&path).map(|defaults| {
+                eprintln!("asura: character defaults from {}", path.display());
+                defaults
+            })
+        })
+        .as_ref()
+        .map_err(|err| err.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

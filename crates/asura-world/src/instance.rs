@@ -333,7 +333,7 @@ pub fn introduction(peer: &PeerView) -> Vec<Frame> {
         game::player_create(
             peer.player_id,
             peer.agent_id,
-            crate::character_defaults::load(&crate::spawns::pack())
+            crate::character_defaults::current()
                 .map(|defaults| defaults.appearance().pack())
                 .unwrap_or_default(),
             &peer.name,

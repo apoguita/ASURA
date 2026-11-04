@@ -470,7 +470,7 @@ mod tests {
                 created.body()[10],
                 created.body()[11]
             ]),
-            crate::character_defaults::load(&crate::spawns::pack())
+            crate::character_defaults::current()
                 .expect("the committed character defaults")
                 .appearance()
                 .pack(),
