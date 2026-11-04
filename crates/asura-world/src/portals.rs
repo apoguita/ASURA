@@ -132,12 +132,39 @@ pub const PORTALS: &[Portal] = &[
     Portal { from_instance: 449, x: -7297.0, y: 6184.0, to_instance: None, arrive: None },
 ];
 
+/// The doorways read from the database (`map_portal`) at start-up, when there are any.
+///
+/// Their **positions** are the point: a doorway is where a prop stands, a profile edits it, and a restart
+/// picks it up with no rebuild (docs/32, Phase 1). Nothing about how a crossing is detected changes: the
+/// predicates in `portal_at` and `portal_along` and `REACH` are untouched.
+static LOADED: std::sync::OnceLock<Vec<Portal>> = std::sync::OnceLock::new();
+
+/// Install the database's doorways. Called once, by `main`, before the world accepts a connection; a
+/// second call is ignored and answers `false`.
+pub fn install(portals: Vec<Portal>) -> bool {
+    LOADED.set(portals).is_ok()
+}
+
+/// Every doorway this world knows, in the order the trigger searches it: **`CROSSED` always first**, then
+/// the database's rows when it has any, otherwise the compiled `PORTALS`.
+///
+/// `CROSSED` is never displaced. Those are the positions a live server was watched changing the map at, and
+/// 14 of the 22 have no `map_portal` row anywhere near them; a table that replaced them would silently stop
+/// those crossings firing (measured 2026-11-05, which is why this is a chain and not a substitution). The
+/// database stands in for the compiled `PORTALS` half only - the doorways read from the archive.
+fn table() -> Box<dyn Iterator<Item = &'static Portal>> {
+    match LOADED.get() {
+        Some(rows) if !rows.is_empty() => Box::new(CROSSED.iter().chain(rows.iter())),
+        _ => Box::new(CROSSED.iter().chain(PORTALS.iter())),
+    }
+}
+
 /// The doorway a position in `from_instance` is standing in, if any.
 ///
 /// A doorway without a destination still answers: the caller decides what to do with it, and today that is
 /// a log line naming the coordinates - the measurement that fills `to_instance` for the next session.
 pub fn portal_at(from_instance: i32, x: f32, y: f32) -> Option<&'static Portal> {
-    CROSSED.iter().chain(PORTALS.iter()).find(|portal| {
+    table().find(|portal| {
         portal.from_instance == from_instance
             && (portal.x - x).powi(2) + (portal.y - y).powi(2) <= REACH * REACH
     })
@@ -155,9 +182,7 @@ pub fn portal_along(
     from: (f32, f32),
     to: (f32, f32),
 ) -> Option<&'static Portal> {
-    CROSSED
-        .iter()
-        .chain(PORTALS.iter())
+    table()
         .filter(|portal| portal.from_instance == from_instance)
         .find(|portal| distance_to_segment((portal.x, portal.y), from, to) <= REACH)
 }

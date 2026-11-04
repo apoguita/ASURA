@@ -75,6 +75,22 @@ pub async fn spawn_points(pool: &PgPool, map_id: i32) -> sqlx::Result<Vec<(f32, 
     .await
 }
 
+/// One doorway of `map_portal`: the instance it stands in, where, and - when known - the instance it
+/// leads to and where a crossing character lands there.
+pub type PortalRow = (i32, f32, f32, Option<i32>, Option<f32>, Option<f32>);
+
+/// Every doorway the content defines (`0025_map_portals.sql`), map by map.
+///
+/// An `Err` here usually means the table does not exist yet (the schema has not been re-applied); the
+/// world then keeps its compiled doorway table, which is the behaviour it had before the table existed.
+pub async fn map_portals(pool: &PgPool) -> sqlx::Result<Vec<PortalRow>> {
+    sqlx::query_as::<_, PortalRow>(
+        "SELECT map_id, x, y, to_map, arrive_x, arrive_y FROM map_portal ORDER BY map_id, idx",
+    )
+    .fetch_all(pool)
+    .await
+}
+
 /// Every map the catalogue describes, in id order.
 ///
 /// What a world hosts when it is not told otherwise: the reference pre-spawns one server per configured

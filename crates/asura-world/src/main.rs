@@ -196,6 +196,34 @@ async fn main() -> ExitCode {
         return ExitCode::from(4);
     }
 
+    // The doorways are content (`map_portal`): read once here, so an edited portal takes effect on the
+    // next start without a rebuild. No rows, or no table yet, keeps the compiled table.
+    match db_game::map_portals(&pool).await {
+        Ok(rows) if !rows.is_empty() => {
+            let count = rows.len();
+            let table: Vec<asura_world::portals::Portal> = rows
+                .into_iter()
+                .map(|(map_id, x, y, to_map, arrive_x, arrive_y)| asura_world::portals::Portal {
+                    from_instance: map_id,
+                    x,
+                    y,
+                    to_instance: to_map,
+                    arrive: match (arrive_x, arrive_y) {
+                        (Some(ax), Some(ay)) => Some((ax, ay)),
+                        _ => None,
+                    },
+                })
+                .collect();
+            asura_world::portals::install(table);
+            eprintln!("asura-world: {count} doorway(s) from map_portal");
+        }
+        Ok(_) => eprintln!("asura-world: map_portal is empty; using the built-in doorway table"),
+        Err(err) => eprintln!(
+            "asura-world: could not read map_portal ({err}); using the built-in doorway table \
+             (apply the schema to create it)"
+        ),
+    }
+
     // The maps, with what a client needs to load them. A map named on the command line that the
     // database does not describe is a map a client would load forever, so it is fatal here.
     let map_ids = match maps_arg {

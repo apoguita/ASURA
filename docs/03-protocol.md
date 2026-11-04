@@ -438,6 +438,14 @@ from (`crates/asura-world/src/portals.rs`, generated from `data/portals.json`; `
 answer 3). A doorway a walk reaches fires the crossing; the `0x80C1` arm still names the touch and starts
 nothing (`crates/asura-world/src/travel.rs:154-166`).
 
+The table's **positions** are content: `asura-world` reads `map_portal` once at start-up
+(`crates/asura-db/migrations/0025_map_portals.sql`, `asura_db::game::map_portals`, `portals::install`), so a
+doorway is moved with an edit and the next start, no rebuild. What that does **not** change is the trigger:
+`REACH` and the two predicates in `portals::portal_at`/`portal_along` are the ones they were, and the search
+order is `CROSSED` first, always - the 22 measured crossings are never displaced by a row. The database
+stands in for the compiled `PORTALS` half only, which is the doorways read out of the archive. A database
+with no `map_portal` rows keeps that compiled table, so an older schema behaves exactly as before.
+
 The `0x00C1` messages seen in `captures/zone-ref2-012225.jsonl` are therefore **not** the crossing; they
 are the client asking about instances, and what they are owed is still open.
 
