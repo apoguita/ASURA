@@ -282,7 +282,7 @@ impl ReferenceClient {
 }
 
 /// Read a request response out of a frame, for a caller that expects one.
-pub fn as_request_response(frame: &Frame) -> Result<RequestResponse, ClientError> {
+pub fn decode_request_response(frame: &Frame) -> Result<RequestResponse, ClientError> {
     RequestResponse::decode(frame).map_err(ClientError::Message)
 }
 
@@ -353,7 +353,9 @@ mod tests {
         server_outgoing.apply(&mut reply);
         let frames = client.receive(&reply).expect("client receives");
         assert_eq!(frames.len(), 1);
-        assert!(as_request_response(&frames[0]).expect("response").is_ok());
+        assert!(decode_request_response(&frames[0])
+            .expect("response")
+            .is_ok());
     }
 
     #[test]

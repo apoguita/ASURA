@@ -271,7 +271,7 @@ async fn a_client_logs_in_and_receives_the_whole_login_batch() {
     );
 
     // And the request is answered, successfully, on the id it was asked with.
-    let reply = reference_client::as_request_response(frames.last().expect("a reply"))
+    let reply = reference_client::decode_request_response(frames.last().expect("a reply"))
         .expect("a request response");
     assert_eq!(reply.request, REQUEST_ID);
     assert_eq!(reply.status, messages::STATUS_OK);
@@ -325,7 +325,7 @@ async fn a_pair_that_does_not_resolve_is_refused_with_the_clients_auth_error() {
         "a refusal is a single message: {headers:?}",
         headers = frames.iter().map(|f| f.header()).collect::<Vec<_>>()
     );
-    let reply = reference_client::as_request_response(&frames[0]).expect("a request response");
+    let reply = reference_client::decode_request_response(&frames[0]).expect("a request response");
     assert_eq!(reply.request, REQUEST_ID);
     assert_eq!(
         reply.status,
@@ -370,7 +370,7 @@ async fn a_closed_session_cannot_log_in() {
     let frames = login(&mut stream, &mut client, seeded.portal_user, seeded.session).await;
 
     assert_eq!(frames.len(), 1);
-    let reply = reference_client::as_request_response(&frames[0]).expect("a request response");
+    let reply = reference_client::decode_request_response(&frames[0]).expect("a request response");
     assert_eq!(reply.status, messages::STATUS_AUTH_ERROR);
 
     db::remove_account(&harness.pool, &name)
@@ -572,7 +572,7 @@ async fn the_server_answers_the_file_check_before_anything_else() {
     .expect("seed the identity");
     let frames = login(&mut stream, &mut client, seeded.portal_user, seeded.session).await;
     assert!(
-        reference_client::as_request_response(frames.last().expect("a reply"))
+        reference_client::decode_request_response(frames.last().expect("a reply"))
             .expect("response")
             .is_ok(),
         "the login still works after a file check on the same connection"
@@ -642,7 +642,7 @@ async fn the_computer_hash_is_answered_with_the_session_info_the_client_waits_fo
     .expect("seed the identity");
     let frames = login(&mut stream, &mut client, seeded.portal_user, seeded.session).await;
     assert!(
-        reference_client::as_request_response(frames.last().expect("a reply"))
+        reference_client::decode_request_response(frames.last().expect("a reply"))
             .expect("response")
             .is_ok(),
         "the login works after the computer hash"
@@ -683,7 +683,7 @@ async fn logging_in_does_not_spend_the_session() {
         let mut client = handshake_with(&mut stream).await;
         let frames = login(&mut stream, &mut client, seeded.portal_user, seeded.session).await;
         assert!(
-            reference_client::as_request_response(frames.last().expect("a reply"))
+            reference_client::decode_request_response(frames.last().expect("a reply"))
                 .expect("response")
                 .is_ok(),
             "attempt {attempt} must log in: a session is not spent by using it"
@@ -757,7 +757,7 @@ async fn two_live_sessions_for_one_account_both_work() {
         let mut client = handshake_with(&mut stream).await;
         let frames = login(&mut stream, &mut client, pair.0, pair.1).await;
         assert!(
-            reference_client::as_request_response(frames.last().expect("a reply"))
+            reference_client::decode_request_response(frames.last().expect("a reply"))
                 .expect("response")
                 .is_ok(),
             "every live pair of the account must log in"
