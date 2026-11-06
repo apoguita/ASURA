@@ -3,21 +3,25 @@
 The faithful base game: the maps, spawn points, doorways and later NPCs, quests and scripts that
 reproduce the live server ASURA is measured against.
 
-What is here today: `character_spawn.json` (who spawns where, read once by the world at start-up) and
-`character_defaults.json` (what a new character gets), both read through `asura-world`; and `maps/`, which
-is what the instance table is built from. The rest of the content is still in the database and moves here
-in the order `docs/38-layer-decisions.md` D22 records: write the package, switch the readers, drop the
-table last. `docs/37-rework-layers.md` layer 13 tracks what has moved.
+Map descriptions, spawn lists, doorways and arrivals are read directly from this pack by auth and
+world. `basic.json` supplies the map id, name, kind and archive file id; `spawns.json` supplies spawn
+points; `portals.json` supplies doorway segments or boxes and destination-owned arrivals. The SQL
+content tables and compiled doorway tables are no longer runtime sources. The supervisor seeds only
+dev identities; it does not pipe map content into SQL.
+
+`character_spawn.json` chooses a new character's initial map, and `character_defaults.json` supplies
+its initial character data. Map records with an unknown file id cannot load a client. A null
+`instance_value` is omitted from the instance table instead of inventing a value.
 
 `maps/` is laid out as `<campaign>/<area>/<subarea>/<map id>/` (`docs/38-layer-decisions.md`, D38), and
 every map id holds its own `basic.json`:
 
-- 137 ids: 51 under `Core`, 39 `Prophecies`, 22 `Factions`, 11 `Nightfall`, 5 `Eye of the North`.
-- 9 sit in `maps/unplaced/`, because no name table and no page answered which campaign and area they
-  belong to. They keep their folder and their instance value, so the table a client receives is complete;
-  what they lack is a place, and a folder nobody measured is a guess with a path on it.
-- The walk that builds the table goes as deep as the tree does, so a map found four levels down is a map
-  like any other (`crates/asura-world/src/instance_table.rs`).
+The previously configured database catalogue was migrated into map files without overwriting the
+owner's existing map edits or restoring deliberately removed spawn files. Legacy maps with no
+established folder placement are under `maps/unplaced/`; their campaign and region are not guessed.
+Both the catalogue and instance-table readers walk recursively, so moving a folder does not change
+its map id. Only records with a known map kind describe a hosted map; instance-table-only records
+remain usable for announcing measured instance values.
 
 Editing this pack is editing the base game. A custom pack is a copy of this folder under another
 name in `config/World/`, never an edit here.

@@ -396,8 +396,6 @@ fn seed() -> Result<(), String> {
     let tools = config::repo_root().join("tools");
     psql::apply_file(&psql, &url, &tools.join("seed-dev.sql"))?;
     eprintln!("asura-supervisor: seeded the dev identities (tools/seed-dev.sql)");
-    psql::apply_file(&psql, &url, &tools.join("map-config.sql"))?;
-    eprintln!("asura-supervisor: seeded the maps (tools/map-config.sql)");
     Ok(())
 }
 

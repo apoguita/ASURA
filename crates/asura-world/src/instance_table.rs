@@ -31,8 +31,11 @@ pub const BATCH: usize = 15;
 pub struct MapRecord {
     /// The map id, which is also the folder's name.
     pub map_id: i32,
+    /// The archive file the client loads; a missing value is not supplied by this pack record.
+    #[serde(default)]
+    pub map_file_id: Option<u32>,
     /// The value a live load sent with it in `0x01A0`.
-    pub instance_value: u32,
+    pub instance_value: Option<u32>,
     /// Free text for whoever opens the file.
     #[serde(default)]
     pub doc: Option<String>,
@@ -129,7 +132,7 @@ pub fn table_for(pack: &Path) -> (InstanceTable, Vec<String>) {
         .filter_map(|record| {
             u16::try_from(record.map_id)
                 .ok()
-                .map(|map_id| (map_id, record.instance_value))
+                .and_then(|map_id| record.instance_value.map(|value| (map_id, value)))
         })
         .collect();
     (InstanceTable { pairs }, notes)

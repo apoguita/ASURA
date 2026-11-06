@@ -158,12 +158,9 @@ pub async fn answer(
     };
     // The destination's own type, as the catalogue describes it. `None` means the map is not in the
     // catalogue: the rule leaves the request alone and the registry lookup below refuses it.
-    let destination_type = match asura_db::game::spawn_map(pool, map_id).await {
-        Ok(placed) => placed.map(|map| map.map_type),
-        Err(err) => {
-            eprintln!("auth: could not read map {map_id} for placement: {err}");
-            None
-        }
+    let destination_type = match asura_config::world::catalogue() {
+        Ok(maps) => maps.get(&map_id).map(|map| map.map_type),
+        Err(err) => { eprintln!("auth: map catalogue: {err}"); None }
     };
     let (placed_map, substituted) = asura_rules::placement(
         asura_rules::Requested {

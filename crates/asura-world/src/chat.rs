@@ -298,27 +298,11 @@ pub async fn handle_chat_message(
                         // table even before a map has been used. One query per map that
                         // has not been loaded yet; /maps is a console command, not a hot
                         // path.
-                        if let Ok(ids) = db_game::configured_map_ids(&world.pool).await {
-                            for map_id in ids {
-                                if listed.iter().any(|map| map.map_id == map_id) {
-                                    continue;
-                                }
-                                if let Ok(Some(configured)) =
-                                    db_game::spawn_map(&world.pool, map_id).await
-                                {
-                                    listed.push(MapEntry {
-                                        map_id,
-                                        map_file_id: u32::try_from(configured.map_file_id)
-                                            .unwrap_or(0),
-                                        map_type: configured.map_type,
-                                        spawn: (configured.spawn_x, configured.spawn_y),
-                                        spawn_plane: configured.spawn_plane as u16,
-                                        spawns: crate::map_spawns::for_map(map_id)
-                                            .map(<[_]>::to_vec)
-                                            .unwrap_or_default(),
-                                        name: configured.name.clone(),
-                                        capacity: world.capacity,
-                                    });
+                        if let Ok(maps) = asura_config::world::catalogue() {
+                            for map_id in maps.keys() {
+                                if listed.iter().any(|map| map.map_id == *map_id) { continue; }
+                                if let Ok(Some(map)) = crate::catalogue::entry(*map_id, world.capacity) {
+                                    listed.push(map);
                                 }
                             }
                         }

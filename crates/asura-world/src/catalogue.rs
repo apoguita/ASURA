@@ -4,8 +4,7 @@
 //! a `Gw.dat` blob, a spawn point - and [`Map`] is the reference's own API over it, kept with the same
 //! method names so a reader coming from the client's code finds them.
 //!
-//! The entries arrive from `t_map_config` today and from a world package later (`docs/38-layer-decisions.md`,
-//! D20-D24). Keeping them here means that move never touches the load.
+//! Entries come from basic.json and spawns.json in the selected world pack.
 
 /// The map API: the questions a server answers about one map. A member takes the catalogue entry
 /// instead of reading a live client: the map's state here is a `MapEntry` row from `map_config`.
@@ -50,6 +49,30 @@ pub fn map_kinds() -> asura_protocol::game::MapKinds {
     asura_config::defaults()
         .expect("the world refuses to start without config/Server/defaults.json")
         .map_kinds()
+}
+
+/// Build a hosted map entirely from the selected pack. Missing blob IDs are not filled from SQL.
+pub fn entry(map_id: i32, capacity: i32) -> Result<Option<MapEntry>, String> {
+    let maps = asura_config::world::catalogue()?;
+    let Some(basic) = maps.get(&map_id) else { return Ok(None); };
+    let map_file_id = basic.map_file_id.unwrap_or(0);
+    if map_file_id == 0 && basic.map_type != map_kinds().character_creation { return Ok(None); }
+    let spawns = crate::map_spawns::for_map(map_id).unwrap_or_default().to_vec();
+    let spawn = spawns.first().map(|spawn| (spawn.x, spawn.y)).unwrap_or_default();
+    let spawn_plane = spawns.first().map(|spawn| spawn.plane).unwrap_or_default();
+    Ok(Some(MapEntry {
+        map_id, map_file_id, map_type: basic.map_type, spawn, spawn_plane, spawns,
+        name: basic.name.clone(), capacity,
+    }))
+}
+
+#[cfg(test)]
+mod file_tests {
+    #[test]
+    fn northlands_uses_the_live_file_id_from_the_pack() {
+        // Live capture northlands-live-20261106-014922.jsonl, record 511, StoC 0x0196.
+        assert_eq!(super::entry(147, 1).unwrap().unwrap().map_file_id, 116025);
+    }
 }
 
 /// One map a world server publishes, with what the client needs to load it.

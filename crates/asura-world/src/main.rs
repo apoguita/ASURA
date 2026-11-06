@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use asura_db::migrations::{self, EnsureError};
-use asura_db::{game as db_game, placement};
+use asura_db::placement;
 use asura_protocol::Trace;
 use asura_world::{serve, MapEntry, World};
 
@@ -175,52 +175,13 @@ async fn main() -> ExitCode {
         }
     }
 
-    // The catalogue is always read: it is what pool rows are published for, and what an on-demand
-    // world can serve. It is not the same thing as preloading - a catalogue entry is a row in a
-    // database, an instance is the map's data in memory.
-    let catalogue: Vec<i32> = match db_game::configured_map_ids(&pool).await {
-        Ok(ids) => ids,
-        Err(err) => {
-            eprintln!("asura-world: could not read the map catalogue: {err}");
-            return ExitCode::FAILURE;
-        }
+    let catalogue: Vec<i32> = match asura_config::world::catalogue() {
+        Ok(maps) => maps.keys().copied().collect(),
+        Err(err) => { eprintln!("asura-world: map catalogue: {err}"); return ExitCode::FAILURE; }
     };
     if catalogue.is_empty() {
-        eprintln!(
-            "asura-world: map_config is empty, so there is no map to host; run \
-             tools/seed-map.ps1 to write the reference's catalogue"
-        );
+        eprintln!("asura-world: the selected pack contains no configured maps");
         return ExitCode::from(4);
-    }
-
-    // The doorways are content (`map_portal`): read once here, so an edited portal takes effect on the
-    // next start without a rebuild. No rows, or no table yet, keeps the compiled table.
-    match db_game::map_portals(&pool).await {
-        Ok(rows) if !rows.is_empty() => {
-            let count = rows.len();
-            let table: Vec<asura_world::portals::Portal> = rows
-                .into_iter()
-                .map(
-                    |(map_id, x, y, to_map, arrive_x, arrive_y)| asura_world::portals::Portal {
-                        from_instance: map_id,
-                        x,
-                        y,
-                        to_instance: to_map,
-                        arrive: match (arrive_x, arrive_y) {
-                            (Some(ax), Some(ay)) => Some((ax, ay)),
-                            _ => None,
-                        },
-                    },
-                )
-                .collect();
-            asura_world::portals::install(table);
-            eprintln!("asura-world: {count} doorway(s) from map_portal");
-        }
-        Ok(_) => eprintln!("asura-world: map_portal is empty; using the built-in doorway table"),
-        Err(err) => eprintln!(
-            "asura-world: could not read map_portal ({err}); using the built-in doorway table \
-             (apply the schema to create it)"
-        ),
     }
 
     // The maps, with what a client needs to load them. A map named on the command line that the
@@ -246,62 +207,16 @@ async fn main() -> ExitCode {
 
     let mut maps = Vec::new();
     for map_id in &map_ids {
-        match db_game::spawn_map(&pool, *map_id).await {
-            Ok(Some(configured)) => {
-                let map_file_id = u32::try_from(configured.map_file_id).unwrap_or(0);
-                // A character-creation instance is the one hostable map that loads no blob: measured on a
-                // live creation, it sends no spawn point and no map file id at all, only the load head,
-                // the player-data block and `CHAR_CREATION_START`. Every other map needs one, because
-                // the client is told which blob to load.
-                if map_file_id == 0
-                    && configured.map_type != asura_world::map_kinds().character_creation
-                {
-                    eprintln!(
-                        "asura-world: map {map_id} has no map_file_id; a client cannot load it"
-                    );
-                    return ExitCode::from(4);
-                }
+        match asura_world::catalogue::entry(*map_id, capacity) {
+            Ok(Some(map)) => {
                 let kinds = asura_world::map_kinds();
-                if configured.map_type != kinds.main_town
-                    && configured.map_type != kinds.main_explorable
-                    && configured.map_type != kinds.character_creation
-                {
-                    // A world hosts what the reference hosts: main towns (0), explorable areas (1) and the
-                    // character-creation instance (11). Explorable hosting used to be refused here on the
-                    // theory that this server "cannot spawn anything into one" - but a world server does not
-                    // spawn content, it hands the client the blob and the spawn point, which is exactly what
-                    // the reference does with Lakeside County (146), its verified explorable. Refusing it made
-                    // this server unable to host the reference's flagship map.
-                    eprintln!(
-                        "asura-world: map {map_id} is type {} (main towns, explorable areas and the \
-                         character-creation instance are hosted), skipping it",
-                        configured.map_type
-                    );
-                    continue;
+                if map.map_type == kinds.main_town || map.map_type == kinds.main_explorable
+                    || map.map_type == kinds.character_creation {
+                    maps.push(map);
                 }
-                maps.push(MapEntry {
-                    map_id: *map_id,
-                    map_file_id,
-                    map_type: configured.map_type,
-                    spawn: (configured.spawn_x, configured.spawn_y),
-                    spawn_plane: configured.spawn_plane as u16,
-                    spawns: asura_world::map_spawns::for_map(*map_id)
-                        .map(<[_]>::to_vec)
-                        .unwrap_or_default(),
-                    name: configured.name.clone(),
-                    capacity,
-                });
             }
-            Ok(None) => {
-                eprintln!(
-                    "asura-world: map {map_id} is not in map_config; run tools/seed-map.ps1 to add it"
-                );
-                return ExitCode::from(4);
-            }
-            Err(err) => {
-                eprintln!("asura-world: could not read map {map_id}: {err}");
-                return ExitCode::FAILURE;
-            }
+            Ok(None) => eprintln!("asura-world: pack map {map_id} has no loadable description; skipped"),
+            Err(err) => { eprintln!("asura-world: {err}"); return ExitCode::FAILURE; }
         }
     }
     if maps.is_empty() && !load_on_demand {
@@ -610,7 +525,7 @@ fn load_graphs_from_archive(archive: &str, maps: &[MapEntry]) -> asura_world::Pa
 /// by its blob id - the right choice when the catalogue is not what is wanted, or when a map is not
 /// in `map_config` yet.
 async fn dump_path_graphs(
-    pool: &asura_db::PgPool,
+    _pool: &asura_db::PgPool,
     catalogue: &[i32],
     archive_path: &str,
     out: &str,
@@ -658,14 +573,13 @@ async fn dump_path_graphs(
         }
     } else {
         for map_id in catalogue {
-            let Some(configured) = db_game::spawn_map(pool, *map_id)
-                .await
-                .expect("the map catalogue is in the database")
+            let Some(configured) = asura_world::catalogue::entry(*map_id, 1)
+                .expect("the map catalogue is in the pack")
             else {
-                eprintln!("asura-world: map {map_id} is not in map_config; skipped");
+                eprintln!("asura-world: map {map_id} is not in the pack; skipped");
                 continue;
             };
-            let file_id = u32::try_from(configured.map_file_id).unwrap_or(0);
+            let file_id = configured.map_file_id;
             if file_id == 0 {
                 eprintln!("asura-world: map {map_id} has no map_file_id; skipped");
                 continue;

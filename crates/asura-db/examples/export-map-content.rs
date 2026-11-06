@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let url = std::env::var("ASURA_DATABASE_URL")?;
+    let url = asura_db::config::database_url().ok_or("ASURA_DATABASE_URL is not configured")?;
     let pool = placement::connect(&url, 4).await?;
     let pack = pack_root();
 
@@ -55,6 +55,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .fetch_all(&pool)
     .await?;
+
+    // Snapshot-only mode lets a migration preserve existing edited pack files and deliberate
+    // deletions rather than overwriting them with the old database rows.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(index) = args.iter().position(|arg| arg == "--snapshot") {
+        let path = args.get(index + 1).ok_or("--snapshot needs a path")?;
+        std::fs::write(path, serde_json::to_string(&json!({
+            "maps": maps, "spawns": spawns, "portals": portals
+        }))?)?;
+        println!("wrote content snapshot to {path}");
+        return Ok(());
+    }
 
     let mut spawn_list: BTreeMap<i32, Vec<Value>> = BTreeMap::new();
     for (map_id, idx, x, y, plane) in spawns {

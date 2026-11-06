@@ -87,32 +87,12 @@ pub async fn load_map_on_demand(
     map_id: i32,
 ) -> Result<Option<MapEntry>, asura_db::DatabaseError> {
     let started = Instant::now();
-    let Some(configured) = db_game::spawn_map(&world.pool, map_id).await? else {
-        return Ok(None);
-    };
-    let map_file_id = u32::try_from(configured.map_file_id).unwrap_or(0);
-    if map_file_id == 0 {
-        return Ok(None);
-    }
+    let Some(entry) = crate::catalogue::entry(map_id, world.capacity)
+        .map_err(|err| asura_db::DatabaseError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, err)))?
+    else { return Ok(None); };
     let kinds = map_kinds();
-    if configured.map_type != kinds.main_town
-        && configured.map_type != kinds.main_explorable
-        && configured.map_type != kinds.character_creation
-    {
-        return Ok(None);
-    }
-    let entry = MapEntry {
-        map_id,
-        map_file_id,
-        map_type: configured.map_type,
-        spawn: (configured.spawn_x, configured.spawn_y),
-        spawn_plane: configured.spawn_plane as u16,
-        spawns: crate::map_spawns::for_map(map_id)
-            .map(<[_]>::to_vec)
-            .unwrap_or_default(),
-        name: configured.name.clone(),
-        capacity: world.capacity,
-    };
+    if entry.map_type != kinds.main_town && entry.map_type != kinds.main_explorable
+        && entry.map_type != kinds.character_creation { return Ok(None); }
     let row_done = started.elapsed();
 
     let pool = Instant::now();
@@ -462,6 +442,9 @@ async fn begin_transfer(
     // the worst case if it does.
     match landing {
         Some((x, y)) => {
+            placement::set_transfer_arrival_origin(
+                &world.pool, player_token, player.instance.map.map_id,
+            ).await.map_err(GameError::Database)?;
             if let Err(err) =
                 db_game::record_position(&world.pool, player.character, to_map, x, y, 0).await
             {

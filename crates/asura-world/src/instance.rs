@@ -14,6 +14,46 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+mod portal_tests {
+    use super::*;
+
+    #[test]
+    fn simulation_crossing_notifies_connection_without_a_client_report() {
+        let arch = crate::portals::pack_arches(148).unwrap()[0];
+        let midpoint = ((arch.from.0 + arch.to.0) / 2.0, (arch.from.1 + arch.to.1) / 2.0);
+        let dx = arch.to.0 - arch.from.0;
+        let dy = arch.to.1 - arch.from.1;
+        let length = dx.hypot(dy);
+        let normal = (-dy / length, dx / length);
+        let from = (midpoint.0 + normal.0 * 5.0, midpoint.1 + normal.1 * 5.0);
+        let to = (midpoint.0 - normal.0 * 5.0, midpoint.1 - normal.1 * 5.0);
+        let instance = Instance::new(MapEntry {
+            map_id: 148, map_file_id: 0, map_type: 0, spawn: from, spawn_plane: 0,
+            spawns: Vec::new(), name: String::new(), capacity: 1,
+        });
+        let (frames, _inbox) = tokio::sync::mpsc::unbounded_channel();
+        let (player_id, _) = instance.join(String::new(), Standing {
+            position: from, plane: 0, direction: normal,
+        }, [0; 9], frames);
+        let (events, mut crossings) = tokio::sync::mpsc::unbounded_channel();
+        instance.watch_portals(player_id, events);
+        instance.loaded(player_id);
+        instance.with_slot(player_id, |slot| {
+            slot.agent.begin_walk(vec![pathfind::Waypoint {
+                pos: pathfind::Pos { x: to.0, y: to.1, plane: 0 }, trap_id: 0,
+            }]);
+        });
+        instance.step(Duration::from_millis(100));
+        let (start, end) = crossings.try_recv().expect("travel event without a position report");
+        assert_eq!(start, from);
+        assert!(arch.crossed_by(start, end));
+    }
+}
+
+/// An actual movement segment that touched a doorway during simulation.
+pub type PortalStep = ((f32, f32), (f32, f32));
+
 /// One player in one instance: the agent it drives, what the client is told about it, and the
 /// channel that reaches its connection.
 pub struct Slot {
@@ -22,6 +62,8 @@ pub struct Slot {
     pub name: String,
     pub equipped: [u32; 9],
     pub outbox: tokio::sync::mpsc::UnboundedSender<Vec<Frame>>,
+    /// Crossing events go to the connection that owns the transfer, without waiting for a report.
+    pub portal_outbox: Option<tokio::sync::mpsc::UnboundedSender<PortalStep>>,
     /// Movement counters, for the trace's closing summary.
     pub move_stats: MoveStats,
     /// Set at join and cleared when the connecting player has its load block, so the clock does not
@@ -85,6 +127,7 @@ impl Instance {
                 name,
                 equipped,
                 outbox,
+                portal_outbox: None,
                 move_stats: MoveStats::default(),
                 loading: true,
             },
@@ -95,6 +138,11 @@ impl Instance {
     /// Mark a player loaded: the load block is out, so the clock may tick it.
     pub fn loaded(&self, player_id: u32) {
         self.with_slot(player_id, |slot| slot.loading = false);
+    }
+
+    /// Connect simulation crossings to this player's connection before loading finishes.
+    pub fn watch_portals(&self, player_id: u32, outbox: tokio::sync::mpsc::UnboundedSender<PortalStep>) {
+        self.with_slot(player_id, |slot| slot.portal_outbox = Some(outbox));
     }
 
     /// Whether a player has finished loading.
@@ -210,6 +258,12 @@ impl Instance {
             let before = slot.agent.position;
             let before_plane = slot.agent.plane;
             let cross = slot.agent.advance(delta);
+            let after = slot.agent.position;
+            if before != after && crate::portals::crossed(self.map.map_id, before, after).is_some() {
+                if let Some(outbox) = &slot.portal_outbox {
+                    let _ = outbox.send((before, after));
+                }
+            }
             if move_trace_on() {
                 slot.move_stats.ticks += 1;
                 if was_moving {

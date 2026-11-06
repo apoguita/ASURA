@@ -479,27 +479,34 @@ impl Standing {
     ///
     /// Three rules, in this order:
     ///
-    /// 1. an **arrival** the receiving map states for the doorway that brought the character here
-    ///    (`portals.json`'s `arrivals`, keyed by the map it came from): the crossing wrote that point as
-    ///    the saved position before the redirect, so a saved position that is one of the map's arrivals
-    ///    is a doorway arrival, and it stands **there**, facing the arrival's angle;
+    /// 1. a doorway transfer explicitly names its source map: use the receiving map's arrival for
+    ///    that source. A saved coordinate matching an arrival never establishes a doorway transfer;
     /// 2. an **outpost** with a spawn list is entered at a random point of that list, scattered around it
     ///    ([`Standing::at_spawn`]) - a world-map request or a `/tp` picks one at random;
     /// 3. every other map keeps the saved position when it belongs to this map (a disconnect coming
     ///    back), and the catalogue row's single coordinate otherwise.
-    pub fn arrival(map: &MapEntry, saved: Option<db_game::Position>) -> Result<Standing, GameError> {
-        if let Some(saved) = saved.filter(|saved| saved.map_id == map.map_id) {
-            if let Some(arrival) = crate::portals::arrival_at(map.map_id, (saved.x, saved.y)) {
+    pub fn arrival(map: &MapEntry, saved: Option<db_game::Position>, origin: Option<i32>) -> Result<Standing, GameError> {
+        if let Some(origin) = origin {
+            if let Some(arrival) = crate::portals::arrival(map.map_id, origin) {
                 return Ok(Standing {
                     position: (arrival.x, arrival.y),
-                    plane: saved.plane.max(0) as u16,
+                    plane: 0,
                     direction: arrival.direction(),
                 });
             }
         }
-        if map.map_type == map_kinds().main_town && !map.spawns.is_empty() {
+        if map.map_type == map_kinds().main_town {
+            if map.spawns.is_empty() {
+                return Err(io::Error::new(io::ErrorKind::InvalidData,
+                    format!("outpost {} has no configured random spawn list", map.map_id)).into());
+            }
             let index = (crate::random_u32()? as usize) % map.spawns.len();
             return Standing::at_spawn(&map.spawns[index]);
+        }
+        if saved.as_ref().is_none_or(|position| position.map_id != map.map_id)
+            && map.spawns.is_empty() && map.map_type != map_kinds().character_creation {
+            return Err(io::Error::new(io::ErrorKind::InvalidData,
+                format!("map {} has no configured entry spawn or doorway arrival", map.map_id)).into());
         }
         Ok(Standing::resume(map, saved))
     }
@@ -1010,16 +1017,9 @@ pub async fn handle_position_update(
         return Ok(true);
     };
     let (adopted, standing, reply) = outcome;
-    // The step the report moved the agent along: the doorway test reads it after this handler returns
-    // (`travel::portal_crossed`), because the crossing is judged by the path, not by where a report
-    // happened to land.
-    player.last_step = if adopted == Adopted::Refused {
-        None
-    } else if before.position == standing.position {
-        None
-    } else {
-        Some((before.position, standing.position))
-    };
+    // Doorways read the client's actual reported movement. The simulation's budget can clamp or
+    // refuse that report, but must not erase a real crossing or replace its endpoint with a short step.
+    player.record_portal_step(position);
     instance.broadcast(player.player_id, &reply);
     send(stream, session, reply, trace).await?;
     if trace {
@@ -1154,14 +1154,11 @@ pub async fn handle_last_position(
         instance.broadcast(player.player_id, &reply);
         send(stream, session, reply, trace).await?;
     }
-    // A correction the client was allowed to make is a movement it made while the reports lagged: the
-    // step from where the server believed it stood to where it says it stood is a step the doorway
-    // test reads (`travel::portal_crossed`).
-    player.last_step = if taken && believed.position != position {
-        Some((believed.position, position))
+    if position.0.is_finite() && position.1.is_finite() {
+        player.record_portal_step(position);
     } else {
-        None
-    };
+        player.last_step = None;
+    }
     if move_trace_on() {
         // The distance is what decides and the ceiling is configuration, so the trace names both: a
         // refusal is otherwise indistinguishable from a plane mismatch without it.
