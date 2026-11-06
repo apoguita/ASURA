@@ -182,6 +182,17 @@ is_explorable, map_id`). The port target was named by the user all along.
 
 ## Where this stands
 
+- **Manual movement - provisional, not accepted (2026-11-06).** The owner tested the current
+  implementation with a real client and reported: "movement is better but not perfect" and
+  "this feature implementation is not of my liking". This is an improvement report, not acceptance
+  or proof of movement parity with the live game. Remaining movement and synchronization behavior
+  is unresolved; the latest feedback does not establish the size or cause of the remaining errors.
+  The directional walker in crates/asura-world/src/pathfind/directional.rs is unfinished and must
+  not be described as complete, satisfactory to the owner, or client-confirmed fixed.
+  The owner also reported loss of confidence following repeated failures to launch a shell and
+  the assistant asking them to restore access they had never withdrawn. The current instruction
+  is to record this status in documentation and code comments only. Further functional work is paused.
+
 - **Outpost login placement repair (2026-11-06), awaiting client confirmation.** Login at a saved
   doorway coordinate incorrectly selected the doorway arrival before the outpost spawn list.
   `Standing::arrival` no longer infers a doorway from coordinate equality: migration 0027 adds

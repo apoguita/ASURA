@@ -976,12 +976,13 @@ pub async fn handle_position_update(
         }
         let reply = if adopted != Adopted::Refused {
             let from = slot.agent.here();
-            // The report names a direction, not a surface. The point `offset` away can sit on a bridge
-            // or slope plane the character is not standing on, so the destination's plane is the graph's
-            // answer; stamping `from.plane` there made the search fail, and a failed search is answered
-            // with silence (`pathfind::PathGraphs::walk_any_plane` has the measurement).
+            // Manual input is a direction. Trace it through connected cells and surface portals;
+            // do not route around an obstacle or choose a distant overlapping plane as a destination.
+            // Live bridge report 278 -> reply 281 in northlands-live-20261106-014922.jsonl.
             let target = (from.x + offset.0, from.y + offset.1);
-            let walked = world.graphs.walk_any_plane(instance.map.map_id, from, target);
+            // Provisional, not accepted: owner reports better movement, but not perfect (2026-11-06).
+            // Remaining behavior is unresolved; see docs/HANDOFF.md.
+            let walked = world.graphs.walk_direction(instance.map.map_id, from, offset);
             if move_trace_on() {
                 match &walked {
                     Walk::Found(waypoints) => eprintln!(
@@ -992,7 +993,7 @@ pub async fn handle_position_update(
                         waypoints_preview(waypoints)
                     ),
                     Walk::NoPath => eprintln!(
-                        "move[manual] the finder refused a walk to (x={:.1}, y={:.1}) from \
+                        "move[manual] directional movement refused a walk to (x={:.1}, y={:.1}) from \
                          (x={:.1}, y={:.1}, plane={}): nothing is sent",
                         target.0, target.1, from.x, from.y, from.plane
                     ),

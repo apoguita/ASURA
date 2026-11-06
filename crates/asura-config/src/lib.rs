@@ -20,6 +20,7 @@
 use std::sync::OnceLock;
 
 pub mod world;
+pub mod directional;
 
 /// Half the side of a legacy point doorway's box, in map units. An unreadable or invalid value
 /// disables these boxes and reports why; measured wall endpoints do not need this value.

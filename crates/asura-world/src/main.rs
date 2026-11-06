@@ -300,6 +300,10 @@ async fn main() -> ExitCode {
         eprintln!("asura-world: refusing to start without the character spawn table");
         return ExitCode::from(4);
     }
+    if let Err(err) = asura_config::directional::current() {
+        eprintln!("asura-world: directional movement configuration: {err}");
+        return ExitCode::from(4);
+    }
     // The map spawn lists are content as well - `spawns.json` in each map folder - and they are read
     // here so a bad edit is reported at start-up rather than on somebody's next travel. A map without
     // a file is not an error: its catalogue row's single coordinate answers instead (`Standing`).

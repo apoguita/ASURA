@@ -25,6 +25,8 @@
 //!   trapezoid list; a portal without a pair is a crash in the reference, refused here.
 //! - `PathCreateWaypoints` gives up after `0xBB8` steps (an assertion in the reference, so a debug abort).
 
+mod directional;
+
 use crate::map_data::{PathStaticData, Portal, Trapezoid, Vec2f};
 use crate::path_tables::{RECIPROCAL, SQUARE_ROOT};
 
@@ -548,10 +550,7 @@ impl PathContext {
 
     /// Which plane a point lies on, if any does: the first plane whose search places it.
     ///
-    /// The answer a client's movement needs, because the report names a direction and not a surface. A
-    /// point can lie on two planes at once -- one above the other, a bridge over a road -- and the first
-    /// in plane order is the one named; the caller only passes this to the finder, which still has to
-    /// connect the two positions through portals.
+    /// This global lookup does not establish a connected surface for directional movement.
     pub fn plane_at(&self, point: Vec2f) -> Option<u16> {
         let count = u16::try_from(self.data.planes.len()).ok()?;
         (0..count).find(|plane| self.data.trapezoid_at(point, *plane).is_some())
@@ -1636,15 +1635,17 @@ impl PathGraphs {
         }
     }
 
-    /// Ask the finder for a walk to a point whose plane the caller does not know.
-    ///
-    /// A client's movement report names a position and a direction, not a surface: the point the walk is
-    /// aimed at can sit on a bridge, a stair or a slope plane rather than on the one the character is
-    /// standing on. Stamping the character's own plane there made the search fail, and a failed search is
-    /// answered with silence -- measured on map 148: of four reports whose destination lay on another
-    /// plane, all four came back `NoPath` with the character's plane and all four found a two-waypoint
-    /// path with the plane the destination actually lies on. The direction and the distance are the
-    /// client's; only the plane is the graph's answer.
+    /// Follow manual input through adjacent walkable cells, rather than finding a route.
+    pub fn walk_direction(&self, map_id: i32, from: Pos, offset: (f32, f32)) -> Walk {
+        match self.with_finder(map_id, |finder| directional::walk(finder, from, offset)) {
+            Some(Some(points)) => Walk::Found(points),
+            Some(None) => Walk::NoPath,
+            None => Walk::NoGraph,
+        }
+    }
+
+    /// Find a route to a point on an unspecified plane. Manual movement uses walk_direction:
+    /// choosing a destination plane globally can send a player off a bridge to reach that point.
     pub fn walk_any_plane(&self, map_id: i32, from: pathfind::Pos, to: (f32, f32)) -> Walk {
         match self.with_finder(map_id, |finder| {
             let Some(plane) = finder.plane_at(Vec2f { x: to.0, y: to.1 }) else {
