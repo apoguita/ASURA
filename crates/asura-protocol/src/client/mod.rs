@@ -1,8 +1,8 @@
 //! The client-facing protocol.
 //!
 //! The game client speaks this; ASURA does not design it, only reproduces it
-//! (`docs/adr/0005-gwps-reference-only.md`). Every constant here is a copied fact from the GWPS
-//! reference and is recorded in `docs/03-protocol.md`.
+//! (`docs/reference/decisions/0005-gwps-reference-boundary.md`). Every constant here is a copied fact from the GWPS
+//! reference and is recorded in `docs/reference/client-protocol.md`.
 //!
 //! The order of events on any connection, and therefore the order of the modules below:
 //!
@@ -16,7 +16,7 @@
 //!    error, so it is an error here, not a warning.
 //!
 //! Names are GWPS's, verbatim, so a Rust message can be compared against a C one by name. The
-//! tables themselves are recorded in `docs/03-protocol.md`; nothing here regenerates them.
+//! tables themselves are recorded in `docs/reference/client-protocol.md`; nothing here regenerates them.
 //!
 //! Both families live in the one packet table ([`crate::packets`]); `tables` and `game_tables` are
 //! that table's auth and game views. This module is the auth path: connection classification,
@@ -25,7 +25,7 @@
 //! ## Naming, because both directions live in this crate
 //!
 //! A name says what the function does to the bytes, so a reader never has to open it
-//! (`docs/38-layer-decisions.md`, D15):
+//! (`docs/reference/decisions/layer-decisions.md`, D15):
 //!
 //! * `decode_<thing>` - bytes to a struct: the client said something.
 //! * `<thing>` alone - a struct to a [`Frame`]: the server says something. `instance_load_head`,
@@ -46,7 +46,7 @@ pub mod game_version;
 pub mod handshake;
 pub mod messages;
 /// A fake game client for tests and for the two `asura-auth` examples, never for the server
-/// (`docs/38-layer-decisions.md`, D13). Compiled only when a consumer asks for `test-client`.
+/// (`docs/reference/decisions/layer-decisions.md`, D13). Compiled only when a consumer asks for `test-client`.
 #[cfg(feature = "test-client")]
 pub mod reference_client;
 pub mod version;

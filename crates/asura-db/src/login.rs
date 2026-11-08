@@ -5,14 +5,14 @@
 //!
 //! AzerothCore parallel: their `LoginDatabase` statement for the auth account, and the character-list
 //! read that follows a successful login. The shape is theirs; the vendor is PostgreSQL
-//! (docs/adr/0008-database-vendor.md).
+//! (docs/reference/decisions/0008-postgresql.md).
 //!
 //! GWPS is the reference for the *rules*, and both of them are easy to get subtly wrong
-//! (`docs/03-protocol.md` section 4):
+//! (`docs/reference/client-protocol.md` section 4):
 //!
 //! * **The pair is validated, never half-trusted.** `Db_GetSession(user_id, session_id)` looks up one
 //!   row matching both. A right portal user with a wrong session id is not "close enough".
-//! * **A closed session is never honoured.** `docs/05-gw2-lessons.md` rule 1: the newest session for
+//! * **A closed session is never honoured.** `docs/research/gw2-service-design-lessons.md` rule 1: the newest session for
 //!   an account wins and older ones are closed. A closed row therefore must not resolve, or a stolen
 //!   session id would work forever.
 
@@ -93,7 +93,7 @@ pub async fn characters(pool: &PgPool, account: Uuid) -> sqlx::Result<Vec<Charac
 }
 
 /// Record that a session chose this character. `char_id` is a routing hint for a reconnect
-/// (`docs/02-architecture.md`, "Identity"), not an authorisation: the pair was already validated.
+/// (`docs/guidance/architecture.md`, "Identity"), not an authorisation: the pair was already validated.
 pub async fn select_character(pool: &PgPool, session: Uuid, character: Uuid) -> sqlx::Result<bool> {
     let done = sqlx::query(
         "UPDATE t_session SET char_id = $2
@@ -149,7 +149,7 @@ pub async fn close_session(pool: &PgPool, session: Uuid) -> sqlx::Result<bool> {
 
 /// Close every live session of an account except the one just validated.
 ///
-/// This is `docs/05-gw2-lessons.md` rule 1 expressed as SQL: when a player logs in again, the older
+/// This is `docs/research/gw2-service-design-lessons.md` rule 1 expressed as SQL: when a player logs in again, the older
 /// sessions are closed rather than left resolvable. Keeping it here - one statement, one place -
 /// means "newest wins" cannot be half-implemented in the service.
 pub async fn close_other_sessions(pool: &PgPool, account: Uuid, keep: Uuid) -> sqlx::Result<u64> {

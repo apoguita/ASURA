@@ -1,6 +1,6 @@
 //! The instance: one hosted map, running.
 //!
-//! `docs/02-architecture.md` "Inside a world server": a map is updated by one owner, its state needs
+//! `docs/guidance/architecture.md` "Inside a world server": a map is updated by one owner, its state needs
 //! no locking across tasks, and the update threads have map affinity. This is that owner - the
 //! object a `MapEntry` describes, and the thing a `Player` stands in.
 //!

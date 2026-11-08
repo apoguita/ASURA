@@ -70,7 +70,7 @@ Exit codes: 0 captured (or self-test passed), 2 not elevated, 3 no client found,
 4 capture failed, 130 stopped from the 64-bit wrapper by Ctrl+C (the 32-bit capture stops
 itself and prints its summary).
 
-This file stays ASCII-only, like every script in tools/ (docs/HANDOFF.md).
+This file stays ASCII-only, like every script in tools/ (docs/work/session-handoff.md).
 """
 
 from __future__ import annotations
@@ -479,7 +479,7 @@ def run_capture(args) -> int:
                 # and a zero u16), every field widened to four bytes, and zero padding out to the
                 # struct's size. A wire capture - `asura-world --capture` - holds the packed frame with
                 # its two-byte header instead. The two are not interchangeable and the difference is not
-                # a second protocol (docs/03-protocol.md 5e), so the layer travels with the file and a
+                # a second protocol (docs/reference/client-protocol.md 5e), so the layer travels with the file and a
                 # reader takes the header length from here rather than assuming four.
                 "layer": "struct",
                 "header_len": 4,

@@ -5,7 +5,7 @@
 
 # The client's raw asset archive stays local: it is the game's 3.6 GB file, not this project's, and
 # it cannot be committed. The derived path-graph dump IS bundled -- data/path-graphs.bin is committed,
-# so a fresh clone can answer pathfinding without finding an archive (docs/03-protocol.md section 5d).
+# so a fresh clone can answer pathfinding without finding an archive (docs/reference/client-protocol.md section 5d).
 /Gw.dat
 /data/Gw.dat
 
@@ -32,7 +32,7 @@ desktop.ini
 
 # Probe and comparison artifacts: captures of what a server sent, written by the diagnostics in
 # tools/ and crates/asura-auth/examples/probe.rs. Reproducible in a minute, so they do not belong in
-# the history -- the reference *session* they were distilled into is docs/06-reference-session.md.
+# the history -- the reference *session* they were distilled into is docs/reference/captures/login-session-2026-10-26.md.
 .reply-*.bin
 .gwps-reply.bin
 .our-reply.bin

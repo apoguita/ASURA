@@ -2,11 +2,11 @@
 //!
 //! Owns: the login endpoint (key exchange, login, character list), sessions, and telling the client
 //! which world to join. Does NOT own placement, character state, instances, or the gameplay
-//! connection - those belong to the world servers (`docs/01-scope.md`).
+//! connection - those belong to the world servers (`docs/guidance/architecture.md`).
 //!
 //! AzerothCore parallel: their `authserver` - realmlist, session key, and nothing else.
 //!
-//! The connection follows the order `docs/03-protocol.md` records, and each step is a module in
+//! The connection follows the order `docs/reference/client-protocol.md` records, and each step is a module in
 //! `asura-protocol`:
 //!
 //! ```text
@@ -139,14 +139,14 @@ struct Session {
 ///
 /// Defined in `asura-protocol` because a world server reads the same switch for the same reason: the
 /// client reports nothing but `007`, so the trace is the only way to see what actually differed
-/// (`docs/03-protocol.md`, section 6).
+/// (`docs/reference/client-protocol.md`, section 6).
 pub use asura_protocol::Trace;
 
 /// Accept connections until the listener fails.
 ///
 /// Each connection is handled in its own task; a failure closes that connection and nothing else.
 /// The service is restartable by design: it holds no state that a restart has to recover
-/// (`docs/02-architecture.md`, "Startup order").
+/// (`docs/guidance/architecture.md`, "Startup order").
 pub async fn converse(
     mut stream: TcpStream,
     mut buffer: Vec<u8>,
@@ -156,7 +156,7 @@ pub async fn converse(
 ) -> Result<(), ConnectionError> {
     // The four classification bytes are already in `buffer` and are the beginning of the version
     // message: the socket layer read them, decided this is a login connection, and handed the socket
-    // over (`asura-gateway`, `docs/38-layer-decisions.md`, D26). The file check was answered there too,
+    // over (`asura-gateway`, `docs/reference/decisions/layer-decisions.md`, D26). The file check was answered there too,
     // because it carries no identity.
 
     // ---- 2. the version message -------------------------------------------------------------
@@ -199,7 +199,7 @@ pub async fn converse(
     // *not* consumed by logging in - GWPS only ever reads its session table (`Db_GetSession`), and
     // the rig's portal hands out the same fixed pair on every login, so a service that closed the
     // session on disconnect would refuse the client's very next attempt. "The newest session wins"
-    // is a rule about live *connections* and about leases (`docs/05-gw2-lessons.md`, rule 1); it is
+    // is a rule about live *connections* and about leases (`docs/research/gw2-service-design-lessons.md`, rule 1); it is
     // not licence to spend a row.
     let mut session = Session {
         established,
@@ -359,7 +359,7 @@ async fn dispatch(
         }
 
         // The settings uploads, which must be acknowledged: an unacknowledged one is a hang, and
-        // GWPS lived through seven of those (`docs/03-protocol.md`, section 6). Answering every
+        // GWPS lived through seven of those (`docs/reference/client-protocol.md`, section 6). Answering every
         // request the client makes keeps that trap shut without having to understand the payload.
         tables::AUTH_CMSG_SETTING_UPDATE_SIZE
         | tables::AUTH_CMSG_SETTING_UPDATE_CONTENT
@@ -590,7 +590,7 @@ async fn answer_login(
     // The session table is read, never spent: GWPS's login path calls `Db_GetSession` and writes
     // nothing, and the rig's portal presents the same fixed pair on every login. Closing rows here
     // would refuse the client's next attempt. The "newest wins" rule applies to live connections and
-    // to leases, not to this row (`docs/03-protocol.md` section 4).
+    // to leases, not to this row (`docs/reference/client-protocol.md` section 4).
     let characters = db_login::characters(pool, resolved.account)
         .await
         .map_err(ConnectionError::Database)?;
@@ -883,7 +883,7 @@ async fn read_until(
     Ok(())
 }
 
-/// One trace line: direction, header, name, size and the first bytes (`docs/03-protocol.md` #6).
+/// One trace line: direction, header, name, size and the first bytes (`docs/reference/client-protocol.md` #6).
 fn trace_frame(direction: &str, frame: &Frame) {
     let name = tables::entry(frame.header())
         .and_then(|entry| entry.name)

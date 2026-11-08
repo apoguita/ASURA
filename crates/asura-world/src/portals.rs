@@ -1,7 +1,7 @@
 //! The travel portals of each instance, read only from the selected pack's portals.json files.
 //!
 //! A map's doorways are content, one file per map folder (`config/World/<pack>/maps/.../<map
-//! id>/portals.json`, `docs/38-layer-decisions.md` D39): an **arch** is a wall the character crosses,
+//! id>/portals.json`, `docs/reference/decisions/layer-decisions.md` D39): an **arch** is a wall the character crosses,
 //! stated as its two endpoints and the map it leads to; an **arrival** states where a character
 //! arriving in this map **from** a named map stands, and which way it faces. The target map owns its
 //! arrivals, so the map that receives a traveller decides where that traveller lands.

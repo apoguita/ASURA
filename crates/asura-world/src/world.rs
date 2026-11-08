@@ -3,7 +3,7 @@
 //! [`World`] is what a world server registers as and what `serve` hands each connection. Who is
 //! standing in which map belongs to the maps themselves: [`Instances`] keeps one running
 //! [`Instance`] per hosted map, and that instance owns its players, their agents and its clock
-//! (`docs/02-architecture.md`, "Inside a world server").
+//! (`docs/guidance/architecture.md`, "Inside a world server").
 //!
 //! What stays here is the world's own: the registry row, the map catalogue, the path graphs, and
 //! the demand-loaded maps.

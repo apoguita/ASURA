@@ -1,6 +1,6 @@
 //! The game protocol: what a world server sends to a client that has just been placed in a map.
 //!
-//! `docs/03-protocol.md` section 11 records the order. This module owns the **messages**, one builder
+//! `docs/reference/client-protocol.md` section 11 records the order. This module owns the **messages**, one builder
 //! per message, each written to the byte layout of the reference's packed struct (`GameMsg.h`) and
 //! each tested against the size the reference's own trace records for it.
 //!
@@ -24,7 +24,7 @@
 ///
 /// Three numbers that mean "a town", "an explorable area" and "the creation instance" to the client. They
 /// live here because they are the client's vocabulary, and they are *values*, so a server reads them from
-/// `config/Server/defaults.json` rather than compiling them (`docs/38-layer-decisions.md`, D34): a file
+/// `config/Server/defaults.json` rather than compiling them (`docs/reference/decisions/layer-decisions.md`, D34): a file
 /// states them, a rule is handed them, and this type is what travels between the two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MapKinds {
@@ -105,7 +105,7 @@ pub const CARTOGRAPHY_DATA: u16 = crate::packets::game::GAME_SMSG_CARTOGRAPHY_DA
 /// seq 1056), and sending that shape here desynchronises this client - it answers `007` at map load,
 /// measured 2026-10-30. So the capture and the framing disagree, and the client settles it.
 ///
-/// The number is the table's (`docs/38-layer-decisions.md`, D8): it is declared once, in
+/// The number is the table's (`docs/reference/decisions/layer-decisions.md`, D8): it is declared once, in
 /// `crate::packets`, and this crate derives the payload from it rather than stating 256 again.
 pub const CARTOGRAPHY_DATA_SLOTS: usize = 64;
 /// The blob bytes one [`CARTOGRAPHY_DATA`] message carries.
@@ -483,7 +483,7 @@ pub fn instance_player_data_start() -> crate::client::Frame {
 
 /// `GAME_SMSG_INSTANCE_PLAYER_DATA_DONE` (`0x018A`): the player-data block is over. Two bytes - the
 /// reference sends `sizeof(buffer->header)` (`GameSrv.c:311`), and its only caller is the
-/// character-creation flow, which is why the map-load block never carries it (`docs/10-parity-queue.md` B).
+/// character-creation flow, which is why the map-load block never carries it (`docs/history/gwps-parity/completed-work-queue.md` B).
 pub fn instance_player_data_done() -> crate::client::Frame {
     Builder::new(INSTANCE_PLAYER_DATA_DONE).frame()
 }
@@ -1378,7 +1378,7 @@ pub fn world_simulation_tick(delta_ms: u32) -> crate::client::Frame {
 /// `plane`, from `current_plane` (`GameSrv_MoveAgentToPoint`), 18 bytes.
 ///
 /// The sniffer reads the unpacked client struct; the wire uses this packed layout
-/// (`docs/03-protocol.md` 5e).
+/// (`docs/reference/client-protocol.md` 5e).
 pub fn agent_move_to_point(
     agent_id: u32,
     destination: (f32, f32),
@@ -1520,7 +1520,7 @@ mod tests {
     #[test]
     fn the_fixed_size_messages_match_the_size_the_reference_sends() {
         // Every number here is a size measured from the reference's own send log
-        // (docs/03-protocol.md section 11), not from a struct: `sizeof` is a maximum, the wire is not.
+        // (docs/reference/client-protocol.md section 11), not from a struct: `sizeof` is a maximum, the wire is not.
         assert_eq!(wire(&instance_load_head_default()), 6);
         assert_eq!(wire(&instance_player_data_start()), 2);
         // The character-creation block: header-only messages, a six-byte error, and the success message

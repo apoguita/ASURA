@@ -1652,7 +1652,7 @@ async fn a_teleport_redirects_to_the_target_map_and_keeps_its_seat() {
     // The pair is read by hand, exactly as GWPS's own capture shows it: the live 0x01A6 is a
     // four-byte game header, host[24], then six dwords (`map_token, region, map_id, is_explorable,
     // player_token, 0`), and the 0x0099 that follows is twelve bytes rather than its five-byte login
-    // form (the reference's own "size per context" trap, `docs/03-protocol.md` section 6).
+    // form (the reference's own "size per context" trap, `docs/reference/client-protocol.md` section 6).
     say(
         &mut stream,
         &mut client,
@@ -1786,7 +1786,7 @@ async fn a_teleport_redirects_to_the_target_map_and_keeps_its_seat() {
 /// 00 00 01`), with the instance swapped for this harness's destination. There is deliberately no policy
 /// here about *which* instances may be named: the client decides, and an outpost and the explorable it
 /// exits to can share one map blob, so a server-side rule about "which kinds of instance" refuses travel
-/// the game itself allows (`docs/22-world-model.md`).
+/// the game itself allows (`docs/reference/game-world-model.md`).
 #[tokio::test]
 async fn the_world_map_request_travels_to_the_instance_it_names() {
     if skip() {
@@ -1925,7 +1925,7 @@ fn distance_to_nearest_spawn(
 /// The reference pre-spawns one server per configured map so a travel never constructs anything, and
 /// this world preloads every hosted map for the same reason. Whether the real client *requires* the
 /// destination to exist before the hop is the open question the `--on-demand` switch exists to
-/// answer (`docs/03-protocol.md`). This test pins the server half: the transfer names a map the world
+/// answer (`docs/reference/client-protocol.md`). This test pins the server half: the transfer names a map the world
 /// was not started with, its map entry and pool row appear at travel time, and the reconnect lands on
 /// the destination's own spawn list (never on the source map's coordinate).
 #[tokio::test]

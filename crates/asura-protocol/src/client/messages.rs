@@ -5,7 +5,7 @@
 //! [`super::frame::Frame::encode_validated`] refuses it.
 //!
 //! Only what the login path needs is here. The rest of the 100 auth messages arrive with the code
-//! that needs them, for the reason `docs/adr/0007-rust-translation.md` gives: an unused message
+//! that needs them, for the reason `docs/reference/decisions/0007-whole-stack-rust.md` gives: an unused message
 //! layout is a fact nobody has verified.
 //!
 //! **UUIDs travel in the RFC 4122 little-endian variant** - the first three fields are little
@@ -1259,7 +1259,7 @@ mod tests {
     fn a_travel_request_decodes_from_the_shape_a_client_sends() {
         // `req_id, map_type, map_id, region, district, language`: the six dwords of
         // `AuthSrv_RequestGameInstance`. Map 146 is what the real client asked for after character
-        // select (docs/06-reference-session.md).
+        // select (docs/reference/captures/login-session-2026-10-26.md).
         let mut body = Vec::new();
         for value in [7u32, 0, 146, 0, 0, 0] {
             body.extend_from_slice(&value.to_le_bytes());

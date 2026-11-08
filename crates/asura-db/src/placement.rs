@@ -6,12 +6,12 @@
 //!
 //! AzerothCore parallel: `realmlist` registration, the atomic realm/pool update, and the
 //! `DatabaseWorkerPool`'s asynchronous write discipline. The shape is theirs; the vendor is
-//! PostgreSQL (docs/adr/0008-database-vendor.md).
+//! PostgreSQL (docs/reference/decisions/0008-postgresql.md).
 //!
 //! The two invariants this module must never break:
 //!
 //! * **No oversell.** A reservation is one `UPDATE ... WHERE leased < capacity RETURNING`, so two
-//!   processes cannot both take the last slot (`docs/02-architecture.md`, "Travel, end to end").
+//!   processes cannot both take the last slot (`docs/guidance/architecture.md`, "Travel, end to end").
 //! * **The ledger and the counter agree.** A lease row is inserted only after the counter increment
 //!   won, and both are released or reaped in one transaction. `count(lease) <= leased <= capacity`
 //!   therefore holds at every commit, which is what makes the reaper safe.
@@ -34,7 +34,7 @@ pub async fn connect(database_url: &str, max_connections: u32) -> sqlx::Result<P
 /// A world server registers itself and publishes its pool capacity: what it hosts and how many
 /// instances it has prebuilt per map.
 ///
-/// This is the startup half of the registry (`docs/02-architecture.md`, "The registry"). Registering
+/// This is the startup half of the registry (`docs/guidance/architecture.md`, "The registry"). Registering
 /// is also the reset point after a restart: a world rebuilds its leases by asking the database, so
 /// the previous process's lease rows are cleared and its counter reset - one transaction, so a crash
 /// halfway never leaves the ledger and the counter disagreeing.
@@ -184,7 +184,7 @@ pub async fn backdate_heartbeat(
 ///
 /// Returns `Ok(Some(world_id))` when a slot was won and recorded in the lease ledger, and
 /// `Ok(None)` when the pool is full. `None` is the refusal signal: it is delivered *before* the
-/// client is told to move, which is the one rule (`docs/02-architecture.md`).
+/// client is told to move, which is the one rule (`docs/guidance/architecture.md`).
 ///
 /// The reservation is one atomic statement, so concurrent callers cannot oversell the last slot.
 /// It runs first, before the session's previous lease is superseded: a refused travel must leave the
@@ -215,7 +215,7 @@ pub async fn reserve(
     };
 
     // The newest reservation is the one that counts: this session's earlier lease, if any, is
-    // released in the same transaction (docs/05-gw2-lessons.md, rule 1).
+    // released in the same transaction (docs/research/gw2-service-design-lessons.md, rule 1).
     let previous: Vec<(i32, i32)> =
         sqlx::query_as("DELETE FROM t_lease WHERE session_id = $1 RETURNING world_id, map_id")
             .bind(session_id)
@@ -256,7 +256,7 @@ pub async fn release(pool: &PgPool, session_id: uuid::Uuid) -> sqlx::Result<bool
 /// Release every slot of every world that stopped heartbeating more than `max_age_secs` ago.
 ///
 /// A dead world's leases are freed so a crash costs capacity only until the reaper notices, never
-/// permanently (`docs/02-architecture.md`, "Failure behaviour"). One statement, so concurrent reapers
+/// permanently (`docs/guidance/architecture.md`, "Failure behaviour"). One statement, so concurrent reapers
 /// cannot double-free: the first transaction's `DELETE ... RETURNING` is the only one that sees the
 /// rows.
 pub async fn reap_stale(pool: &PgPool, max_age_secs: f64) -> sqlx::Result<ReapReport> {
@@ -304,7 +304,7 @@ pub struct ReapReport {
 
 /// Recompute `world_pool.leased` from the lease ledger for one world.
 ///
-/// This is the reconciler from `docs/05-gw2-lessons.md`, rule 2: the world server is the truth about
+/// This is the reconciler from `docs/research/gw2-service-design-lessons.md`, rule 2: the world server is the truth about
 /// what it has handed out, and the ledger is how it reports it. After a world (or the auth service)
 /// restarts, the counter is rebuilt from the rows instead of being trusted blindly.
 pub async fn reconcile_world(pool: &PgPool, world_id: i32) -> sqlx::Result<u64> {
@@ -572,7 +572,7 @@ pub async fn begin_transfer(
 
 /// Claim the pending transfer a connecting client presented, and return it.
 ///
-/// **The newest connection wins** (`docs/05-gw2-lessons.md` rule 1: only ever honour the most recent
+/// **The newest connection wins** (`docs/research/gw2-service-design-lessons.md` rule 1: only ever honour the most recent
 /// connection, even if the older one looks alive and has work in flight). The claim therefore does not
 /// skip a token that was already claimed: build 39112 opens its game connection again with the same
 /// token after the first one has carried the load, that second connection is the newer one, and

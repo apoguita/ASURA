@@ -147,7 +147,7 @@ pub async fn route(
 }
 
 /// The freshness window for routing: the same rule the login path uses, so a client is never sent to a
-/// world this layer then refuses (`asura_rules`, `docs/38-layer-decisions.md` D29).
+/// world this layer then refuses (`asura_rules`, `docs/reference/decisions/layer-decisions.md` D29).
 fn world_freshness() -> f64 {
     // The same number the login path reads, from the same file (`asura_config`, D33); the environment
     // variable still wins for a one-off experiment, as it does there.

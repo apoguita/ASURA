@@ -1,29 +1,31 @@
 # Server settings
 
-How this machine runs ASURA, as opposed to what the world contains.
+Machine settings and client-facing values read by `asura-config`. The JSON files hold the
+values and their meanings; evidence and acceptance belong in docs. This inventory was checked
+against `crates/asura-config/src/lib.rs` and `src/directional.rs`, 2026-11-08.
 
-Five files today:
+| File | Concern | Reader / override |
+|---|---|---|
+| `../services.toml` | Processes, arguments, ports, health checks and logs | Supervisor; `--config FILE` |
+| `defaults.json` | Placement inputs, client map kinds and creation-screen profession bitmap | `asura_config::defaults`; `ASURA_DEFAULTS` |
+| `intervals.json` | Tick, ping, probe and world-freshness intervals | `asura_config::intervals`; `ASURA_INTERVALS` |
+| `movement.json` | Client movement-report correction tolerance | `asura_config::movement`; `ASURA_MOVEMENT` |
+| `directional_movement.json` | Directional-walker configuration | `asura_config::directional::current` |
+| `spawns.json` | Scatter around an entry spawn | `asura_config::spawns`; `ASURA_SPAWNS` |
+| `portals.json` | Half extent of point-doorway boundary boxes | `asura_config::portal_box_half_extent` |
+| `account_settings.json` | Login account-settings payload | `asura_config::account_settings`; `ASURA_ACCOUNT_SETTINGS` |
+| `file_check.json` | Pre-handshake file-check response | `asura_config::file_check`; `ASURA_FILE_CHECK` |
 
-- `config/services.toml`, one level up: which services start, their arguments, ports, health checks
-  and log paths. It is the supervisor's own file.
-- `config/Server/defaults.json`: the values a world falls back on when a row says nothing. One
-  documented key today - `default_outpost`, the outpost a character enters when its row names neither a
-  map nor a last outpost - and every key carries its own `doc` sentence, because JSON has no comments
-  and a file of bare numbers cannot be reviewed. No key has a default in code: a missing file stops
-  the socket layer at start-up (`docs/38-layer-decisions.md`, D34).
-- `config/Server/intervals.json`: the intervals every program runs on - the world tick, the ping
-  interval and value, the login path's probe timeout, and the freshness window the login path and
-  the socket layer share. Read by `asura-config`, once per process; an environment variable still
-  overrides a single value for an experiment (`docs/38-layer-decisions.md`, D33).
-- `config/Server/movement.json`: the tolerances a client's movement reports are judged by. One key
-  today - `max_allowed_correction`, how far a client may place itself when it cancels a walk and
-  still be believed. The reference's own value is 100 and is the fallback in code; this machine runs
-  it at 150. Read by `asura-config`, once per process, same precedence as the intervals file.
-- `config/Server/spawns.json`: how a character is placed around the spawn point it entered at. One
-  key today - `spawn_scatter`, the radius in map units of the circle a character lands in around a
-  random point of the map's own spawn list (250 here; zero stacks everyone on the point). Read by
-  `asura-config`, once per process, same precedence as the movement file.
+Most readers cache their result for the process lifetime; editing a file does not establish live
+reload. File absence/error handling differs between readers. Defaults are required, while some
+other readers still contain compiled fallbacks. That is an implementation gap against AGENTS.md
+4a, not permission to add more fallbacks or a claim that all settings fail closed.
 
-What does not belong here: anything that describes the game. A map, a spawn point, a doorway or a
-quest is world content, and lives in a package under `config/World/`
-(`docs/38-layer-decisions.md`, D23, D24).
+Values chosen by the server do not become immutable merely because they appear here. The
+client-vocabulary meaning of `immutable` is defined in AGENTS.md; it is an editor note, not a
+runtime authorization check.
+
+World maps, entry lists, doorway geometry and behavior belong to the selected
+[world pack](../World/README.md). Evidence for machine values stays in
+[Client protocol](../../docs/reference/client-protocol.md) and the named research/recording;
+[Project status](../../docs/work/project-status.md) owns acceptance.

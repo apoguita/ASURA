@@ -6,7 +6,7 @@
 //!
 //! A live instance is **not** here yet: today the map a connection is in is a `MapEntry` on its
 //! `Player` record (`connection.rs`). The instance object is the missing noun, recorded in
-//! `docs/HANDOFF.md` and deferred with the simulation (`docs/adr/0003-simulation-in-scope.md`).
+//! `docs/work/session-handoff.md` and deferred with the simulation (`docs/reference/decisions/0003-simulation-scope.md`).
 
 use crate::*;
 
@@ -49,7 +49,7 @@ pub fn load_block(map: &MapEntry, name: &str, agent_id: u32) -> Vec<Frame> {
     // The client's instance table, in the batches a live server sends it: the instances that exist, so
     // that a destination can be resolved at all. It goes in the load block beside the exploration grid
     // because that is the phase a live server sends it in - after the instance info and before the client
-    // is asked to spawn anything. The pairs are the pack's map folders (`docs/38` D36), built here and
+    // is asked to spawn anything. The pairs are the pack's map folders (`docs/reference/decisions/layer-decisions.md` D36), built here and
     // framed by the wire layer.
     let (table, notes) = crate::instance_table::table_for(&crate::instance_table::pack());
     for note in &notes {
@@ -62,7 +62,7 @@ pub fn load_block(map: &MapEntry, name: &str, agent_id: u32) -> Vec<Frame> {
 /// `ASURA_LOAD_EXTRA=off`: leave the exploration grid and the instance table out of the unasked block.
 ///
 /// A measurement switch, and it exists because those two are the only content this world sends into the
-/// window where an explorable load waits 4.3 s: `docs/23-initialization-protocol.md`, "The explorable".
+/// window where an explorable load waits 4.3 s: `docs/reference/instance-initialization.md`, "The explorable".
 /// A live server sends neither pair in that window for the same map - its grid and its instance table
 /// arrive later in the players block, or not at all on a second load - so "the client chews on what we
 /// send early" is a hypothesis this switch can remove in one run. `off`, `0` or `none` suppresses them;

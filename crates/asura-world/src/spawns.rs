@@ -3,7 +3,7 @@
 //! The character-creation screen asks the player which expansion their character belongs to, and the
 //! confirm writes the map below into the character's row before the client reconnects into it. That map
 //! is content - one map per source - so it lives in the world pack
-//! (`config/World/Vanilla/character_spawn.json`, `docs/38-layer-decisions.md` D23, D24) rather than in a
+//! (`config/World/Vanilla/character_spawn.json`, `docs/reference/decisions/layer-decisions.md` D23, D24) rather than in a
 //! `match` compiled into this crate.
 //!
 //! A source with no map at all (`pvp`) is `null`:

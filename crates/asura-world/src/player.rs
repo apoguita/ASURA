@@ -34,7 +34,7 @@ pub struct Player {
     /// The reference keeps both on its player (`GmPlayer.account_id`, `.char_id`) and uses them for every
     /// bag and item query and for its transfer request (`GameSrv.c:1450-1472`). This server scoped its
     /// writes by character alone, which is enough for everything it did until a *world* had to start a
-    /// travel: the transfer row is keyed by session and needs the account as well (`docs/09` #9).
+    /// travel: the transfer row is keyed by session and needs the account as well (`docs/history/gwps-parity/behavior-audit.md` #9).
     pub session_id: Uuid,
     pub account_id: Uuid,
     /// Set when this connection has been redirected to another map. Its teardown must then leave the
@@ -166,7 +166,7 @@ const EXPERIENCE_TEST_VALUE: u32 = 500;
 /// What the player block is built from: everything a character's own messages carry.
 ///
 /// A struct rather than eight positional arguments, for the reason `asura-rules` and
-/// `asura-protocol` record (`docs/38-layer-decisions.md`, D16): the id, the agent id and the traits are
+/// `asura-protocol` record (`docs/reference/decisions/layer-decisions.md`, D16): the id, the agent id and the traits are
 /// all small integers, so a swapped pair compiles and a client draws the wrong character.
 pub struct PlayerBlock<'a> {
     /// The character's name, as the client shows it.
@@ -240,7 +240,7 @@ pub fn player_block(block: &PlayerBlock<'_>) -> Vec<Frame> {
     // **The fifth list is the instance bitmap, and it is the one that has to be right.** The client's
     // world context holds five arrays in this order - missions completed, mission bonuses, missions
     // completed hard, bonuses hard, unlocked instances - and reads an instance's unlock as bit
-    // `map_id % 32` of word `map_id / 32` in the fifth (`docs/22-world-model.md`). This server used to
+    // `map_id % 32` of word `map_id / 32` in the fifth (`docs/reference/game-world-model.md`). This server used to
     // send the fifth list empty, which is an unlocked array of length zero: every instance read as
     // locked, and the world map had nothing to offer. `unlocked` is the character's reached instances
     // (`map::unlock_bitmap`), and the instance it is standing in is always among them.
@@ -391,7 +391,7 @@ pub const UNLOCKED_MAP_ZEROS: &[u32] = &[0u32; 31];
 
 /// The instance bitmap a character's reached instances become, in the client's own addressing.
 ///
-/// **Read from the client's world context** (`docs/22-world-model.md`): the bitmap is an array of
+/// **Read from the client's world context** (`docs/reference/game-world-model.md`): the bitmap is an array of
 /// `u32` where instance `n` is bit `n % 32` of word `n / 32`. 31 words covers instances 0 to 991,
 /// which contains the reference's own `MapId_Count` sentinel of 877 (`MAP_ID_COUNT`), so a character
 /// can never outgrow the list the reference sends.
@@ -431,10 +431,10 @@ pub async fn handle_request_players(
     // one: a block built in single-digit milliseconds cannot be why a client's load drags.
     let load_started = Instant::now();
     // The instance the character is standing in is reached, so it is unlocked - that is the whole rule
-    // (`docs/22-world-model.md`): the walk sets the bit, the bit never gates the walk. The creation
+    // (`docs/reference/game-world-model.md`): the walk sets the bit, the bit never gates the walk. The creation
     // instance is not a place a character "reaches", so it sets nothing.
     let here = player.instance.map.map_id;
-    // The last outpost this character stood in, kept for the base rule (docs/22-world-model.md): a travel
+    // The last outpost this character stood in, kept for the base rule (docs/reference/game-world-model.md): a travel
     // into an explorable must not overwrite it, which is why only an outpost is written here.
     if player.instance.map.map_type == map_kinds().main_town {
         if let Err(err) = db_game::remember_outpost(&world.pool, player.character, here).await {

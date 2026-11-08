@@ -1,5 +1,5 @@
 {
-  "note": "Where a character is spawned when it is created, keyed by the expansion source the character belongs to. The creation screen asks the player for that source, and the confirm writes this map into the character's row before the client reconnects into it. A source that names no map is null, and the creation refuses that character rather than putting it somewhere nobody has seen. Where each number came from is recorded in docs/22-world-model.md, section 'Character spawn points'.",
+  "note": "Where a character is spawned when it is created, keyed by the expansion source the character belongs to. The creation screen asks the player for that source, and the confirm writes this map into the character's row before the client reconnects into it. A source that names no map is null, and the creation refuses that character rather than putting it somewhere nobody has seen. Where each number came from is recorded in docs/reference/game-world-model.md, section 'Character spawn points'.",
   "spawns": [
     {
       "campaign": 1,

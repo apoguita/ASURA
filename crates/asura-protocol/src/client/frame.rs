@@ -7,7 +7,7 @@
 //! path reads the header, looks the format up, and lets `unpack_msg` consume the fields
 //! (`AuthSrv.c`, `AuthSrv_GetMessages`).
 //!
-//! `docs/03-protocol.md` section 1 described a `u16 length` here. That was wrong, and it is the
+//! `docs/reference/client-protocol.md` section 1 described a `u16 length` here. That was wrong, and it is the
 //! kind of wrong that costs a session: a port that writes a length the client does not expect gets
 //! nothing back but error `007`. The document now records the correction and the evidence for it.
 //!
@@ -34,7 +34,7 @@ pub const HEADER_LEN: usize = 2;
 /// bytes, written by whoever builds the message, and no function adds it afterwards. That matters
 /// beyond tidiness: a body plus an encode step is two representations of one message, so every
 /// builder, capture comparison and test has to remember that one more header is coming, and the day
-/// someone forgets, a two-byte difference reads as a second protocol (`docs/03-protocol.md` 5e).
+/// someone forgets, a two-byte difference reads as a second protocol (`docs/reference/client-protocol.md` 5e).
 /// With one representation there is nothing to remember: what a builder writes is what the wire
 /// carries, and a capture compares from byte zero.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -179,7 +179,7 @@ impl Frame {
     ///
     /// This is the path server code should use for the messages it constructs. The sizes in the table
     /// are not suggestions; a five-byte map update in the login batch is indistinguishable from a
-    /// working one until the client reports `007` (`docs/03-protocol.md`, section 6).
+    /// working one until the client reports `007` (`docs/reference/client-protocol.md`, section 6).
     pub fn encode_validated(&self) -> Result<Vec<u8>, FrameError> {
         match self.expected_size() {
             None => Err(FrameError::UnknownHeader {

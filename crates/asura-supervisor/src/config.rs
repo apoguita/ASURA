@@ -1,6 +1,6 @@
 //! The supervisor's list: what this machine runs.
 //!
-//! The list is data, not code (`docs/16-implementation-plan.md`, S1): adding a world server,
+//! The list is data, not code (`docs/history/service-supervisor-delivery-plan.md`, S1): adding a world server,
 //! changing a port, or moving a service to another machine is an edit in `config/`, not a program
 //! change. TOML, because it is commentable, diffable, and needs no tooling to read.
 //!

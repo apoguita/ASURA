@@ -1,6 +1,6 @@
 //! The auth service's entry point: configuration, startup order, and the listener.
 //!
-//! The startup order is the sequence a restart has to follow (`docs/02-architecture.md`, "Startup
+//! The startup order is the sequence a restart has to follow (`docs/guidance/architecture.md`, "Startup
 //! order"), and it is enforced here rather than described:
 //!
 //! 1. read the configuration (the database URL, the bind address);

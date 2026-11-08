@@ -1,6 +1,6 @@
 //! Write the map content tables into the world pack, one folder per map.
 //!
-//! The move `docs/38-layer-decisions.md` D22 records, first step: **write the package**. This reads
+//! The move `docs/reference/decisions/layer-decisions.md` D22 records, first step: **write the package**. This reads
 //! `t_map_config`, `t_map_spawn` and `t_map_portal` and writes, in the folder each map id already has
 //! under the pack's `maps/`:
 //!

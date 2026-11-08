@@ -5,7 +5,7 @@
 //! layouts, and the database. It uses the reference client from `asura_protocol::client::reference_client`, so it
 //! needs no game client - but it is *not* a substitute for one: M3 is only accepted when the real
 //! client reaches the character list and the packet trace diffs clean against GWPS
-//! (`docs/roadmap.md`).
+//! (`docs/work/project-roadmap.md`).
 //!
 //! With no database configured, each test prints a skip line and returns.
 
@@ -341,7 +341,7 @@ async fn a_pair_that_does_not_resolve_is_refused_with_the_clients_auth_error() {
 
 #[tokio::test]
 async fn a_closed_session_cannot_log_in() {
-    // The rule from `docs/05-gw2-lessons.md` rule 1, proven through the wire rather than through the
+    // The rule from `docs/research/gw2-service-design-lessons.md` rule 1, proven through the wire rather than through the
     // database: a session that was closed does not resolve, so the login is refused.
     if skip() {
         return;

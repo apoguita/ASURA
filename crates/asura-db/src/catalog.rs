@@ -1,4 +1,4 @@
-﻿//! The general service registry (S2): every service kind announces itself like a world server does.
+//! The general service registry (S2): every service kind announces itself like a world server does.
 //!
 //! A row says where a service is (address, port), its build, whether it is alive (`heartbeat_at`)
 //! and what state it is in. The supervisor writes a row for every service it starts; consumers read
@@ -7,7 +7,7 @@
 //! the general one, written beside it.
 //!
 //! It is a table, not a service: no component talks to the database as a proxy between services
-//! (`docs/05-gw2-lessons.md`, "Not adopting: a separate DB service layer"). That distinction is
+//! (`docs/research/gw2-service-design-lessons.md`, "Not adopting: a separate DB service layer"). That distinction is
 //! what keeps the catalog from becoming a message bus.
 
 use crate::PgPool;

@@ -50,7 +50,7 @@ pub const TYRIA: (u32, u32) = (64, 128);
 /// Only Tyria's dimensions are assumed, so every map gets them: a map on another continent then
 /// fails the same map-view assertion it fails today, and none that works today can start failing.
 /// The other continents' grids are a measurement, not a choice, and they are named in
-/// `docs/03-protocol.md` as an open question.
+/// `docs/reference/client-protocol.md` as an open question.
 pub fn grid_for(_map_id: i32) -> (u32, u32) {
     TYRIA
 }

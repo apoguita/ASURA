@@ -1,7 +1,7 @@
 //! The per-message trace: a service's own record of what crossed the wire.
 //!
 //! The game client reports nothing but an error number (`007`), so a trace is the only way to see what
-//! actually differed from the reference (`docs/03-protocol.md`, section 6). GWPS has the same switch
+//! actually differed from the reference (`docs/reference/client-protocol.md`, section 6). GWPS has the same switch
 //! (`GWPS_TRACE`), and this project's services read `ASURA_TRACE`.
 //!
 //! Shared between the auth service and a world server because both need the same rule and the same

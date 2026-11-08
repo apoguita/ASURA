@@ -7,7 +7,7 @@
 //! hands ARC4 on the way out and reads back after unscrambling on the way in.
 //!
 //! The two layers are not interchangeable, and the difference between them is not a second protocol
-//! (`docs/03-protocol.md` 5e). So a record states which layer it is: a reader takes the header length
+//! (`docs/reference/client-protocol.md` 5e). So a record states which layer it is: a reader takes the header length
 //! from the file's own header record and never assumes it. Payload offsets in a struct-layer capture
 //! start four bytes in; in this one, two.
 //!

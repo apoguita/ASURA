@@ -1,7 +1,7 @@
 //! The inventory: a character's bags and the items in them.
 //!
 //! Until this module existed the world server answered the client's item request with the reference's
-//! own messages, replayed byte for byte from a capture of the reference (retired when parity closed, docs/16). That made a client
+//! own messages, replayed byte for byte from a capture of the reference (retired when parity closed, docs/history/service-supervisor-delivery-plan.md). That made a client
 //! happy and made the server know nothing: there was no row, bag or slot to name, so nothing could be
 //! dropped, equipped, moved or saved. These are the rows that replaced them, and the two operations the
 //! world server needs them for:
@@ -539,7 +539,7 @@ async fn insert_new_item(
 ///
 /// A struct rather than fifteen positional arguments: `SeedItem` and `NewItem` carry the same columns
 /// with different ownership, so one borrow view serves both and a swapped pair cannot compile
-/// (`docs/38-layer-decisions.md`, D16).
+/// (`docs/reference/decisions/layer-decisions.md`, D16).
 struct ItemColumns<'a> {
     bag_id: Option<i32>,
     slot: Option<i32>,

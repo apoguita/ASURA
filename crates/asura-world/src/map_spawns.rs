@@ -1,18 +1,17 @@
 //! The spawn points a map carries, read from the world pack.
 //!
 //! A map is entered at one of the points its own file states: one `spawns.json` per map folder
-//! (`config/World/<pack>/maps/<campaign>/<area>/<subarea>/<map id>/`, `docs/38-layer-decisions.md`
+//! (`config/World/<pack>/maps/<campaign>/<area>/<subarea>/<map id>/`, `docs/reference/decisions/layer-decisions.md`
 //! D38, D39), one entry per spawn, in `idx` order. An entry is a coordinate, the plane inside the
 //! map blob, and - where the pack states one - a facing angle in radians. The angle becomes the
 //! direction vector the agent is created with, which is what `GAME_SMSG_WORLD_CREATE_AGENT` carries.
 //!
-//! The map itself (its blob and its single fallback coordinate) still arrives from `t_map_config`
-//! today; this module is the list beside it, and a map without a file has no list at all, so the
-//! caller falls back to that one coordinate.
+//! Pack selection, layout and current loading sources are documented in `config/World/README.md`.
+//! A map without a spawn file has no list; the caller decides how to handle that absence.
 //!
 //! This is the list the owner filled for Ascalon City (pre-Searing) on 2026-11-05, and the reason
 //! the outpost entry is randomised: "each outpost has multiple spawn points from a list, they are
-//! randomized when you enter" (`docs/22-world-model.md`, "Spawn points, and the outpost rule").
+//! randomized when you enter" (`docs/reference/game-world-model.md`, "Spawn points, and the outpost rule").
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

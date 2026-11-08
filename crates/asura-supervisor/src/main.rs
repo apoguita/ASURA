@@ -1,6 +1,6 @@
 //! `asura-supervisor`: starts this machine's services, watches them, and reports.
 //!
-//! The list is `config/services.toml` (`docs/16-implementation-plan.md`, S1): what to run, with what
+//! The list is `config/services.toml` (`docs/history/service-supervisor-delivery-plan.md`, S1): what to run, with what
 //! arguments, in what order, and where each one logs. The database is checked and waited for, never
 //! started. A service that keeps crashing is retried a bounded number of times and then reported
 //! FAILED - the supervisor never restarts one forever (D1.3).
@@ -179,7 +179,7 @@ async fn start(args: &[String]) -> ExitCode {
 
 /// A graceful stop from a container runtime: `docker stop` sends SIGTERM, and the supervisor must
 /// treat it as the same quit as Ctrl+C, so the services are stopped and the registry rows are
-/// marked `stopped` instead of being killed blind (`docker/`, docs/19-running.md).
+/// marked `stopped` instead of being killed blind (`docker/`, docs/operations/running-the-server.md).
 #[cfg(unix)]
 async fn sigterm() {
     use tokio::signal::unix::{signal, SignalKind};

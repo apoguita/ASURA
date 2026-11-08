@@ -28,7 +28,7 @@
 //!   which is the same graph without a self-referential struct.
 //!
 //! The A* search over this graph (`GmPaths.c`, the other 1,000 lines) is the rest of the same unit and is
-//! not here yet: docs/10-parity-queue.md, item D3.
+//! not here yet: docs/history/gwps-parity/completed-work-queue.md, item D3.
 
 use std::collections::HashMap;
 

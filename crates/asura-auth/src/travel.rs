@@ -126,7 +126,7 @@ pub async fn answer(
     };
 
     // Where the character enters is a **game rule**, not an auth rule, so the decision is made in
-    // `asura-rules` and this function only supplies the data (`docs/38-layer-decisions.md`, D25). The
+    // `asura-rules` and this function only supplies the data (`docs/reference/decisions/layer-decisions.md`, D25). The
     // reason a placement differs from what the client asked for is logged here, because the rule
     // itself does no I/O.
     let settings = match asura_db::game::settings(pool, character_id).await {
@@ -138,7 +138,7 @@ pub async fn answer(
     };
     // The two values the rule needs and does not own: where a character with no history enters, and the
     // map id that means "nothing written yet". Both are `config/Server/defaults.json`
-    // (`docs/38-layer-decisions.md` D34). No file, no value, so the travel is refused rather than
+    // (`docs/reference/decisions/layer-decisions.md` D34). No file, no value, so the travel is refused rather than
     // invented, and the log names the file that is missing.
     let defaults = match asura_config::defaults() {
         Ok(defaults) => defaults,

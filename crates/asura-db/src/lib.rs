@@ -9,13 +9,13 @@
 //! ours and the statements are functions whose names say what they do.
 //!
 //! Vendor: PostgreSQL, a recorded deviation from AzerothCore's MySQL
-//! (`docs/adr/0008-database-vendor.md`). The *structure* stays theirs; only the driver and the DDL
+//! (`docs/reference/decisions/0008-postgresql.md`). The *structure* stays theirs; only the driver and the DDL
 //! dialect differ, and both live behind this crate.
 //!
 //! ## What this database is for, and what is only passing through
 //!
 //! Two kinds of row live here, and they are leaving in different directions
-//! (`docs/38-layer-decisions.md`, D20, D21, D23).
+//! (`docs/reference/decisions/layer-decisions.md`, D20, D21, D23).
 //!
 //! **Operational state stays.** A row that changes while the server runs belongs here: `characters`,
 //! `bag`, `item`, `session`, `account`, `transfer`, `lease`, `world`, `world_pool`, `service`,
@@ -140,7 +140,7 @@ pub const SCHEMA: &[&str] = &[
 /// The tables the coordination model depends on. Used by the startup check: a service refuses to run
 /// against a database that is older than the code, loudly, rather than failing on the first query.
 ///
-/// Prefixed, like every data table (`docs/38-layer-decisions.md`, D31).
+/// Prefixed, like every data table (`docs/reference/decisions/layer-decisions.md`, D31).
 pub const REQUIRED_TABLES: &[&str] = &[
     "t_world",
     "t_world_pool",

@@ -1,7 +1,7 @@
 //! A character's appearance: the client's own 32-bit bitfield, and the word it packs to.
 //!
 //! Moved out of game/mod.rs because it is a codec for one word, not a message builder
-//! (`docs/38-layer-decisions.md`, D16). `Appearance::pack`/`unpack` are the bit fields;
+//! (`docs/reference/decisions/layer-decisions.md`, D16). `Appearance::pack`/`unpack` are the bit fields;
 //! the message that carries the word is built in `super`.
 
 /// A character's appearance, as the client's own 32-bit bitfield (`GmChar.h`, `Appearance`).

@@ -1,7 +1,7 @@
 //! Game rules, as decisions the server makes before a world exists.
 //!
 //! This crate exists because the auth service was answering a game question
-//! (`docs/38-layer-decisions.md`, D25). Login has to say *where* a character enters the game, but
+//! (`docs/reference/decisions/layer-decisions.md`, D25). Login has to say *where* a character enters the game, but
 //! "where does a character start" is a rule of the game, not of the protocol, so it lives here and
 //! both services can call it.
 //!
@@ -9,8 +9,8 @@
 //! Nothing in this crate opens a connection, reads a file or prints. That is what keeps it callable
 //! from the auth service, from the world, and from a test with no database.
 //!
-//! The rules are the owner's, recorded in `docs/22-world-model.md` ("Spawn points, and the outpost
-//! rule") and `docs/38-layer-decisions.md` (D18, D19, D34).
+//! The rules are the owner's, recorded in `docs/reference/game-world-model.md` ("Spawn points, and the outpost
+//! rule") and `docs/reference/decisions/layer-decisions.md` (D18, D19, D34).
 //!
 //! It holds decisions and no values. A number that describes the world - where a character enters, how
 //! old a world's heartbeat may be - is configuration (`config/Server/`), handed in as an argument; the
@@ -50,7 +50,7 @@ pub enum Substituted {
 ///
 /// A name with nothing in it is refused: a character the client cannot list is not a character. Whether
 /// the name is *free* is the database's question and is not asked here - this is the rule, and it takes
-/// the string the caller already parsed (`docs/38-layer-decisions.md`, D34).
+/// the string the caller already parsed (`docs/reference/decisions/layer-decisions.md`, D34).
 pub fn name_is_acceptable(name: &str) -> bool {
     !name.trim().is_empty()
 }
@@ -74,14 +74,14 @@ pub fn name_is_acceptable(name: &str) -> bool {
 /// do: this crate holds no value of its own.
 ///
 /// `creation_map` is the creation instance's map id, from `config/Server/defaults.json`
-/// (`docs/38-layer-decisions.md`, D34): the one destination that is a conversation rather than a
+/// (`docs/reference/decisions/layer-decisions.md`, D34): the one destination that is a conversation rather than a
 /// place, and the value a row carries when nothing has been written. It arrives as an argument for
 /// the same reason the fallback outpost does - this crate holds no value of its own.
 ///
 /// `fallback_outpost` is where a character with no placement history is put. It is configuration - one
 /// number in `config/Server/placement.json` - and it arrives as an argument, because the outpost a
 /// character enters is written by character creation, by a scripted event and by travelling, never by
-/// a rule. This function holds no value of its own (`docs/38-layer-decisions.md`, D34).
+/// a rule. This function holds no value of its own (`docs/reference/decisions/layer-decisions.md`, D34).
 ///
 /// `destination_type` is the map type of the map being asked for, as the caller read it, or `None`
 /// when the map is not in the catalogue - an unknown map is left alone for the caller to refuse.

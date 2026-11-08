@@ -25,7 +25,7 @@
 //!   the shared secret and uses it; if it came out zero the master secret would be its own seed and
 //!   the connection would be scrambled with a key that had never been exchanged. The real client
 //!   cannot present such a value, so refusing it costs nothing and closes a hole the reference leaves
-//!   open (`docs/adr/0009-crypto-primitives.md`).
+//!   open (`docs/reference/decisions/0009-protocol-cryptography.md`).
 //! * **The randomness is supplied by the caller**, not read here. A handshake that reads its own
 //!   entropy cannot be tested; [`accept`] takes the 20 bytes it must use, and the service supplies
 //!   them from the operating system.
@@ -139,7 +139,7 @@ pub struct Established {
 /// Raise `public` to the fixed private exponent, modulo the fixed prime. Little endian in and out.
 ///
 /// Isolated on purpose: this is the only place the big-integer crate is used, so replacing it is a
-/// change to one function (`docs/adr/0009-crypto-primitives.md`).
+/// change to one function (`docs/reference/decisions/0009-protocol-cryptography.md`).
 ///
 /// The output is zero-padded to [`PUBLIC_LEN`] bytes, matching `mbedtls_mpi_write_binary_le` with a
 /// 64-byte buffer. A result longer than 64 bytes is impossible: the shared secret is less than the

@@ -3,7 +3,7 @@
 //! `capture` records every message the server sends and receives, and `replay` serves the reference's
 //! captured stream verbatim so a crash can be bisected. Neither is part of answering a client: they are
 //! a measuring instrument and a bisection tool, and a build that serves players should not carry them
-//! (`docs/38-layer-decisions.md`, D32).
+//! (`docs/reference/decisions/layer-decisions.md`, D32).
 //!
 //! This module is what those two modules answer when the `harness` feature is off. It is deliberately a
 //! stub with the same shape rather than a set of `cfg` attributes at every call site: the server code

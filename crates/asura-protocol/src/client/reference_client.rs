@@ -1,7 +1,7 @@
 //! A test client: the same protocol from the other end.
 //!
 //! This exists so the auth service can be tested without the game. It speaks what
-//! `docs/03-protocol.md` says a client speaks - the version message, the client seed, the ARC4
+//! `docs/reference/client-protocol.md` says a client speaks - the version message, the client seed, the ARC4
 //! scrambler, and the framed messages - so a bug in the server's ordering, framing or encryption
 //! shows up as a failed assertion rather than as `007` in front of a player.
 //!

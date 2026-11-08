@@ -6,7 +6,7 @@
 //! the batches a load sends.
 //!
 //! A map is reached by three names before its own: `maps/<campaign>/<area>/<subarea>/<map id>/`
-//! (`docs/38-layer-decisions.md`, D38). Only the folder whose name is a map id is a map, and the walk
+//! (`docs/reference/decisions/layer-decisions.md`, D38). Only the folder whose name is a map id is a map, and the walk
 //! goes as deep as the tree does, so adding a level there changes no code here.
 //!
 //! **What a map without a value means:** it is left out, and the log says so. Answering with a wrong

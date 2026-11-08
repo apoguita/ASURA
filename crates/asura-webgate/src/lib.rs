@@ -2,7 +2,7 @@
 //!
 //! The client launched with `-portal 127.0.0.1` does not ask an account database who it is. It calls
 //! four HTTP endpoints on the gate and takes its identity from the answers
-//! (`docs/03-protocol.md` #4, `docs/06-reference-session.md`):
+//! (`docs/reference/client-protocol.md` #4, `docs/reference/captures/login-session-2026-10-26.md`):
 //!
 //! | request | answer |
 //! |---|---|

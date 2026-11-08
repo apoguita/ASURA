@@ -67,7 +67,7 @@ pub const POSITION_UPDATE_MAX_ELAPSED_MS: u32 = 2_000;
 /// The rule is the reference's `MAXIMUM_ALLOWED_CORRECTION` and the reference's own number is 100
 /// (`GmAgent.c:547-563`), which is also the fallback `asura-config` carries for a checkout with no
 /// `config/`. A compiled copy does not live here: this is a number a machine chooses, and
-/// `docs/38-layer-decisions.md` (D33) keeps those in a file so they can be read and reviewed.
+/// `docs/reference/decisions/layer-decisions.md` (D33) keeps those in a file so they can be read and reviewed.
 pub fn max_allowed_correction() -> f32 {
     asura_config::movement().max_allowed_correction()
 }
@@ -461,7 +461,7 @@ impl Standing {
     /// [`spawn_scatter`]-unit circle, on the point's plane, facing the point's own angle.
     ///
     /// A spawn point is not a pin - the owner's rule, 2026-11-05: "when we spawn we should get our
-    /// position randomized 250 units around a circle from the spawn point" (`docs/36-game-rules-ledger.md`
+    /// position randomized 250 units around a circle from the spawn point" (`docs/reference/game-world-model.md`
     /// R13's soft scatter). The radius is `config/Server/spawns.json`'s `spawn_scatter`, not a compiled
     /// constant, so an operator changes it without a rebuild. The scatter keeps the point's plane: the
     /// graph that would say which plane a scattered coordinate lands on is not loaded on every machine
@@ -981,7 +981,7 @@ pub async fn handle_position_update(
             // Live bridge report 278 -> reply 281 in northlands-live-20261106-014922.jsonl.
             let target = (from.x + offset.0, from.y + offset.1);
             // Provisional, not accepted: owner reports better movement, but not perfect (2026-11-06).
-            // Remaining behavior is unresolved; see docs/HANDOFF.md.
+            // Remaining behavior is unresolved; see docs/work/session-handoff.md.
             let walked = world.graphs.walk_direction(instance.map.map_id, from, offset);
             if move_trace_on() {
                 match &walked {
@@ -1092,7 +1092,7 @@ pub async fn handle_cancel_movement(
 /// path and answers with type 9 and that point (alternating-live.jsonl 482-486).
 ///
 /// A refused correction sends **nothing at all**. The reference refuses a long or wrong-plane correction
-/// and stops there (`GmAgent.c:547-563`, `docs/09-parity-audit.md` row 17); the frame it must not send is
+/// and stops there (`GmAgent.c:547-563`, `docs/history/gwps-parity/behavior-audit.md` row 17); the frame it must not send is
 /// the destination, because the only position it could name is its own stale guess -- and a client
 /// obeys that message, so the character walks backwards to where it stood a report ago. Measured live:
 /// `logs/world-8001.log` 6230-6246 is one refusal ordering the client 196.7 units back and the client

@@ -6,7 +6,7 @@
 //! the row-level work is `asura_db::inventory`.
 //!
 //! [`move_item`] and [`equip_item`] are messages the reference does not dispatch at all - their
-//! shapes are measured, not ported (`docs/HANDOFF.md`, M5).
+//! shapes are measured, not ported (`docs/work/session-handoff.md`, M5).
 
 use crate::*;
 
@@ -469,7 +469,7 @@ pub async fn handle_request_items(
 /// the stack (`TODO: we must still implement this`) -- so dropping a stacked item there does
 /// nothing at all, and the client always sends `count = 1` for a stack. Its item agent also
 /// carries the item's *id* as its model id, so the thing on the ground is drawn as nothing. A
-/// measured live session (`docs/08-next-inventory-model.md`) showed all three in one log.
+/// measured live session (`docs/reference/inventory-model.md`) showed all three in one log.
 ///
 /// What this does instead: take `count` off the stack for real, write it down, and say so in the
 /// log. It sends nothing -- both messages it could send (`ITEM_REMOVE` and an item agent) crashed a

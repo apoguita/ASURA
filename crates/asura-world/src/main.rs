@@ -4,7 +4,7 @@
 //! persistence. The auth service owns placement; this service publishes what it can host and answers
 //! the clients that are sent to it.
 //!
-//! The startup order is enforced here rather than described (`docs/02-architecture.md`), and it is
+//! The startup order is enforced here rather than described (`docs/guidance/architecture.md`), and it is
 //! the sequence a restart has to follow:
 //!
 //! 1. read the configuration: world id, bind address, the address to advertise, and the maps;
@@ -382,7 +382,7 @@ async fn main() -> ExitCode {
         archive,
     });
 
-    // The heartbeat, and the drain (docs/16-implementation-plan.md, S3). The heartbeat says the world
+    // The heartbeat, and the drain (docs/history/service-supervisor-delivery-plan.md, S3). The heartbeat says the world
     // is alive and how many players it holds; the drain says whether this world should finish its
     // players and leave. Placement excludes a draining world from every offer, and once its last
     // player has gone the world removes its registry row and exits - the deploy never kills a world

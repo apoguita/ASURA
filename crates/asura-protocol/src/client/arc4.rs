@@ -6,7 +6,7 @@
 //! against my reading of the C.
 //!
 //! RC4 is broken as a cipher, and nobody should use it for anything new. It is here because the
-//! client speaks it and there is no negotiating: `docs/03-protocol.md` section 3. That also means a
+//! client speaks it and there is no negotiating: `docs/reference/client-protocol.md` section 3. That also means a
 //! *crate* would not help - the requirement is byte-exactness with one specific implementation, and
 //! the honest way to get that is to write the 20 lines and test them (`docs/adr/0009-crypto-
 //! primitives.md`).

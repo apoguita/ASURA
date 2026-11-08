@@ -42,7 +42,7 @@ impl Map {
 /// The client's map kinds, as `config/Server/defaults.json` states them.
 ///
 /// The world compares a catalogue row's `map_type` against these, so they arrive from the same file the
-/// login path reads rather than from a constant (`docs/38-layer-decisions.md`, D34). A world whose file
+/// login path reads rather than from a constant (`docs/reference/decisions/layer-decisions.md`, D34). A world whose file
 /// cannot be read stops at start-up, which is what makes the `expect` here unreachable rather than a
 /// hazard.
 pub fn map_kinds() -> asura_protocol::game::MapKinds {
@@ -90,7 +90,7 @@ pub struct MapEntry {
     pub spawn: (f32, f32),
     /// The plane inside the map blob.
     pub spawn_plane: u16,
-    /// The map's spawn points, as the pack states them (`spawns.json`, `docs/38-layer-decisions.md`
+    /// The map's spawn points, as the pack states them (`spawns.json`, `docs/reference/decisions/layer-decisions.md`
     /// D39). An outpost is entered at one of these, picked at random; an empty list means the pack
     /// states none, and [`crate::Standing::from_map`] answers instead.
     pub spawns: Vec<crate::map_spawns::MapSpawn>,

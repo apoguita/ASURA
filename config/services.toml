@@ -47,7 +47,7 @@ port = 6113
 health = { world = 8001 }
 log = "logs/world-8001.log"
 
-# --- Rolling deploy (S3, docs/16-implementation-plan.md) -------------------------------------
+# --- Rolling deploy (S3, docs/history/service-supervisor-delivery-plan.md) -------------------------------------
 # Start the new build beside the old one, then drain the old one:
 #
 #   asura-supervisor start

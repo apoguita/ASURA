@@ -7,7 +7,7 @@
 //! make the same decision or nothing later can be right.
 //!
 //! Source of truth for the numbers: GWPS `AuthSrv.h` (the three `*_VERSION_HEADER` macros) and
-//! `proto.h` (the structs, packed). Recorded in `docs/03-protocol.md` section 2.
+//! `proto.h` (the structs, packed). Recorded in `docs/reference/client-protocol.md` section 2.
 //!
 //! One fact worth keeping: GWPS stores `version`, `h0008` and `h000C` from the auth version message
 //! and **never compares them to anything**. They are not a compatibility gate. Reproducing a gate

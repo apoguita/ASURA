@@ -1,7 +1,7 @@
 //! Chat: spoken lines, and the command table they arrive through.
 //!
 //! The reference has no chat handler; it prints and answers into its own log
-//! (`docs/HANDOFF.md`). This module is that half, plus the `!`/`#`/`$` channel rule and the
+//! (`docs/work/session-handoff.md`). This module is that half, plus the `!`/`#`/`$` channel rule and the
 //! `/maps`, `/stuck` and `/tp` command table ([`Command`], [`command`]) a player types into a
 //! chat line. The travel `/tp` starts lives in `travel.rs`; this module only decides which
 //! command a line names.
@@ -188,7 +188,7 @@ pub fn travel_target(argument: &str) -> Option<&'static travel_targets::TravelTa
 /// **A player's message is sent ungated**, exactly as the reference sends it: its
 /// `GameSrv_ChatSendingEnabled` gate covers the text the *server* generates (GM answers, "unknown
 /// command"), not a line a player typed. This port once had a switch on everything, which is why
-/// a `!` line went nowhere; the switch is gone (`docs/03` #11), so nothing here is gated and only
+/// a `!` line went nowhere; the switch is gone (`docs/reference/client-protocol.md` #11), so nothing here is gated and only
 /// the messages the reference never sends are withheld.
 pub async fn handle_chat_message(
     stream: &mut TcpStream,
@@ -321,7 +321,7 @@ pub async fn handle_chat_message(
                 Some(named) if named.names.contains(&"tp") && !argument.is_empty() => {
                     // `GameSrv_HandleTeleportCommand`: a *server transfer*, which is what the game
                     // itself does when a portal is walked through. Every byte of the redirect is
-                    // measured (`docs/03-protocol.md` #5) and the reference's refusals are here
+                    // measured (`docs/reference/client-protocol.md` #5) and the reference's refusals are here
                     // verbatim, so this is a port rather than an invention.
                     teleport(stream, session, world, player, argument, trace).await
                 }

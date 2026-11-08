@@ -3,9 +3,9 @@
 //! Two protocol families live here:
 //!
 //! * the **client protocol** - what the game client speaks. Every constant in this file was observed
-//!   in GWPS and is recorded in `docs/03-protocol.md`. It is not ours to design, only to reproduce.
+//!   in GWPS and is recorded in `docs/reference/client-protocol.md`. It is not ours to design, only to reproduce.
 //! * the **internal protocol** - ours, versioned, and small by policy: state and placement go through
-//!   the database, not through messages (`docs/02-architecture.md`).
+//!   the database, not through messages (`docs/guidance/architecture.md`).
 //!
 //! AzerothCore parallel: their `Packet`/`WorldPacket` layer with `ByteBuffer` readers. Same shape:
 //! explicit little-endian writers and readers, and a fixed layout per header.

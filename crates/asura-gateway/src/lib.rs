@@ -1,7 +1,7 @@
 //! The socket layer: one listener, one decision per connection.
 //!
 //! A real client opens two connections to the same address: its login connection and, after being told
-//! where to play, its gameplay connection (`docs/38-layer-decisions.md`, D26). Both arrive here. This
+//! where to play, its gameplay connection (`docs/reference/decisions/layer-decisions.md`, D26). Both arrive here. This
 //! crate reads the four bytes that name the connection kind and nothing else about the protocol:
 //!
 //! * **auth** - hand the socket to `asura_auth::converse`, which speaks the login conversation;
@@ -149,7 +149,7 @@ pub async fn handle_connection(
     // On the wire, with `pktmon` filtered to port 6112 and the run's own pcap parser: one request and one
     // reply, and the request is **first** on that socket, before any handshake. Its failure is fatal to
     // the login - with those addresses made unreachable the client refused with "Guild Wars is unable to
-    // connect to the ArenaNet network" (`docs/03-protocol.md` 7).
+    // connect to the ArenaNet network" (`docs/reference/client-protocol.md` 7).
     //
     // Against a server of ours, with hosts entries for the six file names: one check arrived on loopback
     // and was answered - "File check on 0114: answered 32 of 32 bytes" in that run's log.
@@ -188,7 +188,7 @@ pub async fn handle_connection(
 
     // ---- 1. which service owns this connection? ---------------------------------------------
     // Four bytes arrive first and are *kept*: they are the beginning of the version message, not a
-    // message of their own (`docs/03-protocol.md` 1).
+    // message of their own (`docs/reference/client-protocol.md` 1).
     read_until(&mut stream, &mut buffer, CLASSIFY_LEN).await?;
     let kind = version::classify(&buffer).map_err(Error::UnknownConnection)?;
     match kind {

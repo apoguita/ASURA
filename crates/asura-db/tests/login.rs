@@ -7,7 +7,7 @@
 //!
 //! With no database configured every test prints a skip line and returns.
 //!
-//! The rules under test, from `docs/03-protocol.md` section 4 and `docs/05-gw2-lessons.md` rule 1:
+//! The rules under test, from `docs/reference/client-protocol.md` section 4 and `docs/research/gw2-service-design-lessons.md` rule 1:
 //!
 //! 1. the pair is validated on **both** values -- a right portal user with a wrong session id is not
 //!    close enough;

@@ -1,7 +1,7 @@
 //! Character creation: the instance and the choices a new character is made of.
 //!
 //! The reference's `MapType_CharacterCreation` - the only map type that is a conversation
-//! rather than a place (`docs/HANDOFF.md`, M5). [`Creation`] is what a creation connection has
+//! rather than a place (`docs/work/session-handoff.md`, M5). [`Creation`] is what a creation connection has
 //! chosen so far; the two blocks are the reference's own default equipment and inventory for
 //! that choice (`GetDefaultEquipments`, generated into `default_equipment.rs`).
 
@@ -427,7 +427,7 @@ pub async fn handle_confirm(
     // campaign is put in Ascalon City, which is the Prophecies starting outpost and is already in the
     // catalogue; the log says when that stand-in was used, so it is never mistaken for a measurement.
     // Where the character is spawned, by the expansion source the screen chose. It is the world pack's
-    // file (`config/World/Vanilla/character_spawn.json`, `docs/38`, D23, D24), not a match in this file:
+    // file (`config/World/Vanilla/character_spawn.json`, `docs/reference/decisions/layer-decisions.md`, D23, D24), not a match in this file:
     // one map per expansion source. A source with no map at all (a PvP character) is refused rather
     // than guessed.
     let spawns = match crate::spawns::current() {
@@ -495,7 +495,7 @@ pub async fn handle_confirm(
                     // The **login** shape, five bytes: `map_update_current_redirect` is the
                     // four-byte-header generation (a `u16` zero, then two dwords) and this client
                     // parses two-byte headers, so it ignored that one and kept dialling map 0
-                    // (`docs/03-protocol.md` #5e).
+                    // (`docs/reference/client-protocol.md` #5e).
                     game::map_update_current(outpost as u16),
                 ],
                 trace,

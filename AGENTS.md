@@ -1,8 +1,8 @@
 # AGENTS.md
 
 Binding rules for any agent working in this repository. Read this file before the first edit of a
-session. It is deliberately short: the detail, the evidence and the incident ledger live in
-`docs/HANDOFF.md`, which is read on demand and never duplicated here.
+session. The documentation index is
+`docs/README.md`; session notes, decision records and incident history have separate homes there.
 
 The owner's words, 2026-10-28: "reproduce faithfully the packet stream of the live server/client".
 Every rule below serves that one sentence.
@@ -14,11 +14,11 @@ is the source that answers the question; the `then` column is the cross-check.
 
 | the question | first | then | governed by |
 |---|---|---|---|
-| what the **running client** does: its state, its archive, what it sends and receives, **and its own catalogs** - every map's id, name, region, campaign and blob id | **Py4GW Stealth**, by hand - 32-bit Python, elevated, `tools/sniff-capture.py`, `tools/gen-portal-table.py` | a client-side capture under `recordings/client/` | `docs/adr/0013-py4gw-stealth-is-our-link-to-the-client.md` |
-| what the **client does with** what we send: asserts, codecs, enums, map dimensions | Eden | a crash log read by hand | `docs/adr/0012-eden-is-a-source.md` |
-| what our **server must send**, byte for byte | a wire capture: `recordings/gwps/`, `recordings/asura/` | GWPS's own C source | `docs/03-protocol.md`, `docs/adr/0010-gwps-is-the-floor.md` |
-| what **Rurik** measured, and what is left to port | `docs/20-rurik-gap.md` | Rurik's `studies/` | `docs/adr/0011-rurik-is-a-source.md` |
-| **structure**: processes, where state lives, instances, the database | AzerothCore's tree | `docs/02-architecture.md` | `docs/adr/0006-azerothcore-is-the-reference.md` |
+| what the **running client** does: its state, its archive, what it sends and receives, **and its own catalogs** - every map's id, name, region, campaign and blob id | **Py4GW Stealth**, by hand - 32-bit Python, elevated, `tools/sniff-capture.py`, `tools/gen-portal-table.py` | a client-side capture under `recordings/client/` | `docs/reference/decisions/0013-py4gw-client-research-policy.md` |
+| what the **client does with** what we send: asserts, codecs, enums, map dimensions | Eden | a crash log read by hand | `docs/reference/decisions/0012-eden-source-policy.md` |
+| what our **server must send**, byte for byte | a wire capture: `recordings/gwps/`, `recordings/asura/` | GWPS's own C source | `docs/reference/client-protocol.md`, `docs/reference/decisions/0010-gwps-behavior-coverage.md` |
+| what **Rurik** measured, and what is left to port | `docs/research/rurik-capabilities-and-gaps.md` | Rurik's `studies/` | `docs/reference/decisions/0011-rurik-source-policy.md` |
+| **structure**: processes, where state lives, instances, the database | AzerothCore's tree | `docs/guidance/architecture.md` | `docs/reference/decisions/0006-structural-design-authority.md` |
 
 - **Py4GW Stealth comes first for anything about the client.** It reads the archive through the client's
   own open-file, image and `AMET` code, and it reads what the client sends and receives at the handler
@@ -32,11 +32,11 @@ is the source that answers the question; the `then` column is the cross-check.
   same tables plus `GetMapInfo(map_id)`). So no map fact is guessed, hand-listed or scraped from a wiki:
   a name comes from the enum, the rest from the record. Reforged is the client patch this server's keys
   and mutex patches pair with; Stealth is the read-only link to it. The names are copied into this
-  repository as a reference (`docs/39-map-list.md`), so the table is not read out of a checkout twice.
+  repository as a reference (`docs/reference/map-catalogue.md`), so the table is not read out of a checkout twice.
 - Its packages carry no licence grant, so what crosses back is a measurement in our words with our
   recording named beside it - never a file, an offset, a byte pattern or a table.
 - A wire size comes from a wire capture, never from the sniffer: the sniffer reports the client's message
-  struct, which is the client's own bookkeeping (`docs/03-protocol.md` 5e).
+  struct, which is the client's own bookkeeping (`docs/reference/client-protocol.md` 5e).
 - **The real client in the owner's hands outranks all five.** Where a source and the live client
   disagree, the client wins and the disagreement is reported, not split.
 - The table is a reading order, not a licence: every fact taken from a source is restated in our words
@@ -65,11 +65,11 @@ is the source that answers the question; the `then` column is the cross-check.
   is context for reading the reference, and it changes no behaviour.
 - A measurement is evidence, not permission. Capture it, report it, wait.
 - Report, do not decide, when the reference's own behaviour looks wrong. The owner decides, and the
-  decision joins the ledger in `docs/HANDOFF.md`.
+  decision joins the ledger in `docs/reference/decisions/project-decisions.md`.
 - Restore first, discuss second. When something that worked stops working, the first commit restores
   the last known-good behaviour.
 - One change, one subject. A port, a fix and an improvement never travel in the same commit.
-- Never re-decide a decision already made. The decisions table is in `docs/HANDOFF.md`.
+- Never re-decide a decision already made. The decisions table is in `docs/reference/decisions/project-decisions.md`.
 
 ### Before any behaviour change: the pre-flight sentence
 
@@ -170,7 +170,7 @@ the question that would sharpen it, never with a conclusion.
 
 ## 4a. Values are configuration, decisions are code, and a rule reads only
 
-Three kinds of thing, kept apart (`docs/38-layer-decisions.md`, D34, D35):
+Three kinds of thing, kept apart (`docs/reference/decisions/layer-decisions.md`, D34, D35):
 
 1. **The client's vocabulary** - `MapType` 0/1/11, message headers, field layouts. The wire layer's,
    documented there. A file may *state* these values for review and must mark them `immutable`:
@@ -188,7 +188,7 @@ The rules that follow from that, and they are binding:
   unreachable; it goes in a file so it can be read and reviewed.
 - **Where the files go.** `config/Server/` for what this machine runs on (the intervals, the values a
   world falls back on - `asura-config` reads them). `config/World/<pack>/` for what the world contains,
-  one JSON per concern, `Vanilla` as the faithful base (`docs/38`, D23, D24).
+  one JSON per concern, `Vanilla` as the faithful base (`docs/reference/decisions/layer-decisions.md`, D23, D24).
 - **What a config file holds: values.** One key per value, each with a sentence saying what it means. It
   holds **no provenance and no reporting**: "measured", "implemented", "unverified" are not
   configuration. Evidence lives in `docs/` with the recording it names beside it - the file answers
@@ -232,10 +232,10 @@ The rules that follow from that, and they are binding:
 | need | command or path |
 |---|---|
 | start everything | `asura-supervisor start` (the one start path on Windows and Linux) |
-| runbook: what to run, what success looks like | `docs/19-running.md` |
-| packet catalogue, framing, field layouts | `crates/asura-protocol/src/packets.rs`, `docs/03-protocol.md` |
-| the socket layer, and the login path | `crates/asura-gateway/`, `crates/asura-auth/`, `docs/06-reference-session.md` |
-| game rules a protocol answer needs | `crates/asura-rules/`, `docs/38-layer-decisions.md` |
+| runbook: what to run, what success looks like | `docs/operations/running-the-server.md` |
+| packet catalogue, framing, field layouts | `crates/asura-protocol/src/packets.rs`, `docs/reference/client-protocol.md` |
+| the socket layer, and the login path | `crates/asura-gateway/`, `crates/asura-auth/`, `docs/reference/captures/login-session-2026-10-26.md` |
+| game rules a protocol answer needs | `crates/asura-rules/`, `docs/reference/decisions/layer-decisions.md` |
 | world, movement, pathing, inventory | `crates/asura-world/` |
 | database, placement, inventory rows | `crates/asura-db/` |
 | portal HTTP service | `crates/asura-webgate/` |
@@ -253,17 +253,18 @@ The rules that follow from that, and they are binding:
 
 ## 8. Detail
 
-`docs/HANDOFF.md` holds the incident ledger (eight recorded cases of a rule invented on top of an
-instruction, or of a written rule ignored), why each rule exists, the decisions already made, the
-environment state and what is built. Read it before deciding that something is missing.
+`docs/history/development-incidents.md` holds the incident ledger and the reasons behind the working
+rules. `docs/reference/decisions/project-decisions.md` holds recorded project decisions;
+`docs/work/session-handoff.md` holds the latest session notes. Read the relevant record before deciding
+that something is missing.
 
-Reading order for a fresh session: `docs/HANDOFF.md` -> `MILESTONES.md` -> `docs/01-scope.md` ->
-`docs/02-architecture.md` -> `docs/03-protocol.md` -> `docs/roadmap.md` -> the ADR that matches the
-question. For anything about the client, that ADR is
-`docs/adr/0013-py4gw-stealth-is-our-link-to-the-client.md`, and it is read before the documents rather
-than after them. `docs/00-glossary.md` defines every term.
+Reading path for a fresh session: this file -> `docs/README.md` -> the document for the assigned task.
+For a continuing session, read `docs/work/session-handoff.md` as well. For anything about the client,
+read `docs/reference/decisions/0013-py4gw-client-research-policy.md` before the task documents.
+`docs/reference/glossary.md` defines the terms. The index links to plans, reference material, research
+and history by purpose; they are read when relevant to the task.
 
-When this file and `docs/HANDOFF.md` disagree, this file is newer and wins.
+When this file and the session handoff disagree, this file wins.
 
 A correction replaces the text it corrects. It is never appended beside the old text, in a file or in
 an answer.

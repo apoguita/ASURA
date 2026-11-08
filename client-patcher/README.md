@@ -89,7 +89,7 @@ itself a bad patch.
 ## The file check, and the numbers that keep moving
 
 Before anything else on a gameplay-world socket the client asks which game files it should have: 21 bytes
-in, 32 bytes out, six `Gw.dat` file ids and a zero (`docs/03-protocol.md` 7). Three things about it belong
+in, 32 bytes out, six `Gw.dat` file ids and a zero (`docs/reference/client-protocol.md` 7). Three things about it belong
 in this folder because they decide whether a patched client can log in.
 
 - **The patch does not answer it.** `patch-gw.py` rewrites the DH constants, the mutex and - only with
@@ -101,7 +101,7 @@ in this folder because they decide whether a patched client can log in.
   your file server answers the check itself, its seven words need the same refresh as ours.
 - **The seven words are the running client's build**, not a fixed constant: a new `Gw.exe`/`Gw.dat` brings
   a new set, and a stale set is a question answered in another build's terms. Refreshing it is a
-  measurement - the commands, and what to record beside the set, are in `docs/19-running.md` ("Refreshing
+  measurement - the commands, and what to record beside the set, are in `docs/operations/running-the-server.md` ("Refreshing
   the file check's seven words"); the bytes live in `crates/asura-protocol/src/client/filecheck.rs`.
   Do not shift the old ids by arithmetic.
 - **What it costs.** No answer at all is fatal - the client refuses with "Guild Wars is unable to connect
@@ -167,6 +167,6 @@ python3 client-patcher/patch-gw.py /path/to/Gw.exe client-patcher/keys.txt --out
 ### Provenance
 
 `patch-gw.py` is the patcher from the GWPS project (`tools/patch-gw.py`), and `keys.txt` is that
-project's keys file, whose parameters this server copied (`docs/04-from-gwps.md`). Both are kept here
+project's keys file, whose parameters this server copied (`docs/history/gwps-project-origins.md`). Both are kept here
 verbatim so a clean checkout can produce the client the server expects; when the reference disappears
 from disk, this folder is the copy that matters.

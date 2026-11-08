@@ -2,7 +2,7 @@
 //!
 //! Small on purpose. A world server owns the gameplay connection and its own in-memory simulation;
 //! what it takes from the database is the handful of facts a client cannot be told without, and what
-//! it writes back arrives with the milestone that writes state (`docs/roadmap.md`, M5).
+//! it writes back arrives with the milestone that writes state (`docs/work/project-roadmap.md`, M5).
 //!
 //! Two of those facts are a character's position, and this is where it is read and written: the world
 //! saves it when a player leaves and starts from it when the player comes back. **The reference does not
@@ -119,7 +119,7 @@ pub async fn character_name(pool: &PgPool, character: Uuid) -> sqlx::Result<Opti
 /// reference's `sex`/`height`/`skin_color`/`hair_color`/`face_style`/`hair_style`/`race`, packed by
 /// `Appearance`), `profession` and `unlocked_professions` ride the two profession messages, and `gold` is
 /// `UPDATE_GOLD_STORAGE`. Before this existed the load block sent the reference's *default* character to
-/// everyone - a real liberty, recorded in `docs/09-parity-audit.md` #9.
+/// everyone - a real liberty, recorded in `docs/history/gwps-parity/behavior-audit.md` #9.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Traits {
     /// The packed appearance word, as `CREATE_NAMED_ITEM` and the load block carry it.
@@ -255,7 +255,7 @@ pub async fn settings(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Set
     // database that has one of each (a development database that has had migrations applied by hand) is
     // not worth a runtime error. Everything comes back as `int` and is narrowed below.
     // One row, decoded in one go. Named fields rather than an eight-wide tuple, so a column added in
-    // the wrong order is a compile error instead of a swapped value (`docs/38-layer-decisions.md`, D16).
+    // the wrong order is a compile error instead of a swapped value (`docs/reference/decisions/layer-decisions.md`, D16).
     let row: Option<CharacterRow> = sqlx::query_as(
         "SELECT last_outpost::int, map_id, appearance, campaign::int, level::int, is_pvp,
                 secondary_profession::int, helm_status::int
@@ -294,7 +294,7 @@ pub async fn settings(pool: &PgPool, character: Uuid) -> sqlx::Result<Option<Set
 
     Ok(Some(Settings {
         // The outpost the character was last *placed* in. It is not `map_id`, which records the map it was
-        // last in - explorables included (docs/22-world-model.md, the outpost rule).
+        // last in - explorables included (docs/reference/game-world-model.md, the outpost rule).
         last_outpost: u16::try_from(last_outpost).unwrap_or(0),
         map_id: row_map_id,
         appearance: appearance as u32,
@@ -372,7 +372,7 @@ pub async fn record_position(
 
 /// Forget where a character stood, so the next arrival cannot resume it.
 ///
-/// A travel does not preserve a position - only a disconnect does (`docs/22-world-model.md`, the
+/// A travel does not preserve a position - only a disconnect does (`docs/reference/game-world-model.md`, the
 /// owner's rule of 2026-11-05) - so a travel that is not a portal walk calls this before the
 /// redirect: the destination then stands where its own spawn list says instead of where the
 /// character last was. `pos_plane IS NULL` is what "never saved" means
@@ -392,7 +392,7 @@ pub async fn forget_position(pool: &PgPool, character: Uuid) -> sqlx::Result<boo
 
 /// Record the last **outpost** a character was placed in.
 ///
-/// The owner's base rule (docs/22-world-model.md, "Spawn points, and the outpost rule"): a character that
+/// The owner's base rule (docs/reference/game-world-model.md, "Spawn points, and the outpost rule"): a character that
 /// enters the game - at character select, not on a reconnect - is moved to the last outpost it visited.
 /// `characters.last_outpost` is that memory, and it is written only when the placement is an outpost, so a
 /// travel into an explorable cannot overwrite it.
@@ -406,7 +406,7 @@ pub async fn remember_outpost(pool: &PgPool, character: Uuid, map_id: i32) -> sq
 }
 /// Mark one instance as reached by one character.
 ///
-/// The owner's model (`docs/22-world-model.md`): arriving sets the bit. Idempotent - a character that has
+/// The owner's model (`docs/reference/game-world-model.md`): arriving sets the bit. Idempotent - a character that has
 /// already been here keeps the timestamp of its first arrival, which is the only thing the row records.
 /// `Ok(true)` means this call is the one that unlocked it.
 pub async fn unlock_instance(pool: &PgPool, character: Uuid, map_id: i32) -> sqlx::Result<bool> {

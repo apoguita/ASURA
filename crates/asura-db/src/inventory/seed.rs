@@ -8,7 +8,7 @@
 //! `Gw.dat`, a model id, a flag word) is data, not something this project can derive.
 //!
 //! The data came from a capture of the reference at the parity point. The generator and the capture
-//! were retired when parity closed (docs/16): this file is the data now, kept as rows that
+//! were retired when parity closed (docs/history/service-supervisor-delivery-plan.md): this file is the data now, kept as rows that
 //! `asura_db::inventory::seed_default` writes.
 //!
 //! The ids are the capture's. `asura_db::inventory::seed_default` renumbers them from the item

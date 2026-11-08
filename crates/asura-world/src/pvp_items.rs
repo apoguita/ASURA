@@ -1,11 +1,11 @@
 //! The client's unlockable-PvP-item table: 387 entries, sent when a PvP character is created.
 //!
-//! Content of layer 9 (docs/37-rework-layers.md), parked here rather than in the wire layer:
+//! Content of layer 9 (docs/work/layer-rework-checklist.md), parked here rather than in the wire layer:
 //! crates/asura-world/src/player.rs sends one `PVP_ITEM_STREAM_ADD` per entry and the client
 //! builds its unlockable-item screen from them, so the table is data the server sends, not a
 //! message layout. Frozen: copied from the reference's own `items[]` array
 //! (`GameSrv_SendPvpItems`) by `tools/gen-pvp-items.py`, a generator that is no longer in the
-//! tree, so the rows cannot be regenerated (docs/38-layer-decisions.md, D11).
+//! tree, so the rows cannot be regenerated (docs/reference/decisions/layer-decisions.md, D11).
 //!
 //! Do not edit by hand.
 /// One unlockable PvP item: its id and the parameters the client pairs with it.

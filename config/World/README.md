@@ -1,34 +1,44 @@
-# World packages
+# World pack files
 
-One folder per package, and one package loaded per server start
-(`docs/38-layer-decisions.md`, D23, D24).
+This page owns the current pack selection, file layout and loading description.
+[Game packs](../../docs/guidance/game-packs.md) owns the intended profile model and pending design decisions.
 
+## Selection and loading
+
+Auth and world select the pack through `ASURA_WORLD_PACK`; the default is
+`config/World/Vanilla`. The shared map catalogue is cached for the process lifetime
+(`crates/asura-config/src/world.rs`, `pack`, `load`, `catalogue`).
+
+Map descriptions are read from the selected pack, not from SQL. The world reads spawn lists
+and portals from that pack too (`crates/asura-world/src/map_spawns.rs` and `portals.rs`).
+Legacy SQL tables and database helpers still exist; their presence does not make them the
+serving source. Startup seeding is described in the [runbook](../../docs/operations/running-the-server.md).
+
+These are implemented readers, not proof that every map value is measured or that the planned
+profile isolation and Lua behavior are implemented.
+
+## Layout
+
+The recorded layout decision is [D38/D39](../../docs/reference/decisions/layer-decisions.md).
+
+```text
+config/World/<pack>/maps/<campaign>/<area>/<subarea>/<map id>/
+  basic.json
+  spawns.json
+  portals.json
 ```
-config/World/Vanilla     the faithful base game: the pack ASURA reproduces
-config/World/<name>      any other pack, copied from Vanilla and edited
-```
 
-A pack is self-contained: it does not inherit from `Vanilla`, and loading it does not reach into
-another folder for missing content. A pack that has three quests has three quests.
+- `<campaign>` and `<area>` use the client's campaign and region names. The map kind is
+  `Arenas`, `Explorables`, `Missions` or `Outposts`; dungeon levels use `Explorables`.
+- Maps without established folder placement live under `maps/unplaced/<map id>/`.
+- `basic.json` holds the map description and instance-table value. `spawns.json` holds its
+  spawn list. `portals.json` holds doorway geometry and destination-owned arrivals.
+- Catalogue readers walk recursively. The numeric folder and `map_id` must agree;
+  malformed catalogue records and duplicate hosted map ids are errors, with no SQL fallback.
+- A record with no known `map_type` is not a hosted-map description. It can still supply an
+  instance-table value. A null `instance_value` is omitted from that table.
+- At pack root, `character_spawn.json` supplies initial-map values and
+  `character_defaults.json` supplies initial character data.
 
-Nothing reads this folder yet. Content still lives in the database, and it leaves in the order
-D22 describes: write the package, switch its readers, drop the table last. `Vanilla` is where the
-first content table (map settings) lands when that move is scheduled.
-
-The packaging format inside a pack is chosen (`docs/38-layer-decisions.md`, D38). The maps live under
-`maps/`, and one map is reached by three names before its id:
-
-```
-config/World/Vanilla/maps/<campaign>/<area>/<subarea>/<map id>/basic.json
-```
-
-- `<campaign>` and `<area>` are the client's own `AreaInfo.campaign` and `AreaInfo.region` for that map;
-  `<subarea>` is its kind, and there are four of them, spelled exactly like this: `Arenas`,
-  `Explorables`, `Missions`, `Outposts`. A dungeon level counts as `Explorables` - the client instances
-  it the same way.
-- `<map id>` is the map's id, and the folder holds that map's own files: `basic.json` (id, name,
-  `map_type`, `map_file_id`, `instance_value`), `spawns.json` (the spawn list, and the only place a spawn
-  is stated) and `portals.json` (the map's arches, and the landings it gives to arrivals).
-- The instance table this server sends is built by walking this tree, so a folder's position is what
-  places a map; the walk is recursive and a map with no folder is a map the server does not know.
-- A map whose place is not known sits in `maps/unplaced/<map id>/`, with the same files.
+The catalogue's validation does not establish that every other pack reader has identical
+validation. A map record alone does not establish that the client can load it.

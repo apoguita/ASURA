@@ -2,7 +2,7 @@
 //!
 //! The confirm writes these onto the character's row beside the appearance word the client sent and the
 //! profession the screen chose. They are content - values that describe what a new character is - so they
-//! live in the world pack (`config/World/Vanilla/character_defaults.json`, `docs/38`, D23, D24, D35)
+//! live in the world pack (`config/World/Vanilla/character_defaults.json`, `docs/reference/decisions/layer-decisions.md`, D23, D24, D35)
 //! rather than as literals in the confirm.
 //!
 //! The unlocked-profession bitmap is deliberately not here: it is one bit for the profession the player

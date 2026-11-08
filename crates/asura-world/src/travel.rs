@@ -1,9 +1,9 @@
 //! Travel: leaving one instance for another.
 //!
-//! The reference's request/redirect cycle (`docs/02-architecture.md`, "Travel, end to end"):
+//! The reference's request/redirect cycle (`docs/guidance/architecture.md`, "Travel, end to end"):
 //! reserve a slot, write a transfer row, send `TRANSFER_GAME_SERVER_INFO`, then
 //! `MAP_UPDATE_CURRENT`. [`teleport`] is the `/tp` half; [`load_map_on_demand`] is the
-//! documented fallback that loads a map this world was not started with (`docs/03-protocol.md`
+//! documented fallback that loads a map this world was not started with (`docs/reference/client-protocol.md`
 //! #5c, measured 0-2 ms per map).
 //!
 //! The client-driven half of travel - `AUTH_CMSG_REQUEST_GAME_INSTANCE` and the front door - is
@@ -23,13 +23,13 @@ pub const TRAVEL_EFFECT: u32 = 0x100;
 /// A live server sends 1 for an explorable and 0 for an outpost (`doors-20261031-095754.jsonl`: 146 and
 /// 147 -> 1, 148 -> 0), and this world sent that too until 2026-10-31. At 1 an explorable's load against
 /// this world waits: 5138 ms from the redirect to the players block against 849 ms at 0, over the same
-/// walk through the same portal (`docs/23-initialization-protocol.md`, "The explorable"). The cause of
+/// walk through the same portal (`docs/reference/instance-initialization.md`, "The explorable"). The cause of
 /// that wait is open - the exploration grid and the instance table were ruled out on 2026-10-31 - so the
 /// default is the value that loads, and the faithful value is one variable away.
 ///
 /// `ASURA_TRAVEL_EXPLORABLE`: unset or `0` sends 0 for every travel (the default); `1` sends 1; `auto`
 /// sends the destination's own kind, which is what a live server does and what the default becomes once
-/// an explorable carries the initialisation `docs/23` says it is missing.
+/// an explorable carries the initialisation `docs/reference/instance-initialization.md` says it is missing.
 pub fn explorable_flag_for(map_type: i32) -> u32 {
     match flag_mode() {
         FlagMode::Zero => 0,
@@ -73,7 +73,7 @@ fn flag_mode() -> FlagMode {
 /// Off unless `--on-demand` (`World::load_on_demand`): the reference pre-spawns one server per
 /// configured map so that a travel never constructs anything, and this server preloads every hosted
 /// map for the same reason. This switch answers the open question of whether that readiness is a hard
-/// requirement for ASURA or only a property of OpenTyria's design (`docs/03-protocol.md`).
+/// requirement for ASURA or only a property of OpenTyria's design (`docs/reference/client-protocol.md`).
 ///
 /// The three steps are done here, in this order, because they are what a preload would have done at
 /// startup: read the `map_config` row, publish the seat pool (what `reserve` counts and what the auth
@@ -136,7 +136,7 @@ pub async fn load_map_on_demand(
 /// touch and starts no transfer - it is the measurement that has to come first. The line below is
 /// what the next live touch writes: which agent, in which map, for which player. A portal row keyed
 /// by that map and agent is what turns this into the same redirect `/tp` already sends
-/// (`docs/03-protocol.md` 5e).
+/// (`docs/reference/client-protocol.md` 5e).
 pub fn handle_travel_init(frame: &Frame, player: &Player, _trace: bool) -> Result<bool, GameError> {
     if frame.body().len() < 8 {
         return Err(GameError::Framing(FrameError::Incomplete { needed: 10 }));
@@ -210,7 +210,7 @@ pub async fn teleport(
         Some(map) => map,
         None if world.load_on_demand => {
             // `--on-demand`: the destination was not preloaded. Load it here, and measure the cost -
-            // this is the experiment the switch exists for (docs/03-protocol.md, "precache").
+            // this is the experiment the switch exists for (docs/reference/client-protocol.md, "precache").
             match load_map_on_demand(world, target.map_id)
                 .await
                 .map_err(GameError::Database)?
@@ -241,7 +241,7 @@ pub async fn teleport(
     if target.map_id == player.instance.map.map_id {
         // `GmCommands.c:198-202`. **The command's own refusal, not a travel policy**: the client-driven
         // requests (`0x80B1`, `0x80C1`) are carried out without this check, because there the client has
-        // already decided and a second opinion is a gate (docs/22-world-model.md, "No server-side travel
+        // already decided and a second opinion is a gate (docs/reference/game-world-model.md, "No server-side travel
         // policy"). A typed alias that names the instance the character stands in is the reference's
         // "You are already here." and nothing more.
         eprintln!("world: You are already here.");
@@ -253,7 +253,7 @@ pub async fn teleport(
 /// The client's own request, from the world map: `GAME_CMSG_PARTY_TRAVEL` (`0x80B1`).
 ///
 /// **The client decides where it may go; this server carries the decision out.** That is the whole
-/// policy (`docs/22-world-model.md`): the unlocked-instance bitmap is what a client uses to offer a
+/// policy (`docs/reference/game-world-model.md`): the unlocked-instance bitmap is what a client uses to offer a
 /// destination, and a server that second-guesses it blocks legitimate travel - an outpost and the
 /// explorable it exits to can share one map blob, so a rule about "which kinds of instance you may
 /// travel to" refuses travel the game itself allows.
@@ -268,7 +268,7 @@ pub async fn teleport(
 /// so the destination instance is a `u16` first, then three bytes this server does not interpret. The
 /// retail client sends the same request with a 32-bit instance id
 /// (`captures/zone-ref2-012225.jsonl`: `b1 00 00 00 | a4 00 00 00 | ... | 01 00 00 00`), which is the
-/// other build of the protocol (`docs/03-protocol.md` 5e) - the field is the same one either way.
+/// other build of the protocol (`docs/reference/client-protocol.md` 5e) - the field is the same one either way.
 pub async fn handle_party_travel(
     stream: &mut TcpStream,
     session: &mut Session,
@@ -488,7 +488,7 @@ async fn begin_transfer(
         //
         // **All eight are sent, and that is the point of this list.** From 2026-10-31 this vec carried
         // only the first four, while the comment above still described eight: a travel withdrew nothing
-        // from the map it left, `docs/03-protocol.md:461-475` said it should, and the test that pins the
+        // from the map it left, `docs/reference/client-protocol.md:461-475` said it should, and the test that pins the
         // eight (`crates/asura-world/tests/load.rs:1775`) had been red since the experiment that cut them
         // was never reverted. Restored 2026-11-01 against that test and that table.
         game::agent_update_effects(player.agent_id, TRAVEL_EFFECT),

@@ -3,7 +3,7 @@
 //! A world server is where a client plays. The auth service tells a travelling client *where* to
 //! connect (`AUTH_SMSG_GAME_SERVER_INFO`); this module is what answers when it does.
 //!
-//! The order, and it is the reference's order (`docs/03-protocol.md` section 11):
+//! The order, and it is the reference's order (`docs/reference/client-protocol.md` section 11):
 //!
 //! ```text
 //! 1. classify          the first four bytes name the connection kind; anything but a game
@@ -19,8 +19,8 @@
 //! 7. keep-alive        a world tick every 500 ms and a ping every 5 s, forever
 //! ```
 //!
-//! What exists today, and what does not -- `docs/07-status.md` holds the hand-kept answer; its
-//! generator was retired when parity closed (`docs/16-implementation-plan.md`):
+//! What exists today, and what does not -- `docs/history/gwps-parity/handler-status.md` holds the hand-kept answer; its
+//! generator was retired when parity closed (`docs/history/service-supervisor-delivery-plan.md`):
 //!
 //! * the character the transfer named, standing where the map's spawn says - or where it stood when it
 //!   last left, which is saved and read back (`asura_db::game::record_position`);
@@ -87,7 +87,7 @@ pub mod map_spawns;
 
 pub mod player;
 /// The client's unlockable-PvP-item table: content of this layer, moved out of the wire crate
-/// (`docs/38-layer-decisions.md`, D11).
+/// (`docs/reference/decisions/layer-decisions.md`, D11).
 pub mod pvp_items;
 /// Where a created character is spawned, by its expansion source (config/World/Vanilla/).
 pub mod spawns;
@@ -129,7 +129,7 @@ pub mod graph_dump;
 /// live session without an injected client (`--capture` / `ASURA_CAPTURE`).
 ///
 /// Behind the `harness` feature: a measuring instrument is not part of answering a client
-/// (`docs/38-layer-decisions.md`, D32). Without the feature, [`harness_off`] answers with an inert
+/// (`docs/reference/decisions/layer-decisions.md`, D32). Without the feature, [`harness_off`] answers with an inert
 /// module of the same shape, so no call site needs to know which build it is in.
 #[cfg(feature = "harness")]
 pub mod capture;
@@ -150,7 +150,7 @@ mod harness_off;
 pub use harness_off::{capture, replay};
 
 /// The `Gw.dat` archive's index: the reference's `FaArchive.c`, ported far enough to find a file id and
-/// say where its bytes are. The decompressor is the other half and is not here yet (docs/10-parity-queue.md,
+/// say where its bytes are. The decompressor is the other half and is not here yet (docs/history/gwps-parity/completed-work-queue.md,
 /// item D).
 pub mod gwdat;
 
@@ -557,7 +557,7 @@ mod tests {
     }
 
     /// The instance bitmap is addressed the way the client addresses it: instance `n` is bit `n % 32` of
-    /// word `n / 32` (read from the client's world context, `docs/22-world-model.md`). A test rather than a
+    /// word `n / 32` (read from the client's world context, `docs/reference/game-world-model.md`). A test rather than a
     /// comment, because the whole world map depends on the address: an off-by-one here reads as either
     /// "everywhere is locked" or "the wrong instance is open".
     #[test]
@@ -595,7 +595,7 @@ mod tests {
 
     #[test]
     fn the_instance_table_is_walked_from_the_pack_and_framed_by_the_wire_layer() {
-        // The pairs are the pack's map folders (`instance_table`, `docs/38` D36): 137 maps, ordered by
+        // The pairs are the pack's map folders (`instance_table`, `docs/reference/decisions/layer-decisions.md` D36): 137 maps, ordered by
         // id, framed as `0x01A0` batches of at most fifteen.
         let (table, notes) = crate::instance_table::table_for(&crate::instance_table::pack());
         assert!(notes.is_empty(), "the committed pack parses: {notes:?}");

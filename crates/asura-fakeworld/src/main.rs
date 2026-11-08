@@ -2,7 +2,7 @@
 //!
 //! It registers itself in `world`, publishes `world_pool` capacity, takes concurrent reservations,
 //! refuses when the pool is full, goes silent, and is reaped - the whole M2 acceptance run, against
-//! the real PostgreSQL, no game client involved (`docs/roadmap.md`, M2; `docs/HANDOFF.md`).
+//! the real PostgreSQL, no game client involved (`docs/work/project-roadmap.md`, M2; `docs/work/session-handoff.md`).
 //!
 //! Run it with a database configured (environment or repo `.env`):
 //!
@@ -74,7 +74,7 @@ async fn main() -> ExitCode {
     };
 
     // Two pools, so the reservation race is between what SQL sees as two separate clients, which is
-    // the case the design must survive between processes (`docs/02-architecture.md`).
+    // the case the design must survive between processes (`docs/guidance/architecture.md`).
     let pool_a = match db::connect(&url, 4).await {
         Ok(pool) => pool,
         Err(error) => {

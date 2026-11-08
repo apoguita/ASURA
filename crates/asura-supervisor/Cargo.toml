@@ -15,6 +15,6 @@ path = "src/main.rs"
 tokio = { workspace = true }
 asura-db = { path = "../asura-db" }
 # The list is data, not code: TOML, read with serde. Added with the code that needs it, as the
-# workspace does for every dependency (docs/adr/0007-rust-translation.md).
+# workspace does for every dependency (docs/reference/decisions/0007-whole-stack-rust.md).
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"

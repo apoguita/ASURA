@@ -6,7 +6,7 @@
 //! cancels a walk. They were constants in four different crates (`asura-world`'s `connection.rs` and
 //! `agent.rs`, `asura-auth`'s `travel.rs`, `asura-rules` for the freshness window), so changing one meant
 //! editing Rust and rebuilding, and no single place answered "what cadence is this server using"
-//! (`docs/38-layer-decisions.md`, D33).
+//! (`docs/reference/decisions/layer-decisions.md`, D33).
 //!
 //! Two files, one concern each: `config/Server/intervals.json` for the cadences ([`Intervals`]) and
 //! `config/Server/movement.json` for the movement tolerances ([`Movement`]), plus the spawn placement
@@ -94,7 +94,7 @@ pub struct Intervals {
     /// How stale a world''s heartbeat may be and still be offered, routed to, and believed.
     ///
     /// Two programs read it - the login path and the socket layer - so it lives in one place; disagreeing
-    /// means a client is sent to a world the next step refuses (`docs/38`, D29).
+    /// means a client is sent to a world the next step refuses (`docs/reference/decisions/layer-decisions.md`, D29).
     pub world_max_age_secs: f64,
 }
 
@@ -402,7 +402,7 @@ pub struct Described<T> {
     /// A note to whoever opens the file: `true` means do not change this value - it is one of the
     /// client's own numbers, and changing it breaks what the client expects. It is advice, not a check:
     /// the server reads the value either way. Absent means the value is the owner's to change
-    /// (`docs/38-layer-decisions.md`, D35).
+    /// (`docs/reference/decisions/layer-decisions.md`, D35).
     #[serde(default)]
     pub immutable: bool,
 }
@@ -486,7 +486,7 @@ impl HexBytes {
 ///
 /// The bytes are the client's own - it compares the whole question and parses the answer as six
 /// `Gw.dat` file ids - so they are configuration rather than code: they change when the client's files
-/// change, and `docs/19-running.md` has the procedure for refreshing them.
+/// change, and `docs/operations/running-the-server.md` has the procedure for refreshing them.
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 pub struct FileCheck {
     /// The 21-byte question.
@@ -543,7 +543,7 @@ pub fn file_check() -> Result<&'static FileCheck, String> {
 /// The values a world falls back on when its rows say nothing.
 ///
 /// Every key is required and there is no built-in value: a world that placed a character somewhere
-/// nobody configured would be running on a number that does not exist (`docs/38-layer-decisions.md`,
+/// nobody configured would be running on a number that does not exist (`docs/reference/decisions/layer-decisions.md`,
 /// D34).
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -2,7 +2,7 @@
 //!
 //! These tests run against the live PostgreSQL named by `ASURA_DATABASE_URL` (the environment, or the
 //! repository's `.env`). They are harness-only: no game client, no protocol, no simulation - the point
-//! of M2 is that placement can be trusted before anything client-facing exists (`docs/roadmap.md`).
+//! of M2 is that placement can be trusted before anything client-facing exists (`docs/work/project-roadmap.md`).
 //!
 //! With no database configured a test prints a skip line and returns; `tools/m2-verify.ps1` is the
 //! one-command way to run them for real.

@@ -20,7 +20,7 @@ rust-version = "1.75"
 license = "MIT OR Apache-2.0"
 
 # One policy for the workspace. A crate opts in with `[lints] workspace = true`, so a layer can
-# adopt it without forcing it on layers not yet visited (docs/37-rework-layers.md, layer 1).
+# adopt it without forcing it on layers not yet visited (docs/work/layer-rework-checklist.md, layer 1).
 [workspace.lints.rust]
 missing_docs = "warn"
 unsafe_code = "deny"
@@ -32,14 +32,14 @@ all = { level = "warn", priority = -1 }
 broken_intra_doc_links = "deny"
 
 [workspace.dependencies]
-# Added with the code that needs them (docs/adr/0007-rust-translation.md): M2 needs a database, so
+# Added with the code that needs them (docs/reference/decisions/0007-whole-stack-rust.md): M2 needs a database, so
 # the database and runtime dependencies arrive with placement; M3 needs a socket, so `net` arrives
 # with the listener.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util", "process", "signal"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid"] }
 uuid = { version = "1", features = ["v4"] }
 # M3 needs modular exponentiation for the fixed-constant Diffie-Hellman key exchange
-# (docs/adr/0009-crypto-primitives.md). `num-bigint-dig` is the RustCrypto fork -- the crate the
+# (docs/reference/decisions/0009-protocol-cryptography.md). `num-bigint-dig` is the RustCrypto fork -- the crate the
 # `rsa` crate uses for exactly this operation. It is behind one function
 # (`asura_protocol::client::handshake::modpow`), so swapping it is a one-line change.
 #
@@ -48,7 +48,7 @@ uuid = { version = "1", features = ["v4"] }
 # std, so BigUint is fully usable.
 num-bigint-dig = { version = "0.8", default-features = false, features = ["u64_digit"] }
 # The key exchange needs 20 bytes of real randomness per connection, and the handshake takes them
-# from its caller so that it stays testable (docs/adr/0009-crypto-primitives.md). This is the
+# from its caller so that it stays testable (docs/reference/decisions/0009-protocol-cryptography.md). This is the
 # smallest crate that asks the operating system for them.
 getrandom = "0.2"
 serde = { version = "1", features = ["derive"] }

@@ -1,7 +1,7 @@
 {
   "default_outpost": {
     "value": 148,
-    "doc": "Where a character is put when its row names neither a map nor a last outpost - a row written before character creation filled one in. 148 is Ascalon City (pre-Searing), the base game's starting outpost and already in the map catalogue. The outpost a character enters is otherwise written by character creation, by a scripted event and by travelling, so this is only ever the fallback. A stand-in for a campaign whose own starting outpost this tree has not measured (docs/22-world-model.md)."
+    "doc": "Where a character is put when its row names neither a map nor a last outpost - a row written before character creation filled one in. 148 is Ascalon City (pre-Searing), the base game's starting outpost and already in the map catalogue. The outpost a character enters is otherwise written by character creation, by a scripted event and by travelling, so this is only ever the fallback. A stand-in for a campaign whose own starting outpost this tree has not measured (docs/reference/game-world-model.md)."
   },
   "map_type_main_town": {
     "value": 0,

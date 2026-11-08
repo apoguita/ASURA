@@ -13,10 +13,10 @@ workspace = true
 asura-protocol = { path = "../asura-protocol" }
 asura-db = { path = "../asura-db" }
 # The auth conversation is a library call: the gateway classifies a connection and hands it over
-# (`docs/38-layer-decisions.md`, D26).
+# (`docs/reference/decisions/layer-decisions.md`, D26).
 asura-auth = { path = "../asura-auth" }
 # The world freshness window is a rule shared with the login path, so this layer asks the rules crate
-# rather than keeping a second copy of the number (`docs/38-layer-decisions.md`, D29).
+# rather than keeping a second copy of the number (`docs/reference/decisions/layer-decisions.md`, D29).
 asura-rules = { path = "../asura-rules" }
 # The freshness window it routes by is the same number the login path reads (D33).
 asura-config = { path = "../asura-config" }
