@@ -137,8 +137,12 @@ dependencies = [
  "asura-protocol",
  "asura-rules",
  "asura-store",
+ "getrandom 0.2.17",
+ "serde",
+ "serde_json",
  "sqlx",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

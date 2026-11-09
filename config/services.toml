@@ -41,7 +41,7 @@ health = { tcp = "127.0.0.1:6112" }
 log = "logs/auth.log"
 
 [services.world-8001]
-exe = "target/debug/asura-world"
+exe = "target/debug/asura-worldserver"
 args = ["--world", "8001", "--capacity", "8", "--public", "127.0.0.1:6113"]
 port = 6113
 health = { world = 8001 }
@@ -58,7 +58,7 @@ log = "logs/world-8001.log"
 # own --bind (the default is 6113); the public address is what the front door dials.
 #
 # [services.world-8002]
-# exe = "target/debug/asura-world"
+# exe = "target/debug/asura-worldserver"
 # args = ["--world", "8002", "--capacity", "8", "--bind", "127.0.0.1:6114", "--public", "127.0.0.1:6114"]
 # port = 6114
 # health = { world = 8002 }

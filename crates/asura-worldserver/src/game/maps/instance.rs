@@ -1,0 +1,528 @@
+//! The instance: one hosted map, running.
+//!
+//! `docs/guidance/architecture.md` "Inside a world server": a map is updated by one owner, its state needs
+//! no locking across tasks, and the update threads have map affinity. This is that owner - the
+//! object a `MapEntry` describes, and the thing a `Player` stands in.
+//!
+//! It holds who is in the map, the agent each one drives, and the clock. The tick is the reference's
+//! `GameSrv_WorldTick`: announce the elapsed time to every client, advance every agent along its
+//! walk, and broadcast a crossed waypoint to everyone in the instance. One clock per map, as the
+//! reference has one loop for the whole server.
+
+use crate::*;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+#[cfg(test)]
+mod portal_tests {
+    use super::*;
+
+    /// The committed agent defaults, parsed the way the world parses the pack's file.
+    fn committed_agent_defaults() -> crate::agent_defaults::AgentDefaults {
+        crate::agent_defaults::AgentDefaults::from_json(include_str!(
+            "../../../../../config/World/Vanilla/agent_defaults.json"
+        ))
+        .expect("the committed agent defaults parse")
+    }
+
+    #[test]
+    fn simulation_crossing_notifies_connection_without_a_client_report() {
+        let arch = crate::portals::pack_arches(148).unwrap()[0];
+        let midpoint = (
+            (arch.from.0 + arch.to.0) / 2.0,
+            (arch.from.1 + arch.to.1) / 2.0,
+        );
+        let dx = arch.to.0 - arch.from.0;
+        let dy = arch.to.1 - arch.from.1;
+        let length = dx.hypot(dy);
+        let normal = (-dy / length, dx / length);
+        let from = (midpoint.0 + normal.0 * 5.0, midpoint.1 + normal.1 * 5.0);
+        let to = (midpoint.0 - normal.0 * 5.0, midpoint.1 - normal.1 * 5.0);
+        let instance = Instance::new(
+            MapEntry {
+                map_id: 148,
+                map_file_id: 0,
+                map_type: 0,
+                spawn: from,
+                spawn_plane: 0,
+                spawns: Vec::new(),
+                name: String::new(),
+                capacity: 1,
+            },
+            committed_agent_defaults().speed(),
+        );
+        let (frames, _inbox) = tokio::sync::mpsc::unbounded_channel();
+        let (player_id, _) = instance.join(
+            String::new(),
+            Standing {
+                position: from,
+                plane: 0,
+                direction: normal,
+            },
+            [0; 9],
+            frames,
+        );
+        let (events, mut crossings) = tokio::sync::mpsc::unbounded_channel();
+        instance.watch_portals(player_id, events);
+        instance.loaded(player_id);
+        instance.with_slot(player_id, |slot| {
+            slot.agent.begin_walk(vec![pathfind::Waypoint {
+                pos: pathfind::Pos {
+                    x: to.0,
+                    y: to.1,
+                    plane: 0,
+                },
+                trap_id: 0,
+            }]);
+        });
+        instance.step(Duration::from_millis(100));
+        let (start, end) = crossings
+            .try_recv()
+            .expect("travel event without a position report");
+        assert_eq!(start, from);
+        assert!(arch.crossed_by(start, end));
+    }
+}
+
+/// An actual movement segment that touched a doorway during simulation.
+pub type PortalStep = ((f32, f32), (f32, f32));
+
+/// One player in one instance: the agent it drives, what the client is told about it, and the
+/// channel that reaches its connection.
+pub struct Slot {
+    pub player_id: u32,
+    pub agent: AgentState,
+    pub name: String,
+    pub equipped: [u32; 9],
+    pub outbox: tokio::sync::mpsc::UnboundedSender<Vec<Frame>>,
+    /// Crossing events go to the connection that owns the transfer, without waiting for a report.
+    pub portal_outbox: Option<tokio::sync::mpsc::UnboundedSender<PortalStep>>,
+    /// Movement counters, for the trace's closing summary.
+    pub move_stats: MoveStats,
+    /// Set at join and cleared when the connecting player has its load block, so the clock does not
+    /// put a tick inside the block: the reference finishes the load with `INSTANCE_LOAD_FINISH`
+    /// (`GameSrv_HandleInstanceLoadRequestPlayers`) before it starts announcing the world clock.
+    pub loading: bool,
+}
+
+/// One hosted map: its description, and everyone standing in it.
+pub struct Instance {
+    /// The map this instance runs: what a client is told it is entering (`MapEntry`).
+    pub map: MapEntry,
+    /// Units a second this instance advances its agents by, and the `speed_base` it puts in
+    /// `WORLD_CREATE_AGENT`. Copied from the world's `config/World/Vanilla/agent_defaults.json` at
+    /// creation, so the number the client is told and the number the tick moves the agent by cannot
+    /// drift apart.
+    speed_base: f32,
+    /// The players in it, by player id. The lock is the std one: the critical sections are a scan
+    /// and a send into an unbounded channel, never an await point.
+    slots: Mutex<HashMap<u32, Slot>>,
+    /// The next agent id handed out for something that is not a joining avatar.
+    next_agent_id: Mutex<u32>,
+}
+
+impl Instance {
+    pub fn new(map: MapEntry, speed_base: f32) -> Instance {
+        Instance {
+            map,
+            speed_base,
+            slots: Mutex::new(HashMap::new()),
+            next_agent_id: Mutex::new(2),
+        }
+    }
+
+    fn locked(&self) -> std::sync::MutexGuard<'_, HashMap<u32, Slot>> {
+        self.slots.lock().unwrap_or_else(|err| err.into_inner())
+    }
+
+    /// Put a player in the instance and hand out its ids.
+    ///
+    /// The reference allocates both from per-server tables (`GmIdAllocate`); with a list this short,
+    /// the lowest free id is the same thing, and it keeps the single-player case at id 1 exactly as
+    /// it was.
+    pub fn join(
+        &self,
+        name: String,
+        standing: Standing,
+        equipped: [u32; 9],
+        outbox: tokio::sync::mpsc::UnboundedSender<Vec<Frame>>,
+    ) -> (u32, u32) {
+        let mut slots = self.locked();
+        let player_id = (1..).find(|id| !slots.contains_key(id)).unwrap_or(1);
+        let agent_id = (1..)
+            .find(|id| !slots.values().any(|slot| slot.agent.agent_id == *id))
+            .unwrap_or(1);
+        slots.insert(
+            player_id,
+            Slot {
+                player_id,
+                agent: AgentState::new(
+                    agent_id,
+                    standing.position,
+                    standing.plane,
+                    standing.direction,
+                    self.speed_base,
+                ),
+                name,
+                equipped,
+                outbox,
+                portal_outbox: None,
+                move_stats: MoveStats::default(),
+                loading: true,
+            },
+        );
+        (player_id, agent_id)
+    }
+
+    /// Mark a player loaded: the load block is out, so the clock may tick it.
+    pub fn loaded(&self, player_id: u32) {
+        self.with_slot(player_id, |slot| slot.loading = false);
+    }
+
+    /// Connect simulation crossings to this player's connection before loading finishes.
+    pub fn watch_portals(
+        &self,
+        player_id: u32,
+        outbox: tokio::sync::mpsc::UnboundedSender<PortalStep>,
+    ) {
+        self.with_slot(player_id, |slot| slot.portal_outbox = Some(outbox));
+    }
+
+    /// Whether a player has finished loading.
+    pub fn is_loaded(&self, player_id: u32) -> bool {
+        self.with_slot(player_id, |slot| !slot.loading)
+            .unwrap_or(false)
+    }
+
+    /// Remove a player, and say whether it was there.
+    pub fn leave(&self, player_id: u32) -> bool {
+        self.locked().remove(&player_id).is_some()
+    }
+
+    /// The next free agent id for something the world creates that is not a joining avatar (a
+    /// dropped item's ground agent). A counter, as the reference's `GmIdAllocate` is a table.
+    pub fn allocate_agent_id(&self) -> u32 {
+        let mut next = self
+            .next_agent_id
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let id = *next;
+        *next = next.saturating_add(1);
+        id
+    }
+
+    /// Whether this instance's agents hold `agent_id`.
+    pub fn has_agent(&self, agent_id: u32) -> bool {
+        self.locked()
+            .values()
+            .any(|slot| slot.agent.agent_id == agent_id)
+    }
+
+    /// How many players are in the instance.
+    pub fn len(&self) -> usize {
+        self.locked().len()
+    }
+
+    /// Whether the instance is empty.
+    pub fn is_empty(&self) -> bool {
+        self.locked().is_empty()
+    }
+
+    /// Run one closure against one slot, under the lock and without an await inside.
+    pub fn with_slot<R>(&self, player_id: u32, f: impl FnOnce(&mut Slot) -> R) -> Option<R> {
+        self.locked().get_mut(&player_id).map(f)
+    }
+
+    /// The agent one player drives, as a copy (the record behind it stays in the slot).
+    pub fn agent(&self, player_id: u32) -> Option<AgentState> {
+        self.with_slot(player_id, |slot| slot.agent.clone())
+    }
+
+    /// One player's movement counters, for the trace's teardown summary.
+    pub fn move_stats(&self, player_id: u32) -> Option<MoveStats> {
+        self.with_slot(player_id, |slot| slot.move_stats)
+    }
+
+    /// Where a player's agent is now: the server's own copy, not where it entered. The direction is
+    /// the facing the agent was created with, so a spawn point's angle survives into the load block.
+    pub fn standing(&self, player_id: u32) -> Option<Standing> {
+        self.with_slot(player_id, |slot| Standing {
+            position: slot.agent.position,
+            plane: slot.agent.plane,
+            direction: slot.agent.facing,
+        })
+    }
+
+    /// Everyone except one player, as plain data (no outbox, so the caller cannot hold the lock).
+    pub fn others(&self, player_id: u32) -> Vec<PeerView> {
+        self.locked()
+            .values()
+            .filter(|slot| slot.player_id != player_id)
+            .map(PeerView::from)
+            .collect()
+    }
+
+    /// Push frames to everyone except `except`. A slot whose channel is closed is gone; its own task
+    /// is responsible for leaving, so a failed send is not an error here.
+    pub fn broadcast(&self, except: u32, frames: &[Frame]) {
+        for slot in self
+            .locked()
+            .values()
+            .filter(|slot| slot.player_id != except)
+        {
+            let _ = slot.outbox.send(frames.to_vec());
+        }
+    }
+
+    /// Push frames to everyone in the instance.
+    pub fn broadcast_all(&self, frames: &[Frame]) {
+        for slot in self.locked().values() {
+            let _ = slot.outbox.send(frames.to_vec());
+        }
+    }
+
+    /// One tick, `GameSrv_WorldTick`: announce the elapsed time, walk every agent, and broadcast each
+    /// crossed waypoint to the rest of the instance (`GameSrv_UpdateAgentDestination`).
+    ///
+    /// The announced number is the **real** elapsed time since the previous tick, which is what the
+    /// reference sends (`srv->current_frame_time - srv->last_world_tick`).
+    pub fn step(&self, elapsed: Duration) {
+        let delta_ms = u32::try_from(elapsed.as_millis()).unwrap_or(u32::MAX);
+        let delta = elapsed.as_secs_f32();
+        let mut slots = self.locked();
+
+        // Advance every agent first, so the announcements below carry where each one is now.
+        let mut crossed = Vec::new();
+        for slot in slots.values_mut() {
+            if slot.loading {
+                continue;
+            }
+            let was_moving = 0.0 < slot.agent.motion.speed;
+            let before = slot.agent.position;
+            let before_plane = slot.agent.plane;
+            let cross = slot.agent.advance(delta);
+            let after = slot.agent.position;
+            if before != after && crate::portals::crossed(self.map.map_id, before, after).is_some()
+            {
+                if let Some(outbox) = &slot.portal_outbox {
+                    let _ = outbox.send((before, after));
+                }
+            }
+            if move_trace_on() {
+                slot.move_stats.ticks += 1;
+                if was_moving {
+                    let moved = {
+                        let dx = slot.agent.position.0 - before.0;
+                        let dy = slot.agent.position.1 - before.1;
+                        (dx * dx + dy * dy).sqrt()
+                    };
+                    let expected = self.speed_base * delta;
+                    eprintln!(
+                        "move[tick] walked {moved:.1} units (expected {expected:.1} at \
+                         {:.0}/s), agent (x={:.1}, y={:.1}, plane={})",
+                        self.speed_base,
+                        slot.agent.position.0,
+                        slot.agent.position.1,
+                        slot.agent.plane
+                    );
+                    if slot.agent.plane != before_plane {
+                        slot.move_stats.plane_changes += 1;
+                        eprintln!(
+                            "move[jump] the walk changed the agent's plane {before_plane} -> {} \
+                             at (x={:.1}, y={:.1}) - the client will place it on that plane now",
+                            slot.agent.plane, slot.agent.position.0, slot.agent.position.1
+                        );
+                    }
+                }
+                if let Some(waypoint) = &cross {
+                    eprintln!(
+                        "move[tick] crossed waypoint {}/{} (x={:.1}, y={:.1}, plane={}, trap={}); \
+                         agent now (x={:.1}, y={:.1}, plane={})",
+                        slot.agent.motion.waypoint_idx,
+                        slot.agent.motion.waypoints.len(),
+                        waypoint.pos.x,
+                        waypoint.pos.y,
+                        waypoint.pos.plane,
+                        waypoint.trap_id,
+                        slot.agent.position.0,
+                        slot.agent.position.1,
+                        slot.agent.plane
+                    );
+                } else if was_moving && slot.agent.motion.speed == 0.0 {
+                    eprintln!(
+                        "move[tick] arrival at (x={:.1}, y={:.1}, plane={}); the walk is over",
+                        slot.agent.position.0, slot.agent.position.1, slot.agent.plane
+                    );
+                }
+            }
+            if let Some(waypoint) = cross {
+                crossed.push((
+                    slot.player_id,
+                    slot.agent.agent_id,
+                    slot.agent.plane,
+                    waypoint,
+                ));
+            }
+        }
+
+        let tick = builders::world_simulation_tick(delta_ms);
+        for slot in slots.values().filter(|slot| !slot.loading) {
+            let _ = slot.outbox.send(vec![tick.clone()]);
+        }
+        for (player_id, agent_id, plane, waypoint) in crossed {
+            // The walker hears it too: a crossed waypoint is a new destination, and every client is
+            // drawing this agent from the last destination it was told.
+            let walk = builders::agent_move_to_point(
+                agent_id,
+                (waypoint.pos.x, waypoint.pos.y),
+                waypoint.pos.plane,
+                plane,
+            );
+            for slot in slots.values().filter(|slot| !slot.loading) {
+                let _ = slot.outbox.send(vec![walk.clone()]);
+            }
+            let _ = player_id;
+        }
+    }
+
+    /// The instance's clock: one task per map, ticking while the instance exists.
+    ///
+    /// The cadence is this machine's (`config/Server/intervals.json`) and is read from the configuration
+    /// crate, not from the socket module: a simulation that asks a socket layer how fast to tick has the
+    /// dependency backwards.
+    pub async fn run(self: Arc<Self>) {
+        let mut tick = tokio::time::interval(asura_config::intervals().tick());
+        let mut last_tick = Instant::now();
+        loop {
+            tick.tick().await;
+            let elapsed = last_tick.elapsed();
+            last_tick = Instant::now();
+            self.step(elapsed);
+        }
+    }
+}
+
+/// A peer as it is copied out of an instance: everything a joining player needs to be told.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PeerView {
+    pub player_id: u32,
+    pub agent_id: u32,
+    pub name: String,
+    pub standing: Standing,
+    pub equipped: [u32; 9],
+}
+
+impl From<&Slot> for PeerView {
+    fn from(slot: &Slot) -> Self {
+        PeerView {
+            player_id: slot.player_id,
+            agent_id: slot.agent.agent_id,
+            name: slot.name.clone(),
+            standing: Standing {
+                position: slot.agent.position,
+                plane: slot.agent.plane,
+                direction: slot.agent.facing,
+            },
+            equipped: slot.equipped,
+        }
+    }
+}
+
+/// The frames that introduce one player to another: `GameSrv_SendWorldAgents`'s order for a player
+/// agent (`GmAgent.c:310-331`) - the player, their party size, their party, then the agent itself.
+///
+/// `GmAgent.c` also sends `BroadcastAddPlayerToPlayerParty` rather than the unicast sender, because
+/// the party of a joining player is news to everyone already there. Here it is the same frame either
+/// way.
+///
+/// `agent` is the world's `config/World/Vanilla/agent_defaults.json`: the introduction states the same
+/// walking speed the instance advances the same body by.
+pub fn introduction(peer: &PeerView, agent: &crate::agent_defaults::AgentDefaults) -> Vec<Frame> {
+    vec![
+        builders::player_create(
+            peer.player_id,
+            peer.agent_id,
+            crate::character_defaults::current()
+                .map(|defaults| defaults.appearance().pack())
+                .unwrap_or_default(),
+            &peer.name,
+        ),
+        builders::player_update_party_size(peer.player_id, 1),
+        builders::player_update_party(peer.player_id, peer.player_id),
+        builders::world_create_agent(&builders::CreateAgent {
+            agent_id: peer.agent_id,
+            model_id: builders::CHAR_CLASS_PLAYER_BASE | peer.player_id,
+            agent_type: builders::AGENT_TYPE_LIVING,
+            position: peer.standing.position,
+            plane: peer.standing.plane,
+            direction: peer.standing.direction,
+            speed_base: agent.speed(),
+            player_team_token: PLAYER_TEAM_TOKEN,
+        }),
+    ]
+}
+
+/// The frames that take one player back out of another's world: `GameSrv_BroadcastPlayerDestroy`
+/// (`GmPlayer.c:314`) and `GameSrv_BroadcastAgentRemove` (`GmAgent.c:60`), in that order.
+pub fn farewell(player_id: u32, agent_id: u32) -> Vec<Frame> {
+    vec![
+        builders::player_destroy(player_id),
+        builders::world_remove_agent(agent_id),
+    ]
+}
+/// Every instance this world is running, by map id.
+///
+/// A world hosts one instance per map (outposts never end; explorable pools are a later policy), so
+/// the map id is the key. The first join to a map creates its instance and starts its clock.
+#[derive(Default, Clone)]
+pub struct Instances(Arc<Mutex<HashMap<i32, Arc<Instance>>>>);
+
+impl Instances {
+    fn locked(&self) -> std::sync::MutexGuard<'_, HashMap<i32, Arc<Instance>>> {
+        self.0.lock().unwrap_or_else(|err| err.into_inner())
+    }
+
+    /// The running instance for a map, created - with its clock running - on first use.
+    ///
+    /// `speed_base` is the world's `agent_defaults.json` speed, carried into the instance so every
+    /// agent it ever creates moves at the number the client was told.
+    pub fn for_map(&self, map: &MapEntry, speed_base: f32) -> Arc<Instance> {
+        if let Some(instance) = self.locked().get(&map.map_id) {
+            return instance.clone();
+        }
+        let instance = Arc::new(Instance::new(map.clone(), speed_base));
+        let ticking = Arc::clone(&instance);
+        tokio::spawn(async move { ticking.run().await });
+        self.locked().insert(map.map_id, instance.clone());
+        instance
+    }
+
+    /// The instance for a map, if one is running.
+    pub fn get(&self, map_id: i32) -> Option<Arc<Instance>> {
+        self.locked().get(&map_id).cloned()
+    }
+
+    /// Whether a map has an instance running.
+    pub fn has(&self, map_id: i32) -> bool {
+        self.locked().contains_key(&map_id)
+    }
+
+    /// How many players are in this world, across its instances.
+    pub fn len(&self) -> usize {
+        self.locked().values().map(|instance| instance.len()).sum()
+    }
+
+    /// Whether no map has an instance.
+    pub fn is_empty(&self) -> bool {
+        self.locked().is_empty()
+    }
+
+    /// Everyone in this world except one player, across all instances (tests and population).
+    pub fn others(&self, except: u32) -> Vec<PeerView> {
+        self.locked()
+            .values()
+            .flat_map(|instance| instance.others(except))
+            .collect()
+    }
+}

@@ -1,18 +1,16 @@
 //! The game library: one directory per game noun, and the socket layer that serves them.
 //!
-//! The reference keeps `src/server/game` as a static library of noun subsystems - `Entities`, `Maps`,
-//! `Grids`, `Spells`, `Skills`, `Groups`, `Quests`, `Loot`, `Chat`, `Movement`, `Server` and the rest -
-//! with its own socket layer inside it (`game/Server/WorldSocket`, `WorldSession`). This crate copies
-//! that arrangement; the directories arrive with the cuts that fill them
-//! (`docs/work/re-engineering-plan.md`, phase 4).
+//! Copied from the reference's `src/server/game` arrangement (see `docs/research/azerothcore-structure.md`)
+//! and filled by moving `asura-world` into it cut by cut (`docs/work/re-engineering-plan.md`, phase 4).
+//! The directories are the reference's where it has an equivalent; `content` and `support` are this
+//! project's own because the reference keeps content in SQL and the archive reader has no peer there.
 //!
-//! The nouns this project needs, and the cut each arrives with:
-//!
-//! * `server` - sockets and sessions (cut 4b). The reference's name for it.
-//! * `entities` - player, agent, item (cut 4c).
-//! * `maps` - instances, the spawn catalogue, the clock, the parallel update (cut 4c).
-//! * `movement`, `items`, `travel`, `chat`, `creation` - mechanics (cut 4d).
-//! * `scripting` - the hook position behaviour reaches mechanics through (cut 4e).
-
-// Nothing yet: cut 4a builds the program's shell and its socket half (`shared`), and the first noun
-// arrives with cut 4b. An empty module with a stated plan is better than a placeholder that pretends.
+//! The crate root re-exports every module below, so a file that names `crate::player` keeps working
+//! while the tree is grouped: the grouping is the map, the alias is the road.
+pub mod content;
+pub mod entities;
+pub mod maps;
+pub mod mechanics;
+pub mod server;
+pub mod support;
+pub mod world;
