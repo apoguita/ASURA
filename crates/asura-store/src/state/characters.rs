@@ -1,21 +1,17 @@
-//! Login: turning the pair the client presents into an account, and reading what it may see.
+//! The state store's character rows: the list an account may see, the one it selects, the one it deletes.
 //!
-//! The client sends two UUIDs - a portal user id and a session id - and gets either a character list
-//! or an error. That is the whole transaction, and this module is the only place it is decided.
+//! Moved from the old crate's login module in cut 2c with the SQL unchanged. The identity half of that module - the
+//! account row and the session pair - already left for `identity` in cut 2b; what is left here is the
+//! character's own table.
 //!
-//! AzerothCore parallel: their `LoginDatabase` statement for the auth account, and the character-list
-//! read that follows a successful login. The shape is theirs; the vendor is PostgreSQL
-//! (docs/reference/decisions/0008-postgresql.md).
+//! Two rules the SQL carries, from `docs/reference/client-protocol.md` section 4:
 //!
-//! GWPS is the reference for the *rules*, and both of them are easy to get subtly wrong
-//! (`docs/reference/client-protocol.md` section 4):
+//! * a character list is scoped to its account **in the query**, because a missing `WHERE` there is the
+//!   one place a leak would be silent;
+//! * deleting a character clears the session that names it in the same transaction, or every travel goes
+//!   out for an id that no longer exists.
 //!
-//! * **The pair is validated, never half-trusted.** `Db_GetSession(user_id, session_id)` looks up one
-//!   row matching both. A right portal user with a wrong session id is not "close enough".
-//! * **A closed session is never honoured.** `docs/research/gw2-service-design-lessons.md` rule 1: the newest session for
-//!   an account wins and older ones are closed. A closed row therefore must not resolve, or a stolen
-//!   session id would work forever.
-
+//! `seed_identity` and `remove_account` are development and test support, not a service path.
 use crate::{PgPool, Uuid};
 
 /// One character, as the character-list message needs it.

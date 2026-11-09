@@ -17,9 +17,9 @@
 //! Every account name is unique per run (it carries a fresh UUID), so a run that panics before its
 //! cleanup leaves an inert row that no later run can mistake for its own.
 
-use asura_db::game as db_game;
-use asura_db::inventory as db;
-use asura_db::{PgPool, Uuid};
+use asura_store::state::character as db_game;
+use asura_store::state::inventory as db;
+use asura_store::{PgPool, Uuid};
 
 const MAP: i32 = 146;
 
@@ -39,7 +39,7 @@ fn skip() {
 /// One account with one character, named uniquely for this run.
 async fn character(pool: &PgPool, label: &str) -> (String, Uuid) {
     let name = format!("m5-{label}-{}", Uuid::new_v4());
-    let seeded = asura_db::login::seed_identity(
+    let seeded = asura_store::state::characters::seed_identity(
         pool,
         Uuid::new_v4(),
         Uuid::new_v4(),
@@ -107,7 +107,7 @@ async fn a_new_character_is_seeded_with_the_default_inventory() {
     let again = db::load(&pool, character).await.expect("load");
     assert_eq!(again, inventory, "and its inventory did not change");
 
-    asura_db::login::remove_account(&pool, &name)
+    asura_store::state::characters::remove_account(&pool, &name)
         .await
         .expect("clean up");
 }
@@ -143,10 +143,10 @@ async fn two_characters_do_not_share_item_ids() {
         "and both were given the whole set"
     );
 
-    asura_db::login::remove_account(&pool, &first_name)
+    asura_store::state::characters::remove_account(&pool, &first_name)
         .await
         .expect("clean up");
-    asura_db::login::remove_account(&pool, &second_name)
+    asura_store::state::characters::remove_account(&pool, &second_name)
         .await
         .expect("clean up");
 }
@@ -208,7 +208,7 @@ async fn a_drop_finds_only_what_the_reference_would_find() {
         None
     );
 
-    asura_db::login::remove_account(&pool, &name)
+    asura_store::state::characters::remove_account(&pool, &name)
         .await
         .expect("clean up");
 }
@@ -273,7 +273,7 @@ async fn a_stack_can_be_split_and_emptied() {
         "a bag is not a stack"
     );
 
-    asura_db::login::remove_account(&pool, &name)
+    asura_store::state::characters::remove_account(&pool, &name)
         .await
         .expect("clean up");
 }
@@ -389,7 +389,7 @@ async fn an_item_moves_between_slots_and_refuses_the_impossible_ones() {
         "taking the weapon off is a move"
     );
 
-    asura_db::login::remove_account(&pool, &name)
+    asura_store::state::characters::remove_account(&pool, &name)
         .await
         .expect("clean up");
 }
@@ -424,7 +424,7 @@ async fn the_first_free_carrying_slot_is_the_backpack_first() {
         "the slot the cupcake left is free again, and it comes first"
     );
 
-    asura_db::login::remove_account(&pool, &name)
+    asura_store::state::characters::remove_account(&pool, &name)
         .await
         .expect("clean up");
 }
@@ -478,7 +478,7 @@ async fn a_position_is_saved_and_read_back_and_a_new_character_has_none() {
     assert_eq!(again.plane, 0);
     assert_eq!((again.x, again.y), (6602.0, 4485.0));
 
-    asura_db::login::remove_account(&pool, &name)
+    asura_store::state::characters::remove_account(&pool, &name)
         .await
         .expect("clean up");
 }
@@ -492,7 +492,7 @@ async fn the_character_settings_come_back_from_the_row_the_creation_wrote() {
         return skip();
     };
     let name = format!("m5-settings-{}", Uuid::new_v4());
-    asura_db::login::seed_identity(
+    asura_store::state::characters::seed_identity(
         &pool,
         Uuid::new_v4(),
         Uuid::new_v4(),
@@ -543,7 +543,7 @@ async fn the_character_settings_come_back_from_the_row_the_creation_wrote() {
         .count();
     assert_eq!(settings.pieces.len(), worn, "one piece per armour item");
 
-    asura_db::login::remove_account(&pool, &name)
+    asura_store::state::characters::remove_account(&pool, &name)
         .await
         .expect("clean up");
 }
@@ -593,7 +593,7 @@ async fn an_instance_is_unlocked_by_arriving_once() {
     reached.sort_unstable();
     assert_eq!(reached, vec![MAP, 148], "both, and only those");
 
-    asura_db::login::remove_account(&pool, &name)
+    asura_store::state::characters::remove_account(&pool, &name)
         .await
         .expect("clean up");
 }

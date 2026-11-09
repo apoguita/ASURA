@@ -23,11 +23,11 @@
 //! generator was retired when parity closed (`docs/history/service-supervisor-delivery-plan.md`):
 //!
 //! * the character the transfer named, standing where the map's spawn says - or where it stood when it
-//!   last left, which is saved and read back (`asura_db::game::record_position`);
+//!   last left, which is saved and read back (`asura_store::state::character::record_position`);
 //! * the other players in the same instance: each newcomer is introduced to the ones already there
 //!   and told when one leaves (`instance.rs`, `PeerView` and `introduction`);
 //! * the character's inventory, read from rows and built into the reference's messages, including the
-//!   nine items `UPDATE_AGENT_VISUAL_EQUIPMENT` puts on the model (`asura_db::inventory`);
+//!   nine items `UPDATE_AGENT_VISUAL_EQUIPMENT` puts on the model (`asura_store::state::inventory`);
 //! * `GAME_CMSG_DROP_ITEM`, which deducts the stack and sends nothing: the reference's own handler is
 //!   unfinished and the ground agent crashed a live client (`item.rs:243-249`);
 //! * no NPCs, no combat, no quests, no picking anything up.
@@ -41,8 +41,6 @@ use std::time::{Duration, Instant};
 
 // The crate's externals, re-exported at crate visibility so a domain file's `use crate::*;`
 // reaches them the same way it reaches the domains themselves.
-pub use asura_db::game as db_game;
-pub use asura_db::inventory::{self as db_inventory, Inventory};
 pub use asura_db::{placement, PgPool, Uuid};
 pub use asura_protocol::client::game_version::GameVersion;
 pub use asura_protocol::client::handshake;
@@ -51,6 +49,8 @@ pub use asura_protocol::client::version;
 pub use asura_protocol::client::version::GAME_CMSG_VERSION_LEN;
 pub use asura_protocol::client::{Frame, FrameError};
 pub use asura_protocol::game;
+pub use asura_store::state::character as db_game;
+pub use asura_store::state::inventory::{self as db_inventory, Inventory};
 pub use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub use tokio::net::{TcpListener, TcpStream};
 

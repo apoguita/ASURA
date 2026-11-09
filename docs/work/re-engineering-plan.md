@@ -73,7 +73,7 @@ and its documents were updated in the same commit.
 |---|---|---|
 | 0 | done | this file, `d7d229d`; the database-holds-state ruling and the action table, `01250ff` |
 | 1 | done by measurement | the client dials its launch address, so one client-visible address is forced (`docs/reference/client-protocol.md:708-712`); the world already sits behind it as a separate program (`crates/asura-gateway/src/relay.rs:9-17`) |
-| 2 | in progress: cuts 2a and 2b done | `asura-store::identity` holds account, portal and session (`find`, `close`, `close_others`); webgate, auth and the gateway tests call it; `account`, `portal` and the identity half of `login` are gone from `asura-db`. Identity tests moved to `crates/asura-store/tests/identity.rs`. `cargo check --workspace --all-targets` exits 0; store 6 tests, db 19, auth 3 |
+| 2 | in progress: cuts 2a, 2b and 2c done | `asura-store::identity` owns account, portal and session; `asura-store::state` owns characters, character facts and inventory (`State::new(pool)`). The world reaches them through its `db_game` / `db_inventory` re-exports, so no call site moved; auth, webgate and the gateway tests call the store directly. `asura-db` lost `login`, `inventory` and the state half of `game`, and keeps only the content rows that die in phase 6. Tests moved with the facts: store 22 across four files, world 90 unit, db 23. `cargo check --workspace --all-targets` exits 0 |
 | 3 | not started | |
 | 4 | not started | |
 | 5 | not started | |

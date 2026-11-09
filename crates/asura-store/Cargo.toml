@@ -13,3 +13,8 @@ uuid = { workspace = true }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# The tests find their database the way every program does (`asura_db::config`) and build the pool with
+# the same helper, so this is test scaffolding only: the store itself never depends on the old crate.
+asura-db = { path = "../asura-db" }

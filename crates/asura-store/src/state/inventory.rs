@@ -18,6 +18,7 @@
 //! told *and* by its kind, an item's name and modifiers are stored because `CREATE_NAMED_ITEM` carries
 //! them, and a bag's own item is a row with no slot rather than a struct compiled into the server.
 
+use crate::state::character::Traits;
 use crate::{PgConnection, PgPool, Uuid};
 
 /// The default inventory the reference seeds, generated from a capture of it working.
@@ -449,7 +450,7 @@ pub async fn create_character(
     account: Uuid,
     name: &str,
     map_id: i32,
-    traits: crate::game::Traits,
+    traits: Traits,
     equipped: &[NewItem],
 ) -> sqlx::Result<Uuid> {
     let character = Uuid::new_v4();

@@ -15,8 +15,10 @@
 //! moved; every caller moves with its own commit, so nothing is ever half-migrated.
 
 pub mod identity;
+pub mod state;
 
 /// The pool the stores ask their questions through. Callers build it once and lend it.
+pub use sqlx::PgConnection;
 pub use sqlx::PgPool;
 
 /// The types a caller needs to name a row, re-exported so no caller depends on `sqlx` or `uuid`.

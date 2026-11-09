@@ -3,7 +3,7 @@
 //! [`Item`] and [`Inventory`] are the two nouns. [`items_block`] and [`inventory_block`] are the
 //! load-time blocks; the four
 //! client operations below are `DROP_ITEM`, `ITEM_MOVE`, `EQUIP_ITEM` and the refusal path, and
-//! the row-level work is `asura_db::inventory`.
+//! the row-level work is `asura_store::state::inventory`.
 //!
 //! [`move_item`] and [`equip_item`] are messages the reference does not dispatch at all - their
 //! shapes are measured, not ported (`docs/work/session-handoff.md`, M5).
@@ -11,7 +11,7 @@
 use crate::*;
 
 /// The item API: the questions a server answers about one item row, one question one name. A
-/// member takes the item row (`asura_db::inventory::Item`); the wire side is
+/// member takes the item row (`asura_store::state::inventory::Item`); the wire side is
 /// `asura_protocol::game`'s builders.
 #[allow(non_snake_case)]
 pub struct Item;
@@ -40,7 +40,7 @@ impl Item {
 }
 
 /// The inventory API: the questions a server answers about what a character carries. A member
-/// takes the character's row-set (`asura_db::inventory::Inventory`).
+/// takes the character's row-set (`asura_store::state::inventory::Inventory`).
 #[allow(non_snake_case)]
 pub struct Inventory;
 

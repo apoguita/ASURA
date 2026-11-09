@@ -13,7 +13,6 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use asura_auth::Trace;
-use asura_db::login as db;
 use asura_db::{PgPool, Uuid};
 use asura_gateway::serve;
 use asura_protocol::client::handshake;
@@ -21,6 +20,7 @@ use asura_protocol::client::messages::{self, RequestResponse};
 use asura_protocol::client::reference_client::{self, ReferenceClient};
 use asura_protocol::client::tables;
 use asura_protocol::client::Frame;
+use asura_store::state::characters as db;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 

@@ -23,15 +23,15 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use asura_db::game as db_game;
-use asura_db::inventory as db_inventory;
-use asura_db::login as db;
+use asura_db::game as db_map;
 use asura_db::{placement, PgPool, Uuid};
 use asura_protocol::client::game_version::GameVersion;
 use asura_protocol::client::handshake;
 use asura_protocol::client::reference_client::ReferenceClient;
 use asura_protocol::client::Frame;
 use asura_protocol::game;
+use asura_store::state::characters as db;
+use asura_store::state::inventory as db_inventory;
 use asura_world::{serve, MapEntry, World};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -1331,7 +1331,7 @@ async fn a_character_comes_back_where_it_left() {
 
     // Where it stood is now in the database, which is the only thing that makes the next session
     // different from the first.
-    let saved = asura_db::game::position(&harness.pool, harness.character)
+    let saved = asura_store::state::character::position(&harness.pool, harness.character)
         .await
         .expect("read the position")
         .expect("leaving saves a position");
@@ -1913,7 +1913,7 @@ async fn the_world_map_request_travels_to_the_instance_it_names() {
 /// coordinate.
 fn distance_to_nearest_spawn(
     destination: i32,
-    configured: &db_game::SpawnMap,
+    configured: &db_map::SpawnMap,
     x: f32,
     y: f32,
 ) -> f32 {
@@ -1952,7 +1952,7 @@ async fn a_travel_to_an_unhosted_map_is_loaded_on_demand() {
     let destination = HARNESS_OTHER_MAP;
     // The demand load reads the destination's config from the catalogue; a database without it can
     // only skip (the battery seeds it, a bare `cargo test` may not).
-    let Some(configured) = db_game::spawn_map(&pool, destination)
+    let Some(configured) = db_map::spawn_map(&pool, destination)
         .await
         .expect("read the destination's map config")
     else {
@@ -2194,7 +2194,7 @@ async fn a_connection_to_an_unhosted_map_is_loaded_on_demand() {
 
     let source = HARNESS_MAP;
     let destination = HARNESS_OTHER_MAP;
-    let Some(configured) = db_game::spawn_map(&pool, destination)
+    let Some(configured) = db_map::spawn_map(&pool, destination)
         .await
         .expect("read the destination's map config")
     else {
@@ -2457,7 +2457,7 @@ async fn a_character_is_created_in_a_creation_instance() {
     // The rows T6 asks for, read back through this repo's own queries: the character, its six bags, and
     // the profession's equipment in the equipped bag.
     assert_eq!(
-        asura_db::game::character_name(&harness.pool, character)
+        asura_store::state::character::character_name(&harness.pool, character)
             .await
             .expect("read the character"),
         Some("Asura Test".to_string()),
@@ -2465,7 +2465,7 @@ async fn a_character_is_created_in_a_creation_instance() {
     );
     // And the traits the load block reads: the appearance the client chose, the profession the screen
     // last set, and the one unlocked-profession bit the reference sets for it.
-    let traits = asura_db::game::traits(&harness.pool, character)
+    let traits = asura_store::state::character::traits(&harness.pool, character)
         .await
         .expect("read the traits")
         .expect("a traits row");

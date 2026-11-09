@@ -158,20 +158,13 @@ pub const REQUIRED_TABLES: &[&str] = &[
 /// statement that mutates a pool lives in this module, behind a function whose name says what it does.
 pub mod placement;
 
-/// The character half of login: the list an account may see, the character it selects, and the one it
-/// deletes. The identity half - the account row, the session pair - moved to `asura_store::identity`
-/// (phase 2, cut 2b).
-pub mod login;
-
 /// The general service registry (S2): every service kind announces itself like a world server does.
 pub mod catalog;
 
-/// The reads a world server needs: the map to load, where to place a character, and its name.
+/// The content rows left behind: the map blob, its spawn points and its doorways. They have no caller
+/// and they die in phase 6; the character state they used to share this module with is
+/// `asura_store::state::character` (cut 2c).
 pub mod game;
-
-/// The inventory: a character's bags and items, the default set the reference seeds, and the one query
-/// a drop needs. Replaces the replayed item messages with rows.
-pub mod inventory;
 
 /// The migration runner, and the startup check that refuses a database older than the code.
 pub mod migrations;

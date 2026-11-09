@@ -9,14 +9,14 @@
 //!
 //! The data came from a capture of the reference at the parity point. The generator and the capture
 //! were retired when parity closed (docs/history/service-supervisor-delivery-plan.md): this file is the data now, kept as rows that
-//! `asura_db::inventory::seed_default` writes.
+//! `asura_store::state::inventory::seed_default` writes.
 //!
-//! The ids are the capture's. `asura_db::inventory::seed_default` renumbers them from the item
+//! The ids are the capture's. `asura_store::state::inventory::seed_default` renumbers them from the item
 //! sequence when it writes them, because an item id is a runtime allocation in the reference too
 //! (`GameSrv_AllocateItem`) and two characters cannot both own item 1. They are kept here so the
 //! item that *is* the backpack can be named, and so a fresh database -- whose sequence starts at
 //! one -- reproduces the capture exactly.
-use crate::inventory::{SeedBag, SeedItem};
+use crate::state::inventory::{SeedBag, SeedItem};
 
 /// The bags, in the order the reference sends them: its bag array's order, which is by bag
 /// model id (backpack, material storage, unclaimed, storage, equipped items).

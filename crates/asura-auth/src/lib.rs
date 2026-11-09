@@ -29,8 +29,6 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use asura_db::game as db_game;
-use asura_db::login as db_login;
 use asura_db::PgPool;
 use asura_protocol::client::handshake::{self, CLIENT_SEED_LEN, MASTER_SECRET_LEN};
 use asura_protocol::client::messages::{self, PortalAccountLogin, RequestResponse, STATUS_OK};
@@ -38,6 +36,8 @@ use asura_protocol::client::tables;
 use asura_protocol::client::version::{self, VersionError, AUTH_CMSG_VERSION_LEN};
 use asura_protocol::client::{Frame, FrameError};
 use asura_store::identity::Identity;
+use asura_store::state::character as db_game;
+use asura_store::state::characters as db_login;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use uuid::Uuid;

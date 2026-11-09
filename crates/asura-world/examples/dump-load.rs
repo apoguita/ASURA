@@ -38,7 +38,7 @@ fn main() {
     };
     let standing = Standing::from_map(&map);
     // The reference's default inventory, as rows: the same six bags and nine items the server seeds.
-    let inventory = asura_db::inventory::default_inventory();
+    let inventory = asura_store::state::inventory::default_inventory();
 
     println!("# the four messages sent unasked");
     dump(&load_block(&map, &name, asura_world::AGENT_ID));
@@ -52,7 +52,7 @@ fn main() {
     // its character-settings blob decodes to (see `CHARACTER_SETTINGS_EXTENDED`). Passing the *default*
     // traits instead made `PLAYER_UPDATE_PROFESSION` and `_UNLOCKED_PROFESSIONS` differ from the capture by
     // exactly those two fields, which was a difference in this dump rather than in the server.
-    let traits = asura_db::game::Traits {
+    let traits = asura_store::state::character::Traits {
         appearance: 0x0310_0000,
         profession: 1,
         unlocked_professions: 2,

@@ -435,7 +435,7 @@ pub const AGENT_PROPERTY_VALUE64: u32 = 64;
 ///   case: a character that comes back to the map it left stands where it left.
 ///
 /// A character that has never been played has no saved position, and one that was saved in a
-/// different map is arriving here for the first time (`asura_db::game::position`). The facing of a
+/// different map is arriving here for the first time (`asura_store::state::character::position`). The facing of a
 /// saved position is not stored; a doorway arrival takes its facing from the map's arrival entry, and
 /// a resumed character keeps the default direction.
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -129,7 +129,7 @@ pub async fn answer(
     // `asura-rules` and this function only supplies the data (`docs/reference/decisions/layer-decisions.md`, D25). The
     // reason a placement differs from what the client asked for is logged here, because the rule
     // itself does no I/O.
-    let settings = match asura_db::game::settings(pool, character_id).await {
+    let settings = match asura_store::state::character::settings(pool, character_id).await {
         Ok(settings) => settings,
         Err(err) => {
             eprintln!("auth: could not read the character's row for placement: {err}");

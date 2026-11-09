@@ -14,6 +14,7 @@ harness = []
 [dependencies]
 asura-protocol = { path = "../asura-protocol" }
 asura-db = { path = "../asura-db" }
+asura-store = { path = "../asura-store" }
 # The map kinds placement decides by: layer 3 owns the numbers, this crate reads them (D27).
 asura-rules = { path = "../asura-rules" }
 # The cadence this server runs at: tick, ping and the probe/freshness windows come from

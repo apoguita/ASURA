@@ -183,7 +183,7 @@ pub async fn handle_connection(
         presented
     };
     if character != transfer.character_id {
-        let owned = asura_db::login::characters(&world.pool, transfer.account_id)
+        let owned = asura_store::state::characters::characters(&world.pool, transfer.account_id)
             .await
             .map_err(GameError::Database)?
             .iter()

@@ -18,8 +18,8 @@
 //! Every account name is unique per run (it carries a fresh UUID), so a run that panics before its
 //! cleanup leaves an inert row that no later run can mistake for its own.
 
-use asura_db::login as db;
-use asura_db::{PgPool, Uuid};
+use asura_store::state::characters as db;
+use asura_store::{PgPool, Uuid};
 
 /// What the session names, read here because the identity store owns that row now (cut 2b). A test
 /// may ask a table directly; the store is the only *program* path allowed to.
