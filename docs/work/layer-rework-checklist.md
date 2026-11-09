@@ -108,6 +108,13 @@ above turn a layer `closed`.
 
 ## The layers
 
+The numbers are **dependency order, not the order a client meets them**: nothing in a layer may
+depend on a later one (D27, `docs/reference/decisions/layer-decisions.md:38`), which is why the wire
+crate is 1 and the socket layer is 5 even though the socket answers first. In the order a client
+meets them the numbers read 5 (socket), 4 (auth), 3 (rules), then the world. A row says what its
+layer may hold: layer 1 holds bytes, headers, layouts and the values the client itself defines, and
+nothing that decides anything - no game value, no account fact, no rule.
+
 | # | layer | files (measured) | class | status |
 |---|---|---|---|---|
 | 1 | wire and codec | `asura-protocol`, 14 files, 8,415 lines measured 2026-11-08; the packet table and the codecs, no payload of its own | evidence | audited, findings open |
