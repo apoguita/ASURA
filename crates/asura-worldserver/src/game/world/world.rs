@@ -13,6 +13,7 @@ use crate::*;
 /// What a world server needs in order to accept a client.
 #[derive(Clone)]
 pub struct World {
+    /// The PostgreSQL pool this world asks through.
     pub pool: PgPool,
     /// The world's registered id: the `map_token` a client presents, and the key of its `world` row.
     pub world_id: i32,

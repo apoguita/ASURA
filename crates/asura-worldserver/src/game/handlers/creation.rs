@@ -6,8 +6,7 @@
 
 use super::*;
 use crate::game::mechanics::creation::{
-    creation_equipment_rows, creation_inventory, equipped_items, Creation, CREATION_ENERGY,
-    CREATION_HEALTH,
+    creation_equipment_rows, creation_inventory, equipped_items, CREATION_ENERGY, CREATION_HEALTH,
 };
 
 /// ---- character creation (a connection in a `MapType_CharacterCreation` instance) -------------

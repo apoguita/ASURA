@@ -326,6 +326,7 @@ pub async fn handle_move_to_coord(
     Ok(true)
 }
 
+/// The client asks for the spawn block: where it stands and which map blob to load.
 pub async fn handle_request_spawn(
     stream: &mut TcpStream,
     session: &mut Session,
@@ -341,6 +342,7 @@ pub async fn handle_request_spawn(
     send(stream, session, block, trace).await?;
     Ok(true)
 }
+/// The client reports where it moved to; the budget decides and the walk is answered.
 
 pub async fn handle_position_update(
     stream: &mut TcpStream,

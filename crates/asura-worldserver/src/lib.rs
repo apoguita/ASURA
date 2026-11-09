@@ -200,6 +200,7 @@ pub use game::content::default_equipment;
 /// Why a connection ended.
 #[derive(Debug)]
 pub enum GameError {
+    /// The socket failed.
     Io(io::Error),
     /// The first four bytes are not a game connection's.
     NotAGameConnection(version::VersionError),
@@ -208,7 +209,9 @@ pub enum GameError {
     /// The client presented a token pair this world was not told about, or one already claimed, or a
     /// character that is not the one the transfer was issued for.
     UnknownTransfer {
+        /// The player token it presented.
         map_token: u32,
+        /// The player token it presented.
         player_token: u32,
     },
     /// The transfer is real but names a map this world does not host.
@@ -270,7 +273,6 @@ fn wire_u32(value: i32) -> u32 {
 
 /// A fresh `u32` for a player token. The auth service mints the same kind
 /// (`AuthSrv_HandleRequestGameInstance`; `crates/asura-auth/src/travel.rs:178` sends the field.
-/// Milliseconds since this process started, for a log line that has to be placed in time.
 ///
 /// The world's log carries no clock, and a delay measured by eye is not a measurement: the load block's own
 /// line now carries this stamp, so the gap between two runs, or between two loads, is arithmetic.
@@ -286,6 +288,7 @@ fn last_redirect() -> &'static std::sync::Mutex<Option<(u32, std::time::Instant)
     LAST.get_or_init(|| std::sync::Mutex::new(None))
 }
 
+/// Milliseconds since this process started, as the load-time lines report them.
 pub fn stamp_ms() -> u128 {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
     START

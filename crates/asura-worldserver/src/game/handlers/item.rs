@@ -4,6 +4,7 @@
 //! noun holds the rows and the rules, the handler holds the conversation.
 
 use super::*;
+/// The client asks for the item stream: the inventory, weapon slots, gold and the manifest in the reference's order.
 pub async fn handle_request_items(
     stream: &mut TcpStream,
     session: &mut Session,

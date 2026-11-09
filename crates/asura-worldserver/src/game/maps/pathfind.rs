@@ -111,8 +111,11 @@ fn vec2f_unit(vector: Vec2f) -> Vec2f {
 /// `GmPos` (`GmDefs.h:15`): a position and the plane it is on.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Pos {
+    /// The x coordinate on the map's plane.
     pub x: f32,
+    /// The y coordinate on the map's plane.
     pub y: f32,
+    /// The pathing plane this position is on.
     pub plane: u16,
 }
 
@@ -129,7 +132,9 @@ impl Pos {
 /// One waypoint of a walk: where to go and which trapezoid it leads into.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Waypoint {
+    /// Where the waypoint is.
     pub pos: Pos,
+    /// The trapezoid the waypoint ends in, which the walker uses to continue.
     pub trap_id: u32,
 }
 
@@ -475,6 +480,7 @@ pub struct PathContext {
 }
 
 impl PathContext {
+    /// A context for one map's path data: the finder's working copy.
     pub fn new(data: std::sync::Arc<PathStaticData>) -> PathContext {
         let mut index = vec![(0u16, 0u32); data.traps_count as usize];
         for plane in &data.planes {
@@ -1484,6 +1490,7 @@ use crate::*;
 pub struct PathGraphs(std::sync::Arc<PathGraphsInner>);
 
 #[derive(Default)]
+/// The path graphs a world holds, per map, behind the handle `PathGraphs` clones.
 pub struct PathGraphsInner {
     /// One graph per `map_file_id`, behind a lock because a demand-loaded map (`--on-demand`) adds its
     /// graph after startup. Reads clone the `Arc` out and drop the lock, so a search never holds it.

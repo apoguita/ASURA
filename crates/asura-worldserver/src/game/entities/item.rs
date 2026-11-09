@@ -442,6 +442,7 @@ pub async fn equip_item(
     send(stream, session, frames, trace).await
 }
 
+/// The equipped-items frame for this player, as the visual-equipment message carries it.
 pub fn equipment_frame(player: &Player) -> Frame {
     builders::update_agent_visual_equipment(
         player.GetAgentID(),

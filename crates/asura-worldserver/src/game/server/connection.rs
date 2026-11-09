@@ -85,11 +85,14 @@ pub fn panic_message(err: tokio::task::JoinError) -> String {
 
 /// One connection's cipher state and the decrypted bytes not yet framed.
 pub struct Session {
+    /// The cipher state the key exchange established.
     pub established: Established,
+    /// The decrypted bytes that are not yet a whole message.
     pub plaintext: Vec<u8>,
 }
 
 impl Session {
+    /// A connection's session over an established cipher.
     pub fn new(established: Established) -> Self {
         Session {
             established,
@@ -583,8 +586,11 @@ pub async fn send(
 /// An item and where it is being put: the three fields `GAME_CMSG_ITEM_MOVE` carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Placement {
+    /// The item the client named.
     pub item_id: i32,
+    /// The bag it moved it into.
     pub bag_id: i32,
+    /// The slot inside that bag.
     pub slot: i32,
 }
 

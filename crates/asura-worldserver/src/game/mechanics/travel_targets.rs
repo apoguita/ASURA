@@ -14,6 +14,7 @@ pub struct TravelTarget {
     pub alias: &'static str,
     /// What the log calls it, and what `/maps` prints once per map.
     pub label: &'static str,
+    /// The map the alias names.
     pub map_id: i32,
     /// `MapType` (`GmMaps.h`): 0 town, 1 explorable, 11 character creation.
     pub map_type: i32,

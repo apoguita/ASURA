@@ -12,7 +12,7 @@
 use crate::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(test)]
 mod portal_tests {
@@ -196,6 +196,7 @@ impl Instance {
         &self.map
     }
 
+    /// A new instance for a map, with the speed every agent it creates will move at.
     pub fn new(map: MapEntry, speed_base: f32) -> Instance {
         Instance {
             map,
@@ -471,10 +472,15 @@ impl Instance {
 /// A peer as it is copied out of an instance: everything a joining player needs to be told.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PeerView {
+    /// The player id this view was made for.
     pub player_id: u32,
+    /// The agent id it was given.
     pub agent_id: u32,
+    /// The character's name.
     pub name: String,
+    /// Where the agent stands.
     pub standing: Standing,
+    /// The nine equipped item ids the visual equipment carries.
     pub equipped: [u32; 9],
 }
 

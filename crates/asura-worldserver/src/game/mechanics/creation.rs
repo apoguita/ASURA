@@ -27,7 +27,9 @@ pub const GM_ERROR_CHARACTER_NAME_ALREADY_EXIST: u32 = 0x0106;
 /// the profession changes (`GetDefaultEquipments`) - and only becomes rows at confirm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Creation {
+    /// The campaign the character was created for.
     pub campaign: u8,
+    /// The profession the screen chose.
     pub profession: u8,
 }
 

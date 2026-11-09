@@ -10,7 +10,9 @@
 //! Do not edit by hand.
 /// One unlockable PvP item: its id and the parameters the client pairs with it.
 pub struct PvpItem {
+    /// The item's id, as the client's unlockable table names it.
     pub id: u16,
+    /// The item's parameters, copied from the reference's table.
     pub params: &'static [u32],
 }
 

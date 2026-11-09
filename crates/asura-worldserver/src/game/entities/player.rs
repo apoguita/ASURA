@@ -44,6 +44,7 @@ pub struct Admission {
     /// The character's stored traits.
     pub traits: db_game::Traits,
 }
+/// One player in one instance: the character, its agent, what it carries and the clock the load reported.
 pub struct Player {
     /// The character the transfer named. Every write on the way out is scoped to it.
     character: Uuid,

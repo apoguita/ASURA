@@ -10,6 +10,7 @@
 
 use crate::*;
 
+/// The spawn block: the map blob id and the point the client should stand at.
 pub fn spawn_block(map: &MapEntry, standing: Standing) -> Vec<Frame> {
     vec![builders::instance_load_spawn_point(
         map.map_file_id,

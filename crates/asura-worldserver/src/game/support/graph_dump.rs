@@ -54,6 +54,7 @@ pub struct DumpedGraph {
     /// The `Gw.dat` blob id: the real key of a graph, because several maps share one blob
     /// (146/148, 160/163, 161/165 and 162/166 in the reference's catalogue all do).
     pub map_file_id: u32,
+    /// The path data, as it was dumped.
     pub data: PathStaticData,
 }
 

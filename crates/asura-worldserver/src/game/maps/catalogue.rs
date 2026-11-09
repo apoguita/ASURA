@@ -93,6 +93,7 @@ mod file_tests {
 /// One map a world server publishes, with what the client needs to load it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MapEntry {
+    /// The map id the entry is about.
     pub map_id: i32,
     /// The `Gw.dat` file id of the map blob (`map_config.map_file_id`). A map without one loads to a
     /// black screen, so it is passed to the client rather than guessed.

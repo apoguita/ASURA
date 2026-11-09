@@ -105,7 +105,9 @@ pub fn maps_answer(maps: &[MapEntry]) -> MappedMaps {
 /// its log. Two shapes, because the reference has two.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappedMaps {
+    /// The channel messages this answer carries.
     pub chat: Vec<String>,
+    /// The table rows this answer prints.
     pub table: Vec<String>,
 }
 

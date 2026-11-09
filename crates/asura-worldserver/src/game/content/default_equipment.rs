@@ -7,18 +7,31 @@
 /// One item of a profession's starting set, in the reference's own field order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ItemSpec {
+    /// The item's `Gw.dat` file id.
     pub file_id: u32,
+    /// The item's type, as the reference's table states it.
     pub item_type: u8,
+    /// The dye tint byte the reference's literal carries.
     pub dye_tint: u8,
+    /// The four dye colours, packed as the item's field holds them.
     pub dye_colors: u16,
+    /// The material/colour word the reference writes.
     pub materials: u16,
+    /// A byte the reference's table sets and this server does not interpret.
     pub unk1: u8,
+    /// The item's flag word.
     pub flags: u32,
+    /// The item's value in gold.
     pub value: u32,
+    /// The model id the client draws the item with.
     pub model_id: u32,
+    /// How many the character receives.
     pub quantity: u32,
+    /// The profession this piece belongs to; 0 for the shared set.
     pub profession: u8,
+    /// The item's name, as UTF-16 units.
     pub name: &'static [u16],
+    /// The item's modifiers, as the reference's table lists them.
     pub modifiers: &'static [u32],
 }
 

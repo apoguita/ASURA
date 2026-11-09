@@ -43,12 +43,19 @@ const INDEX_TOC: usize = 1;
 /// The 32-byte archive header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header {
+    /// The archive's magic word, as `FaArchive.c` checks it.
     pub magic: u32,
+    /// How many bytes of header precede the first block.
     pub header_size: u32,
+    /// The block size the archive was written with.
     pub block_size: u32,
+    /// The header's own checksum.
     pub checksum: u32,
+    /// Where the master file table starts.
     pub mft_offset: u64,
+    /// How large the table is.
     pub mft_size: u32,
+    /// The archive's flag word.
     pub flags: u32,
 }
 
@@ -62,9 +69,13 @@ pub struct Entry {
     pub size: u32,
     /// 0 for stored, non-zero for compressed (`FaArchive.h:38`: "0=stored, 8=compress").
     pub compressed: u16,
+    /// The record's flag byte.
     pub flags: u8,
+    /// The stream this file's bytes continue into.
     pub stream: u8,
+    /// The next stream's index.
     pub next_stream: u32,
+    /// The record's own checksum.
     pub checksum: u32,
 }
 
@@ -179,10 +190,12 @@ impl GwDat {
         })
     }
 
+    /// The archive header this reader was built from.
     pub fn header(&self) -> &Header {
         &self.header
     }
 
+    /// The archive's own path, as it was opened.
     pub fn path(&self) -> &str {
         &self.path
     }
@@ -192,6 +205,7 @@ impl GwDat {
         self.entries.len()
     }
 
+    /// Whether the archive holds no files.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

@@ -39,6 +39,7 @@ pub struct Agent;
 #[allow(non_snake_case)]
 impl Agent {
     /// `Agent.IsValid()`: whether the instance's agents hold that id.
+    #[allow(dead_code)]
     fn IsValid(instance: &Instance, agent_id: u32) -> bool {
         instance.has_agent(agent_id)
     }
@@ -49,6 +50,7 @@ impl Agent {
     }
 
     /// `Agent.GetZPlane()`: the plane the agent stands on.
+    #[allow(dead_code)]
     fn GetZPlane(agent: &AgentState) -> u16 {
         agent.plane
     }
@@ -290,7 +292,7 @@ impl AgentState {
     /// when the client's copy would otherwise disagree (`GameSrv_HandleMoveToCoord`). That decision is
     /// state, so it lives here; the handler builds the frame from what this returns.
     pub fn begin_walk_announcing(&mut self, waypoints: Vec<Waypoint>) -> Option<Begun> {
-        let announcement = (self.move_type != 1 || self.move_speed != 1.0);
+        let announcement = self.move_type != 1 || self.move_speed != 1.0;
         self.move_type = 1;
         self.move_speed = 1.0;
         let first = self.begin_walk(waypoints)?;
@@ -377,6 +379,8 @@ impl AgentState {
     /// no elapsed-time budget, no clamping (`captures/live-move.jsonl`: every answer's destination is the
     /// reported position plus the reported offset, to within the server's own float error). Adopting it
     /// exactly is what keeps the server's copy and the client's walk from drifting apart.
+    /// Take the client's position exactly, without judging it: used where the step is already believed.
+    #[allow(dead_code)]
     fn adopt_exact(&mut self, position: (f32, f32), plane: u16) {
         self.position = position;
         self.plane = plane;
@@ -386,6 +390,8 @@ impl AgentState {
     ///
     /// The caller has already decided the point is reachable on this plane; the plane travels with the
     /// destination so an arrival on another plane is the same move the reference makes.
+    /// Walk toward a point, planning a path and starting the walk: the rule a click answers with.
+    #[allow(dead_code)]
     fn walk_to(&mut self, destination: Pos) {
         self.motion.waypoints.clear();
         self.motion.waypoint_idx = 0;
@@ -619,7 +625,9 @@ pub const AGENT_PROPERTY_VALUE64: u32 = 64;
 /// a resumed character keeps the default direction.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Standing {
+    /// Where the agent stands.
     pub position: (f32, f32),
+    /// The pathing plane the position belongs to.
     pub plane: u16,
     /// Which way the character faces on arrival, as the unit vector
     /// `GAME_SMSG_WORLD_CREATE_AGENT` carries.
@@ -762,12 +770,19 @@ pub enum Walk {
 /// a client shows as a terrain jump.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MoveStats {
+    /// How many walk requests arrived.
     pub walk_requests: u32,
+    /// How many position reports arrived.
     pub reports: u32,
+    /// How many reports were believed.
     pub accepted: u32,
+    /// How many were clamped to the movement budget.
     pub clamped: u32,
+    /// How many were refused.
     pub refused: u32,
+    /// How many reports changed the plane.
     pub plane_changes: u32,
+    /// How many simulation ticks ran while tracing.
     pub ticks: u32,
     /// The largest gap seen between a reported position and the server's own, before adoption.
     pub max_drift: f32,
