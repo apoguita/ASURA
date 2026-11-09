@@ -17,14 +17,21 @@ is how the documents came to contradict each other.
 
 ## The target composition
 
-Two doors, one per conversation, each a program with its own listener, configuration, store access
-and log. The client walks in through the login door, is told the world's own address, and walks in
-through the game door.
+**One client-visible address, several programs behind it.** This is the client's rule, measured rather
+than chosen: after the redirect the client dials the address the game was *launched* with, and a client
+handed a different address still dials the launch address (build 39112,
+`docs/reference/client-protocol.md:708-712`). AzerothCore's two client-facing ports are therefore not
+available to us, and the door split is by **program**, not by port: the login program owns the one
+address and hands the gameplay connection to a separate world program, which is what the reference does
+in the same position (`crates/asura-gateway/src/relay.rs:1-17`).
+
+The client walks in through the login address, is told where to play, and walks in again at that same
+address; the login program recognises the second connection and copies it to the world it names.
 
 | part | what it is | owns |
 |---|---|---|
-| login door | `asura-gateway`'s auth half plus `asura-auth` | file check, version, key exchange, account, character list, select, redirect |
-| world door | `asura-world`'s listener and everything behind it | the gameplay connection, maps, instances, players |
+| login program | `asura-gateway` plus `asura-auth` | the client's one address, file check, version, key exchange, account, character list, select, redirect, and the handoff of a gameplay connection |
+| world program | `asura-world`'s listener and everything behind it | the gameplay connection, maps, instances, players |
 | registry | the database row per world | which world serves a map, its capacity, its freshness |
 | identity store | accounts, credentials, sessions | who this is |
 | state store | characters, items, leases, transfers | what happened to whom |
@@ -65,8 +72,8 @@ and its documents were updated in the same commit.
 | phase | state | evidence |
 |---|---|---|
 | 0 | done | this file, `d7d229d`; the database-holds-state ruling and the action table, `01250ff` |
-| 1 | not started | cut from a socket-by-socket measurement of `crates/asura-gateway` |
-| 2 | not started | |
+| 1 | done by measurement | the client dials its launch address, so one client-visible address is forced (`docs/reference/client-protocol.md:708-712`); the world already sits behind it as a separate program (`crates/asura-gateway/src/relay.rs:9-17`) |
+| 2 | not started | cut from the store inventory: which modules read which tables today |
 | 3 | not started | |
 | 4 | not started | |
 | 5 | not started | |
@@ -100,7 +107,7 @@ Neither is fixed by this plan. A phase that changes either of them says so in it
 | phase | what lands | what proves it | documents updated with it |
 |---|---|---|---|
 | 0 | this plan | you read it | this file; one pointer line in `docs/README.md` and the handoff |
-| 1 | two doors: the login door becomes its own program with its own config file and log; the world door accepts the client directly; the redirect carries the world's address; the relay stays behind a switch for one phase | real client: login, redirect into the world's own address, in-world; frames identical; the switch flipped both ways | `operations/running-the-server.md`, `config/Server/README.md`, `guidance/architecture.md` (today), `work/project-status.md` |
+| 1 | the door split, re-cut by measurement: one client-visible address, and the programs behind it named for what they are. The login program owns that address and the handoff; the world program owns its own listener and accepts the handoff as a client connection. No second client-facing port is created, because the client would not use it | nothing new runs; this phase closes on the measurement at `docs/reference/client-protocol.md:708-712`, which is what forced it | this file; `guidance/architecture.md` (today) |
 | 2 | three stores by owner: identity, state, content stop sharing one access path; one interface per store | login, travel, item persistence, a full world refused cleanly; migrations unchanged | `config/Server/README.md`, the storage section of `guidance/architecture.md` |
 | 3 | placement as one responsibility: four operations - find worlds, reserve, release, record a transfer - and both doors call them | travel in both directions; a full world refused without disturbing the holder | `guidance/architecture.md`, the entry and travel rows of `reference/game-world-model.md` |
 | 4 | the world's inside split: listener, sessions, simulation, mechanics as separate files with private data; the reference's bounded parallel map update replaces one task per map | real client in-world; ping and tick cadence measured; two clients see each other | `work/layer-rework-checklist.md`, `work/world-simulation-plan.md` |

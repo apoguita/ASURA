@@ -48,6 +48,12 @@ endpoint, forwards the connection prefix and copies bytes between sockets
 (`crates/asura-gateway/src/relay.rs:128`, `:135`). The world validates the pending transfer and
 runs the gameplay conversation. Gateway does not become the world's identity authority by relaying it.
 
+That one listener is the client's rule, not a design choice: after the redirect it dials the address the
+game was launched with, and a client handed a different address still dials the launch address (build
+39112, `docs/reference/client-protocol.md:708-712`). AzerothCore's two client-facing ports are therefore
+not available here; the separation the reference has between its auth and world programs is kept by the
+world being a separate program behind that address.
+
 Auth and world coordinate state and placement through the database; the relay carries client traffic,
 not a separate auth/world state protocol. World processes can be replaced independently of the auth
 conversation, but stopping gateway drops the gameplay sockets it is carrying.
