@@ -187,7 +187,7 @@ client.
 |---|---|---|
 | 4a | the shell and `shared/socket`: accept, buffered reads, the 64-byte game version, framing, send | done, `4d04350` |
 | 4b | the whole library moves into `game/` by noun, re-exported at the crate root; the binary serves | done, `79c21d9` |
-| 4c | the nouns become real: the public surface below shrinks to what other nouns actually call, and the reference's bounded parallel map update replaces one task per map | next |
+| 4c | the nouns become real: the public surface below shrinks to what other nouns actually call, and the reference's bounded parallel map update replaces one task per map | started: `agent` state is private behind accessors |
 | 4d | the mechanics read content and ask the simulation; `agent` splits into movement and standing | |
 | 4e | `scripts/` gains the hook position behaviour reaches mechanics through | |
 | 4f | `asura-world` is deleted once the client has run on the new program for a full pass | |

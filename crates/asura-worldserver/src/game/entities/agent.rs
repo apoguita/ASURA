@@ -87,25 +87,25 @@ pub enum Adopted {
 /// Where one agent is, and when it last said so.
 #[derive(Debug, Clone)]
 pub struct AgentState {
-    pub agent_id: u32,
-    pub position: (f32, f32),
-    pub plane: u16,
+    agent_id: u32,
+    position: (f32, f32),
+    plane: u16,
     /// Which way the agent faces while it is not walking, as the unit vector the world announced when
     /// it created the agent. The spawn point's angle lands here.
-    pub facing: (f32, f32),
+    facing: (f32, f32),
     /// The reference's `last_position_update`, in milliseconds since the connection started.
-    pub last_report: Option<Instant>,
+    last_report: Option<Instant>,
     /// The agent's walking speed, which is what the budget is computed from.
-    pub speed_base: f32,
+    speed_base: f32,
     /// The walk in progress, if any (`GmAgent.destination`, `.direction`, `.speed`, `.waypoints`,
     /// `.waypoint_idx`).
-    pub motion: Motion,
+    motion: Motion,
     /// Last announced movement type: 1 forward, 4 backward, 7/8 strafe, 9 stopped.
-    pub move_type: u8,
+    move_type: u8,
     /// Movement speed factor sent with the type; separate from the base speed.
-    pub move_speed: f32,
+    move_speed: f32,
     /// Last announced manual direction, for suppressing unchanged direction replies.
-    pub move_direction: (f32, f32),
+    move_direction: (f32, f32),
 }
 
 /// The reference's `GmAgent` walking state: one segment being walked, and the waypoints after it.
@@ -113,15 +113,15 @@ pub struct AgentState {
 pub struct Motion {
     /// `GmAgent.waypoints`: the path the server chose. The segment being walked has already been taken
     /// off the front of it, exactly as `waypoint_idx` does in the reference.
-    pub waypoints: Vec<Waypoint>,
+    waypoints: Vec<Waypoint>,
     /// `GmAgent.waypoint_idx`: the next waypoint to take when the current segment ends.
-    pub waypoint_idx: usize,
+    waypoint_idx: usize,
     /// `GmAgent.destination`: where the current segment ends, plane included.
-    pub destination: Pos,
+    destination: Pos,
     /// `GmAgent.direction`: a unit vector from the agent toward `destination`.
-    pub direction: (f32, f32),
+    direction: (f32, f32),
     /// `GmAgent.speed`: zero when the agent is standing still.
-    pub speed: f32,
+    speed: f32,
 }
 
 impl AgentState {
@@ -147,6 +147,45 @@ impl AgentState {
         }
     }
 
+    /// The id this agent was given.
+    pub fn agent_id(&self) -> u32 {
+        self.agent_id
+    }
+
+    /// Where the agent stands now.
+    pub fn position(&self) -> (f32, f32) {
+        self.position
+    }
+
+    /// The plane the position belongs to: a pathing plane, not a height.
+    pub fn plane(&self) -> u16 {
+        self.plane
+    }
+
+    /// Which way it faces while standing.
+    pub fn facing(&self) -> (f32, f32) {
+        self.facing
+    }
+
+    /// How fast this agent walks, which is what its movement budget is computed from.
+    pub fn speed_base(&self) -> f32 {
+        self.speed_base
+    }
+
+    /// The speed of the walk in progress; zero when it stands still.
+    pub fn motion_speed(&self) -> f32 {
+        self.motion.speed
+    }
+
+    /// How many waypoints are still ahead of the current segment.
+    pub fn motion_waypoint_index(&self) -> usize {
+        self.motion.waypoint_idx
+    }
+
+    /// How many waypoints the walk has in total.
+    pub fn motion_waypoint_count(&self) -> usize {
+        self.motion.waypoints.len()
+    }
     /// The agent's position as a point on the map's graph.
     pub fn here(&self) -> Pos {
         Pos {

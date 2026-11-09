@@ -151,7 +151,7 @@ impl Instance {
         let mut slots = self.locked();
         let player_id = (1..).find(|id| !slots.contains_key(id)).unwrap_or(1);
         let agent_id = (1..)
-            .find(|id| !slots.values().any(|slot| slot.agent.agent_id == *id))
+            .find(|id| !slots.values().any(|slot| slot.agent.agent_id() == *id))
             .unwrap_or(1);
         slots.insert(
             player_id,
@@ -216,7 +216,7 @@ impl Instance {
     pub fn has_agent(&self, agent_id: u32) -> bool {
         self.locked()
             .values()
-            .any(|slot| slot.agent.agent_id == agent_id)
+            .any(|slot| slot.agent.agent_id() == agent_id)
     }
 
     /// How many players are in the instance.
@@ -248,9 +248,9 @@ impl Instance {
     /// the facing the agent was created with, so a spawn point's angle survives into the load block.
     pub fn standing(&self, player_id: u32) -> Option<Standing> {
         self.with_slot(player_id, |slot| Standing {
-            position: slot.agent.position,
-            plane: slot.agent.plane,
-            direction: slot.agent.facing,
+            position: slot.agent.position(),
+            plane: slot.agent.plane(),
+            direction: slot.agent.facing(),
         })
     }
 
@@ -298,11 +298,11 @@ impl Instance {
             if slot.loading {
                 continue;
             }
-            let was_moving = 0.0 < slot.agent.motion.speed;
-            let before = slot.agent.position;
-            let before_plane = slot.agent.plane;
+            let was_moving = 0.0 < slot.agent.motion_speed();
+            let before = slot.agent.position();
+            let before_plane = slot.agent.plane();
             let cross = slot.agent.advance(delta);
-            let after = slot.agent.position;
+            let after = slot.agent.position();
             if before != after && crate::portals::crossed(self.map.map_id, before, after).is_some()
             {
                 if let Some(outbox) = &slot.portal_outbox {
@@ -313,8 +313,8 @@ impl Instance {
                 slot.move_stats.ticks += 1;
                 if was_moving {
                     let moved = {
-                        let dx = slot.agent.position.0 - before.0;
-                        let dy = slot.agent.position.1 - before.1;
+                        let dx = slot.agent.position().0 - before.0;
+                        let dy = slot.agent.position().1 - before.1;
                         (dx * dx + dy * dy).sqrt()
                     };
                     let expected = self.speed_base * delta;
@@ -322,16 +322,18 @@ impl Instance {
                         "move[tick] walked {moved:.1} units (expected {expected:.1} at \
                          {:.0}/s), agent (x={:.1}, y={:.1}, plane={})",
                         self.speed_base,
-                        slot.agent.position.0,
-                        slot.agent.position.1,
-                        slot.agent.plane
+                        slot.agent.position().0,
+                        slot.agent.position().1,
+                        slot.agent.plane()
                     );
-                    if slot.agent.plane != before_plane {
+                    if slot.agent.plane() != before_plane {
                         slot.move_stats.plane_changes += 1;
                         eprintln!(
                             "move[jump] the walk changed the agent's plane {before_plane} -> {} \
                              at (x={:.1}, y={:.1}) - the client will place it on that plane now",
-                            slot.agent.plane, slot.agent.position.0, slot.agent.position.1
+                            slot.agent.plane(),
+                            slot.agent.position().0,
+                            slot.agent.position().1
                         );
                     }
                 }
@@ -339,28 +341,30 @@ impl Instance {
                     eprintln!(
                         "move[tick] crossed waypoint {}/{} (x={:.1}, y={:.1}, plane={}, trap={}); \
                          agent now (x={:.1}, y={:.1}, plane={})",
-                        slot.agent.motion.waypoint_idx,
-                        slot.agent.motion.waypoints.len(),
+                        slot.agent.motion_waypoint_index(),
+                        slot.agent.motion_waypoint_count(),
                         waypoint.pos.x,
                         waypoint.pos.y,
                         waypoint.pos.plane,
                         waypoint.trap_id,
-                        slot.agent.position.0,
-                        slot.agent.position.1,
-                        slot.agent.plane
+                        slot.agent.position().0,
+                        slot.agent.position().1,
+                        slot.agent.plane()
                     );
-                } else if was_moving && slot.agent.motion.speed == 0.0 {
+                } else if was_moving && slot.agent.motion_speed() == 0.0 {
                     eprintln!(
                         "move[tick] arrival at (x={:.1}, y={:.1}, plane={}); the walk is over",
-                        slot.agent.position.0, slot.agent.position.1, slot.agent.plane
+                        slot.agent.position().0,
+                        slot.agent.position().1,
+                        slot.agent.plane()
                     );
                 }
             }
             if let Some(waypoint) = cross {
                 crossed.push((
                     slot.player_id,
-                    slot.agent.agent_id,
-                    slot.agent.plane,
+                    slot.agent.agent_id(),
+                    slot.agent.plane(),
                     waypoint,
                 ));
             }
@@ -417,12 +421,12 @@ impl From<&Slot> for PeerView {
     fn from(slot: &Slot) -> Self {
         PeerView {
             player_id: slot.player_id,
-            agent_id: slot.agent.agent_id,
+            agent_id: slot.agent.agent_id(),
             name: slot.name.clone(),
             standing: Standing {
-                position: slot.agent.position,
-                plane: slot.agent.plane,
-                direction: slot.agent.facing,
+                position: slot.agent.position(),
+                plane: slot.agent.plane(),
+                direction: slot.agent.facing(),
             },
             equipped: slot.equipped,
         }

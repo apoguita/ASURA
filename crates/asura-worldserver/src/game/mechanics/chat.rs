@@ -269,16 +269,19 @@ pub async fn handle_chat_message(
                     if trace {
                         eprintln!(
                             "world: /stuck -- agent {} stands at ({:.1}, {:.1}) plane {}",
-                            agent.agent_id, agent.position.0, agent.position.1, agent.plane
+                            agent.agent_id(),
+                            agent.position().0,
+                            agent.position().1,
+                            agent.plane()
                         );
                     }
                     send(
                         stream,
                         session,
                         vec![builders::agent_update_position(
-                            agent.agent_id,
-                            agent.position,
-                            agent.plane,
+                            agent.agent_id(),
+                            agent.position(),
+                            agent.plane(),
                         )],
                         trace,
                     )
