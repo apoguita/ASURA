@@ -76,6 +76,12 @@ player token placement carries.
 
 ## Where the work stands
 
+**Stopped, 2026-11-09.** The owner tested the live server and it works, and stopped this work: no
+further re-engineering. What is in the tree stays as it is - it is what the live test ran against, so
+it is not reverted. Cut 4f was never done, so `crates/asura-world` is still present, and the phase-4
+rows below are a record of what was cut, not a plan to resume. Nothing here is `done` in the senses
+this file defines: no phase was ever proven by a client.
+
 Read this table first when resuming. A phase is `done` only when its row in "The phases" was proven
 and its documents were updated in the same commit.
 
