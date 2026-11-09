@@ -92,7 +92,10 @@ pub async fn answer(
         // The world map's request. The client has already decided which instance it wants; this carries
         // the decision out with the same cycle `/tp` uses.
         msg::GAME_CMSG_PARTY_TRAVEL => {
-            travel::handle_party_travel(stream, session, &frame, world, player, trace).await
+            crate::game::handlers::travel::handle_party_travel(
+                stream, session, &frame, world, player, trace,
+            )
+            .await
         }
 
         msg::GAME_CMSG_SEND_CHAT_MESSAGE => {

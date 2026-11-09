@@ -218,55 +218,10 @@ pub async fn teleport(
     begin_transfer(stream, session, world, player, target, None, trace).await
 }
 
-/// The client's own request, from the world map: `GAME_CMSG_PARTY_TRAVEL` (`0x80B1`).
-///
-/// **The client decides where it may go; this server carries the decision out.** That is the whole
-/// policy (`docs/reference/game-world-model.md`): the unlocked-instance bitmap is what a client uses to offer a
-/// destination, and a server that second-guesses it blocks legitimate travel - an outpost and the
-/// explorable it exits to can share one map blob, so a rule about "which kinds of instance you may
-/// travel to" refuses travel the game itself allows.
-///
-/// The wire, measured from this client's own sends (`logs/world-8001.log`, `world <- 0x80B1 (9 bytes)`):
-///
-/// ```text
-/// B1 80 | 94 00 | 02 | 00 00 | 00 | 01      destination 148
-/// B1 80 | A6 00 | 02 | 00 00 | 00 | 01      destination 166
-/// ```
-///
-/// so the destination instance is a `u16` first, then three bytes this server does not interpret. The
-/// retail client sends the same request with a 32-bit instance id
-/// (`captures/zone-ref2-012225.jsonl`: `b1 00 00 00 | a4 00 00 00 | ... | 01 00 00 00`), which is the
-/// other build of the protocol (`docs/reference/client-protocol.md` 5e) - the field is the same one either way.
-pub async fn handle_party_travel(
-    stream: &mut TcpStream,
-    session: &mut Session,
-    frame: &Frame,
-    world: &World,
-    player: &mut Player,
-    trace: bool,
-) -> Result<bool, GameError> {
-    if frame.body().len() < 2 {
-        return Err(GameError::Framing(FrameError::Incomplete { needed: 9 }));
-    }
-    let map_id = i32::from(u16::from_le_bytes([frame.body()[0], frame.body()[1]]));
-    eprintln!(
-        "world: {:?} asked for instance {map_id} from the world map in map {}",
-        player.name(),
-        player.instance().map().map_id
-    );
-    let Some(destination) = resolve_instance(world, map_id).await? else {
-        // A statement about this server, not about the client's rights: it has no row, no blob, or a
-        // type this world does not host.
-        eprintln!("world: instance {map_id} cannot be served by this world; the travel is refused");
-        return Ok(true);
-    };
-    begin_transfer(stream, session, world, player, destination, None, trace).await
-}
-
 /// The instance a travel names, demand-loaded when this world hosts it only on demand.
 ///
 /// `None` means this server cannot serve it at all.
-async fn resolve_instance(world: &World, map_id: i32) -> Result<Option<MapEntry>, GameError> {
+pub async fn resolve_instance(world: &World, map_id: i32) -> Result<Option<MapEntry>, GameError> {
     if let Some(map) = world.map(map_id) {
         return Ok(Some(map));
     }
@@ -364,7 +319,7 @@ pub async fn portal_crossed(
 /// `None`, which **clears** the saved position: a travel does not preserve where a character was, only
 /// a disconnect does, and an outpost arrival picks its own spawn point at random regardless
 /// (`Standing::arrival`).
-async fn begin_transfer(
+pub async fn begin_transfer(
     stream: &mut TcpStream,
     session: &mut Session,
     world: &World,
