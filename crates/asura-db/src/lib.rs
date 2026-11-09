@@ -154,8 +154,9 @@ pub const REQUIRED_TABLES: &[&str] = &[
     "t_service",
 ];
 
-/// The account row itself: the EULA version it accepted, and whatever later column a login needs.
-pub mod account;
+/// The identity store: the account row and the portal identity the web gate hands the client. The
+/// modules inside are re-exported at their old paths (`account`, `portal`) so no caller changes yet.
+pub mod identity;
 
 /// The queries placement needs: the atomic reservation, the lease ledger, and the reaper. Every
 /// statement that mutates a pool lives in this module, behind a function whose name says what it does.
@@ -178,8 +179,10 @@ pub mod inventory;
 /// The migration runner, and the startup check that refuses a database older than the code.
 pub mod migrations;
 
-/// The portal identity the web gate hands the client (the pair the auth service resolves).
-pub mod portal;
+/// The portal identity the web gate hands the client, at its old path. Its implementation is the
+/// identity store's (`identity::portal`); this name is a door for callers that have not moved.
+pub use identity::account;
+pub use identity::portal;
 
 /// Where the programs find their settings: the environment, then the repository's `.env`.
 pub mod config;

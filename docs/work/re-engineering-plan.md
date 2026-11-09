@@ -73,7 +73,7 @@ and its documents were updated in the same commit.
 |---|---|---|
 | 0 | done | this file, `d7d229d`; the database-holds-state ruling and the action table, `01250ff` |
 | 1 | done by measurement | the client dials its launch address, so one client-visible address is forced (`docs/reference/client-protocol.md:708-712`); the world already sits behind it as a separate program (`crates/asura-gateway/src/relay.rs:9-17`) |
-| 2 | not started | cut from the store inventory: which modules read which tables today |
+| 2 | in progress: cut 2a done | `identity/` holds `account` and `portal`, re-exported at their old paths (`crates/asura-db/src/lib.rs:180-186`); workspace builds, `asura-db` 21 unit tests pass, no caller path changed |
 | 3 | not started | |
 | 4 | not started | |
 | 5 | not started | |
@@ -101,7 +101,6 @@ Neither is fixed by this plan. A phase that changes either of them says so in it
 4. Run the three checks before touching code, so a pre-existing failure is not mistaken for the phase's.
 5. Update the state table in the same commit as the phase.
 
-
 ## The phases
 
 | phase | what lands | what proves it | documents updated with it |
@@ -113,6 +112,52 @@ Neither is fixed by this plan. A phase that changes either of them says so in it
 | 4 | the world's inside split: listener, sessions, simulation, mechanics as separate files with private data; the reference's bounded parallel map update replaces one task per map | real client in-world; ping and tick cadence measured; two clients see each other | `work/layer-rework-checklist.md`, `work/world-simulation-plan.md` |
 | 5 | hosting: per-daemon configuration and logs; the supervisor owns start, stop, deploy, health and nothing about players | supervisor start path; a draining deploy with a player present | `operations/running-the-server.md`, `operations/running-on-linux.md`, `config/*/README.md` |
 | 6 | game sealed on content: mechanics read values from files only; behaviour reaches them through a dispatcher in AzerothCore's script-manager position | a JSON edit changes behaviour after restart, with no rebuild | `guidance/scripting-and-behavior.md`, `work/world-simulation-plan.md`, `guidance/game-packs.md` |
+
+## Phase 2 - three stores by owner
+
+### The inventory, measured 2026-11-08
+
+No SQL exists outside `asura-db`: every table is touched inside that one crate, so the store boundary
+already exists between programs. The mixing is *inside* the crate, in which module owns which table:
+
+| table | touched by | owner it should have |
+|---|---|---|
+| `t_account` | `account.rs`, `login.rs`, `portal.rs`, `lib.rs` | identity |
+| `t_session` | `login.rs`, `placement.rs`, `portal.rs`, `lib.rs` | identity for the session, placement for its destination |
+| `t_characters` | `login.rs`, `inventory.rs`, `game.rs`, `lib.rs` | state |
+| `t_item`, `t_bag` | `inventory.rs`, `lib.rs` | state |
+| `t_instance_unlock` | `game.rs` | state |
+| `t_world`, `t_world_pool`, `t_lease`, `t_transfer` | `placement.rs`, `lib.rs` | placement |
+| `t_service` | `catalog.rs` | hosting |
+| `t_map_config`, `t_map_spawn`, `t_map_portal` | `game.rs` | content, and they die: their readers have no caller |
+
+And who calls which module today:
+
+| module | called by |
+|---|---|
+| `login` | auth (login), world (connection) |
+| `game` | auth (travel), world (agent, lib, tests, dump-load) |
+| `placement` | auth (travel), gateway, webgate, world tests |
+| `inventory` | world (item, lib, dump-load) |
+| `portal` | webgate, gateway |
+| `account` | auth |
+| `catalog` | supervisor |
+| `config`, `migrations` | every program, as facilities rather than stores |
+
+Two facts matter: `game` is the mixed module (content leftovers beside character state and unlocks), and
+`login` serves both identity (account, session) and state (the character list).
+
+### The cuts, in order
+
+| cut | what lands | what proves it |
+|---|---|---|
+| 2a | `identity/` holds `account` and `portal`, re-exported at their old paths so no caller changes | workspace builds; db unit tests pass |
+| 2b | `state/` holds characters, traits, position, unlocks and inventory; `game` keeps only content | workspace builds; world tests pass; no caller changes its path |
+| 2c | `game` is named for what it holds - content - and frozen, since its three readers have no caller | a search finds the constants and no reader |
+| 2d | `REQUIRED_TABLES` is derived from each store's declared tables instead of being a hand list | the list matches the stores' declarations |
+
+A cut that cannot be done without changing a caller's path is not done: the old path is re-exported
+until the caller moves in a later cut.
 
 ## How the documents change
 
