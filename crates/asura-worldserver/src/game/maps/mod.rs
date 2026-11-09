@@ -15,3 +15,4 @@ pub mod path_tables;
 pub mod pathfind;
 pub mod portals;
 pub mod spawns;
+pub mod updater;

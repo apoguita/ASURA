@@ -34,6 +34,13 @@ const DEFAULT_WORLD_ID: i32 = 8001;
 const DEFAULT_BIND: &str = "127.0.0.1:6113";
 const DEFAULT_CAPACITY: i32 = 8;
 
+/// How many maps the updater runs at the same time.
+///
+/// The reference keeps this in its configuration (`MapUpdate.Threads`, 1 in its shipped file). This
+/// project's value moves to `config/Server/intervals.json` with the hosting cut; until then it is one
+/// named number here rather than a literal in the middle of a loop.
+const MAP_UPDATE_WORKERS: usize = 4;
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -452,6 +459,18 @@ async fn main() -> ExitCode {
              and no instance table (measurement only; a client's map surfaces need the grid)"
         );
     }
+    // The world's clock: one scheduler for every map, bounded by the pool. It replaces the one task per
+    // map the earlier program started, and the bound is the reference's `MapUpdate.Threads`.
+    let updater = std::sync::Arc::new(
+        asura_worldserver::game::maps::updater::MapUpdater::activate(MAP_UPDATE_WORKERS),
+    );
+    {
+        let instances = world.instances.clone();
+        tokio::spawn(async move {
+            asura_worldserver::game::maps::updater::run_clock(instances, updater).await
+        });
+    }
+
     if let Err(err) = serve(listener, world, trace.on()).await {
         eprintln!("asura-world: the listener stopped: {err}");
         return ExitCode::FAILURE;

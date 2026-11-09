@@ -463,21 +463,9 @@ impl Instance {
         }
     }
 
-    /// The instance's clock: one task per map, ticking while the instance exists.
-    ///
-    /// The cadence is this machine's (`config/Server/intervals.json`) and is read from the configuration
-    /// crate, not from the socket module: a simulation that asks a socket layer how fast to tick has the
-    /// dependency backwards.
-    pub async fn run(self: Arc<Self>) {
-        let mut tick = tokio::time::interval(asura_config::intervals().tick());
-        let mut last_tick = Instant::now();
-        loop {
-            tick.tick().await;
-            let elapsed = last_tick.elapsed();
-            last_tick = Instant::now();
-            self.step(elapsed);
-        }
-    }
+    // The clock is the world's, not the map's: one scheduler wakes on the configured interval and
+    // updates every loaded map through the bounded pool (`game::maps::updater`). A map no longer owns
+    // a task that sleeps.
 }
 
 /// A peer as it is copied out of an instance: everything a joining player needs to be told.
@@ -569,12 +557,14 @@ impl Instances {
             return instance.clone();
         }
         let instance = Arc::new(Instance::new(map.clone(), speed_base));
-        let ticking = Arc::clone(&instance);
-        tokio::spawn(async move { ticking.run().await });
         self.locked().insert(map.map_id, instance.clone());
         instance
     }
 
+    /// Every instance this world is running, so the clock can update them all.
+    pub fn all(&self) -> Vec<Arc<Instance>> {
+        self.locked().values().cloned().collect()
+    }
     /// The instance for a map, if one is running.
     pub fn get(&self, map_id: i32) -> Option<Arc<Instance>> {
         self.locked().get(&map_id).cloned()
