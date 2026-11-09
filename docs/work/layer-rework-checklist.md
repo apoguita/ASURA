@@ -118,7 +118,7 @@ nothing that decides anything - no game value, no account fact, no rule.
 | # | layer | files (measured) | class | status |
 |---|---|---|---|---|
 | 1 | wire and codec | `asura-protocol`, 14 files, 8,415 lines measured 2026-11-08; the packet table and the codecs, no payload of its own | evidence | audited, findings open |
-| 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | audit pending |
+| 2 | storage and schema | `asura-store` (identity, state, placement, catalogue) and `asura-db` (schema and the migration runner, 27 migrations); split in phase 2 of the re-engineering plan | stores by owner + schema | audit pending |
 | 3 | rules | `asura-rules`, 1 file, 283 lines, 9 tests; depends on 1 for the client's `MapKinds` | rules | audit pending |
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | audit pending |
 | 5 | socket layer | `asura-gateway`, 3 files, 534 lines; depends on 4 | transport | audit pending |

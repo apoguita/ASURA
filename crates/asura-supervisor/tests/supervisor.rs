@@ -45,7 +45,7 @@ fn clean_registry_row() {
         .expect("test runtime");
     runtime.block_on(async {
         if let Ok(pool) = asura_db::PgPool::connect(&url).await {
-            let _ = asura_db::catalog::delete(&pool, "camtest", "camtest").await;
+            let _ = asura_store::catalog::delete(&pool, "camtest", "camtest").await;
         }
     });
 }

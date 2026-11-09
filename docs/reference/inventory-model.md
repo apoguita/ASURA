@@ -11,12 +11,12 @@ Current feature acceptance and remaining inventory work are maintained in
 | piece | where |
 |---|---|
 | `t_bag`, `t_item`, the item-id sequence, and `t_characters.pos_plane` (renamed by migration 0026) | `crates/asura-db/migrations/0006_inventory.sql` |
-| reading a character's bags and items, seeding the default set, finding the item a drop names | `crates/asura-db/src/inventory.rs` |
-| the seed itself: six bags and nine items, kept as rows from the capture | `crates/asura-db/src/inventory/seed.rs` |
+| reading a character's bags and items, seeding the default set, finding the item a drop names | `crates/asura-store/src/state/inventory.rs` |
+| the seed itself: six bags and nine items, kept as rows from the capture | `crates/asura-store/src/state/inventory/seed.rs` |
 | `CREATE_NAMED_ITEM`, `ITEM_MOVE_TO_LOCATION`, `ITEM_SET_PROFESSION` builders (the captured bytes are kept as a recording under `recordings/`) | `crates/asura-protocol/src/game/mod.rs` |
 | the item block built out of rows, the wearing ids read from the equipped bag | `crates/asura-world/src/item.rs:70` (`items_block`) and `:120` (`inventory_block`); `crates/asura-world/src/player.rs` (`player_block`) |
 | `DROP_ITEM` (`0x802C`) | `crates/asura-world/src/item.rs:187` (`drop_item`), dispatched by `GAME_CMSG_DROP_ITEM` in `crates/asura-world/src/dispatch.rs` |
-| the position saved on the way out and read on the way in | `asura_db::game::record_position` / `position`, `Standing::resume` |
+| the position saved on the way out and read on the way in | `asura_store::state::character::record_position` / `position`, `Standing::resume` |
 
 The earlier document named 	he_item_block_from_rows_is_the_capture_byte_for_byte, but that
 function is absent from the current tree. The current test
@@ -35,7 +35,7 @@ in the status document, rather than a guess someone would have to rediscover.
    never frees the item id, and never sends `ITEM_REMOVE` - so a dropped cupcake is a second cupcake
    standing on the ground while the first stays in the backpack. The function is plainly unfinished (its
    partial-stack branch is a `TODO` in its own comment).
-   **The earlier port diverged here** - `crates/asura-db/src/inventory.rs`,
+   **The earlier port diverged here** - `crates/asura-store/src/state/inventory.rs`,
    `take_from_stack` - because a *measured* live session settled the argument: the client sends
    `DROP_ITEM` with `count = 1` for a stack of a hundred, so the reference's rule (`count` must equal the
    whole stack) means the reference's own default cupcake cannot be dropped **at all**, and a live client

@@ -14,6 +14,7 @@
 //! Until those cuts land, the old crate remains the implementation and this one holds only what has
 //! moved; every caller moves with its own commit, so nothing is ever half-migrated.
 
+pub mod catalog;
 pub mod identity;
 pub mod placement;
 pub mod state;

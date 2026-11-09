@@ -155,7 +155,7 @@ is a matching row, so the database is seeded, not the wire:
 | a row must match **both** ids; no row is an auth error, never a crash | `login::find_session(portal_user, session)` returns `None`, and `None` is a refusal |
 
 `tools/seed-dev.ps1` writes the three pairs the DLL knows, and re-running it reopens them; `login` is
-`crates/asura-db/src/login.rs`, with the refusal rules under test in `crates/asura-db/tests/login.rs`.
+`crates/asura-store/src/state/characters.rs`, with the refusal rules under test in `crates/asura-store/tests/identity.rs`.
 
 **The portal is an HTTP web gate on loopback, and it *is* something this project has to serve.**
 Corrected from a measurement with the real client (build 39112, 2026-10-26). The client launched with
@@ -179,7 +179,7 @@ was wrong and is corrected here.
 `tools/webgate.py` - same four endpoints, same XML, same status codes (`400 who are you?`, `400
 Unsupported provider`, `401` without a session) - with one deliberate change: the reference answers
 from a hard-coded table of three emails, and this answers from the rows `tools/seed-dev.ps1` writes
-through `asura_db::portal::identity_for_email`, so the identity it hands out is the very
+through `asura_store::identity::Identity::portal_for_email`, so the identity it hands out is the very
 `(portal_user, session id)` pair the auth service will resolve. No Python, no reference checkout.
 
 **A login does not spend the session.** GWPS's login path calls `Db_GetSession` and writes nothing,

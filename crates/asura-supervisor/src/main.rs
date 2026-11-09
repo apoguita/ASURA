@@ -295,7 +295,7 @@ async fn print_registry() {
             return;
         }
     };
-    match asura_db::catalog::services(&pool, 60.0).await {
+    match asura_store::catalog::services(&pool, 60.0).await {
         Ok(rows) if rows.is_empty() => println!("\nregistry: empty"),
         Ok(rows) => {
             println!("\nregistry (service table; STALE = heartbeat older than 60 s):");

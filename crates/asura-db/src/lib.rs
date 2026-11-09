@@ -154,9 +154,6 @@ pub const REQUIRED_TABLES: &[&str] = &[
     "t_service",
 ];
 
-/// The general service registry (S2): every service kind announces itself like a world server does.
-pub mod catalog;
-
 /// The content rows left behind: the map blob, its spawn points and its doorways. They have no caller
 /// and they die in phase 6; the character state they used to share this module with is
 /// `asura_store::state::character` (cut 2c).

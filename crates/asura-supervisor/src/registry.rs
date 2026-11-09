@@ -4,7 +4,7 @@
 //! The kind and address come from the configuration; the state comes from the runtime. The rows
 //! are an upsert, so publishing repeatedly is the heartbeat.
 
-use asura_db::catalog;
+use asura_store::catalog;
 
 use crate::config::ServiceConfig;
 use crate::supervise::{Shared, State};

@@ -1,7 +1,7 @@
 //! The service registry against the live database (S2): register, refresh, mark stale, stop,
 //! forget. Skips cleanly when no database is configured.
 
-use asura_db::catalog;
+use asura_store::catalog;
 
 fn database_url() -> Option<String> {
     asura_db::config::database_url()

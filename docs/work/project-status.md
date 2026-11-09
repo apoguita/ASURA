@@ -17,7 +17,7 @@ they do not establish acceptance of later changes or full packet parity.
 
 ## Character
 
-- [x] Position persistence was recorded; `crates/asura-db/tests/inventory.rs::a_position_is_saved_and_read_back_and_a_new_character_has_none` checks storage. Current entry selection is described in [Architecture](../guidance/architecture.md#inside-a-world-server) and the [pending placement repair](#pending-client-verification), not a promise to resume saved coordinates on every entry
+- [x] Position persistence was recorded; `crates/asura-store/tests/inventory.rs::a_position_is_saved_and_read_back_and_a_new_character_has_none` checks storage. Current entry selection is described in [Architecture](../guidance/architecture.md#inside-a-world-server) and the [pending placement repair](#pending-client-verification), not a promise to resume saved coordinates on every entry
 - [x] Items: block built from rows; drops, moves and equipment persist
 - [x] Chat on `!`, `#`, `$`; `/stuck` and `/maps` answer
 - [o] Character creation: name, appearance, profession, starting equipment (`crates/asura-world/tests/load.rs::a_character_is_created_in_a_creation_instance`)
@@ -41,10 +41,10 @@ they do not establish acceptance of later changes or full packet parity.
 - [x] Auth answers login, keeps sessions, refuses a travel cleanly
 - [x] Gateway relays the game connection to the selected world ([connection ownership](../guidance/architecture.md#connections-placement-and-routing))
 - [o] Placement reads the registry, heartbeats decide freshness, a stale world is not offered
-- [o] Pool capacity refuses a full world without disturbing a lease (`crates/asura-db/tests/placement.rs::a_full_pool_refuses_without_disturbing_the_holder`)
-- [o] The `reap_stale` database helper frees a silent world's leases in tests/harness scenarios; no serving-program loop calls it ([runtime limits](../guidance/architecture.md#the-lease-ledger); `crates/asura-db/tests/placement.rs::the_reaper_frees_a_silent_world_but_not_a_fresh_one`)
+- [o] Pool capacity refuses a full world without disturbing a lease (`crates/asura-store/tests/placement.rs::a_full_pool_refuses_without_disturbing_the_holder`)
+- [o] The `reap_stale` database helper frees a silent world's leases in tests/harness scenarios; no serving-program loop calls it ([runtime limits](../guidance/architecture.md#the-lease-ledger); `crates/asura-store/tests/placement.rs::the_reaper_frees_a_silent_world_but_not_a_fresh_one`)
 - [o] The front door dials a world registered at a second address, not its bind address
-- [o] The newest build is the only one offered; a full newest build refuses instead of falling back (`crates/asura-db/tests/placement.rs::the_newest_build_is_the_only_one_offered`)
+- [o] The newest build is the only one offered; a full newest build refuses instead of falling back (`crates/asura-store/tests/placement.rs::the_newest_build_is_the_only_one_offered`)
 
 ## Pending client verification
 

@@ -18,7 +18,8 @@ unresolved requirements are identified separately; this is not client acceptance
 | World server (`asura-world`) | Program | Hosts maps and running instances, claims gameplay transfers, and runs player movement, inventory, chat and gameplay persistence. |
 | Web gate (`asura-webgate`) | Program | Answers the four portal HTTP endpoints and its health endpoint; the client obtains its portal identity here before auth checks it. |
 | Supervisor (`asura-supervisor`) | Program | Starts, stops, restarts, builds and reports services configured in `config/services.toml`. |
-| Database access (`asura-db`) | Library | Owns database queries and migration definitions for accounts, characters, sessions, transfers, registry rows and leases. |
+| Stores (`asura-store`) | Library | The stores by owner: identity (accounts, sessions, portal pairs), state (characters, position, unlocks, inventory), placement (world registry, pools, leases, transfers) and the service catalogue. One interface per store; no decisions. |
+| Schema (`asura-db`) | Library | The migration runner and the SQL that defines the schema, plus the content rows that are leaving for the pack (phase 6). It holds no store: every query an owner needs moved to `asura-store` in phase 2 of the re-engineering plan. |
 | Protocol (`asura-protocol`) | Library | Defines client messages, codecs, connection classification and cryptographic exchange operations. |
 | Configuration (`asura-config`) | Library | Reads server settings and the selected pack's shared map catalogue. |
 | Fake world (`asura-fakeworld`) | Development harness program | Exercises registration, capacity and lease behavior; it is not a normal client-serving service. |
@@ -37,7 +38,7 @@ gateway address. Gateway classifies the socket and calls `asura_auth::converse`
 listener or independent service executable.
 
 At login travel, auth passes character/request data to `asura_rules::placement`, then uses
-`asura-db` to reserve capacity and record the pending transfer
+`asura-store`'s placement store to reserve capacity and record the pending transfer
 (`crates/asura-auth/src/travel.rs:165`, `:234`, `:251`). A travel started while playing is
 handled by the current world, using the same database coordination mechanism. A placement decision,
 a database reservation and socket routing are different responsibilities.
@@ -83,21 +84,22 @@ Structural direction from ADR 0006, with current implementation limits:
 
 **Owner clarification, 2026-11-08: auth must not write data.** The current persistent-write calls
 listed below are implementation gaps, not exceptions granted because the code already uses them.
-Calling a write operation through `asura-db` still makes auth initiate that mutation. Fixing or
+Calling a write operation through `asura-store` still makes auth initiate that mutation. Fixing or
 reassigning these operations is outside the current documentation work; their eventual owner is
 not selected here. Required recorded packet behavior must be preserved when that work is assigned.
 
 | Write initiated by auth | Persistent effect | Current auth call site |
 |---|---|---|
 | Select a character | Updates `t_session.char_id`, during selection and login initialization | `crates/asura-auth/src/lib.rs:335`, `:648` |
-| Delete a character | Clears session references and deletes the account-owned `t_characters` row | `crates/asura-auth/src/lib.rs:424`; storage operation `crates/asura-db/src/login.rs:119-134` |
+| Delete a character | Clears session references and deletes the account-owned `t_characters` row | `crates/asura-auth/src/lib.rs:424`; storage operation `crates/asura-store/src/state/characters.rs:73-90` |
 | Record EULA acceptance | Updates `t_account.eula_accepted` | `crates/asura-auth/src/lib.rs:482` |
 | Reserve/release capacity | Changes `t_lease` and the pool's leased counters, including failure cleanup | `crates/asura-auth/src/travel.rs:234`, `:263` |
 | Create a pending transfer | Inserts `t_transfer` with the issued player token and destination | `crates/asura-auth/src/travel.rs:251` |
 | Record session destination | Updates `t_session.world_id` and `map_id` | `crates/asura-auth/src/travel.rs:268` |
 
-`asura-db` owns the schema/migration definitions and the shared database operations. The supervisor
-applies repository SQL for setup; its current seed command applies `tools/seed-dev.sql`
+`asura-store` owns the stores - identity, state, placement and the service catalogue - one interface
+each, and it decides nothing. `asura-db` owns the schema and the migration runner, and its supervisor
+path applies that SQL for setup; its seed command applies `tools/seed-dev.sql`
 (`crates/asura-supervisor/src/main.rs:393`). Map definitions are read from the selected world pack,
 not installed by that seed command. File-owned content and database-owned operational state are the
 recorded D20/D21/D24 decisions in `docs/reference/decisions/layer-decisions.md` and AGENTS.md section 4a.
@@ -108,7 +110,7 @@ Those later decisions replace the earlier SQL-content proposal; legacy migration
 World startup calls `register_world` before binding its gameplay listener
 (`crates/asura-world/src/main.rs:259`, `:316`). Registration updates `t_world`, clears that
 world's old lease rows, resets the published counters and removes obsolete map-capacity rows in
-one transaction (`crates/asura-db/src/placement.rs:50-105`). Capacity advertises seats, not
+one transaction (`crates/asura-store/src/placement.rs:41-96`). Capacity advertises seats, not
 prebuilt running instances.
 
 Auth's `find_worlds` filters by map, heartbeat freshness, draining flag, selected build and
@@ -135,7 +137,7 @@ using the same session id is not automatically a harmless release.
 it does not remove the world registry row (`placement.rs:262-292`). `reconcile_world` counts
 `t_lease` rows, not reports from running instances (`placement.rs:310-323`). Their callers
 are database tests and `asura-fakeworld` scenarios, not the serving programs
-(`crates/asura-db/tests/placement.rs:263`, `:346`,
+(`crates/asura-store/tests/placement.rs:263`, `:346`,
 `crates/asura-fakeworld/src/main.rs:225`, `:258`). Automatic runtime lease reaping and
 reconstruction from world reports are therefore not implemented guarantees.
 
@@ -143,7 +145,7 @@ reconstruction from world reports are therefore not implemented guarantees.
 
 1. At login, auth obtains candidates ordered by leased count and world id, probes them and
    attempts a reservation; it moves to the next candidate when a probe fails or capacity fills
-   (`crates/asura-db/src/placement.rs:477`, `crates/asura-auth/src/travel.rs:195-242`).
+   (`crates/asura-store/src/placement.rs:468`, `crates/asura-auth/src/travel.rs:195-242`).
    The query has no preference for the character's previous world.
 2. A successful reservation precedes the pending transfer row and redirect. Auth releases the
    reservation if writing that transfer fails (`crates/asura-auth/src/travel.rs:245-264`).
@@ -165,17 +167,17 @@ The intended newest-connection rule is recorded in
 The current implementation does not establish the full rule:
 
 - `claim_transfer` accepts the same world/token again and updates `claimed_at`, even after a
-  prior claim (`crates/asura-db/src/placement.rs:587-613`). This permits reconnects; it does
+  prior claim (`crates/asura-store/src/placement.rs:578-604`). This permits reconnects; it does
   not close or invalidate the older gameplay socket.
 - Auth creates a local `Session` for each conversation
   (`crates/asura-auth/src/lib.rs:204`). No connection-replacement registry is established by
   that path. Session-id-only lease release has the limit described under The lease ledger.
 - Login resolves both portal-user id and session id against an open `t_session` row
-  (`crates/asura-db/src/login.rs:49-64`). The credential row is separate from a live socket;
+  (`crates/asura-store/src/identity/session.rs:32-52`). The credential row is separate from a live socket;
   ending the auth conversation does not consume it (`crates/asura-auth/src/lib.rs:198-203`).
 
 Account and character identifiers are UUIDs in transfer records; world ids and player tokens
-select the routing/transfer record (`crates/asura-db/src/placement.rs:525-539`). The research's
+select the routing/transfer record (`crates/asura-store/src/placement.rs:516-530`). The research's
 party-identity direction is not a claim that party identity is implemented.
 
 ## What is authoritative
@@ -188,11 +190,11 @@ The current storage and recovery paths are:
 |---|---|---|
 | Live players and agents | World instance memory | First join constructs an instance; no persisted membership snapshot is restored (`crates/asura-world/src/instance.rs:427-443`). |
 | Capacity and leases | `t_world_pool`, `t_lease` | World registration clears its old leases and resets counters; the standalone reconciler counts lease rows (`placement.rs:73-105`, `:310`). |
-| Saved characters and items | PostgreSQL through `asura-db` | Entry reads saved state; durability depends on completed writes, not an unimplemented periodic-save guarantee (`connection.rs:243-268`, `:413`). |
+| Saved characters and items | PostgreSQL through `asura-store`'s state store | Entry reads saved state; durability depends on completed writes, not an unimplemented periodic-save guarantee (`connection.rs:243-268`, `:413`). |
 | Login credentials and transfers | `t_session`, `t_transfer` | Database rows outlive sockets; transfer claims remain reusable (`login.rs:49`, `placement.rs:587`). |
 | World endpoints | `t_world` | Re-registration refreshes a row; auth excludes stale rows. Staleness does not itself delete them (`placement.rs:53`, `:474`). |
 
-References without a crate prefix in this table are under `crates/asura-db/src/`, except
+References without a crate prefix in this table are under `crates/asura-store/src/` (state) or `crates/asura-store/src/placement.rs`, except
 `connection.rs`, which is under `crates/asura-world/src/`. No path here rebuilds live membership
 by asking another world for its players.
 
@@ -204,14 +206,14 @@ registry row, then marks the old world draining
 
 Login candidate selection uses the build of the most recently started fresh world hosting the
 requested map, then excludes draining/full candidates of that build
-(`crates/asura-db/src/placement.rs:459-478`). It compares start time, not version ordering;
+(`crates/asura-store/src/placement.rs:450-469`). It compares start time, not version ordering;
 a full selected build has no fallback to an older build in this query.
 
 The old world's heartbeat loop checks its population and removes its registry row before exiting
 once draining and empty (`crates/asura-world/src/main.rs:390-410`). In-world travel still
 reserves on the current process, as described under Travel, end to end. The login query's drain
 filter is not a blanket prohibition enforced by `reserve` itself
-(`crates/asura-db/src/placement.rs:200-203`). A real-client rolling-deploy acceptance remains
+(`crates/asura-store/src/placement.rs:191-194`). A real-client rolling-deploy acceptance remains
 open in [project status](../work/project-status.md).
 
 ## Retry policy
@@ -286,7 +288,7 @@ session/transfer rows and saved character state are separate from live instance 
 | Database operation fails | The caller's error path decides the result: entry/travel operations propagate errors; disconnect position saving logs failure and continues. Continued play through an outage has not been established. | `crates/asura-world/src/connection.rs:156`, `:243`, `:413-425`; `travel.rs:414-436` |
 | World registry row becomes stale | Auth excludes it; gateway still attempts the endpoint it resolves. Staleness does not mark or delete the row. | `placement.rs:474`; `crates/asura-gateway/src/relay.rs:80-103` |
 
-Here `placement.rs` is under `crates/asura-db/src/` and `auth/travel.rs` is under
+Here `placement.rs` is under `crates/asura-store/src/` and `auth/travel.rs` is under
 `crates/asura-auth/src/`. These are code-path descriptions, not failure-injection or client
 acceptance results. They establish neither a crash-loss bound nor a general database-integrity
 guarantee.

@@ -9,6 +9,8 @@ description = "Schema ownership and migrations: the only crate that knows SQL"
 [dependencies]
 sqlx = { workspace = true }
 uuid = { workspace = true }
+# The config crate owns the database URL now (cut 2e); this crate re-exports it for its old callers.
+asura-config = { path = "../asura-config" }
 
 [dev-dependencies]
 # The integration tests drive the live database from concurrent tasks; the ordinary
