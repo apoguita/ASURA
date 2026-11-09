@@ -1,3 +1,7 @@
+// The workspace's lint policy denies `unsafe`, and this test needs one call: it reads the process's
+// own working set through `K32GetProcessMemoryInfo` to report memory per instance. The block is
+// `repr(C)` with the API's exact layout, the handle is this process, and it is test-only.
+#![allow(unsafe_code)]
 //! M4's world half: a client that was sent to this world connects, is believed, and gets a map.
 //!
 //! What is proved here, in the order the assertions appear:

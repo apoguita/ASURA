@@ -23,8 +23,8 @@ uuid = { workspace = true }
 # The measuring instruments (capture, replay), off in a serving build - D32.
 harness = []
 
-# The lints arrive with the cleanup, not with the move: the crate this code came from had none, and
-# opting in here would turn a move into a rewrite. Phase 4 closes by adding this back.
+[lints]
+workspace = true
 [dev-dependencies]
 tokio = { workspace = true }
 # The acceptance tests start the world the way the supervisor does and speak the protocol through the
