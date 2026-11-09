@@ -41,10 +41,65 @@ So each layer is audited, once, by the four questions from `AGENTS.md` 4a, file 
 Anything that is none of those is ordinary code and stays. Anything that is (1) or (2) is a candidate for
 a file; (3) belongs to the layer that owns the entity; (4) belongs to layer 3.
 
-No layer is closed (owner, 2026-11-08). All 18 layers are `audit pending`.
-Completed task boxes and earlier audit findings remain as evidence of that work, not layer acceptance.
+Beside the four questions, the audit asks one boundary question: does the file reach through another
+layer - read that layer's tables, its files or its compiled constants directly, instead of calling
+the function that owns them? A reach-through is a finding even when the value sits in the right kind
+of place, because it makes two layers depend on one fact.
+
+No layer is closed (owner, 2026-11-08). Layer 1 was audited on 2026-11-08 and its findings are
+open; the other 17 remain `audit pending`. Completed task boxes and earlier audit findings remain as
+evidence of that work, not layer acceptance.
+
+## How a layer is audited
+
+One layer per session. The audit reads the layer's files and writes only this file and, where a
+finding's home is a decision, `docs/reference/decisions/layer-decisions.md`.
+
+1. Refresh the file list. The counts in "The layers" were measured 2026-11-03; count what the layer
+   holds now and record the new number in the row, with the date it was read.
+2. Classify each file's contents against the four questions above and the boundary question, one item
+   per line with its `file:line`.
+3. Hunt the fallbacks. A fallback is any of these, and each one is a finding even when it matches the
+   reference: a default written where the input is missing, a value compiled where a config file
+   should hold it, a second code path that nothing calls, a captured answer used as an oracle, a
+   field accepted without being compared, a table that carries no evidence.
+4. Write the findings under `#### Findings, <date>` inside the layer's `### Layer <N> audit`
+   subsection, in three groups with these exact headings, in this order: `##### Not the client's
+   vocabulary`, `##### Fallbacks that could interfere later`, `##### What holds`. Every box in the
+   first two groups names its `file:line`. The third group is the work checked and left alone, so the
+   next reader does not redo it.
+5. Set the layer's status word: `audited, findings open`.
+6. File the moves after the audit, one commit per box, in D22's order for content: write the file,
+   switch the readers, delete the old source last in its own commit.
+7. Close the layer only by the six conditions above. A clean audit does not close a client-visible
+   layer, which still waits for the client check.
+8. A finding that needs the owner's choice is reported with the choice named, and its box stays
+   open. The audit does not decide it.
+
+The record is the enforcement. A finished pass leaves a record a person can check without reading the
+code twice: three headings, every finding with its `file:line`, and a holds list that names what was
+read and left alone. No script checks that shape, and none should: a check that could pass the file
+would reward filling the headings in, while the value of a pass is what it found. The owner reads the
+record and the code it names, and a heading with nothing under it is a defect one line of reading
+catches.
+
+A layer whose audit finds nothing still gets its section: the date, the three headings with "none
+found" under the first two, and what was read under the third, so the next reader knows the pass
+happened.
+
+A pass is not finished, and the layer's status stays `audit pending`, when any of these is true:
+
+- a file in the layer was not opened and read;
+- a finding carries no `file:line`;
+- a group is missing, or says "none found" while the layer holds a compiled value, a code path with
+  no caller, or a captured answer the server does not send;
+- a fix travelled in the same change as the audit.
 
 ## Notation
+
+A layer's status column holds one of three words: `audit pending`, `audited, findings open`, and
+`closed`. The middle word is a finished pass with findings still unfixed; only the six conditions
+above turn a layer `closed`.
 
 - `[ ]` open - not started
 - `[~]` partial - some boxes below are ticked
@@ -55,7 +110,7 @@ Completed task boxes and earlier audit findings remain as evidence of that work,
 
 | # | layer | files (measured) | class | status |
 |---|---|---|---|---|
-| 1 | wire and codec | `asura-protocol`, 16 files, 8,885 lines; the packet table and the codecs, no payload of its own | evidence | audit pending |
+| 1 | wire and codec | `asura-protocol`, 14 files, 8,415 lines measured 2026-11-08; the packet table and the codecs, no payload of its own | evidence | audited, findings open |
 | 2 | storage and schema | `asura-db`, 16 files, 4,814 lines, 25 migrations | schema + state + content passing through | audit pending |
 | 3 | rules | `asura-rules`, 1 file, 283 lines, 9 tests; depends on 1 for the client's `MapKinds` | rules | audit pending |
 | 4 | auth service | `asura-auth`, 6 files, 2,664 lines; depends on 3 | rules | audit pending |
@@ -128,8 +183,9 @@ Files: `packets.rs` 2,106 (782 rows, 403 consts), `game/mod.rs` 1,711, `game/app
 
 ### Layer 1 audit
 
-Earlier pass recorded the following five findings as addressed. The layer remains audit pending;
-this list is not an exhaustive audit or closure claim:
+An earlier pass recorded the five findings that follow as addressed. The pass of 2026-11-08 read all
+14 files and is recorded under "Findings, 2026-11-08"; the layer is `audited, findings open`, not
+closed.
 
 - [x] the instance table is data, not a codec: it moved to `crates/asura-world/src/instance_table.rs`
       (where it is sent), and `docs/reference/decisions/layer-decisions.md` D36 gives it its real home - constructed from the pack's map
@@ -143,6 +199,74 @@ this list is not an exhaustive audit or closure claim:
       with the crate keeping only the framing
 - [x] the cartography payload's size was the packet table's number written twice: it is derived from the
       row's `FieldKind::Array32, length: 64`, and a test holds the table and the frame together
+
+#### Findings, 2026-11-08
+
+The file list was refreshed first: 14 files and 8,415 lines today, against 16 files and 8,885 lines
+measured 2026-11-03. Of the 133 constants in the crate, the ones below are the ones that are not a
+header alias, a size, or a value the client itself defines (chat channels 3/11/12/7, agent property
+ids 36/41/42/43, speed modes 1/9, agent types 1/4, `CHAR_CLASS_PLAYER_BASE`).
+
+##### Not the client's vocabulary
+
+- [x] A second protocol nothing uses, removed. `INTERNAL_MAGIC` (`"ASUR"`), `INTERNAL_VERSION` 1, the
+     12-byte header and four `Kind`s had no caller outside this crate's own tests; a search over
+      `crates/` found only the definitions and the tests. It is ours, not the client's, and
+     `docs/guidance/architecture.md:51-52` says state and placement go through the database, not
+     through messages - so it was an unused alternative path in the layer that is supposed to hold
+     only the client's vocabulary. Commit `ed23a25`: `lib.rs` 198 lines to 34, 3 tests and 173 lines
+     removed, the crate description no longer claims "internal control messages",
+     `cargo test -p asura-protocol` 90 pass, `cargo check --workspace` exits 0, and a search for
+     `INTERNAL_*` or `Kind::*` over every crate returns nothing.
+- [ ] Two character stats compiled here: `PLAYER_HEALTH_MAX = 400` and `PLAYER_ENERGY_MAX = 25`
+      (`crates/asura-protocol/src/game/mod.rs:356-358`), read by the world
+      (`crates/asura-world/src/player.rs:344-349`). No config file holds them;
+      `config/World/Vanilla/character_defaults.json` carries level, gold, appearance and secondary
+      profession only. Under `AGENTS.md` 4a these are values describing the world.
+- [ ] Two account facts compiled in a builder: the campaign mask `H0016` and the feature block whose
+      third `u16` is the character-slot count (`crates/asura-protocol/src/client/messages.rs:600-605`).
+      The call site passes request, account, character and EULA only
+      (`crates/asura-auth/src/lib.rs:722-727`), so which campaigns the account owns and how many
+      characters it may hold are decided in the wire layer.
+- [ ] The server's private exponent is compiled: `SERVER_PRIVATE_DECIMAL`
+      (`crates/asura-protocol/src/client/handshake.rs:57`, prime at `:53`). The module's argument is
+      recorded there - the patched client carries the matching public value, so it is a protocol
+      constant rather than a secret - and so is its consequence: one key for every deployment, and a
+      per-machine key has no file to live in. Report only; the owner decides whether that is intended.
+
+##### Fallbacks that could interfere later
+
+- [ ] Missing input is written as zeros, silently. `character.unwrap_or([0u8; 16])` and the five zero
+      bytes of an unused piece slot (`crates/asura-protocol/src/client/messages.rs:614`, `:481`).
+      Both match the reference, and both make "no character" and "the zero uuid" the same bytes on
+      the wire, so a caller's mistake has no shape of its own.
+- [ ] A recorded reference answer sits in the crate as an oracle: `CHARACTER_SETTINGS_EXTENDED`
+      (`crates/asura-protocol/src/client/messages.rs:385`), 62 bytes for one warrior standing in map
+      146. It is the test that `character_settings` packs correctly, not a value the server sends;
+      nothing may read it as server settings.
+- [ ] Unvalidated handshake fields: `h0008` and `h0038` are observed and never compared
+      (`crates/asura-protocol/src/client/version.rs:151`,
+      `crates/asura-protocol/src/client/game_version.rs:42`, `:55`), as in the reference. A client
+      build that starts comparing them gets no mismatch signal from this service.
+- [ ] The table cannot carry evidence row by row: 742 of 784 rows have an empty evidence list and 391
+      have no name (`crates/asura-protocol/src/packets.rs:233`, where `PACKETS` begins; the evidence
+      field is `:215`). The naming queue owns this, not this layer's placement, but the
+      `[-] holds by design` claim rests on the rows that do have evidence.
+
+##### What holds
+
+- The file check's bytes are configuration (`crates/asura-protocol/src/client/filecheck.rs:9-28`);
+  the crate keeps the comparison and takes the question as a parameter.
+- `Appearance` packs and unpacks only; its default is `config/World/Vanilla/character_defaults.json`
+  (`crates/asura-protocol/src/game/appearance.rs:14-16`).
+- The instance table is not in this crate, and no map pair is compiled here.
+- Framing refuses rather than guesses: an unknown header is an error
+  (`crates/asura-protocol/src/client/frame.rs:213`), and a client message is walked by its counted
+  fields rather than the table's maximum (`:227-253`).
+- `Frame::zeros` is test-only; every use sits in a `#[cfg(test)]` module.
+- The test client is feature-gated (`crates/asura-protocol/src/client/mod.rs:49-51`, `:66-67`).
+- `ASURA_TRACE` (`crates/asura-protocol/src/trace.rs:23`) is the crate's only environment read, and it
+  is a debug switch rather than a value.
 
 ## Layer 2 - storage and schema
 
@@ -170,6 +294,18 @@ Files: `migrations.rs` 240, `config.rs` 116, `game.rs` 376, `inventory.rs` 946,
       The earlier entry claimed all queries/tools and workspace tests passed but named only
       `T_PREFIX_COMMIT`, a placeholder rather than a commit. Recover that evidence and check
       remaining consumers before treating the rename audit as complete
+- [ ] No content reader survives without a caller. `crates/asura-db/src/game.rs` still defines three:
+      `map_config` (`:60`, `:103`), `spawn_points` (`:73`) and `map_portals` (`:88`). Nothing under
+      `crates/` calls them as of this entry. Delete them, then let D22's order drop the tables.
+- [ ] A startup does not require a content table. `REQUIRED_TABLES` lists `t_map_config`
+      (`crates/asura-db/src/lib.rs:151`); the required list loses it when the last reader goes.
+- [ ] The seeded content rows leave with the pack. `0021_measured_maps_and_spawns.sql` carries 100
+      `INSERT` statements and `0022_tour3_maps.sql` carries 115. They stay as stale rows until the
+      deletion migration, and the deletion is the same subject as the readers above.
+- [ ] The development seed states no content. `tools/seed-dev.sql` seeds three accounts, their
+      sessions and characters; `map_id 146` is a placeholder its own comment names (`:11-12`). A
+      placeholder map in the seed is a content fact in the operational table, so it is a finding,
+      not configuration.
 
 ## Layer 3 - rules (`asura-rules`)
 
