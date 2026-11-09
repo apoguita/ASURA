@@ -27,7 +27,10 @@ pub async fn answer(
         }
 
         msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_SPAWN => {
-            agent::handle_request_spawn(stream, session, world, player, trace).await
+            crate::game::handlers::agent::handle_request_spawn(
+                stream, session, world, player, trace,
+            )
+            .await
         }
 
         msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_PLAYERS => {
@@ -46,8 +49,10 @@ pub async fn answer(
         }
 
         msg::GAME_CMSG_POSITION_UPDATE => {
-            let answer =
-                agent::handle_position_update(stream, session, &frame, world, player, trace).await;
+            let answer = crate::game::handlers::agent::handle_position_update(
+                stream, session, &frame, world, player, trace,
+            )
+            .await;
 
             // The step the report moved the agent along: the doorway test is the wall the step crosses
             // (`travel::portal_crossed`, `config/World/<pack>/.../portals.json`).

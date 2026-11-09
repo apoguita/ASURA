@@ -112,6 +112,19 @@ pub struct Begun {
     /// True when the last announcement was not the default speed and the client must be told.
     pub announcement: bool,
 }
+/// What a client's position report did: whether it was believed, clamped or refused, how long since
+/// the last report, whether a server-side walk was running, and where the body stands after it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Report {
+    /// What the budget did with the report.
+    pub adopted: Adopted,
+    /// Time since the previous report, when there was one.
+    pub since: Option<Duration>,
+    /// True when the simulation had a walk in progress.
+    pub walk_was_running: bool,
+    /// Where the agent stands after the report was judged.
+    pub standing: Standing,
+}
 /// What stopping a walk reports: whether a server-side walk had been running, and where the body
 /// stands after the stop.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -289,6 +302,26 @@ impl AgentState {
             announcement,
         })
     }
+    /// Judge a client's position report against the movement budget, and say what it did.
+    ///
+    /// The budget is the reference's: a report inside it is believed, one the simulation's own advance
+    /// has overtaken is clamped, and one far enough away is refused. The decision is state, so the
+    /// handler is told the outcome and the numbers it needs to trace, and builds no rule of its own.
+    pub fn accept_report(&mut self, position: (f32, f32), plane: u16, now: Instant) -> Report {
+        let since = self.since_last_report(now);
+        let walk_was_running = 0.0 < self.motion.speed;
+        let adopted = self.adopt_report(position, plane, now);
+        Report {
+            adopted,
+            since,
+            walk_was_running,
+            standing: Standing {
+                position: self.position,
+                plane: self.plane,
+                direction: self.facing,
+            },
+        }
+    }
     /// The agent's position as a point on the map's graph.
     pub fn here(&self) -> Pos {
         Pos {
@@ -361,7 +394,7 @@ impl AgentState {
 
     /// Replace the previous order and announce a manual walk to every copy of this agent.
     /// Reply order: alternating-live.jsonl 327-329 (direction, type, destination).
-    fn begin_manual_walk(
+    pub fn begin_manual_walk(
         &mut self,
         waypoints: Vec<Waypoint>,
         direction: (f32, f32),
@@ -845,190 +878,6 @@ pub fn waypoints_preview(waypoints: &[pathfind::Waypoint]) -> String {
     };
     format!("[{}]{}", shown.join(" "), more)
 }
-pub async fn handle_position_update(
-    stream: &mut TcpStream,
-    session: &mut Session,
-    frame: &Frame,
-    world: &World,
-    player: &mut Player,
-    trace: bool,
-) -> Result<bool, GameError> {
-    if frame.body().len() < 24 {
-        return Err(GameError::Framing(FrameError::Incomplete { needed: 26 }));
-    }
-    let position = (
-        f32::from_le_bytes([
-            frame.body()[0],
-            frame.body()[1],
-            frame.body()[2],
-            frame.body()[3],
-        ]),
-        f32::from_le_bytes([
-            frame.body()[4],
-            frame.body()[5],
-            frame.body()[6],
-            frame.body()[7],
-        ]),
-    );
-    let plane = u32::from_le_bytes([
-        frame.body()[8],
-        frame.body()[9],
-        frame.body()[10],
-        frame.body()[11],
-    ]) as u16;
-    let offset = (
-        f32::from_le_bytes(frame.body()[12..16].try_into().unwrap()),
-        f32::from_le_bytes(frame.body()[16..20].try_into().unwrap()),
-    );
-    let move_type = u32::from_le_bytes(frame.body()[20..24].try_into().unwrap()) as u8;
-    if ![position.0, position.1, offset.0, offset.1]
-        .iter()
-        .all(|v| v.is_finite())
-        || !(1..=8).contains(&move_type)
-    {
-        return Ok(true);
-    }
-    let now = Instant::now();
-    let before = player.standing();
-    let instance = Arc::clone(&player.instance());
-    let Some(outcome) = instance.with_slot(player.player_id(), |slot| {
-        let since = slot.agent_mut().since_last_report(now);
-        let walk_was_running = 0.0 < slot.agent_mut().motion.speed;
-        let adopted = slot.agent_mut().adopt_report(position, plane, now);
-        let standing = Standing {
-            position: slot.agent_mut().position,
-            plane: slot.agent_mut().plane,
-            direction: slot.agent_mut().facing,
-        };
-        if move_trace_on() {
-            slot.move_stats_mut().reports += 1;
-            match adopted {
-                Adopted::Accepted => slot.move_stats_mut().accepted += 1,
-                Adopted::Clamped => slot.move_stats_mut().clamped += 1,
-                Adopted::Refused => slot.move_stats_mut().refused += 1,
-            }
-            let distance = {
-                let dx = position.0 - before.position.0;
-                let dy = position.1 - before.position.1;
-                (dx * dx + dy * dy).sqrt()
-            };
-            slot.move_stats_mut().max_drift = slot.move_stats_mut().max_drift.max(distance);
-            eprintln!(
-                "move[manual] report (x={:.1}, y={:.1}, plane={plane}) against the server's \
-                 (x={:.1}, y={:.1}, plane={}) - d={distance:.1}, {} ms since the last report, \
-                 server walk running={walk_was_running}: {adopted:?}, agent now \
-                 (x={:.1}, y={:.1}, plane={}) [0x803D, {} bytes]",
-                position.0,
-                position.1,
-                before.position.0,
-                before.position.1,
-                before.plane,
-                since.map(|elapsed| elapsed.as_millis()).unwrap_or(0),
-                standing.position.0,
-                standing.position.1,
-                standing.plane,
-                frame.body().len() + 2
-            );
-            if adopted == Adopted::Accepted && plane != before.plane {
-                slot.move_stats_mut().plane_changes += 1;
-                eprintln!(
-                    "move[jump] the client's report changed the plane {before_plane} -> {plane} \
-                     at (x={:.1}, y={:.1}){note}",
-                    position.0,
-                    position.1,
-                    before_plane = before.plane,
-                    note = if distance > 50.0 {
-                        " - more than the tolerance away, so this is a real plane change, not stairs"
-                    } else {
-                        ""
-                    }
-                );
-            }
-            if adopted != Adopted::Accepted && distance > 50.0 {
-                eprintln!(
-                    "move[jump] report rejected or clamped {adopted:?}: client at (x={:.1}, \
-                     y={:.1}, plane={plane}), server at (x={:.1}, y={:.1}, plane={}), d={distance:.1}",
-                    position.0, position.1, before.position.0, before.position.1, before.plane
-                );
-            }
-        }
-        let reply = if adopted != Adopted::Refused {
-            let from = slot.agent_mut().here();
-            // Manual input is a direction. Trace it through connected cells and surface portals;
-            // do not route around an obstacle or choose a distant overlapping plane as a destination.
-            // Live bridge report 278 -> reply 281 in northlands-live-20261106-014922.jsonl.
-            let target = (from.x + offset.0, from.y + offset.1);
-            // Provisional, not accepted: owner reports better movement, but not perfect (2026-11-06).
-            // Remaining behavior is unresolved; see docs/work/session-handoff.md.
-            let walked = world.graphs.walk_direction(instance.map().map_id, from, offset);
-            if move_trace_on() {
-                match &walked {
-                    Walk::Found(waypoints) => eprintln!(
-                        "move[manual] answered with a walk to (x={:.1}, y={:.1}): {} waypoint(s) {}",
-                        target.0,
-                        target.1,
-                        waypoints.len(),
-                        waypoints_preview(waypoints)
-                    ),
-                    Walk::NoPath => eprintln!(
-                        "move[manual] directional movement refused a walk to (x={:.1}, y={:.1}) from \
-                         (x={:.1}, y={:.1}, plane={}): nothing is sent",
-                        target.0, target.1, from.x, from.y, from.plane
-                    ),
-                    Walk::NoGraph => eprintln!(
-                        "move[manual] this world has no path graph for map {}: nothing is sent",
-                        instance.map().map_id
-                    ),
-                }
-            }
-            let waypoints = match walked {
-                Walk::Found(waypoints) => waypoints,
-                Walk::NoPath | Walk::NoGraph => Vec::new(),
-            };
-            let norm = (offset.0 * offset.0 + offset.1 * offset.1).sqrt();
-            let direction = if norm > 0.0 { (offset.0 / norm, offset.1 / norm) } else { (0.0, 0.0) };
-            slot.agent_mut().begin_manual_walk(waypoints, direction, move_type)
-        } else {
-            Vec::new()
-        };
-        (adopted, standing, reply)
-    }) else {
-        return Ok(true);
-    };
-    let (adopted, standing, reply) = outcome;
-    // Doorways read the client's actual reported movement. The simulation's budget can clamp or
-    // refuse that report, but must not erase a real crossing or replace its endpoint with a short step.
-    player.record_portal_step(position);
-    instance.broadcast(player.player_id(), &reply);
-    send(stream, session, reply, trace).await?;
-    if trace {
-        eprintln!(
-            "world: agent {} reported ({:.1}, {:.1}) plane {plane}: {adopted:?} -> ({:.1}, {:.1})",
-            player.GetAgentID(),
-            position.0,
-            position.1,
-            standing.position.0,
-            standing.position.1
-        );
-    }
-    Ok(true)
-}
-pub async fn handle_request_spawn(
-    stream: &mut TcpStream,
-    session: &mut Session,
-    world: &World,
-    player: &mut Player,
-    trace: bool,
-) -> Result<bool, GameError> {
-    let replay = world.replay.as_ref();
-    let block = match replay {
-        Some(replay) if replay.pick.wants(crate::replay::BlockName::Spawn) => replay.spawn.clone(),
-        _ => spawn_block(player.instance().map(), player.standing()),
-    };
-    send(stream, session, block, trace).await?;
-    Ok(true)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
