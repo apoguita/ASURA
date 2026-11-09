@@ -1,0 +1,19 @@
+[package]
+name = "asura-worldserver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The world program, built in the reference server's shape"
+
+[dependencies]
+asura-config = { path = "../asura-config" }
+asura-db = { path = "../asura-db" }
+asura-protocol = { path = "../asura-protocol" }
+asura-rules = { path = "../asura-rules" }
+asura-store = { path = "../asura-store" }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

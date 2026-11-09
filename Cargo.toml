@@ -8,6 +8,7 @@ members = [
     "crates/asura-protocol",
     "crates/asura-db",
     "crates/asura-store",
+    "crates/asura-worldserver",
     "crates/asura-fakeworld",
     "crates/asura-supervisor",
     "crates/asura-rules",

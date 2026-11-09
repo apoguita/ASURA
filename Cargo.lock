@@ -129,6 +129,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "asura-worldserver"
+version = "0.1.0"
+dependencies = [
+ "asura-config",
+ "asura-db",
+ "asura-protocol",
+ "asura-rules",
+ "asura-store",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
 name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
