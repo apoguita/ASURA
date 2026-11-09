@@ -39,7 +39,7 @@ pub struct Agent;
 #[allow(non_snake_case)]
 impl Agent {
     /// `Agent.IsValid()`: whether the instance's agents hold that id.
-    pub fn IsValid(instance: &Instance, agent_id: u32) -> bool {
+    fn IsValid(instance: &Instance, agent_id: u32) -> bool {
         instance.has_agent(agent_id)
     }
 
@@ -49,7 +49,7 @@ impl Agent {
     }
 
     /// `Agent.GetZPlane()`: the plane the agent stands on.
-    pub fn GetZPlane(agent: &AgentState) -> u16 {
+    fn GetZPlane(agent: &AgentState) -> u16 {
         agent.plane
     }
 }
@@ -216,7 +216,7 @@ impl AgentState {
     /// and reloaded on the next visit. This keeps the direction it had instead, which makes such a walk a
     /// no-op that the arrival test below clears on the next tick. That is a deliberate difference, and
     /// the only one in this file.
-    pub fn set_destination(&mut self, destination: Pos) {
+    fn set_destination(&mut self, destination: Pos) {
         self.motion.speed = self.speed_base * self.move_speed;
         self.motion.destination = destination;
         let dx = destination.x - self.position.0;
@@ -229,7 +229,7 @@ impl AgentState {
 
     /// `GameSrv_CancelAgentMovement`: stand where you are -- the destination collapses to the position and
     /// the speed to zero. The waypoint list is the caller's business, as it is in the reference.
-    pub fn cancel_movement(&mut self) {
+    fn cancel_movement(&mut self) {
         self.motion.destination = self.here();
         self.motion.speed = 0.0;
     }
@@ -241,7 +241,7 @@ impl AgentState {
     /// no elapsed-time budget, no clamping (`captures/live-move.jsonl`: every answer's destination is the
     /// reported position plus the reported offset, to within the server's own float error). Adopting it
     /// exactly is what keeps the server's copy and the client's walk from drifting apart.
-    pub fn adopt_exact(&mut self, position: (f32, f32), plane: u16) {
+    fn adopt_exact(&mut self, position: (f32, f32), plane: u16) {
         self.position = position;
         self.plane = plane;
     }
@@ -250,7 +250,7 @@ impl AgentState {
     ///
     /// The caller has already decided the point is reachable on this plane; the plane travels with the
     /// destination so an arrival on another plane is the same move the reference makes.
-    pub fn walk_to(&mut self, destination: Pos) {
+    fn walk_to(&mut self, destination: Pos) {
         self.motion.waypoints.clear();
         self.motion.waypoint_idx = 0;
         self.set_destination(destination);
@@ -258,7 +258,7 @@ impl AgentState {
 
     /// Replace the previous order and announce a manual walk to every copy of this agent.
     /// Reply order: alternating-live.jsonl 327-329 (direction, type, destination).
-    pub fn begin_manual_walk(
+    fn begin_manual_walk(
         &mut self,
         waypoints: Vec<Waypoint>,
         direction: (f32, f32),
@@ -307,7 +307,7 @@ impl AgentState {
     }
 
     /// alternating-live.jsonl 321-322: type 9, then a destination at the stopping point.
-    pub fn stop_manual_walk(&mut self) -> Vec<Frame> {
+    fn stop_manual_walk(&mut self) -> Vec<Frame> {
         self.stand_still();
         vec![
             builders::agent_update_speed(self.agent_id, 1.0, 9),
@@ -320,7 +320,7 @@ impl AgentState {
     /// Used when the stopping point is refused. A refused correction still means the agent is not
     /// walking, so the server's copy must stop -- otherwise it keeps advancing along the abandoned path
     /// and tells every client to keep walking it. Nothing goes on the wire.
-    pub fn stand_still(&mut self) {
+    fn stand_still(&mut self) {
         self.cancel_movement();
         self.motion.waypoints.clear();
         self.motion.waypoint_idx = 0;
@@ -379,7 +379,7 @@ impl AgentState {
     }
 
     /// Adopt a position the client reported (`GAME_CMSG_POSITION_UPDATE`).
-    pub fn adopt_report(&mut self, position: (f32, f32), plane: u16, now: Instant) -> Adopted {
+    fn adopt_report(&mut self, position: (f32, f32), plane: u16, now: Instant) -> Adopted {
         let elapsed_ms = match self.last_report {
             // The first report of a session gets the full budget rather than none: the client has been
             // standing still while it loaded, and the reference makes the same choice.
@@ -430,7 +430,7 @@ impl AgentState {
     /// Adopt a correction the client sends after cancelling a walk
     /// (`GAME_CMSG_LAST_POS_BEFORE_MOVE_CANCELED`). Only a short correction on the same plane counts;
     /// how short is `config/Server/movement.json`'s `max_allowed_correction`.
-    pub fn adopt_correction(&mut self, position: (f32, f32), plane: u16) -> bool {
+    fn adopt_correction(&mut self, position: (f32, f32), plane: u16) -> bool {
         if plane != self.plane || max_allowed_correction() < self.distance_to(position) {
             return false;
         }
@@ -439,12 +439,12 @@ impl AgentState {
     }
 
     /// How long ago the client last reported, for the trace.
-    pub fn since_last_report(&self, now: Instant) -> Option<Duration> {
+    fn since_last_report(&self, now: Instant) -> Option<Duration> {
         self.last_report
             .map(|last| now.saturating_duration_since(last))
     }
 
-    pub fn distance_to(&self, other: (f32, f32)) -> f32 {
+    fn distance_to(&self, other: (f32, f32)) -> f32 {
         distance_between(self.position, other)
     }
 }
@@ -509,7 +509,7 @@ impl Standing {
     /// constant, so an operator changes it without a rebuild. The scatter keeps the point's plane: the
     /// graph that would say which plane a scattered coordinate lands on is not loaded on every machine
     /// (no `Gw.dat`, no graph), so the point's own plane is the one answer that is always right.
-    pub fn at_spawn(spawn: &crate::map_spawns::MapSpawn) -> Result<Standing, GameError> {
+    fn at_spawn(spawn: &crate::map_spawns::MapSpawn) -> Result<Standing, GameError> {
         let (dx, dy) = scatter(spawn_scatter())?;
         Ok(Standing {
             position: (spawn.x + dx, spawn.y + dy),
@@ -1328,7 +1328,7 @@ mod tests {
     }
 
     #[test]
-    pub fn a_report_inside_the_budget_is_believed() {
+    fn a_report_inside_the_budget_is_believed() {
         let now = Instant::now();
         let mut agent = agent();
         let later = now + Duration::from_millis(500);
@@ -1340,7 +1340,7 @@ mod tests {
     }
 
     #[test]
-    pub fn a_report_ahead_of_the_budget_is_clamped_not_dropped() {
+    fn a_report_ahead_of_the_budget_is_clamped_not_dropped() {
         // The first report of a session gets the full budget, so the budget only bites from the second
         // one: 5000 units in 500 ms is not something the agent could have walked, and it is moved as far
         // as 500 ms of its own speed plus the tolerance allows, along the same line.
@@ -1362,7 +1362,7 @@ mod tests {
     }
 
     #[test]
-    pub fn a_far_plane_change_is_refused_and_a_near_one_is_taken() {
+    fn a_far_plane_change_is_refused_and_a_near_one_is_taken() {
         let now = Instant::now();
         let mut near = agent();
         let later = now + Duration::from_millis(100);
@@ -1383,7 +1383,7 @@ mod tests {
     }
 
     #[test]
-    pub fn a_correction_is_short_on_the_same_plane() {
+    fn a_correction_is_short_on_the_same_plane() {
         let mut fresh = agent();
         assert!(fresh.adopt_correction((6602.0 + 50.0, 4485.0), 0));
         assert_eq!(fresh.position, (6652.0, 4485.0));
@@ -1398,7 +1398,7 @@ mod tests {
     }
 
     #[test]
-    pub fn the_ceiling_comes_from_the_movement_file_and_not_a_constant() {
+    fn the_ceiling_comes_from_the_movement_file_and_not_a_constant() {
         // `config/Server/movement.json` carries `max_allowed_correction`; the reference's own 100 is only
         // the fallback a checkout with no file runs on. What matters here is that the ceiling is read,
         // not that it is any particular number: an unchanged constant would make this test pass too, so
@@ -1417,7 +1417,7 @@ mod tests {
     }
 
     #[test]
-    pub fn a_refused_correction_stops_the_walk_and_names_no_point() {
+    fn a_refused_correction_stops_the_walk_and_names_no_point() {
         // The two frames `stop_manual_walk` builds are what a refused correction must NOT send: the only
         // position it could name is the server's stale guess, and the client walks to it. So a refusal
         // stops the copy and produces no frames at all -- the reference's own reply (`GmAgent.c:547-563`).
@@ -1442,7 +1442,7 @@ mod tests {
     }
 
     #[test]
-    pub fn the_first_report_of_a_session_gets_the_full_budget() {
+    fn the_first_report_of_a_session_gets_the_full_budget() {
         // A client that stood still through the load then reports a position is not cheating: the
         // reference gives the first report the maximum elapsed time, and so does this.
         let mut agent = agent();
@@ -1460,7 +1460,7 @@ mod tests {
     }
 
     #[test]
-    pub fn a_walk_starts_at_the_paths_first_waypoint() {
+    fn a_walk_starts_at_the_paths_first_waypoint() {
         let mut walker = agent();
         let started = walker
             .begin_walk(vec![
@@ -1483,7 +1483,7 @@ mod tests {
     }
 
     #[test]
-    pub fn the_tick_walks_the_segment_and_hands_over_to_the_next_waypoint() {
+    fn the_tick_walks_the_segment_and_hands_over_to_the_next_waypoint() {
         // 288 units a second, half a second at a time: 144 units a tick, and what is left of a tick after
         // a waypoint is spent on the next segment -- which is what the reference's `dist -=` does.
         let mut walker = agent();
@@ -1508,7 +1508,7 @@ mod tests {
     }
 
     #[test]
-    pub fn arriving_ends_the_walk() {
+    fn arriving_ends_the_walk() {
         let mut agent = agent();
         agent.begin_walk(vec![waypoint(6602.0 + 100.0, 4485.0, 1)]);
         // 100 units at 288 a second is inside one tick.
@@ -1525,7 +1525,7 @@ mod tests {
     }
 
     #[test]
-    pub fn a_walk_to_where_the_agent_stands_does_not_poison_its_direction() {
+    fn a_walk_to_where_the_agent_stands_does_not_poison_its_direction() {
         // The reference divides by the distance here without checking it, so this exact case gives it a
         // NaN direction and then a NaN position. This keeps the direction it had and ends the walk on the
         // next tick instead -- the one deliberate difference in the movement code.
@@ -1547,7 +1547,7 @@ mod tests {
     }
 
     #[test]
-    pub fn cancelling_stands_still_without_forgetting_the_path() {
+    fn cancelling_stands_still_without_forgetting_the_path() {
         // `GameSrv_CancelAgentMovement` sets the destination to the position and the speed to zero; the
         // waypoint list is the caller's business, and `MOVE_TO_COORD` clears it first.
         let mut agent = agent();
