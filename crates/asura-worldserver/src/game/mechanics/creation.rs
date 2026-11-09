@@ -176,9 +176,10 @@ pub fn creation_equipment_rows(creation: Creation) -> Vec<db_inventory::NewItem>
 
 /// Re-read the inventory after a change, so the next message built from it is the new truth.
 pub async fn reload(world: &World, player: &mut Player) -> Result<(), GameError> {
-    player.inventory = db_inventory::load(&world.pool, player.character)
+    let inventory = db_inventory::load(&world.pool, player.character())
         .await
         .map_err(GameError::Database)?;
+    player.set_inventory(inventory);
     Ok(())
 }
 
@@ -193,10 +194,10 @@ pub async fn handle_request_player(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    let Some(creation) = player.creation else {
+    let Some(creation) = player.creation() else {
         return Ok(true);
     };
-    let agent_id = player.agent_id;
+    let agent_id = player.agent_id();
     let inventory = creation_inventory(creation);
     let mut frames = vec![builders::instance_player_data_start()];
     frames.push(builders::item_stream_create(ITEM_STREAM, 0));
@@ -279,7 +280,7 @@ pub async fn handle_change_profession(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    let Some(mut creation) = player.creation else {
+    let Some(mut creation) = player.creation() else {
         return Ok(true);
     };
     if frame.body().len() < 2 {
@@ -288,9 +289,9 @@ pub async fn handle_change_profession(
     let previous = creation;
     creation.campaign = frame.body()[0];
     creation.profession = frame.body()[1];
-    player.creation = Some(creation);
+    player.set_creation(Some(creation));
 
-    let agent_id = player.agent_id;
+    let agent_id = player.agent_id();
     let inventory = creation_inventory(creation);
     let mut frames = Vec::new();
     // The client still holds the set the previous change put there, and it asserts if an item is
@@ -351,7 +352,7 @@ pub async fn handle_confirm(
     player: &mut Player,
     trace: bool,
 ) -> Result<bool, GameError> {
-    let Some(creation) = player.creation else {
+    let Some(creation) = player.creation() else {
         return Ok(true);
     };
     let body = &frame.body();
@@ -466,7 +467,7 @@ pub async fn handle_confirm(
     let outpost = placed.map_id;
     match db_inventory::create_character(
         &world.pool,
-        player.account_id,
+        player.account_id(),
         &name,
         outpost,
         traits,

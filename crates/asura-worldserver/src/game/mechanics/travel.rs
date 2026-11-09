@@ -163,7 +163,9 @@ pub fn handle_travel_init(frame: &Frame, player: &Player, _trace: bool) -> Resul
     eprintln!(
         "world: {:?} touched a travel object in map {} '{}': TRAVEL_INIT agent {agent:#010X}, \
          second {other:#010X}; no portal row names that agent, so no travel starts",
-        player.name, player.instance.map.map_id, player.instance.map.name,
+        player.name(),
+        player.instance().map.map_id,
+        player.instance().map.name,
     );
     Ok(true)
 }
@@ -245,7 +247,7 @@ pub async fn teleport(
             return Ok(true);
         }
     };
-    if target.map_id == player.instance.map.map_id {
+    if target.map_id == player.instance().map.map_id {
         // `GmCommands.c:198-202`. **The command's own refusal, not a travel policy**: the client-driven
         // requests (`0x80B1`, `0x80C1`) are carried out without this check, because there the client has
         // already decided and a second opinion is a gate (docs/reference/game-world-model.md, "No server-side travel
@@ -290,7 +292,8 @@ pub async fn handle_party_travel(
     let map_id = i32::from(u16::from_le_bytes([frame.body()[0], frame.body()[1]]));
     eprintln!(
         "world: {:?} asked for instance {map_id} from the world map in map {}",
-        player.name, player.instance.map.map_id
+        player.name(),
+        player.instance().map.map_id
     );
     let Some(destination) = resolve_instance(world, map_id).await? else {
         // A statement about this server, not about the client's rights: it has no row, no blob, or a
@@ -341,10 +344,10 @@ pub async fn portal_crossed(
     // A crossing already in flight owns this connection: its seat belongs to the destination and the
     // client is about to reconnect, so a further step must not start a second one. Without this a walk
     // into a door can send two redirects, and a client given two reconnects takes its time to settle.
-    if player.moved {
+    if player.moved() {
         return Ok(true);
     }
-    let instance = player.instance.map.map_id;
+    let instance = player.instance().map.map_id;
     let Some(crossed) = crate::portals::crossed(instance, from, to) else {
         return Ok(true);
     };
@@ -352,7 +355,11 @@ pub async fn portal_crossed(
         eprintln!(
             "world: {:?} crossed a doorway of instance {instance} from ({:.0}, {:.0}) to \
              ({:.0}, {:.0}); no destination is recorded for that doorway",
-            player.name, from.0, from.1, to.0, to.1
+            player.name(),
+            from.0,
+            from.1,
+            to.0,
+            to.1
         );
         return Ok(true);
     };
@@ -363,7 +370,7 @@ pub async fn portal_crossed(
     eprintln!(
         "world: {:?} crossed the doorway of instance {instance} at ({:.0}, {:.0}) -> ({:.0}, {:.0}): \
          crossing to {to_instance}{}",
-        player.name,
+        player.name(),
         from.0,
         from.1,
         to.0,
@@ -419,7 +426,7 @@ async fn begin_transfer(
     // The seat on the destination. `reserve` gives up this session's current lease in the same
     // transaction, which is exactly a transfer's accounting: one seat, moved.
     let Some(world_id) = placement::Placement::new(&world.pool)
-        .reserve(world.world_id, to_map, player.session_id)
+        .reserve(world.world_id, to_map, player.session_id())
         .await
         .map_err(GameError::Database)?
     else {
@@ -436,9 +443,9 @@ async fn begin_transfer(
             player_token,
             world_id,
             to_map,
-            player.session_id,
-            player.account_id,
-            player.character,
+            player.session_id(),
+            player.account_id(),
+            player.character(),
         )
         .await
         .map_err(GameError::Database)?;
@@ -451,17 +458,17 @@ async fn begin_transfer(
     match landing {
         Some((x, y)) => {
             placement::Placement::new(&world.pool)
-                .note_arrival_origin(player_token, player.instance.map.map_id)
+                .note_arrival_origin(player_token, player.instance().map.map_id)
                 .await
                 .map_err(GameError::Database)?;
             if let Err(err) =
-                db_game::record_position(&world.pool, player.character, to_map, x, y, 0).await
+                db_game::record_position(&world.pool, player.character(), to_map, x, y, 0).await
             {
                 eprintln!("world: could not write the landing point for instance {to_map}: {err}");
             }
         }
         None => {
-            if let Err(err) = db_game::forget_position(&world.pool, player.character).await {
+            if let Err(err) = db_game::forget_position(&world.pool, player.character()).await {
                 eprintln!("world: could not clear the saved position for the travel: {err}");
             }
         }
@@ -500,8 +507,8 @@ async fn begin_transfer(
         // from the map it left, `docs/reference/client-protocol.md:461-475` said it should, and the test that pins the
         // eight (`crates/asura-world/tests/load.rs:1775`) had been red since the experiment that cut them
         // was never reverted. Restored 2026-11-01 against that test and that table.
-        builders::agent_update_effects(player.agent_id, TRAVEL_EFFECT),
-        builders::agent_stop_moving(player.agent_id),
+        builders::agent_update_effects(player.agent_id(), TRAVEL_EFFECT),
+        builders::agent_stop_moving(player.agent_id()),
         builders::transfer_game_server_info(
             public.ip().octets(),
             public.port(),
@@ -512,20 +519,20 @@ async fn begin_transfer(
             player_token,
         ),
         builders::map_update_current_redirect(to_map as u32),
-        builders::player_update_party_size(player.player_id, 1),
-        builders::player_update_party(player.player_id, 0),
-        builders::player_destroy(player.player_id),
-        builders::world_remove_agent(player.agent_id),
+        builders::player_update_party_size(player.player_id(), 1),
+        builders::player_update_party(player.player_id(), 0),
+        builders::player_destroy(player.player_id()),
+        builders::world_remove_agent(player.agent_id()),
     ];
     send(stream, session, frames, trace).await?;
     // From here the session's seat belongs to the connection the client is about to open, so its own
     // teardown must not hand it back (see the release at the end of `handle_connection`).
-    player.moved = true;
+    player.set_moved(true);
     eprintln!(
         "world: {:?} travelling: map {} -> map {} '{}', player token {player_token:#010X}, \
          redirect to {public}",
-        player.name,
-        player.instance.map.map_id,
+        player.name(),
+        player.instance().map.map_id,
         to_map,
         destination.label()
     );

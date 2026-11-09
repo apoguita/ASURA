@@ -782,9 +782,9 @@ pub async fn handle_move_to_coord(
         frame.body()[11],
     ]) as u16;
     let agent_id = player.GetAgentID();
-    let instance = Arc::clone(&player.instance);
+    let instance = Arc::clone(&player.instance());
     let map_id = instance.map.map_id;
-    let Some((from, walk_active)) = instance.with_slot(player.player_id, |slot| {
+    let Some((from, walk_active)) = instance.with_slot(player.player_id(), |slot| {
         (slot.agent.here(), 0.0 < slot.agent.motion.speed)
     }) else {
         eprintln!("world: agent {agent_id} asked to walk but has no slot in its instance");
@@ -796,7 +796,9 @@ pub async fn handle_move_to_coord(
         plane,
     };
     if move_trace_on() {
-        instance.with_slot(player.player_id, |slot| slot.move_stats.walk_requests += 1);
+        instance.with_slot(player.player_id(), |slot| {
+            slot.move_stats.walk_requests += 1
+        });
         eprintln!(
             "move[pathfind] agent {agent_id} asked to walk to (x={:.1}, y={:.1}, plane={plane}) \
              while the server thinks it stands at (x={:.1}, y={:.1}, plane={}){} \
@@ -853,7 +855,7 @@ pub async fn handle_move_to_coord(
             // (floor is 0; slopes and bridges have their own ids), and that is the reference's
             // business, not this server's.
             let begun = instance
-                .with_slot(player.player_id, |slot| {
+                .with_slot(player.player_id(), |slot| {
                     let speed = (slot.agent.move_type != 1 || slot.agent.move_speed != 1.0)
                         .then(|| builders::agent_update_speed(agent_id, 1.0, 1));
                     slot.agent.move_type = 1;
@@ -894,7 +896,7 @@ pub async fn handle_move_to_coord(
                 // keeps drawing the walker where it last stood.
                 let mut reply: Vec<_> = speed.into_iter().collect();
                 reply.push(walk);
-                instance.broadcast(player.player_id, &reply);
+                instance.broadcast(player.player_id(), &reply);
                 send(stream, session, reply, trace).await?;
             }
         }
@@ -902,7 +904,7 @@ pub async fn handle_move_to_coord(
             if trace {
                 eprintln!("world: path finding failed for agent {agent_id}; standing still");
             }
-            instance.with_slot(player.player_id, |slot| slot.agent.cancel_movement());
+            instance.with_slot(player.player_id(), |slot| slot.agent.cancel_movement());
             let standing = player.standing();
             // **Nothing goes on the wire.** The reference answers a refused walk with
             // `AGENT_UPDATE_POSITION` (`0x002C`, `GmAgent.c:391-394`), and that message carries
@@ -972,8 +974,8 @@ pub async fn handle_position_update(
     }
     let now = Instant::now();
     let before = player.standing();
-    let instance = Arc::clone(&player.instance);
-    let Some(outcome) = instance.with_slot(player.player_id, |slot| {
+    let instance = Arc::clone(&player.instance());
+    let Some(outcome) = instance.with_slot(player.player_id(), |slot| {
         let since = slot.agent.since_last_report(now);
         let walk_was_running = 0.0 < slot.agent.motion.speed;
         let adopted = slot.agent.adopt_report(position, plane, now);
@@ -1081,7 +1083,7 @@ pub async fn handle_position_update(
     // Doorways read the client's actual reported movement. The simulation's budget can clamp or
     // refuse that report, but must not erase a real crossing or replace its endpoint with a short step.
     player.record_portal_step(position);
-    instance.broadcast(player.player_id, &reply);
+    instance.broadcast(player.player_id(), &reply);
     send(stream, session, reply, trace).await?;
     if trace {
         eprintln!(
@@ -1111,8 +1113,8 @@ pub async fn handle_cancel_movement(
     trace: bool,
 ) -> Result<bool, GameError> {
     let _ = world;
-    let instance = Arc::clone(&player.instance);
-    let Some((was_walking, stop, stood)) = instance.with_slot(player.player_id, |slot| {
+    let instance = Arc::clone(&player.instance());
+    let Some((was_walking, stop, stood)) = instance.with_slot(player.player_id(), |slot| {
         let was_walking = 0.0 < slot.agent.motion.speed;
         slot.agent.cancel_movement();
         let stood = Standing {
@@ -1143,7 +1145,7 @@ pub async fn handle_cancel_movement(
             frame.body().len() + 2
         );
     }
-    instance.broadcast(player.player_id, std::slice::from_ref(&stop));
+    instance.broadcast(player.player_id(), std::slice::from_ref(&stop));
     send(stream, session, vec![stop], trace).await?;
     Ok(true)
 }
@@ -1187,8 +1189,8 @@ pub async fn handle_last_position(
         frame.body()[10],
         frame.body()[11],
     ]) as u16;
-    let instance = Arc::clone(&player.instance);
-    let Some((taken, reply, believed, distance)) = instance.with_slot(player.player_id, |slot| {
+    let instance = Arc::clone(&player.instance());
+    let Some((taken, reply, believed, distance)) = instance.with_slot(player.player_id(), |slot| {
         let believed = Standing {
             position: slot.agent.position,
             plane: slot.agent.plane,
@@ -1212,13 +1214,13 @@ pub async fn handle_last_position(
         return Ok(true);
     };
     if !reply.is_empty() {
-        instance.broadcast(player.player_id, &reply);
+        instance.broadcast(player.player_id(), &reply);
         send(stream, session, reply, trace).await?;
     }
     if position.0.is_finite() && position.1.is_finite() {
         player.record_portal_step(position);
     } else {
-        player.last_step = None;
+        let _ = player.take_last_step();
     }
     if move_trace_on() {
         // The distance is what decides and the ceiling is configuration, so the trace names both: a
@@ -1269,7 +1271,7 @@ pub async fn handle_request_spawn(
     let replay = world.replay.as_ref();
     let block = match replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Spawn) => replay.spawn.clone(),
-        _ => spawn_block(&player.instance.map, player.standing()),
+        _ => spawn_block(&player.instance().map, player.standing()),
     };
     send(stream, session, block, trace).await?;
     Ok(true)

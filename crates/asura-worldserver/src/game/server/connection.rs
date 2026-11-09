@@ -305,7 +305,18 @@ pub async fn handle_connection(
     let (portal_outbox, mut portal_inbox) = tokio::sync::mpsc::unbounded_channel();
     instance.watch_portals(player_id, portal_outbox);
     let map_type = map.map_type;
-    let mut player = Player {
+    // A creation instance is its own map type (`MapType_CharacterCreation`, 11): a connection that
+    // arrived in one is there to make a character, and one that arrived in anything else cannot.
+    let creation = if map_type == map_kinds().character_creation {
+        Some(Creation::start())
+    } else {
+        None
+    };
+    let traits = db_game::traits(&world.pool, character)
+        .await
+        .map_err(GameError::Database)?
+        .unwrap_or_default();
+    let mut player = Player::admit(Admission {
         character,
         player_id,
         agent_id,
@@ -314,28 +325,16 @@ pub async fn handle_connection(
         inventory,
         session_id: transfer.session_id,
         account_id: transfer.account_id,
-        moved: false,
         portal_position: standing.position,
-        last_step: None,
-        // A creation instance is its own map type (`MapType_CharacterCreation`, 11): a connection that
-        // arrived in one is there to make a character, and one that arrived in anything else cannot.
-        creation: if map_type == map_kinds().character_creation {
-            Some(Creation::start())
-        } else {
-            None
-        },
-        traits: db_game::traits(&world.pool, character)
-            .await
-            .map_err(GameError::Database)?
-            .unwrap_or_default(),
-        started: Instant::now(),
-    };
+        creation,
+        traits,
+    });
     if move_trace_on() {
         eprintln!(
             "move[spawn] agent {} starts on map {} at (x={:.1}, y={:.1}, plane={}) with speed {} \
              (the client will walk from here)",
             player.GetAgentID(),
-            player.instance.map.map_id,
+            player.instance().map.map_id,
             player.GetXY().0,
             player.GetXY().1,
             player.standing().plane,
@@ -353,11 +352,15 @@ pub async fn handle_connection(
     // player name and the load info belong to the map path and are not sent here.
     let block = match &world.replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Load) => replay.load.clone(),
-        _ if player.creation.is_some() => vec![
+        _ if player.creation().is_some() => vec![
             builders::instance_load_head_default(),
             builders::char_creation_start(),
         ],
-        _ => load_block(&player.instance.map, player.GetName(), player.GetAgentID()),
+        _ => load_block(
+            &player.instance().map,
+            player.GetName(),
+            player.GetAgentID(),
+        ),
     };
     send(&mut stream, &mut session, block, trace).await?;
 
@@ -390,15 +393,15 @@ pub async fn handle_connection(
     let left = stood.position;
     let left_plane = stood.plane;
     let stats = player
-        .instance
-        .move_stats(player.player_id)
+        .instance()
+        .move_stats(player.player_id())
         .unwrap_or_default();
 
     // The player left: the instance loses the agent before the slot goes back, so a client that is
     // being told about the departure never sees an agent whose seat is already free.
-    if player.instance.leave(player.player_id) {
+    if player.instance().leave(player.player_id()) {
         player
-            .instance
+            .instance()
             .broadcast_all(&farewell(player.GetPlayerNumber(), player.GetAgentID()));
     }
 
@@ -407,11 +410,11 @@ pub async fn handle_connection(
     // arrives in the creation map without making a character is one whose client still believes it is
     // there. Saving this map would overwrite the outpost with the instance and strand the character -
     // measured 2026-10-28: every character that entered map 0 came back to map 0 on the next login.
-    if !player.moved && player.instance.map.map_type != map_kinds().character_creation {
+    if !player.moved() && player.instance().map.map_type != map_kinds().character_creation {
         if let Err(err) = db_game::record_position(
             &world.pool,
-            player.character,
-            player.instance.map.map_id,
+            player.character(),
+            player.instance().map.map_id,
             left.0,
             left.1,
             left_plane as i16,
@@ -430,10 +433,11 @@ pub async fn handle_connection(
     // transaction that gives up this one, so the only lease the session holds by the time this runs is
     // the one the client is about to arrive on. Releasing it would free a seat a player is standing in -
     // the reference's own mirror of this race is recorded in `PreSearing/docs/08-gm-commands.md`.
-    if player.moved {
+    if player.moved() {
         eprintln!(
             "world: {:?} was moved to map {}; the seat it holds is the destination's",
-            player.name, player.instance.map.map_id
+            player.name(),
+            player.instance().map.map_id
         );
     } else if let Err(err) = placement::Placement::new(&world.pool)
         .release(transfer.session_id)
@@ -443,11 +447,11 @@ pub async fn handle_connection(
     }
     eprintln!(
         "world: {:?} left map {} from ({:.1}, {:.1}) plane {left_plane}, {}",
-        player.name,
-        player.instance.map.map_id,
+        player.name(),
+        player.instance().map.map_id,
         left.0,
         left.1,
-        if player.moved {
+        if player.moved() {
             "not saved (the connection was redirected to another map)"
         } else {
             "saved"

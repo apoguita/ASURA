@@ -238,7 +238,7 @@ pub async fn handle_chat_message(
                 session,
                 vec![
                     builders::chat_message_core(&spoken),
-                    builders::chat_message_local(player.player_id, channel),
+                    builders::chat_message_local(player.player_id(), channel),
                 ],
                 trace,
             )

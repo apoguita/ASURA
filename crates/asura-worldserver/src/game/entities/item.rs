@@ -58,7 +58,7 @@ impl Inventory {
 
     /// `Inventory.GetGoldOnCharacter()`: the gold the load block reports.
     pub fn GetGoldOnCharacter(player: &Player) -> u32 {
-        player.traits.gold
+        player.traits().gold
     }
 }
 
@@ -195,13 +195,13 @@ pub async fn drop_item(
         return Ok(());
     }
 
-    let Some(item) = db_inventory::find_in_carrying_bags(&world.pool, player.character, item_id)
+    let Some(item) = db_inventory::find_in_carrying_bags(&world.pool, player.character(), item_id)
         .await
         .map_err(GameError::Database)?
     else {
         eprintln!(
             "world: a drop names item {item_id}, which {0:?} does not carry; ignored",
-            player.name
+            player.name()
         );
         return Ok(());
     };
@@ -213,19 +213,20 @@ pub async fn drop_item(
         return Ok(());
     }
 
-    let Some(taken) = db_inventory::take_from_stack(&world.pool, player.character, item_id, count)
-        .await
-        .map_err(GameError::Database)?
+    let Some(taken) =
+        db_inventory::take_from_stack(&world.pool, player.character(), item_id, count)
+            .await
+            .map_err(GameError::Database)?
     else {
         eprintln!("world: item {item_id} could not be taken out of its stack; ignored");
         return Ok(());
     };
 
-    let agent_id = player.instance.allocate_agent_id();
+    let agent_id = player.instance().allocate_agent_id();
     eprintln!(
         "world: {} dropped {count} of item {item_id} at ({:.1}, {:.1}), agent {agent_id} reserved, {} \
          left in the bag -- and nothing is sent: both messages a drop could send have crashed a client",
-        player.name,
+        player.name(),
         player.standing().position.0 + DROP_OFFSET,
         player.standing().position.1 + DROP_OFFSET,
         taken.remaining
@@ -266,8 +267,8 @@ pub async fn move_item(
         bag_id,
         slot,
     } = placement;
-    let before = player.inventory.equipped_item_ids();
-    let outcome = db_inventory::move_item(&world.pool, player.character, item_id, bag_id, slot)
+    let before = player.inventory().equipped_item_ids();
+    let outcome = db_inventory::move_item(&world.pool, player.character(), item_id, bag_id, slot)
         .await
         .map_err(GameError::Database)?;
 
@@ -305,7 +306,7 @@ pub async fn move_item(
         }
     }
 
-    if player.inventory.equipped_item_ids() != before {
+    if player.inventory().equipped_item_ids() != before {
         frames.push(equipment_frame(player));
     }
     send(stream, session, frames, trace).await
@@ -320,10 +321,10 @@ pub async fn equip_item(
     item_id: i32,
     trace: bool,
 ) -> Result<(), GameError> {
-    let Some(item) = player.inventory.item(item_id).cloned() else {
+    let Some(item) = player.inventory().item(item_id).cloned() else {
         eprintln!(
             "world: an equip names item {item_id}, which {0:?} does not have",
-            player.name
+            player.name()
         );
         return Ok(());
     };
@@ -335,7 +336,7 @@ pub async fn equip_item(
         return Ok(());
     };
     let Some(bag) = player
-        .inventory
+        .inventory()
         .bags
         .iter()
         .find(|bag| bag.bag_model_id == db_inventory::EQUIPPED_ITEMS_MODEL)
@@ -343,25 +344,25 @@ pub async fn equip_item(
     else {
         eprintln!(
             "world: {0:?} has no equipped-items bag; equip ignored",
-            player.name
+            player.name()
         );
         return Ok(());
     };
 
     let slot = i32::from(slot);
-    let before = player.inventory.equipped_item_ids();
+    let before = player.inventory().equipped_item_ids();
     let mut frames = Vec::with_capacity(3);
 
     // Whatever is worn in that slot has to come off first, and there has to be somewhere to put it.
     let occupant = player
-        .inventory
+        .inventory()
         .items_in(bag.bag_id)
         .into_iter()
         .find(|item| item.slot == Some(slot) && item.id != item_id)
         .cloned();
     if let Some(occupant) = occupant {
         let Some((to_bag, to_slot)) =
-            db_inventory::first_free_carrying_slot(&world.pool, player.character)
+            db_inventory::first_free_carrying_slot(&world.pool, player.character())
                 .await
                 .map_err(GameError::Database)?
         else {
@@ -371,9 +372,15 @@ pub async fn equip_item(
             );
             return Ok(());
         };
-        match db_inventory::move_item(&world.pool, player.character, occupant.id, to_bag, to_slot)
-            .await
-            .map_err(GameError::Database)?
+        match db_inventory::move_item(
+            &world.pool,
+            player.character(),
+            occupant.id,
+            to_bag,
+            to_slot,
+        )
+        .await
+        .map_err(GameError::Database)?
         {
             db_inventory::MoveOutcome::At { bag_id, slot, .. } => {
                 eprintln!(
@@ -397,7 +404,7 @@ pub async fn equip_item(
         }
     }
 
-    match db_inventory::move_item(&world.pool, player.character, item_id, bag.bag_id, slot)
+    match db_inventory::move_item(&world.pool, player.character(), item_id, bag.bag_id, slot)
         .await
         .map_err(GameError::Database)?
     {
@@ -429,7 +436,7 @@ pub async fn equip_item(
     }
 
     reload(world, player).await?;
-    if player.inventory.equipped_item_ids() != before {
+    if player.inventory().equipped_item_ids() != before {
         frames.push(equipment_frame(player));
     }
     send(stream, session, frames, trace).await
@@ -438,7 +445,7 @@ pub async fn equip_item(
 pub fn equipment_frame(player: &Player) -> Frame {
     builders::update_agent_visual_equipment(
         player.GetAgentID(),
-        player.inventory.equipped_item_ids(),
+        player.inventory().equipped_item_ids(),
     )
 }
 
@@ -458,7 +465,11 @@ pub async fn handle_request_items(
     let replay = world.replay.as_ref();
     let block = match replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Items) => replay.items.clone(),
-        _ => items_block(&player.instance.map, &player.inventory, player.traits.gold),
+        _ => items_block(
+            &player.instance().map,
+            &player.inventory(),
+            player.traits().gold,
+        ),
     };
     send(stream, session, block, trace).await?;
     Ok(true)

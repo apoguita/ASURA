@@ -15,43 +15,72 @@ use crate::*;
 /// Assembled after the token pair is believed and before the load block, so that everything the blocks
 /// need - whose character this is, where it stands, what it carries - is decided in one place rather than
 /// read again in the middle of a conversation.
+/// Everything a player is admitted with: the facts the connection established before the load block.
+///
+/// A struct rather than fifteen positional arguments, for the reason `asura-protocol` and
+/// `asura-rules` record (D16): the ids are small integers, so a swapped pair compiles and a client
+/// draws the wrong character.
+pub struct Admission {
+    /// The character the transfer named.
+    pub character: Uuid,
+    /// The connection's player id.
+    pub player_id: u32,
+    /// The agent this character drives.
+    pub agent_id: u32,
+    /// The instance it entered.
+    pub instance: Arc<Instance>,
+    /// The character's name.
+    pub name: String,
+    /// What it carries, as read for the load block.
+    pub inventory: Inventory,
+    /// The login session the transfer named.
+    pub session_id: Uuid,
+    /// The account that session belongs to.
+    pub account_id: Uuid,
+    /// Where the doorway test starts watching.
+    pub portal_position: (f32, f32),
+    /// The creation in progress, when this is a creation instance.
+    pub creation: Option<Creation>,
+    /// The character's stored traits.
+    pub traits: db_game::Traits,
+}
 pub struct Player {
     /// The character the transfer named. Every write on the way out is scoped to it.
-    pub character: Uuid,
+    character: Uuid,
     /// This connection's player id, allocated when it joined. The reference allocates the same number
     /// from `srv->players` (`GmIdAllocate`) and puts it in `GAME_SMSG_PLAYER_CREATE`, every agent's
     /// `model_id`, the party messages and the chat speaker field.
-    pub player_id: u32,
+    player_id: u32,
     /// The agent this character drives in its instance, as `GAME_SMSG_WORLD_CREATE_AGENT` names it.
-    pub agent_id: u32,
+    agent_id: u32,
     /// The instance this player is in: the map as a running object (its players, their agents and its
     /// clock), not the catalogue row that describes it. `player.instance.map` is that row.
-    pub instance: Arc<Instance>,
-    pub name: String,
-    pub inventory: Inventory,
+    instance: Arc<Instance>,
+    name: String,
+    inventory: Inventory,
     /// The login session and account the transfer named.
     ///
     /// The reference keeps both on its player (`GmPlayer.account_id`, `.char_id`) and uses them for every
     /// bag and item query and for its transfer request (`GameSrv.c:1450-1472`). This server scoped its
     /// writes by character alone, which is enough for everything it did until a *world* had to start a
     /// travel: the transfer row is keyed by session and needs the account as well (`docs/history/gwps-parity/behavior-audit.md` #9).
-    pub session_id: Uuid,
-    pub account_id: Uuid,
+    session_id: Uuid,
+    account_id: Uuid,
     /// Set when this connection has been redirected to another map. Its teardown must then leave the
     /// lease alone: the seat it holds now belongs to the connection the client is about to open.
-    pub moved: bool,
+    moved: bool,
     /// The last client-reported position checked for doorways. Simulation ticks never change it:
     /// a tick can cross a wall between reports, and that movement must remain in the next check.
-    pub portal_position: (f32, f32),
+    portal_position: (f32, f32),
     /// The segment between finite client reports or corrections, consumed by the doorway test.
-    pub last_step: Option<((f32, f32), (f32, f32))>,
+    last_step: Option<((f32, f32), (f32, f32))>,
     /// What a character-creation connection has chosen so far: `Some` when this connection is in a
     /// creation instance (map type 11), which is the reference's `MapType_CharacterCreation`.
-    pub creation: Option<Creation>,
+    creation: Option<Creation>,
     /// The character's stored traits - what the load block sends instead of constants.
-    pub traits: db_game::Traits,
+    traits: db_game::Traits,
     /// When the connection began, for the load time the reference reports.
-    pub started: Instant,
+    started: Instant,
 }
 
 #[allow(non_snake_case)]
@@ -73,6 +102,113 @@ impl Player {
         self.portal_position = position;
     }
 
+    /// Admit a character to a connection: the one way a `Player` is made.
+    ///
+    /// The fields the connection does not know are set here, and the ones it does arrive as facts, not
+    /// as guesses: `moved` starts false because no redirect has happened, `last_step` empty because no
+    /// report has been consumed, and the clock starts now.
+    pub fn admit(admission: Admission) -> Player {
+        Player {
+            character: admission.character,
+            player_id: admission.player_id,
+            agent_id: admission.agent_id,
+            instance: admission.instance,
+            name: admission.name,
+            inventory: admission.inventory,
+            session_id: admission.session_id,
+            account_id: admission.account_id,
+            moved: false,
+            portal_position: admission.portal_position,
+            last_step: None,
+            creation: admission.creation,
+            traits: admission.traits,
+            started: Instant::now(),
+        }
+    }
+    /// The character the transfer named.
+    pub fn character(&self) -> Uuid {
+        self.character
+    }
+
+    /// This connection's player id.
+    pub fn player_id(&self) -> u32 {
+        self.player_id
+    }
+
+    /// The agent this character drives in its instance.
+    pub fn agent_id(&self) -> u32 {
+        self.agent_id
+    }
+
+    /// The instance this player is in, and through it the map it stands on.
+    pub fn instance(&self) -> &Arc<Instance> {
+        &self.instance
+    }
+
+    /// The character's name, as the client shows it.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// What the character carries.
+    pub fn inventory(&self) -> &Inventory {
+        &self.inventory
+    }
+
+    /// Replace what the character carries, after a read or a creation write.
+    pub fn set_inventory(&mut self, inventory: Inventory) {
+        self.inventory = inventory;
+    }
+
+    /// The login session the transfer named.
+    pub fn session_id(&self) -> Uuid {
+        self.session_id
+    }
+
+    /// The account the session belongs to.
+    pub fn account_id(&self) -> Uuid {
+        self.account_id
+    }
+
+    /// Whether this connection has been redirected to another map.
+    pub fn moved(&self) -> bool {
+        self.moved
+    }
+
+    /// A redirect happened: the teardown must leave the lease alone.
+    pub fn set_moved(&mut self, moved: bool) {
+        self.moved = moved;
+    }
+
+    /// The last client-reported position the doorway test saw.
+    pub fn portal_position(&self) -> (f32, f32) {
+        self.portal_position
+    }
+
+    /// The segment between finite client reports, which the doorway test consumes once.
+    pub fn take_last_step(&mut self) -> Option<((f32, f32), (f32, f32))> {
+        self.last_step.take()
+    }
+
+    /// The creation in progress, when this connection is in a creation instance.
+    pub fn creation(&self) -> Option<Creation> {
+        self.creation
+    }
+
+    /// Record a creation choice.
+    pub fn set_creation(&mut self, creation: Option<Creation>) {
+        self.creation = creation;
+    }
+
+    /// The character's stored traits.
+    pub fn traits(&self) -> db_game::Traits {
+        self.traits
+    }
+
+    /// When the connection began.
+    pub fn started(&self) -> Instant {
+        self.started
+    }
     /// Where the agent is **now**, from the instance's own slot: what the reference answers the spawn
     /// and players requests with (`agent->position`). After the client has walked, that is no longer
     /// where it entered.
