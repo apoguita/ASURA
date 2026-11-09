@@ -11,6 +11,7 @@ pub mod agent;
 pub mod chat;
 pub mod creation;
 pub mod item;
+pub mod player;
 pub mod travel;
 
 use crate::*;

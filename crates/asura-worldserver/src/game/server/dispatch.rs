@@ -34,7 +34,10 @@ pub async fn answer(
         }
 
         msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_PLAYERS => {
-            player::handle_request_players(stream, session, world, player, trace).await
+            crate::game::handlers::player::handle_request_players(
+                stream, session, world, player, trace,
+            )
+            .await
         }
 
         msg::GAME_CMSG_PING_REQUEST => {
