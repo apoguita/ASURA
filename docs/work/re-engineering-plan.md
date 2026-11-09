@@ -101,8 +101,22 @@ tests, `asura-world` 90 unit tests, `cargo check --workspace` exits 0.
   (`is_none_or` newer than the 1.75 MSRV) and two complex types in `asura-db/examples/export-map-content.rs`.
   Every crate this plan created or rewrote is clean.
 - The `end_to_end` test and the whole `load` suite fail on `outpost 146 has no configured random spawn
-  list`: the tests build map 146 as an outpost with no spawns, while the pack has it as an explorable
-  with no `spawns.json`. The refusal landed in `301a97a` (2026-11-06), after the tests were written.
+  list`, and the cause is the fixture, not the server. Both harnesses declare map 146 as `main_town`
+  with an empty `spawns` list (`tests/end_to_end.rs:131-134`, `tests/load.rs:172-184`), and
+  `Standing::arrival` refuses an outpost with no spawn list
+  (`crates/asura-worldserver/src/game/entities/agent.rs:689-699`). The refusal is deliberate and
+  recorded: `301a97a` (2026-11-06) made it, and the handoff states it - "ordinary outpost entry
+  without a spawn list is refused with a reason instead of resuming a saved position". The pack cannot
+  answer for 146 either: `config/World/Vanilla/maps/Prophecies/Ascalon (pre-Searing)/Explorables/146/`
+  holds `basic.json` and `portals.json` and no `spawns.json`, where 148 next to it has one. So the
+  fixture asks for a state production never creates - a character row standing in a map with no saved
+  position, entered without a doorway origin - and the server answers it correctly. The suites go
+  green when the fixture states a spawn list, or when `seed_identity` writes the position row that
+  character creation writes; neither is a server change.
+- The same reading exposes a conflict inside `Standing::arrival`'s own documentation: rule 3 promises
+  "the catalogue row's single coordinate otherwise" (`agent.rs:673-674`) and the code below refuses
+  that case instead (`agent.rs:700-714`). One of the two sentences has to go, and which one is the
+  owner's call.
 
 None of these is fixed by this plan. A phase that changes any of them says so in its commit.
 
