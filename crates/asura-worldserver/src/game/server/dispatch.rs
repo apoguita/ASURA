@@ -39,7 +39,10 @@ pub async fn answer(
         }
 
         msg::GAME_CMSG_MOVE_TO_COORD => {
-            agent::handle_move_to_coord(stream, session, &frame, world, player, trace).await
+            crate::game::handlers::agent::handle_move_to_coord(
+                stream, session, &frame, world, player, trace,
+            )
+            .await
         }
 
         msg::GAME_CMSG_POSITION_UPDATE => {

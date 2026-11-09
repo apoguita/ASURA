@@ -97,6 +97,21 @@ pub struct Correction {
     /// How far the point was from `believed`.
     pub distance: f32,
 }
+/// What starting a walk reports: the waypoint to answer with, the plane the body is on, how many
+/// waypoints remain, where it stands, and whether the client needs a speed update first.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Begun {
+    /// The first waypoint of the walk, which is what the client is told.
+    pub first: Waypoint,
+    /// The plane the agent stands on before the walk moves it.
+    pub current_plane: u16,
+    /// How many waypoints are still ahead.
+    pub left: usize,
+    /// Where the agent stood when the walk began.
+    pub stood: (f32, f32),
+    /// True when the last announcement was not the default speed and the client must be told.
+    pub announcement: bool,
+}
 /// What stopping a walk reports: whether a server-side walk had been running, and where the body
 /// stands after the stop.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -254,6 +269,25 @@ impl AgentState {
             believed: before,
             distance,
         }
+    }
+    /// Start walking a path the finder produced, announcing the default speed if the last
+    /// announcement said anything else.
+    ///
+    /// The reference resets the agent's movement type before the walk and sends a speed update only
+    /// when the client's copy would otherwise disagree (`GameSrv_HandleMoveToCoord`). That decision is
+    /// state, so it lives here; the handler builds the frame from what this returns.
+    pub fn begin_walk_announcing(&mut self, waypoints: Vec<Waypoint>) -> Option<Begun> {
+        let announcement = (self.move_type != 1 || self.move_speed != 1.0);
+        self.move_type = 1;
+        self.move_speed = 1.0;
+        let first = self.begin_walk(waypoints)?;
+        Some(Begun {
+            first,
+            current_plane: self.plane,
+            left: self.motion.waypoints.len(),
+            stood: self.position,
+            announcement,
+        })
     }
     /// The agent's position as a point on the map's graph.
     pub fn here(&self) -> Pos {
@@ -811,196 +845,6 @@ pub fn waypoints_preview(waypoints: &[pathfind::Waypoint]) -> String {
     };
     format!("[{}]{}", shown.join(" "), more)
 }
-
-/// The client asks to walk somewhere (`GameSrv_HandleMoveToCoord`, `GmAgent.c:371-398`).
-///
-/// The reference asks its path finder for the walk and then answers with **the first waypoint of
-/// its own path**, not with the client's destination: the client predicts a straight line, and a
-/// straight line through a wall is exactly what this message corrects. When the finder refuses, the
-/// reference sends no refusal of its own -- it cancels the walk and broadcasts where the agent
-/// really is, which is what makes the client snap back.
-pub async fn handle_move_to_coord(
-    stream: &mut TcpStream,
-    session: &mut Session,
-    frame: &Frame,
-    world: &World,
-    player: &mut Player,
-    trace: bool,
-) -> Result<bool, GameError> {
-    if frame.body().len() < 12 {
-        return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
-    }
-    let destination = (
-        f32::from_le_bytes([
-            frame.body()[0],
-            frame.body()[1],
-            frame.body()[2],
-            frame.body()[3],
-        ]),
-        f32::from_le_bytes([
-            frame.body()[4],
-            frame.body()[5],
-            frame.body()[6],
-            frame.body()[7],
-        ]),
-    );
-    let plane = u32::from_le_bytes([
-        frame.body()[8],
-        frame.body()[9],
-        frame.body()[10],
-        frame.body()[11],
-    ]) as u16;
-    let agent_id = player.GetAgentID();
-    let instance = Arc::clone(&player.instance());
-    let map_id = instance.map().map_id;
-    let Some((from, walk_active)) = instance.with_slot(player.player_id(), |slot| {
-        (slot.agent_mut().here(), 0.0 < slot.agent_mut().motion.speed)
-    }) else {
-        eprintln!("world: agent {agent_id} asked to walk but has no slot in its instance");
-        return Ok(true);
-    };
-    let to = pathfind::Pos {
-        x: destination.0,
-        y: destination.1,
-        plane,
-    };
-    if move_trace_on() {
-        instance.with_slot(player.player_id(), |slot| {
-            slot.move_stats_mut().walk_requests += 1
-        });
-        eprintln!(
-            "move[pathfind] agent {agent_id} asked to walk to (x={:.1}, y={:.1}, plane={plane}) \
-             while the server thinks it stands at (x={:.1}, y={:.1}, plane={}){} \
-             [0x803E, {} bytes]",
-            destination.0,
-            destination.1,
-            from.x,
-            from.y,
-            from.plane,
-            if walk_active {
-                " - a server-side walk was still running (client has walked since its last report)"
-            } else {
-                ""
-            },
-            frame.body().len() + 2
-        );
-    }
-
-    let walked = world.graphs.walk(map_id, from, to);
-    if move_trace_on() {
-        match &walked {
-            Walk::Found(waypoints) => eprintln!(
-                "move[pathfind] finder produced {} waypoint(s): {}",
-                waypoints.len(),
-                waypoints_preview(waypoints)
-            ),
-            Walk::NoPath => eprintln!("move[pathfind] finder refused: no path"),
-            Walk::NoGraph => eprintln!(
-                "move[pathfind] finder refused: this world has no path graph for map {map_id}"
-            ),
-        }
-    }
-    if trace {
-        let said = match &walked {
-            Walk::Found(waypoints) => format!("{} waypoint(s)", waypoints.len()),
-            Walk::NoPath => "no path".to_string(),
-            Walk::NoGraph => "no path graph for this map".to_string(),
-        };
-        eprintln!(
-            "world: agent {agent_id} walks from ({:.1}, {:.1}) plane {} to ({:.1}, {:.1}) \
-             plane {plane}: {said}",
-            from.x, from.y, from.plane, destination.0, destination.1
-        );
-    }
-
-    match walked {
-        // An empty path sends nothing: the reference checks `0 < agent->waypoints.len`.
-        Walk::Found(waypoints) => {
-            // The path as the live servers hand it out: a destination about every 145 units,
-            // which at the character's 288 u/s is the ~0.5 s cadence the live capture shows.
-            let waypoints = densify(waypoints, from, live_cadence_step());
-            // The reference's own point, as it is: no re-writing of its plane, no dropping of its
-            // points. The plane id is whatever the map's pmaps call the surface the path is on
-            // (floor is 0; slopes and bridges have their own ids), and that is the reference's
-            // business, not this server's.
-            let begun = instance
-                .with_slot(player.player_id(), |slot| {
-                    let speed = (slot.agent_mut().move_type != 1
-                        || slot.agent_mut().move_speed != 1.0)
-                        .then(|| builders::agent_update_speed(agent_id, 1.0, 1));
-                    slot.agent_mut().move_type = 1;
-                    slot.agent_mut().move_speed = 1.0;
-                    let first = slot.agent_mut().begin_walk(waypoints)?;
-                    Some((
-                        first,
-                        slot.agent_mut().plane,
-                        slot.agent_mut().motion.waypoints.len(),
-                        slot.agent_mut().position,
-                        speed,
-                    ))
-                })
-                .flatten();
-            if let Some((first, current_plane, left, stood, speed)) = begun {
-                let walk = builders::agent_move_to_point(
-                    agent_id,
-                    (first.pos.x, first.pos.y),
-                    first.pos.plane,
-                    current_plane,
-                );
-                if move_trace_on() {
-                    eprintln!(
-                        "move[pathfind] answered with waypoint 0 (x={:.1}, y={:.1}, \
-                             plane={}) current_plane={current_plane} [0x0029, {} bytes]; {left} \
-                             waypoint(s) left to walk, agent stays at (x={:.1}, y={:.1}, plane={})",
-                        first.pos.x,
-                        first.pos.y,
-                        first.pos.plane,
-                        walk.len(),
-                        stood.0,
-                        stood.1,
-                        current_plane
-                    );
-                }
-                // Everyone else is told where this agent is walking: the reference broadcasts the
-                // same message (`GameSrv_BroadcastAgentMoveToPoint`), and a client that is not told
-                // keeps drawing the walker where it last stood.
-                let mut reply: Vec<_> = speed.into_iter().collect();
-                reply.push(walk);
-                instance.broadcast(player.player_id(), &reply);
-                send(stream, session, reply, trace).await?;
-            }
-        }
-        Walk::NoPath | Walk::NoGraph => {
-            if trace {
-                eprintln!("world: path finding failed for agent {agent_id}; standing still");
-            }
-            instance.with_slot(player.player_id(), |slot| {
-                slot.agent_mut().cancel_movement()
-            });
-            let standing = player.standing();
-            // **Nothing goes on the wire.** The reference answers a refused walk with
-            // `AGENT_UPDATE_POSITION` (`0x002C`, `GmAgent.c:391-394`), and that message carries
-            // the server's copy position: measured, it disconnected the client with 007 once
-            // (capture-8001-20261027-221113 seq 519) and teleported it into a wall once
-            // (capture of 22:16: `snapped to (9438.1, 7118.5)` after the clamp had dragged the
-            // copy off the navmesh). Silence is what the reference sends in its other correction
-            // path (`GameSrv_HandleLastPosOnMoveCanceled`), and the client's own reports settle
-            // the truth.
-            if move_trace_on() {
-                eprintln!(
-                    "move[pathfind] walk refused; the agent stands at (x={:.1}, y={:.1}, \
-                     plane={}) and nothing is sent",
-                    standing.position.0, standing.position.1, standing.plane
-                );
-            }
-        }
-    }
-    Ok(true)
-}
-
-/// A manual movement order: position, plane, offset and movement type.
-/// alternating-live.jsonl 90-94: the reporter needs the destination reply too, to
-/// advance the client's sync copy while its drawn copy is under keyboard control.
 pub async fn handle_position_update(
     stream: &mut TcpStream,
     session: &mut Session,
