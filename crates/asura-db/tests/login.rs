@@ -21,6 +21,29 @@
 use asura_db::login as db;
 use asura_db::{PgPool, Uuid};
 
+/// What the session names, read here because the identity store owns that row now (cut 2b). A test
+/// may ask a table directly; the store is the only *program* path allowed to.
+async fn session_character(pool: &PgPool, session: Uuid) -> Option<Option<Uuid>> {
+    sqlx::query_scalar::<_, Option<Uuid>>(
+        "SELECT char_id FROM t_session WHERE id = $1 AND ended_at IS NULL",
+    )
+    .bind(session)
+    .fetch_optional(pool)
+    .await
+    .expect("the session row")
+}
+
+async fn close_session(pool: &PgPool, session: Uuid) {
+    sqlx::query("UPDATE t_session SET ended_at = now() WHERE id = $1")
+        .bind(session)
+        .execute(pool)
+        .await
+        .expect("close the session");
+}
+
+fn account_name(label: &str) -> String {
+    format!("m3-{label}-{}", Uuid::new_v4())
+}
 const MAP: i32 = 15;
 
 async fn pool() -> Option<PgPool> {
@@ -35,198 +58,6 @@ async fn pool() -> Option<PgPool> {
 
 fn skip() {
     println!("ASURA_DATABASE_URL not set; skipping live-database login test");
-}
-
-/// A unique account name for one assertion: two runs, or two tests, never collide.
-fn account_name(label: &str) -> String {
-    format!("m3-{label}-{}", Uuid::new_v4())
-}
-
-#[tokio::test]
-async fn a_presented_pair_resolves_to_its_account() {
-    let Some(pool) = pool().await else {
-        return skip();
-    };
-    let name = account_name("valid");
-    let seeded = db::seed_identity(
-        &pool,
-        Uuid::new_v4(),
-        Uuid::new_v4(),
-        &name,
-        "Asura Test",
-        MAP,
-    )
-    .await
-    .expect("seed identity");
-
-    let resolved = db::find_session(&pool, seeded.portal_user, seeded.session)
-        .await
-        .expect("query")
-        .expect("the pair must resolve");
-
-    assert_eq!(resolved.session, seeded.session);
-    assert_eq!(resolved.account, seeded.account);
-    assert_eq!(
-        resolved.character, None,
-        "nothing has been selected on a fresh session"
-    );
-    assert_ne!(
-        seeded.account, seeded.portal_user,
-        "the account is its own identity, not the portal user id"
-    );
-
-    db::remove_account(&pool, &name).await.expect("cleanup");
-}
-
-#[tokio::test]
-async fn neither_half_of_the_pair_is_optional() {
-    let Some(pool) = pool().await else {
-        return skip();
-    };
-    let name = account_name("halves");
-    let seeded = db::seed_identity(
-        &pool,
-        Uuid::new_v4(),
-        Uuid::new_v4(),
-        &name,
-        "Asura Test",
-        MAP,
-    )
-    .await
-    .expect("seed identity");
-
-    // Right portal user, wrong session id: what a stale or forged client presents.
-    assert_eq!(
-        db::find_session(&pool, seeded.portal_user, Uuid::new_v4())
-            .await
-            .expect("query"),
-        None,
-        "a wrong session id must not resolve"
-    );
-
-    // Right session id, wrong portal user: the same, from the other side.
-    assert_eq!(
-        db::find_session(&pool, Uuid::new_v4(), seeded.session)
-            .await
-            .expect("query"),
-        None,
-        "a wrong portal user must not resolve"
-    );
-
-    // Both wrong: the same answer, not a different one.
-    assert_eq!(
-        db::find_session(&pool, Uuid::new_v4(), Uuid::new_v4())
-            .await
-            .expect("query"),
-        None
-    );
-
-    db::remove_account(&pool, &name).await.expect("cleanup");
-}
-
-#[tokio::test]
-async fn a_closed_session_never_resolves_again() {
-    let Some(pool) = pool().await else {
-        return skip();
-    };
-    let name = account_name("closed");
-    let portal_user = Uuid::new_v4();
-    let session = Uuid::new_v4();
-    db::seed_identity(&pool, portal_user, session, &name, "Asura Test", MAP)
-        .await
-        .expect("seed identity");
-
-    assert!(db::close_session(&pool, session).await.expect("close"));
-
-    assert_eq!(
-        db::find_session(&pool, portal_user, session)
-            .await
-            .expect("query"),
-        None,
-        "a closed session must not resolve: the pair is spent, not a permanent key"
-    );
-
-    // Closing twice is a no-op rather than an error, because a disconnect and a stale sweep can both
-    // reach the same session.
-    assert!(!db::close_session(&pool, session)
-        .await
-        .expect("close again"));
-
-    // Re-seeding the same pair reopens it, which is how a developer resets a spent session.
-    db::seed_identity(&pool, portal_user, session, &name, "Asura Test", MAP)
-        .await
-        .expect("reseed");
-    assert!(
-        db::find_session(&pool, portal_user, session)
-            .await
-            .expect("query")
-            .is_some(),
-        "re-seeding is the documented way back to a working pair"
-    );
-
-    db::remove_account(&pool, &name).await.expect("cleanup");
-}
-
-#[tokio::test]
-async fn the_newest_session_wins_and_the_older_one_is_closed() {
-    let Some(pool) = pool().await else {
-        return skip();
-    };
-    let name = account_name("newest");
-
-    // Two live sessions on one account: the same account name resolves to the same account row, and
-    // each seeding call brings its own portal user and session id, as a second client would.
-    let older = db::seed_identity(
-        &pool,
-        Uuid::new_v4(),
-        Uuid::new_v4(),
-        &name,
-        "Asura Test",
-        MAP,
-    )
-    .await
-    .expect("seed the older session");
-    let newer = db::seed_identity(
-        &pool,
-        Uuid::new_v4(),
-        Uuid::new_v4(),
-        &name,
-        "Asura Test",
-        MAP,
-    )
-    .await
-    .expect("seed the newer session");
-    assert_eq!(older.account, newer.account, "one account, two sessions");
-
-    assert!(
-        db::find_session(&pool, older.portal_user, older.session)
-            .await
-            .expect("query")
-            .is_some(),
-        "both sessions resolve before the rule is applied"
-    );
-
-    let closed = db::close_other_sessions(&pool, newer.account, newer.session)
-        .await
-        .expect("close the others");
-    assert_eq!(closed, 1, "exactly the older session is closed");
-
-    assert!(
-        db::find_session(&pool, newer.portal_user, newer.session)
-            .await
-            .expect("query")
-            .is_some(),
-        "the newest session resolves"
-    );
-    assert_eq!(
-        db::find_session(&pool, older.portal_user, older.session)
-            .await
-            .expect("query"),
-        None,
-        "the older session does not"
-    );
-
-    db::remove_account(&pool, &name).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -315,16 +146,15 @@ async fn selecting_a_character_records_it_on_the_live_session_only() {
             .expect("select")
     );
 
-    let resolved = db::find_session(&pool, seeded.portal_user, seeded.session)
-        .await
-        .expect("query")
-        .expect("still resolves");
-    assert_eq!(resolved.character, Some(seeded.character));
+    assert_eq!(
+        session_character(&pool, seeded.session)
+            .await
+            .expect("the live session"),
+        Some(seeded.character)
+    );
 
     // A closed session is not a place to record a selection.
-    db::close_session(&pool, seeded.session)
-        .await
-        .expect("close");
+    close_session(&pool, seeded.session).await;
     assert!(
         !db::select_character(&pool, seeded.session, seeded.character)
             .await
@@ -357,11 +187,9 @@ async fn deleting_a_character_stops_the_session_naming_it() {
             .expect("select")
     );
     assert_eq!(
-        db::find_session(&pool, seeded.portal_user, seeded.session)
+        session_character(&pool, seeded.session)
             .await
-            .expect("query")
-            .expect("resolves")
-            .character,
+            .expect("the live session"),
         Some(seeded.character)
     );
 
@@ -374,11 +202,9 @@ async fn deleting_a_character_stops_the_session_naming_it() {
     // The row is gone and the session no longer names it: a travel for this session cannot go out
     // for a character that does not exist.
     assert_eq!(
-        db::find_session(&pool, seeded.portal_user, seeded.session)
+        session_character(&pool, seeded.session)
             .await
-            .expect("query")
-            .expect("the session still resolves")
-            .character,
+            .expect("the live session"),
         None,
         "the deleted character is not named by the session any more"
     );

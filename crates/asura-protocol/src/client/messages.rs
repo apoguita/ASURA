@@ -588,7 +588,7 @@ pub fn account_settings(request: u32, data: &[u8]) -> Frame {
 /// no characters at all. Field widths and counts follow the whole-wire rule: u16 counts, no padding.
 ///
 /// `eula_accepted` is the version of the EULA the account has accepted, `0` when it never has
-/// (`asura_db::account`). The reference hardcodes 24 here, which is why its clients are asked every
+/// (`asura_store::identity::Identity::account`). The reference hardcodes 24 here, which is why its clients are asked every
 /// login; measured on this server: 24 out, `1a` = 26 back from the client on acceptance.
 pub fn account_info(
     request: u32,

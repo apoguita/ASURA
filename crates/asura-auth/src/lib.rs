@@ -23,13 +23,12 @@
 //!   the socket; `VersionError::Unknown` does the same here.
 //! * **A login that does not resolve is answered with the client's auth error**, in a request
 //!   response, rather than by silence or by a drop: the client shows an error it can describe, and
-//!   the session stays closed (`asura_db::login::find_session` returns `None`).
+//!   the session stays closed (`asura_store::identity::Identity::session` returns `None`).
 
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use asura_db::account as db_account;
 use asura_db::game as db_game;
 use asura_db::login as db_login;
 use asura_db::PgPool;
@@ -38,6 +37,7 @@ use asura_protocol::client::messages::{self, PortalAccountLogin, RequestResponse
 use asura_protocol::client::tables;
 use asura_protocol::client::version::{self, VersionError, AUTH_CMSG_VERSION_LEN};
 use asura_protocol::client::{Frame, FrameError};
+use asura_store::identity::Identity;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use uuid::Uuid;
@@ -99,6 +99,14 @@ pub enum ConnectionError {
     Database(asura_db::DatabaseError),
 }
 
+/// A store failure, as this conversation reports it. The store keeps its own error type so a driver
+/// swap never reaches a caller; here it becomes the service's database error, which is where a
+/// failed read belongs in a login conversation.
+fn store_error(err: asura_store::Error) -> ConnectionError {
+    match err {
+        asura_store::Error::Database(err) => ConnectionError::Database(err),
+    }
+}
 impl core::fmt::Display for ConnectionError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -479,7 +487,10 @@ async fn dispatch(
         tables::AUTH_CMSG_ACCEPT_EULA => {
             let version = messages::decode_eula(frame.body()).map_err(ConnectionError::Message)?;
             if let Some(account) = session.account {
-                match db_account::record_eula(pool, account, i16::from(version)).await {
+                match Identity::new(pool)
+                    .record_eula(account, i16::from(version))
+                    .await
+                {
                     // Printed, not traced: "this account accepted the EULA" is an event, and the
                     // trace is the thing that buries events three lines deep in a 500 ms tick.
                     Ok(true) => eprintln!("auth: {account} accepted EULA version {version}"),
@@ -569,9 +580,10 @@ async fn answer_login(
     let portal_user = Uuid::from_bytes_le(login.user_id);
     let session_id = Uuid::from_bytes_le(login.session_id);
 
-    let resolved = db_login::find_session(pool, portal_user, session_id)
+    let resolved = Identity::new(pool)
+        .session(portal_user, session_id)
         .await
-        .map_err(ConnectionError::Database)?;
+        .map_err(store_error)?;
 
     let Some(resolved) = resolved else {
         if trace.on() {
@@ -598,7 +610,7 @@ async fn answer_login(
     // The EULA version this account accepted, which the account info carries back so the client does
     // not ask again. A read that fails is not worth losing a login over: 0 asks the client once, and
     // its answer is recorded, so a transient error costs one extra page rather than a session.
-    let eula_accepted = match db_account::load(pool, resolved.account).await {
+    let eula_accepted = match Identity::new(pool).account(resolved.account).await {
         Ok(Some(account)) => account.eula_accepted.max(0) as u8,
         Ok(None) => {
             eprintln!(

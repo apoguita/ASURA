@@ -18,17 +18,6 @@
 
 use crate::{PgPool, Uuid};
 
-/// A session that resolved: who the client is, and the account behind it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LoginSession {
-    /// The session id as presented and confirmed.
-    pub session: Uuid,
-    /// The account the pair belongs to, which is what everything else is keyed by.
-    pub account: Uuid,
-    /// The character this session last selected, if any.
-    pub character: Option<Uuid>,
-}
-
 /// One character, as the character-list message needs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Character {
@@ -38,37 +27,6 @@ pub struct Character {
     pub name: String,
     /// Where the character stands. The login batch reports it; the auth service does not move anyone.
     pub map_id: i32,
-}
-
-/// Validate the pair the client presented and resolve it to an account.
-///
-/// Returns `Ok(None)` for a pair that does not resolve **and for one that resolved in the past but is
-/// closed**. The caller must treat `None` as "refuse, with the client's auth error" and must not try
-/// to repair it - inventing a session here would be a login bypass (`crates/asura-db/migrations/
-/// 0003_portal_identity.sql`).
-pub async fn find_session(
-    pool: &PgPool,
-    portal_user: Uuid,
-    session: Uuid,
-) -> sqlx::Result<Option<LoginSession>> {
-    sqlx::query_as::<_, (Uuid, Uuid, Option<Uuid>)>(
-        "SELECT id, account_id, char_id
-           FROM t_session
-          WHERE portal_user = $1
-            AND id = $2
-            AND ended_at IS NULL",
-    )
-    .bind(portal_user)
-    .bind(session)
-    .fetch_optional(pool)
-    .await
-    .map(|row| {
-        row.map(|(session, account, character)| LoginSession {
-            session,
-            account,
-            character,
-        })
-    })
 }
 
 /// The characters this account may see, ordered by name so the list a client renders is stable.
@@ -132,38 +90,6 @@ pub async fn delete_character(pool: &PgPool, account: Uuid, character: Uuid) -> 
 
     tx.commit().await?;
     Ok(done.rows_affected() > 0)
-}
-
-/// Close a session, so it can never resolve again. Idempotent: closing a closed session is a no-op,
-/// which is what makes it safe to run on every disconnect and again on a stale sweep.
-pub async fn close_session(pool: &PgPool, session: Uuid) -> sqlx::Result<bool> {
-    let done = sqlx::query(
-        "UPDATE t_session SET ended_at = now()
-          WHERE id = $1 AND ended_at IS NULL",
-    )
-    .bind(session)
-    .execute(pool)
-    .await?;
-    Ok(done.rows_affected() > 0)
-}
-
-/// Close every live session of an account except the one just validated.
-///
-/// This is `docs/research/gw2-service-design-lessons.md` rule 1 expressed as SQL: when a player logs in again, the older
-/// sessions are closed rather than left resolvable. Keeping it here - one statement, one place -
-/// means "newest wins" cannot be half-implemented in the service.
-pub async fn close_other_sessions(pool: &PgPool, account: Uuid, keep: Uuid) -> sqlx::Result<u64> {
-    let done = sqlx::query(
-        "UPDATE t_session SET ended_at = now()
-          WHERE account_id = $1
-            AND id <> $2
-            AND ended_at IS NULL",
-    )
-    .bind(account)
-    .bind(keep)
-    .execute(pool)
-    .await?;
-    Ok(done.rows_affected())
 }
 
 /// Everything a development login needs to exist: an account, a portal identity pair, and one

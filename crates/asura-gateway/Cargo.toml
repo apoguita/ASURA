@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 asura-protocol = { path = "../asura-protocol" }
 asura-db = { path = "../asura-db" }
+asura-store = { path = "../asura-store" }
 # The auth conversation is a library call: the gateway classifies a connection and hands it over
 # (`docs/reference/decisions/layer-decisions.md`, D26).
 asura-auth = { path = "../asura-auth" }

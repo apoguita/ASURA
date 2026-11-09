@@ -10,6 +10,7 @@
 
 pub mod account;
 pub mod portal;
+pub mod session;
 
 use crate::{PgPool, Result, Uuid};
 
@@ -34,12 +35,30 @@ impl<'a> Identity<'a> {
 
     /// Record the EULA version an account accepted; `false` means no row matched.
     pub async fn record_eula(&self, id: Uuid, version: i16) -> Result<bool> {
-        account::record_eula(self.pool, id, version)
-            .await
+        account::record_eula(self.pool, id, version).await
     }
 
     /// The live portal pair an email resolves to, or `None` when that account has no open session.
     pub async fn portal_for_email(&self, email: &str) -> Result<Option<portal::PortalIdentity>> {
         portal::for_email(self.pool, email).await
+    }
+
+    /// Validate the pair a client presented, or `None` when it does not resolve.
+    pub async fn session(
+        &self,
+        portal_user: Uuid,
+        session: Uuid,
+    ) -> Result<Option<session::Session>> {
+        session::find(self.pool, portal_user, session).await
+    }
+
+    /// Close one session, so it can never resolve again.
+    pub async fn close_session(&self, session: Uuid) -> Result<bool> {
+        session::close(self.pool, session).await
+    }
+
+    /// Close every live session of an account except `keep`.
+    pub async fn close_other_sessions(&self, account: Uuid, keep: Uuid) -> Result<u64> {
+        session::close_others(self.pool, account, keep).await
     }
 }

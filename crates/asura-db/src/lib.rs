@@ -154,16 +154,13 @@ pub const REQUIRED_TABLES: &[&str] = &[
     "t_service",
 ];
 
-/// The identity store: the account row and the portal identity the web gate hands the client. The
-/// modules inside are re-exported at their old paths (`account`, `portal`) so no caller changes yet.
-pub mod identity;
-
 /// The queries placement needs: the atomic reservation, the lease ledger, and the reaper. Every
 /// statement that mutates a pool lives in this module, behind a function whose name says what it does.
 pub mod placement;
 
-/// The queries login needs: resolving the presented identity pair to an account, and reading that
-/// account's characters.
+/// The character half of login: the list an account may see, the character it selects, and the one it
+/// deletes. The identity half - the account row, the session pair - moved to `asura_store::identity`
+/// (phase 2, cut 2b).
 pub mod login;
 
 /// The general service registry (S2): every service kind announces itself like a world server does.
@@ -178,11 +175,6 @@ pub mod inventory;
 
 /// The migration runner, and the startup check that refuses a database older than the code.
 pub mod migrations;
-
-/// The portal identity the web gate hands the client, at its old path. Its implementation is the
-/// identity store's (`identity::portal`); this name is a door for callers that have not moved.
-pub use identity::account;
-pub use identity::portal;
 
 /// Where the programs find their settings: the environment, then the repository's `.env`.
 pub mod config;

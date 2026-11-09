@@ -8,5 +8,6 @@ description = "The portal web gate: how the client learns its portal identity be
 
 [dependencies]
 asura-db = { path = "../asura-db" }
+asura-store = { path = "../asura-store" }
 tokio = { workspace = true }
 uuid = { workspace = true }

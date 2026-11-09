@@ -16,7 +16,7 @@
 //!
 //! This is a faithful port of the reference's `tools/webgate.py`, with one deliberate change: the
 //! reference answers from a hard-coded table of three emails, and this answers from the rows
-//! `tools/seed-dev.ps1` writes (the same pairs), through `asura_db::portal::identity_for_email`. The
+//! `tools/seed-dev.ps1` writes (the same pairs), through `asura_store::identity::Identity::portal_for_email`. The
 //! wire behaviour is the reference's: a session cookie is required for every endpoint after the
 //! first, an unknown email answers `400 who are you?`, a non-`Portal` provider answers
 //! `400 Unsupported provider`, and a missing session answers `401`.
@@ -26,7 +26,7 @@
 //! `session/create.xml` mints a UUID and `users/login.xml` attaches the identity to it; that pair of
 //! steps is the reference's `sessions` dict, and it is kept here the same way - one process, a map of
 //! live sessions. The *identity* is not invented here: it is the exact `(portal_user, session id)`
-//! pair the auth service will resolve out of the database (`asura_db::portal`), so a gate that has
+//! pair the auth service will resolve out of the database (`asura_store::identity`), so a gate that has
 //! forgotten a session costs a retry, never a login as the wrong account.
 
 use std::collections::HashMap;
@@ -59,9 +59,15 @@ enum Identities {
 impl Identities {
     async fn resolve(&self, email: &str) -> Result<Option<PortalUser>, String> {
         match self {
-            Identities::Database(pool) => asura_db::portal::identity_for_email(pool, email)
+            Identities::Database(pool) => asura_store::identity::Identity::new(pool)
+                .portal_for_email(email)
                 .await
-                .map(|found| found.map(|(user_id, token)| PortalUser { user_id, token }))
+                .map(|found| {
+                    found.map(|pair| PortalUser {
+                        user_id: pair.portal_user,
+                        token: pair.session,
+                    })
+                })
                 .map_err(|err| err.to_string()),
             Identities::Fixed(table) => {
                 Ok(table.get(email.trim()).map(|(user_id, token)| PortalUser {

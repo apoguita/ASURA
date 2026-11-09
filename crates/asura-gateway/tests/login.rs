@@ -279,7 +279,8 @@ async fn a_client_logs_in_and_receives_the_whole_login_batch() {
     // The session still exists, and the login did not close it: a client that is logging in gets a
     // live session, which is what a world server will later validate.
     assert!(
-        db::find_session(&harness.pool, seeded.portal_user, seeded.session)
+        asura_store::identity::Identity::new(&harness.pool)
+            .session(seeded.portal_user, seeded.session)
             .await
             .expect("query")
             .is_some(),
@@ -361,7 +362,8 @@ async fn a_closed_session_cannot_log_in() {
     )
     .await
     .expect("seed the identity");
-    db::close_session(&harness.pool, seeded.session)
+    asura_store::identity::Identity::new(&harness.pool)
+        .close_session(seeded.session)
         .await
         .expect("close the session");
 
@@ -705,7 +707,8 @@ async fn logging_in_does_not_spend_the_session() {
 
     // Still live after three logins, which is what a reconnecting client depends on.
     assert!(
-        db::find_session(&harness.pool, seeded.portal_user, seeded.session)
+        asura_store::identity::Identity::new(&harness.pool)
+            .session(seeded.portal_user, seeded.session)
             .await
             .expect("query")
             .is_some(),
@@ -774,7 +777,8 @@ async fn two_live_sessions_for_one_account_both_work() {
         (second.portal_user, second.session),
     ] {
         assert!(
-            db::find_session(&harness.pool, pair.0, pair.1)
+            asura_store::identity::Identity::new(&harness.pool)
+                .session(pair.0, pair.1)
                 .await
                 .expect("query")
                 .is_some(),

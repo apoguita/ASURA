@@ -9,6 +9,7 @@ description = "The auth service: login, key exchange, sessions, and telling the 
 [dependencies]
 asura-protocol = { path = "../asura-protocol" }
 asura-db = { path = "../asura-db" }
+asura-store = { path = "../asura-store" }
 # The game rule that decides where a character enters (`docs/reference/decisions/layer-decisions.md`, D25).
 asura-rules = { path = "../asura-rules" }
 # The intervals this service waits on come from config/Server/intervals.json (D33).
