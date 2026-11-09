@@ -46,6 +46,55 @@ mechanics.
    redirected, and enters a map with byte-identical frames. No phase carries a feature.
 4. **A phase that cannot be built beside what runs is split again** rather than forced.
 
+## The skeleton, and what populating it means
+
+- **The skeleton is two programs and the registry they share.** The login door is its own program,
+  with its own configuration file and its own log; the world door is the existing world program, which
+  stops being fed by a relay and accepts the client itself. Building the skeleton is therefore small.
+- **Populating a layer means moving working code into it unchanged.** The sockets, the login
+  conversation, the load block and the movement answers are what the real client taught this project;
+  they move rather than being rewritten. What changes is where the code sits and what it may touch.
+- **The old path stays alive until the client proves the new one:** login, a redirect to the world's
+  own address, a character in a map, and byte-identical frames. Only then is the old door deleted.
+
+## Where the work stands
+
+Read this table first when resuming. A phase is `done` only when its row in "The phases" was proven
+and its documents were updated in the same commit.
+
+| phase | state | evidence |
+|---|---|---|
+| 0 | done | this file, `d7d229d`; the database-holds-state ruling and the action table, `01250ff` |
+| 1 | not started | cut from a socket-by-socket measurement of `crates/asura-gateway` |
+| 2 | not started | |
+| 3 | not started | |
+| 4 | not started | |
+| 5 | not started | |
+| 6 | not started | |
+
+Last recorded green, before this plan began: `7e45201` (the simulation reads its own cadence),
+`d140f37` (the agent's numbers are the pack's), `4f4b8cf` (the audit record). `asura-protocol` 90
+tests, `asura-world` 90 unit tests, `cargo check --workspace` exits 0.
+
+## Known red, before any phase starts and not caused by it
+
+- `cargo fmt --all --check` flags 15 files this plan has not touched (`asura-auth/src/travel.rs`,
+  `asura-config`, `asura-db`, and eight world files). CI's format job is red for that reason alone.
+- The `end_to_end` test and the whole `load` suite fail on `outpost 146 has no configured random spawn
+  list`: the tests build map 146 as an outpost with no spawns, while the pack has it as an explorable
+  with no `spawns.json`. The refusal landed in `301a97a` (2026-11-06), after the tests were written.
+
+Neither is fixed by this plan. A phase that changes either of them says so in its commit.
+
+## Resuming
+
+1. Read this file top to bottom; it is the only statement of the target.
+2. Read "Where the work stands" and pick the first phase whose state is not `done`.
+3. Read that phase's row in "The phases" for what proves it and which documents it updates.
+4. Run the three checks before touching code, so a pre-existing failure is not mistaken for the phase's.
+5. Update the state table in the same commit as the phase.
+
+
 ## The phases
 
 | phase | what lands | what proves it | documents updated with it |
