@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Message layouts and framing for the client protocol and the internal control messages"
+description = "Message layouts and framing for the client protocol"
 
 [dependencies]
 # Modular exponentiation for the key exchange's fixed-constant Diffie-Hellman

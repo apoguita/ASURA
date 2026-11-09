@@ -1,141 +1,16 @@
-//! Message layouts and framing.
+//! Message layouts and framing for the client protocol.
 //!
-//! Two protocol families live here:
+//! This crate holds what the game client speaks. Every constant in it was observed in GWPS and is
+//! recorded in `docs/reference/client-protocol.md`. It is not ours to design, only to reproduce.
 //!
-//! * the **client protocol** - what the game client speaks. Every constant in this file was observed
-//!   in GWPS and is recorded in `docs/reference/client-protocol.md`. It is not ours to design, only to reproduce.
-//! * the **internal protocol** - ours, versioned, and small by policy: state and placement go through
-//!   the database, not through messages (`docs/guidance/architecture.md`).
+//! An internal service-to-service protocol was defined here once - magic `ASUR`, a 12-byte header
+//! and four message kinds - and nothing outside this crate's tests ever called it; state and
+//! placement go through the database, not through messages (`docs/guidance/architecture.md`). It was
+//! removed on 2026-11-08 rather than left as a second, unused path through the wire layer
+//! (`docs/work/layer-rework-checklist.md`, layer 1 audit).
 //!
 //! AzerothCore parallel: their `Packet`/`WorldPacket` layer with `ByteBuffer` readers. Same shape:
 //! explicit little-endian writers and readers, and a fixed layout per header.
-
-/// Frame header for the internal (service-to-service) protocol.
-///
-/// ```text
-/// u32 magic          "ASUR"
-/// u16 version        protocol version; a mismatch is fatal, never a warning
-/// u16 kind           message kind
-/// u32 length         body length
-/// u8  body[length]
-/// ```
-pub const INTERNAL_MAGIC: [u8; 4] = *b"ASUR";
-/// The internal protocol's version; a mismatch is fatal, never a warning.
-///
-pub const INTERNAL_VERSION: u16 = 1;
-/// Magic, version, kind and a u32 length: the bytes before a body.
-///
-pub const INTERNAL_HEADER_LEN: usize = 12;
-
-/// Message kinds this project defines. Deliberately short: placement and state go through the
-/// database, so only events that must not wait for a heartbeat belong here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u16)]
-pub enum Kind {
-    /// A world server announcing itself: id, address, port, build, capacity.
-    WorldHello = 1,
-    /// A world server reporting liveness and load.
-    Heartbeat = 2,
-    /// A world server reporting that an instance is released and back in its pool.
-    InstanceReleased = 3,
-    /// Ask a world server to flush state and exit.
-    Shutdown = 4,
-}
-
-impl Kind {
-    /// The kind a wire value names, or `None` for a value this version does not define.
-    pub fn from_u16(value: u16) -> Option<Self> {
-        match value {
-            1 => Some(Kind::WorldHello),
-            2 => Some(Kind::Heartbeat),
-            3 => Some(Kind::InstanceReleased),
-            4 => Some(Kind::Shutdown),
-            _ => None,
-        }
-    }
-}
-
-/// A framed internal message.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Frame {
-    /// What the body means.
-    pub kind: Kind,
-    /// The message itself, already past the 12-byte header.
-    pub body: Vec<u8>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-/// Why a buffer was not an internal frame.
-pub enum FrameError {
-    /// Fewer bytes than the 12-byte header.
-    TooShort,
-    /// The first four bytes are not ASUR.
-    BadMagic,
-    /// A frame from another version of this protocol.
-    VersionMismatch {
-        /// The version the bytes declared.
-        got: u16,
-        /// The version this build speaks.
-        expected: u16,
-    },
-    /// A kind number this version does not define.
-    UnknownKind(u16),
-    /// The declared body length and the bytes present disagree.
-    LengthMismatch {
-        /// What the header declared.
-        declared: usize,
-        /// What is actually there.
-        actual: usize,
-    },
-}
-
-impl Frame {
-    /// A frame whose header is written by [`Frame::encode`].
-    pub fn new(kind: Kind, body: Vec<u8>) -> Self {
-        Frame { kind, body }
-    }
-
-    /// The wire form: magic, version, kind, body length, then the body.
-    /// The wire form: magic, version, kind, body length, then the body.
-    pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(INTERNAL_HEADER_LEN + self.body.len());
-        out.extend_from_slice(&INTERNAL_MAGIC);
-        out.extend_from_slice(&INTERNAL_VERSION.to_le_bytes());
-        out.extend_from_slice(&(self.kind as u16).to_le_bytes());
-        out.extend_from_slice(&(self.body.len() as u32).to_le_bytes());
-        out.extend_from_slice(&self.body);
-        out
-    }
-
-    /// Read one frame and report how many bytes it used, so a caller can walk a stream.
-    /// Read one frame and report how many bytes it used, so a caller can walk a stream.
-    pub fn decode(bytes: &[u8]) -> Result<(Frame, usize), FrameError> {
-        if bytes.len() < INTERNAL_HEADER_LEN {
-            return Err(FrameError::TooShort);
-        }
-        if bytes[0..4] != INTERNAL_MAGIC {
-            return Err(FrameError::BadMagic);
-        }
-        let version = u16::from_le_bytes([bytes[4], bytes[5]]);
-        if version != INTERNAL_VERSION {
-            return Err(FrameError::VersionMismatch {
-                got: version,
-                expected: INTERNAL_VERSION,
-            });
-        }
-        let kind_raw = u16::from_le_bytes([bytes[6], bytes[7]]);
-        let kind = Kind::from_u16(kind_raw).ok_or(FrameError::UnknownKind(kind_raw))?;
-        let declared = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
-        if bytes.len() < INTERNAL_HEADER_LEN + declared {
-            return Err(FrameError::LengthMismatch {
-                declared,
-                actual: bytes.len() - INTERNAL_HEADER_LEN,
-            });
-        }
-        let body = bytes[INTERNAL_HEADER_LEN..INTERNAL_HEADER_LEN + declared].to_vec();
-        Ok((Frame { kind, body }, INTERNAL_HEADER_LEN + declared))
-    }
-}
 
 /// The client-facing protocol: connection classification, framing, and the auth message table.
 ///
@@ -157,42 +32,3 @@ pub mod packets;
 pub mod trace;
 
 pub use trace::Trace;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn frame_round_trips() {
-        let frame = Frame::new(Kind::Heartbeat, vec![1, 2, 3, 4]);
-        let bytes = frame.encode();
-        assert_eq!(bytes.len(), INTERNAL_HEADER_LEN + 4);
-        let (decoded, consumed) = Frame::decode(&bytes).expect("decodes");
-        assert_eq!(decoded, frame);
-        assert_eq!(consumed, bytes.len());
-    }
-
-    #[test]
-    fn frame_rejects_a_version_mismatch_loudly() {
-        let mut bytes = Frame::new(Kind::Shutdown, vec![]).encode();
-        bytes[4] = 0xFF;
-        bytes[5] = 0xFF;
-        assert_eq!(
-            Frame::decode(&bytes),
-            Err(FrameError::VersionMismatch {
-                got: 0xFFFF,
-                expected: INTERNAL_VERSION
-            })
-        );
-    }
-
-    #[test]
-    fn frame_rejects_truncated_bodies() {
-        let bytes = Frame::new(Kind::Heartbeat, vec![1, 2, 3]).encode();
-        let truncated = &bytes[..bytes.len() - 1];
-        assert!(matches!(
-            Frame::decode(truncated),
-            Err(FrameError::LengthMismatch { .. })
-        ));
-    }
-}
