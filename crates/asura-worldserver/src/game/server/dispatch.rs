@@ -55,11 +55,17 @@ pub async fn answer(
         }
 
         msg::GAME_CMSG_CANCEL_MOVEMENT => {
-            agent::handle_cancel_movement(stream, session, &frame, world, player, trace).await
+            crate::game::handlers::agent::handle_cancel_movement(
+                stream, session, &frame, world, player, trace,
+            )
+            .await
         }
 
         msg::GAME_CMSG_LAST_POS_BEFORE_MOVE_CANCELED => {
-            let answer = agent::handle_last_position(stream, session, &frame, player, trace).await;
+            let answer = crate::game::handlers::agent::handle_last_position(
+                stream, session, &frame, player, trace,
+            )
+            .await;
             // A correction the server accepted is a movement the reports lagged behind; it crosses a
             // doorway the same way a walk does.
             if let Some((from, to)) = player.take_last_step() {

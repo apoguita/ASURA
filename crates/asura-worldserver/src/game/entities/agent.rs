@@ -84,6 +84,28 @@ pub enum Adopted {
     Refused,
 }
 
+/// What a client's stopping point did: whether it was believed, what to answer, where the server
+/// thought the body stood, and how far away the point was.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Correction {
+    /// True when the point was inside the allowed correction.
+    pub taken: bool,
+    /// The frames the reference answers a taken point with; empty for a refused one.
+    pub reply: Vec<Frame>,
+    /// Where the agent stood before the point was judged.
+    pub believed: Standing,
+    /// How far the point was from `believed`.
+    pub distance: f32,
+}
+/// What stopping a walk reports: whether a server-side walk had been running, and where the body
+/// stands after the stop.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Cancelled {
+    /// True when a walk was in progress and this stop ended it.
+    pub was_walking: bool,
+    /// Where the agent stands now.
+    pub stood: Standing,
+}
 /// Where one agent is, and when it last said so.
 #[derive(Debug, Clone)]
 pub struct AgentState {
@@ -185,6 +207,53 @@ impl AgentState {
     /// How many waypoints the walk has in total.
     pub fn motion_waypoint_count(&self) -> usize {
         self.motion.waypoints.len()
+    }
+    /// Stop walking because the client asked: the walk ends, the destination is cleared, and the
+    /// answer says whether a server-side walk had been running.
+    ///
+    /// The rule lives here and not in the handler because it decides simulation state: a walk the
+    /// server believed in is cancelled, and what a caller may then broadcast is decided by the state
+    /// this returns, not by the frame it happens to build.
+    pub fn cancel_walk(&mut self) -> Cancelled {
+        let was_walking = 0.0 < self.motion.speed;
+        self.cancel_movement();
+        Cancelled {
+            was_walking,
+            stood: Standing {
+                position: self.position,
+                plane: self.plane,
+                direction: self.facing,
+            },
+        }
+    }
+    /// Accept or refuse a client's stopping point: the reference's `MAXIMUM_ALLOWED_CORRECTION`.
+    ///
+    /// A taken point ends the walk answer and the body moves; a refused one stops the walk and names
+    /// no position, because the only point it could name is a stale guess the client would obey.
+    pub fn adopt_correction_point(&mut self, position: (f32, f32), plane: u16) -> Correction {
+        let before = Standing {
+            position: self.position,
+            plane: self.plane,
+            direction: self.facing,
+        };
+        let taken = self.adopt_correction(position, plane);
+        let distance = {
+            let dx = position.0 - before.position.0;
+            let dy = position.1 - before.position.1;
+            (dx * dx + dy * dy).sqrt()
+        };
+        let reply = if taken {
+            self.stop_manual_walk()
+        } else {
+            self.stand_still();
+            Vec::new()
+        };
+        Correction {
+            taken,
+            reply,
+            believed: before,
+            distance,
+        }
     }
     /// The agent's position as a point on the map's graph.
     pub fn here(&self) -> Pos {
@@ -1100,170 +1169,6 @@ pub async fn handle_position_update(
     }
     Ok(true)
 }
-
-/// The client stopped walking (`GameSrv_HandleCancelMovement`): cancel the agent's own walk --
-/// `GameSrv_CancelAgentMovement` sets its destination to where it stands and its speed to zero --
-/// and then tell everyone it stopped. Cancelling is the load-bearing half: without it the server
-/// keeps advancing its copy along the abandoned path, and the next click is answered from a
-/// position the client walked away from minutes ago (observed live: a click to x4 started from
-/// the old x2 the client had already left, pulling the agent back to it).
-pub async fn handle_cancel_movement(
-    stream: &mut TcpStream,
-    session: &mut Session,
-    frame: &Frame,
-    world: &World,
-    player: &mut Player,
-    trace: bool,
-) -> Result<bool, GameError> {
-    let _ = world;
-    let instance = Arc::clone(&player.instance());
-    let Some((was_walking, stop, stood)) = instance.with_slot(player.player_id(), |slot| {
-        let was_walking = 0.0 < slot.agent_mut().motion.speed;
-        slot.agent_mut().cancel_movement();
-        let stood = Standing {
-            position: slot.agent_mut().position,
-            plane: slot.agent_mut().plane,
-            direction: slot.agent_mut().facing,
-        };
-        (
-            was_walking,
-            builders::agent_stop_moving(slot.agent_mut().agent_id),
-            stood,
-        )
-    }) else {
-        return Ok(true);
-    };
-    if move_trace_on() {
-        eprintln!(
-            "move[stop] client cancelled walking at (x={:.1}, y={:.1}, plane={}){} \
-             [0x8028, {} bytes]",
-            stood.position.0,
-            stood.position.1,
-            stood.plane,
-            if was_walking {
-                " - a server-side walk WAS running: cancelled (speed -> 0, destination cleared)"
-            } else {
-                " (no server-side walk was running)"
-            },
-            frame.body().len() + 2
-        );
-    }
-    instance.broadcast(player.player_id(), std::slice::from_ref(&stop));
-    send(stream, session, vec![stop], trace).await?;
-    Ok(true)
-}
-
-/// The keyboard stop includes its stopping point; an accepted point ends the old
-/// path and answers with type 9 and that point (alternating-live.jsonl 482-486).
-///
-/// A refused correction sends **nothing at all**. The reference refuses a long or wrong-plane correction
-/// and stops there (`GmAgent.c:547-563`, `docs/history/gwps-parity/behavior-audit.md` row 17); the frame it must not send is
-/// the destination, because the only position it could name is its own stale guess -- and a client
-/// obeys that message, so the character walks backwards to where it stood a report ago. Measured live:
-/// `logs/world-8001.log` 6230-6246 is one refusal ordering the client 196.7 units back and the client
-/// complying. The server's own copy still stops walking.
-pub async fn handle_last_position(
-    stream: &mut TcpStream,
-    session: &mut Session,
-    frame: &Frame,
-    player: &mut Player,
-    trace: bool,
-) -> Result<bool, GameError> {
-    if frame.body().len() < 12 {
-        return Err(GameError::Framing(FrameError::Incomplete { needed: 16 }));
-    }
-    let position = (
-        f32::from_le_bytes([
-            frame.body()[0],
-            frame.body()[1],
-            frame.body()[2],
-            frame.body()[3],
-        ]),
-        f32::from_le_bytes([
-            frame.body()[4],
-            frame.body()[5],
-            frame.body()[6],
-            frame.body()[7],
-        ]),
-    );
-    let plane = u32::from_le_bytes([
-        frame.body()[8],
-        frame.body()[9],
-        frame.body()[10],
-        frame.body()[11],
-    ]) as u16;
-    let instance = Arc::clone(&player.instance());
-    let Some((taken, reply, believed, distance)) = instance.with_slot(player.player_id(), |slot| {
-        let believed = Standing {
-            position: slot.agent_mut().position,
-            plane: slot.agent_mut().plane,
-            direction: slot.agent_mut().facing,
-        };
-        let taken = slot.agent_mut().adopt_correction(position, plane);
-        let distance = {
-            let dx = position.0 - believed.position.0;
-            let dy = position.1 - believed.position.1;
-            (dx * dx + dy * dy).sqrt()
-        };
-        let reply = if taken {
-            slot.agent_mut().stop_manual_walk()
-        } else {
-            // Refused: the agent stops, and no position is named, so the client is not moved.
-            slot.agent_mut().stand_still();
-            Vec::new()
-        };
-        (taken, reply, believed, distance)
-    }) else {
-        return Ok(true);
-    };
-    if !reply.is_empty() {
-        instance.broadcast(player.player_id(), &reply);
-        send(stream, session, reply, trace).await?;
-    }
-    if position.0.is_finite() && position.1.is_finite() {
-        player.record_portal_step(position);
-    } else {
-        let _ = player.take_last_step();
-    }
-    if move_trace_on() {
-        // The distance is what decides and the ceiling is configuration, so the trace names both: a
-        // refusal is otherwise indistinguishable from a plane mismatch without it.
-        eprintln!(
-            "move[stop] correction to (x={:.1}, y={:.1}, plane={plane}) against the server's \
-             (x={:.1}, y={:.1}, plane={}) - d={distance:.1}, ceiling={:.1}: {}",
-            position.0,
-            position.1,
-            believed.position.0,
-            believed.position.1,
-            believed.plane,
-            max_allowed_correction(),
-            if taken {
-                "taken - type 9 and a destination at that point [0x802B, 0x8029]"
-            } else if plane != believed.plane {
-                "refused (the plane differs) - the agent stops and nothing is sent"
-            } else {
-                "refused (farther than the ceiling) - the agent stops and nothing is sent"
-            }
-        );
-    }
-    if trace {
-        eprintln!(
-            "world: agent {} correction to ({:.1}, {:.1}) plane {plane}: {}",
-            player.GetAgentID(),
-            position.0,
-            position.1,
-            if taken {
-                "taken - type 9 and a destination at that point"
-            } else {
-                "refused - the agent stops and nothing is sent"
-            }
-        );
-    }
-    Ok(true)
-}
-
-// ---- the client asks where to stand --------------------------------------------------------
-
 pub async fn handle_request_spawn(
     stream: &mut TcpStream,
     session: &mut Session,

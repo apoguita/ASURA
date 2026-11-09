@@ -7,6 +7,7 @@
 // hold the movement rules themselves, so moving them would separate a file from its name and not a
 // handler from a rule. They leave when the rules do (the agent split, 4d's second half).
 
+pub mod agent;
 pub mod item;
 
 use crate::*;
