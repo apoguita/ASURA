@@ -132,8 +132,10 @@ dependencies = [
 name = "asura-worldserver"
 version = "0.1.0"
 dependencies = [
+ "asura-auth",
  "asura-config",
  "asura-db",
+ "asura-gateway",
  "asura-protocol",
  "asura-rules",
  "asura-store",

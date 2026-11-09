@@ -23,5 +23,12 @@ uuid = { workspace = true }
 # The measuring instruments (capture, replay), off in a serving build - D32.
 harness = []
 
-[lints]
-workspace = true
+# The lints arrive with the cleanup, not with the move: the crate this code came from had none, and
+# opting in here would turn a move into a rewrite. Phase 4 closes by adding this back.
+[dev-dependencies]
+tokio = { workspace = true }
+# The acceptance tests start the world the way the supervisor does and speak the protocol through the
+# fake client, which the wire layer compiles only on request (D13).
+asura-auth = { path = "../asura-auth" }
+asura-gateway = { path = "../asura-gateway" }
+asura-protocol = { path = "../asura-protocol", features = ["test-client"] }
