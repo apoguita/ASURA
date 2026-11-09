@@ -485,7 +485,11 @@ impl Standing {
     ///    ([`Standing::at_spawn`]) - a world-map request or a `/tp` picks one at random;
     /// 3. every other map keeps the saved position when it belongs to this map (a disconnect coming
     ///    back), and the catalogue row's single coordinate otherwise.
-    pub fn arrival(map: &MapEntry, saved: Option<db_game::Position>, origin: Option<i32>) -> Result<Standing, GameError> {
+    pub fn arrival(
+        map: &MapEntry,
+        saved: Option<db_game::Position>,
+        origin: Option<i32>,
+    ) -> Result<Standing, GameError> {
         if let Some(origin) = origin {
             if let Some(arrival) = crate::portals::arrival(map.map_id, origin) {
                 return Ok(Standing {
@@ -497,16 +501,29 @@ impl Standing {
         }
         if map.map_type == map_kinds().main_town {
             if map.spawns.is_empty() {
-                return Err(io::Error::new(io::ErrorKind::InvalidData,
-                    format!("outpost {} has no configured random spawn list", map.map_id)).into());
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("outpost {} has no configured random spawn list", map.map_id),
+                )
+                .into());
             }
             let index = (crate::random_u32()? as usize) % map.spawns.len();
             return Standing::at_spawn(&map.spawns[index]);
         }
-        if saved.as_ref().is_none_or(|position| position.map_id != map.map_id)
-            && map.spawns.is_empty() && map.map_type != map_kinds().character_creation {
-            return Err(io::Error::new(io::ErrorKind::InvalidData,
-                format!("map {} has no configured entry spawn or doorway arrival", map.map_id)).into());
+        if saved
+            .as_ref()
+            .is_none_or(|position| position.map_id != map.map_id)
+            && map.spawns.is_empty()
+            && map.map_type != map_kinds().character_creation
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "map {} has no configured entry spawn or doorway arrival",
+                    map.map_id
+                ),
+            )
+            .into());
         }
         Ok(Standing::resume(map, saved))
     }

@@ -28,10 +28,10 @@
 
 use std::net::SocketAddr;
 
-use asura_store::placement;
 use asura_db::PgPool;
 use asura_protocol::client::game_version::GameVersion;
 use asura_protocol::client::version::GAME_CMSG_VERSION_LEN;
+use asura_store::placement;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -78,10 +78,10 @@ pub async fn route(
     }
 
     // ---- where does that world live? ---------------------------------------------------------
-    let Some(endpoint) =
-        placement::world_endpoint(pool, version.map_token as i32, world_freshness())
-            .await
-            .map_err(|err| err.to_string())?
+    let Some(endpoint) = placement::Placement::new(pool)
+        .world_endpoint(version.map_token as i32, world_freshness())
+        .await
+        .map_err(|err| err.to_string())?
     else {
         eprintln!(
             "auth: a game connection named world {} (map {}), which is not registered; closing",

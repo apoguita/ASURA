@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use asura_store::placement;
 use asura_db::PgPool;
+use asura_store::placement;
 use tokio::process::Child;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Instant};

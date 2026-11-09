@@ -22,8 +22,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use asura_db::migrations::{self, EnsureError};
-use asura_store::placement;
 use asura_protocol::Trace;
+use asura_store::placement;
 use asura_world::{serve, MapEntry, World};
 
 /// How often the world tells the database it is alive. Placement stops offering a world whose

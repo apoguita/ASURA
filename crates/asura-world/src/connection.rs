@@ -147,14 +147,14 @@ pub async fn handle_connection(
     }
 
     // ---- 3. the token pair is the credential ------------------------------------------------
-    let transfer =
-        placement::claim_transfer(&world.pool, world.world_id, game_version.player_token)
-            .await
-            .map_err(GameError::Database)?
-            .ok_or(GameError::UnknownTransfer {
-                map_token: game_version.map_token,
-                player_token: game_version.player_token,
-            })?;
+    let transfer = placement::Placement::new(&world.pool)
+        .claim_transfer(world.world_id, game_version.player_token)
+        .await
+        .map_err(GameError::Database)?
+        .ok_or(GameError::UnknownTransfer {
+            map_token: game_version.map_token,
+            player_token: game_version.player_token,
+        })?;
 
     // The character the client presents is the one it is entering with, and the transfer row names the
     // one the session last selected. Those are not always the same: the client chooses its character
@@ -435,7 +435,10 @@ pub async fn handle_connection(
             "world: {:?} was moved to map {}; the seat it holds is the destination's",
             player.name, player.instance.map.map_id
         );
-    } else if let Err(err) = placement::release(&world.pool, transfer.session_id).await {
+    } else if let Err(err) = placement::Placement::new(&world.pool)
+        .release(transfer.session_id)
+        .await
+    {
         eprintln!("world: could not release the lease of the leaving player: {err}");
     }
     eprintln!(

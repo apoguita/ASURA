@@ -28,10 +28,10 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use asura_store::placement;
 use asura_db::PgPool;
 use asura_protocol::client::messages::{self, GameInstanceRequest, RequestResponse, STATUS_OK};
 use asura_protocol::client::Frame;
+use asura_store::placement;
 use uuid::Uuid;
 
 use crate::ConnectionError;
@@ -160,7 +160,10 @@ pub async fn answer(
     // catalogue: the rule leaves the request alone and the registry lookup below refuses it.
     let destination_type = match asura_config::world::catalogue() {
         Ok(maps) => maps.get(&map_id).map(|map| map.map_type),
-        Err(err) => { eprintln!("auth: map catalogue: {err}"); None }
+        Err(err) => {
+            eprintln!("auth: map catalogue: {err}");
+            None
+        }
     };
     let (placed_map, substituted) = asura_rules::placement(
         asura_rules::Requested {
@@ -192,7 +195,9 @@ pub async fn answer(
         None => {}
     }
     let map_id = placed_map;
-    let candidates = placement::find_worlds(pool, map_id, world_max_age_secs(), MAX_CANDIDATES)
+    let placement = placement::Placement::new(pool);
+    let candidates = placement
+        .find_worlds(map_id, world_max_age_secs(), MAX_CANDIDATES)
         .await
         .map_err(ConnectionError::Database)?;
 
@@ -231,7 +236,8 @@ pub async fn answer(
 
         // The slot, atomically. `None` means another travel took the last one between the lookup and
         // here, which is a race, not an error: try the next candidate.
-        let Some(reserved_world) = placement::reserve(pool, candidate.world_id, map_id, session_id)
+        let Some(reserved_world) = placement
+            .reserve(candidate.world_id, map_id, session_id)
             .await
             .map_err(ConnectionError::Database)?
         else {
@@ -248,24 +254,25 @@ pub async fn answer(
         // is told where to go, and the world server's answer to that connection is a lookup in this
         // table. A row that could not be written is a travel that cannot be completed, so it is a
         // refusal -- and the lease taken above is handed back, because the slot is not in use.
-        if let Err(err) = placement::begin_transfer(
-            pool,
-            player_token,
-            candidate.world_id,
-            map_id,
-            session_id,
-            account_id,
-            character_id,
-        )
-        .await
+        if let Err(err) = placement
+            .begin_transfer(
+                player_token,
+                candidate.world_id,
+                map_id,
+                session_id,
+                account_id,
+                character_id,
+            )
+            .await
         {
             eprintln!("auth: could not record the pending transfer: {err}");
-            let _ = placement::release(pool, session_id).await;
+            let _ = placement.release(session_id).await;
             return Ok(request_frames(STATUS_NETWORK_ERROR));
         }
 
-        if let Err(err) =
-            placement::note_session_world(pool, session_id, reserved_world, map_id).await
+        if let Err(err) = placement
+            .note_destination(session_id, reserved_world, map_id)
+            .await
         {
             // A routing hint that could not be written is not a reason to refuse a travel the player
             // can complete: log it and answer anyway.

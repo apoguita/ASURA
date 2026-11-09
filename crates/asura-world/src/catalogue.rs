@@ -54,15 +54,30 @@ pub fn map_kinds() -> asura_protocol::game::MapKinds {
 /// Build a hosted map entirely from the selected pack. Missing blob IDs are not filled from SQL.
 pub fn entry(map_id: i32, capacity: i32) -> Result<Option<MapEntry>, String> {
     let maps = asura_config::world::catalogue()?;
-    let Some(basic) = maps.get(&map_id) else { return Ok(None); };
+    let Some(basic) = maps.get(&map_id) else {
+        return Ok(None);
+    };
     let map_file_id = basic.map_file_id.unwrap_or(0);
-    if map_file_id == 0 && basic.map_type != map_kinds().character_creation { return Ok(None); }
-    let spawns = crate::map_spawns::for_map(map_id).unwrap_or_default().to_vec();
-    let spawn = spawns.first().map(|spawn| (spawn.x, spawn.y)).unwrap_or_default();
+    if map_file_id == 0 && basic.map_type != map_kinds().character_creation {
+        return Ok(None);
+    }
+    let spawns = crate::map_spawns::for_map(map_id)
+        .unwrap_or_default()
+        .to_vec();
+    let spawn = spawns
+        .first()
+        .map(|spawn| (spawn.x, spawn.y))
+        .unwrap_or_default();
     let spawn_plane = spawns.first().map(|spawn| spawn.plane).unwrap_or_default();
     Ok(Some(MapEntry {
-        map_id, map_file_id, map_type: basic.map_type, spawn, spawn_plane, spawns,
-        name: basic.name.clone(), capacity,
+        map_id,
+        map_file_id,
+        map_type: basic.map_type,
+        spawn,
+        spawn_plane,
+        spawns,
+        name: basic.name.clone(),
+        capacity,
     }))
 }
 

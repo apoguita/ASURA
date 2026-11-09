@@ -24,7 +24,6 @@
 
 use std::collections::BTreeMap;
 
-
 use serde_json::{json, Value};
 
 #[tokio::main]
@@ -64,9 +63,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     if let Some(index) = args.iter().position(|arg| arg == "--snapshot") {
         let path = args.get(index + 1).ok_or("--snapshot needs a path")?;
-        std::fs::write(path, serde_json::to_string(&json!({
-            "maps": maps, "spawns": spawns, "portals": portals
-        }))?)?;
+        std::fs::write(
+            path,
+            serde_json::to_string(&json!({
+                "maps": maps, "spawns": spawns, "portals": portals
+            }))?,
+        )?;
         println!("wrote content snapshot to {path}");
         return Ok(());
     }
@@ -155,7 +157,10 @@ fn pack_root() -> std::path::PathBuf {
         return std::path::PathBuf::from(pack);
     }
     let cwd = std::env::current_dir().expect("a working directory");
-    for candidate in [cwd.join("config/World/Vanilla"), cwd.join("../../config/World/Vanilla")] {
+    for candidate in [
+        cwd.join("config/World/Vanilla"),
+        cwd.join("../../config/World/Vanilla"),
+    ] {
         if candidate.is_dir() {
             return candidate;
         }
@@ -190,4 +195,3 @@ fn walk(dir: &std::path::Path, found: &mut BTreeMap<i32, std::path::PathBuf>) {
         }
     }
 }
-

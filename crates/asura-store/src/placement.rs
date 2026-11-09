@@ -580,7 +580,15 @@ pub async fn claim_transfer(
     world_id: i32,
     player_token: u32,
 ) -> sqlx::Result<Option<Transfer>> {
-    let row: Option<(i64, i32, i32, uuid::Uuid, uuid::Uuid, uuid::Uuid, Option<i32>)> = sqlx::query_as(
+    let row: Option<(
+        i64,
+        i32,
+        i32,
+        uuid::Uuid,
+        uuid::Uuid,
+        uuid::Uuid,
+        Option<i32>,
+    )> = sqlx::query_as(
         "UPDATE t_transfer SET claimed_at = now()
           WHERE player_token = $1 AND world_id = $2
           RETURNING player_token, world_id, map_id, session_id, account_id, character_id,
@@ -592,7 +600,15 @@ pub async fn claim_transfer(
     .await?;
 
     Ok(row.map(
-        |(player_token, world_id, map_id, session_id, account_id, character_id, arrival_from_map_id)| Transfer {
+        |(
+            player_token,
+            world_id,
+            map_id,
+            session_id,
+            account_id,
+            character_id,
+            arrival_from_map_id,
+        )| Transfer {
             player_token,
             world_id,
             map_id,
@@ -676,4 +692,106 @@ async fn decrement_lease(
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+/// The placement store's interface: four operations, and nothing else that a door needs.
+///
+/// `docs/work/re-engineering-plan.md` phase 3. The login program and the world program both ask
+/// placement the same four questions - where may this go, take a seat, give the seat back, record the
+/// transfer - and they ask them here rather than reaching for a specific query. The registry life
+/// (register, heartbeat, drain, remove) is the world program's own bookkeeping and stays outside this
+/// interface on purpose.
+pub struct Placement<'a> {
+    pool: &'a PgPool,
+}
+
+impl<'a> Placement<'a> {
+    /// Open the interface over the pool the caller owns.
+    pub fn new(pool: &'a PgPool) -> Self {
+        Placement { pool }
+    }
+
+    /// **Find worlds.** The candidates for a map, freshest build first.
+    pub async fn find_worlds(
+        &self,
+        map_id: i32,
+        max_age_secs: f64,
+        limit: i64,
+    ) -> sqlx::Result<Vec<WorldCandidate>> {
+        find_worlds(self.pool, map_id, max_age_secs, limit).await
+    }
+
+    /// **Find worlds.** Where one registered world can be reached, or `None` when it is not fresh.
+    pub async fn world_endpoint(
+        &self,
+        world_id: i32,
+        max_age_secs: f64,
+    ) -> sqlx::Result<Option<WorldEndpoint>> {
+        world_endpoint(self.pool, world_id, max_age_secs).await
+    }
+
+    /// **Reserve.** Take one seat on a world for a map, or `None` when it is full.
+    pub async fn reserve(
+        &self,
+        world_id: i32,
+        map_id: i32,
+        session_id: uuid::Uuid,
+    ) -> sqlx::Result<Option<i32>> {
+        reserve(self.pool, world_id, map_id, session_id).await
+    }
+
+    /// **Release.** Give back the seat the session holds.
+    pub async fn release(&self, session_id: uuid::Uuid) -> sqlx::Result<bool> {
+        release(self.pool, session_id).await
+    }
+
+    /// **Record a transfer.** Open the pending transfer a world is about to claim.
+    pub async fn begin_transfer(
+        &self,
+        player_token: u32,
+        world_id: i32,
+        map_id: i32,
+        session_id: uuid::Uuid,
+        account_id: uuid::Uuid,
+        character_id: uuid::Uuid,
+    ) -> sqlx::Result<()> {
+        begin_transfer(
+            self.pool,
+            player_token,
+            world_id,
+            map_id,
+            session_id,
+            account_id,
+            character_id,
+        )
+        .await
+    }
+
+    /// **Record a transfer.** Claim it, as the world program does when the client arrives.
+    pub async fn claim_transfer(
+        &self,
+        world_id: i32,
+        player_token: u32,
+    ) -> sqlx::Result<Option<Transfer>> {
+        claim_transfer(self.pool, world_id, player_token).await
+    }
+
+    /// **Record a transfer.** The routing hint a session carries: which world and map it went to.
+    pub async fn note_destination(
+        &self,
+        session_id: uuid::Uuid,
+        world_id: i32,
+        map_id: i32,
+    ) -> sqlx::Result<bool> {
+        note_session_world(self.pool, session_id, world_id, map_id).await
+    }
+
+    /// **Record a transfer.** The map a doorway sent the traveller from, for the receiving side.
+    pub async fn note_arrival_origin(
+        &self,
+        player_token: u32,
+        from_map_id: i32,
+    ) -> sqlx::Result<()> {
+        set_transfer_arrival_origin(self.pool, player_token, from_map_id).await
+    }
 }

@@ -29,7 +29,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Half the side of a single-coordinate doorway box, from the server configuration.
-pub fn point_half_extent() -> f32 { asura_config::portal_box_half_extent() }
+pub fn point_half_extent() -> f32 {
+    asura_config::portal_box_half_extent()
+}
 
 /// Whether actual movement intersects a finite edge of a point doorway's box.
 fn box_crossed(point: (f32, f32), from: (f32, f32), to: (f32, f32)) -> bool {
@@ -238,7 +240,10 @@ fn visit(dir: &Path, maps: &mut HashMap<i32, MapPortals>, notes: &mut Vec<String
         if !folder.is_dir() {
             continue;
         }
-        let name = folder.file_name().and_then(|name| name.to_str()).unwrap_or("");
+        let name = folder
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
         let Ok(folder_id) = name.parse::<i32>() else {
             visit(&folder, maps, notes);
             continue;
@@ -295,13 +300,7 @@ fn visit(dir: &Path, maps: &mut HashMap<i32, MapPortals>, notes: &mut Vec<String
             }
         }
         let arrivals = parsed.arrivals;
-        maps.insert(
-            folder_id,
-            MapPortals {
-                arches,
-                arrivals,
-            },
-        );
+        maps.insert(folder_id, MapPortals { arches, arrivals });
     }
 }
 
@@ -346,15 +345,23 @@ pub fn pack_arches(from_instance: i32) -> Option<&'static [Arch]> {
 /// that map's doorway table, so a step that crosses none of its arches crosses nothing - even if it
 /// passes near a measured crossing point. No other table supplies a missing doorway.
 pub fn crossed(from_instance: i32, from: (f32, f32), to: (f32, f32)) -> Option<Crossed> {
-    pack_arches(from_instance)?.iter().find(|arch| arch.crossed_by(from, to))
-        .map(|arch| Crossed { to_instance: arch.to_instance, from_instance })
+    pack_arches(from_instance)?
+        .iter()
+        .find(|arch| arch.crossed_by(from, to))
+        .map(|arch| Crossed {
+            to_instance: arch.to_instance,
+            from_instance,
+        })
 }
 
 /// Where a character arriving in `in_instance` from `from_instance` stands, when the data states it.
 ///
 /// The receiving map owns this fact. A missing arrival remains unknown.
 pub fn arrival(in_instance: i32, from_instance: i32) -> Option<Arrival> {
-    table_pack().get(&in_instance)?.arrival_for(from_instance).copied()
+    table_pack()
+        .get(&in_instance)?
+        .arrival_for(from_instance)
+        .copied()
 }
 
 /// The arrival in `in_instance` whose point is `position`, within [`ARRIVAL_MATCH`].
@@ -363,7 +370,10 @@ pub fn arrival(in_instance: i32, from_instance: i32) -> Option<Arrival> {
 /// redirect; the connection that then enters the map reads it back here, which is what carries the
 /// arrival's **facing** across the reconnect (the position is already in the saved row).
 pub fn arrival_at(in_instance: i32, position: (f32, f32)) -> Option<Arrival> {
-    table_pack().get(&in_instance)?.arrival_at(position).copied()
+    table_pack()
+        .get(&in_instance)?
+        .arrival_at(position)
+        .copied()
 }
 
 #[cfg(test)]
@@ -399,8 +409,14 @@ mod tests {
             wall().crossed_by((10.0, -1.0), (10.0, 1.0)),
             "touching the wall at its endpoint starts travel"
         );
-        assert!(wall().crossed_by((5.0, -1.0), (5.0, 0.0)), "landing on the wall triggers");
-        assert!(!wall().crossed_by((-5.0, 0.0), (-1.0, 0.0)), "disjoint collinear segments miss");
+        assert!(
+            wall().crossed_by((5.0, -1.0), (5.0, 0.0)),
+            "landing on the wall triggers"
+        );
+        assert!(
+            !wall().crossed_by((-5.0, 0.0), (-1.0, 0.0)),
+            "disjoint collinear segments miss"
+        );
     }
 
     #[test]
@@ -422,7 +438,10 @@ mod tests {
             point.crossed_by((100.0, -400.0), (100.0, 400.0)),
             "a step through the box crosses its edges"
         );
-        assert!(!point.crossed_by((0.0, 0.0), (10.0, 10.0)), "inside is not a crossing");
+        assert!(
+            !point.crossed_by((0.0, 0.0), (10.0, 10.0)),
+            "inside is not a crossing"
+        );
         assert!(
             !point.crossed_by((400.0, -200.0), (400.0, 200.0)),
             "400 units away misses the box"
@@ -439,7 +458,10 @@ mod tests {
             .iter()
             .find(|arch| arch.to_instance == Some(146))
             .expect("the arch to Lakeside County");
-        assert!(arch.is_wall(), "the owner stated the arch as a wall: {arch:?}");
+        assert!(
+            arch.is_wall(),
+            "the owner stated the arch as a wall: {arch:?}"
+        );
         let arrival = arrival(148, 146).expect("where a character arriving from 146 stands");
         assert_eq!(arrival.from, 146);
         let docked = arrival_at(148, (arrival.x, arrival.y)).expect("the same point reads back");
@@ -466,7 +488,10 @@ mod tests {
             .iter()
             .find(|arch| arch.is_wall())
             .expect("146 draws a wall");
-        let midpoint = ((wall.from.0 + wall.to.0) / 2.0, (wall.from.1 + wall.to.1) / 2.0);
+        let midpoint = (
+            (wall.from.0 + wall.to.0) / 2.0,
+            (wall.from.1 + wall.to.1) / 2.0,
+        );
         let (dx, dy) = (wall.to.0 - wall.from.0, wall.to.1 - wall.from.1);
         let norm = (dx * dx + dy * dy).sqrt();
         let (nx, ny) = (-dy / norm, dx / norm);

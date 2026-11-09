@@ -87,12 +87,19 @@ pub async fn load_map_on_demand(
     map_id: i32,
 ) -> Result<Option<MapEntry>, asura_db::DatabaseError> {
     let started = Instant::now();
-    let Some(entry) = crate::catalogue::entry(map_id, world.capacity)
-        .map_err(|err| asura_db::DatabaseError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, err)))?
-    else { return Ok(None); };
+    let Some(entry) = crate::catalogue::entry(map_id, world.capacity).map_err(|err| {
+        asura_db::DatabaseError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+    })?
+    else {
+        return Ok(None);
+    };
     let kinds = map_kinds();
-    if entry.map_type != kinds.main_town && entry.map_type != kinds.main_explorable
-        && entry.map_type != kinds.character_creation { return Ok(None); }
+    if entry.map_type != kinds.main_town
+        && entry.map_type != kinds.main_explorable
+        && entry.map_type != kinds.character_creation
+    {
+        return Ok(None);
+    }
     let row_done = started.elapsed();
 
     let pool = Instant::now();
@@ -411,7 +418,8 @@ async fn begin_transfer(
 
     // The seat on the destination. `reserve` gives up this session's current lease in the same
     // transaction, which is exactly a transfer's accounting: one seat, moved.
-    let Some(world_id) = placement::reserve(&world.pool, world.world_id, to_map, player.session_id)
+    let Some(world_id) = placement::Placement::new(&world.pool)
+        .reserve(world.world_id, to_map, player.session_id)
         .await
         .map_err(GameError::Database)?
     else {
@@ -423,17 +431,17 @@ async fn begin_transfer(
     };
 
     let player_token = random_u32()?;
-    placement::begin_transfer(
-        &world.pool,
-        player_token,
-        world_id,
-        to_map,
-        player.session_id,
-        player.account_id,
-        player.character,
-    )
-    .await
-    .map_err(GameError::Database)?;
+    placement::Placement::new(&world.pool)
+        .begin_transfer(
+            player_token,
+            world_id,
+            to_map,
+            player.session_id,
+            player.account_id,
+            player.character,
+        )
+        .await
+        .map_err(GameError::Database)?;
 
     // The arriving position is the destination's to decide, and it is written once the travel is
     // committed (a refused travel above writes nothing, so the character keeps the position it is
@@ -442,9 +450,10 @@ async fn begin_transfer(
     // the worst case if it does.
     match landing {
         Some((x, y)) => {
-            placement::set_transfer_arrival_origin(
-                &world.pool, player_token, player.instance.map.map_id,
-            ).await.map_err(GameError::Database)?;
+            placement::Placement::new(&world.pool)
+                .note_arrival_origin(player_token, player.instance.map.map_id)
+                .await
+                .map_err(GameError::Database)?;
             if let Err(err) =
                 db_game::record_position(&world.pool, player.character, to_map, x, y, 0).await
             {

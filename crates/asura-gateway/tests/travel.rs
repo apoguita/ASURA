@@ -19,12 +19,12 @@ use std::time::Duration;
 
 use asura_auth::Trace;
 use asura_db::{PgPool, Uuid};
-use asura_store::placement;
 use asura_gateway::serve;
 use asura_protocol::client::handshake;
 use asura_protocol::client::messages::{self, RequestResponse};
 use asura_protocol::client::reference_client::ReferenceClient;
 use asura_protocol::client::{tables, Frame};
+use asura_store::placement;
 use asura_store::state::characters as db;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};

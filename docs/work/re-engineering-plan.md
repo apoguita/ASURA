@@ -74,7 +74,7 @@ and its documents were updated in the same commit.
 | 0 | done | this file, `d7d229d`; the database-holds-state ruling and the action table, `01250ff` |
 | 1 | done by measurement | the client dials its launch address, so one client-visible address is forced (`docs/reference/client-protocol.md:708-712`); the world already sits behind it as a separate program (`crates/asura-gateway/src/relay.rs:9-17`) |
 | 2 | done (2a-2e) | **a real client loads after the split (owner, 2026-11-08)**; `asura-store::identity` owns account, portal and session; `asura-store::state` owns characters, character facts and inventory (`State::new(pool)`). The world reaches them through its `db_game` / `db_inventory` re-exports, so no call site moved; auth, webgate and the gateway tests call the store directly. Cut 2d moved placement the same way, and cut 2e finished the emptying: the service catalogue moved too, the database URL moved to `asura-config` (its old path is a door in `asura-db`), and every today-document's citations were rewritten to the new homes. What remains in `asura-db` is the schema and the migration runner, plus the content rows that have no caller and die in phase 6 - so the crate itself is deleted with that content, as phase 6's first step, not here. `cargo check --workspace --all-targets` exits 0; store 6 unit plus 21 integration, world 90, db 12, auth 3, webgate 6, gateway 4, rules 9, protocol 90 |
-| 3 | not started | |
+| 3 | done | `asura_store::placement::Placement::new(pool)` exposes the four operations - find worlds (candidates and endpoint), reserve, release, record a transfer (begin, claim, note destination, note arrival origin). The login program, the world program and the gateway relay call it and nothing else: a search over those four files finds 7 interface calls and 0 raw placement calls. Same SQL; `cargo check --workspace --all-targets` exits 0; auth 3, world 90, gateway 4, store 6 |
 | 4 | not started | |
 | 5 | not started | |
 | 6 | not started | |
@@ -85,8 +85,10 @@ tests, `asura-world` 90 unit tests, `cargo check --workspace` exits 0.
 
 ## Known red, before any phase starts and not caused by it
 
-- `cargo fmt --all --check` flags 15 files this plan has not touched (`asura-auth/src/travel.rs`,
-  `asura-config`, `asura-db`, and eight world files). CI's format job is red for that reason alone.
+- `cargo fmt --all --check` now flags 4 files, down from 15: every file this plan edited was formatted,
+  and what remains untouched is `asura-config/src/lib.rs`, `asura-config/src/world.rs`,
+  `asura-db/src/migrations.rs` and `asura-world/tests/portals.rs`. CI's format job stays red on those
+  four until someone formats them.
 - `asura-config`'s `the_committed_movement_file_states_the_ceiling` fails: the committed
   `config/Server/movement.json` says 250 while the test asserts 150. Neither was touched by this plan;
   the file's own doc still says the owner decided 150 on 2026-11-04, and `fbaca61` changed the file.

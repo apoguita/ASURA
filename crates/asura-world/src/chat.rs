@@ -300,8 +300,12 @@ pub async fn handle_chat_message(
                         // path.
                         if let Ok(maps) = asura_config::world::catalogue() {
                             for map_id in maps.keys() {
-                                if listed.iter().any(|map| map.map_id == *map_id) { continue; }
-                                if let Ok(Some(map)) = crate::catalogue::entry(*map_id, world.capacity) {
+                                if listed.iter().any(|map| map.map_id == *map_id) {
+                                    continue;
+                                }
+                                if let Ok(Some(map)) =
+                                    crate::catalogue::entry(*map_id, world.capacity)
+                                {
                                     listed.push(map);
                                 }
                             }
