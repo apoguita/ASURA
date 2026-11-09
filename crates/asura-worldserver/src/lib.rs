@@ -84,9 +84,9 @@ pub use game::mechanics::chat;
 pub use game::server::connection;
 
 pub use game::entities::item;
+pub use game::handlers;
 pub use game::maps::instance;
 pub use game::mechanics::creation;
-pub use game::handlers;
 pub use game::server::dispatch;
 
 /// The client's instance table: the destinations a load tells the client exist (data, D36).

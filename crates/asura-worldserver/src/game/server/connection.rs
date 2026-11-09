@@ -304,6 +304,14 @@ pub async fn handle_connection(
     let (player_id, agent_id) = instance.join(name.clone(), standing, equipped, outbox);
     let (portal_outbox, mut portal_inbox) = tokio::sync::mpsc::unbounded_channel();
     instance.watch_portals(player_id, portal_outbox);
+    // The engine's first hook point: content is told a player entered a map, at the moment the
+    // instance learned it and before any block is built. Nothing answers it yet; that is the position.
+    world.scripts.on_player_enter(crate::scripts::PlayerEnter {
+        world_id: world.world_id,
+        map_id: map.map_id,
+        player_id,
+        character,
+    });
     let map_type = map.map_type;
     // A creation instance is its own map type (`MapType_CharacterCreation`, 11): a connection that
     // arrived in one is there to make a character, and one that arrived in anything else cannot.

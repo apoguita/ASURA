@@ -207,6 +207,7 @@ impl Harness {
             capacity: 2,
             archive: gw_dat_path().unwrap_or_default(),
             agent: agent_defaults(),
+            scripts: Arc::new(asura_worldserver::scripts::ScriptMgr::new()),
         });
         let server = tokio::spawn({
             let world = world.clone();
@@ -1992,6 +1993,7 @@ async fn a_travel_to_an_unhosted_map_is_loaded_on_demand() {
         capacity: 2,
         archive: gw_dat_path().unwrap_or_default(),
         agent: agent_defaults(),
+        scripts: Arc::new(asura_worldserver::scripts::ScriptMgr::new()),
     });
     let server = tokio::spawn({
         let world = world.clone();
@@ -2233,6 +2235,7 @@ async fn a_connection_to_an_unhosted_map_is_loaded_on_demand() {
         capacity: 2,
         archive: gw_dat_path().unwrap_or_default(),
         agent: agent_defaults(),
+        scripts: Arc::new(asura_worldserver::scripts::ScriptMgr::new()),
     });
     let server = tokio::spawn({
         let world = world.clone();

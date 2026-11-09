@@ -145,6 +145,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
         capacity: 2,
         archive: String::new(),
         agent: agent_defaults(),
+        scripts: Arc::new(asura_worldserver::scripts::ScriptMgr::new()),
     });
     let world_task = tokio::spawn(async move {
         let _ = serve_world(world_listener, world, true).await;

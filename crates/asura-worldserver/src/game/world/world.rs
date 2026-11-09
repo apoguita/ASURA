@@ -50,6 +50,9 @@ pub struct World {
     /// load block states (`config/World/Vanilla/agent_defaults.json`). Read once at start-up, so a
     /// world cannot advance two agents at two speeds and nobody creates one at a speed nobody chose.
     pub agent: crate::agent_defaults::AgentDefaults,
+    /// What this build carries as content behaviour (`game/scripts`): the registry the engine asks at
+    /// its hook points. Empty today, and asked anyway - that is the position cut 4e establishes.
+    pub scripts: std::sync::Arc<crate::scripts::ScriptMgr>,
 }
 
 impl World {

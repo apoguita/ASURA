@@ -393,6 +393,13 @@ async fn main() -> ExitCode {
     // `--on-demand` was read above, before the pool rows were published, so that an on-demand world
     // lists every catalogue map as servable while it preloads only the maps it was started with.
 
+    // What this build carries as content behaviour: the reference calls `AddScripts` here, and the
+    // registry is then asked at the engine's hook points. Empty today by design.
+    let mut scripts = asura_worldserver::scripts::ScriptMgr::new();
+    asura_worldserver::scripts::add_scripts(&mut scripts);
+    eprintln!("asura-world: {} script(s) registered", scripts.count());
+    let scripts = std::sync::Arc::new(scripts);
+
     let world = Arc::new(World {
         pool,
         world_id,
@@ -406,6 +413,7 @@ async fn main() -> ExitCode {
         capacity,
         archive,
         agent: agent_defaults,
+        scripts,
     });
 
     // The heartbeat, and the drain (docs/history/service-supervisor-delivery-plan.md, S3). The heartbeat says the world
@@ -466,8 +474,9 @@ async fn main() -> ExitCode {
     );
     {
         let instances = world.instances.clone();
+        let scripts = std::sync::Arc::clone(&world.scripts);
         tokio::spawn(async move {
-            asura_worldserver::game::maps::updater::run_clock(instances, updater).await
+            asura_worldserver::game::maps::updater::run_clock(instances, updater, scripts).await
         });
     }
 

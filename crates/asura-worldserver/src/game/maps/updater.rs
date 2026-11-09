@@ -62,7 +62,11 @@ impl MapUpdater {
 ///
 /// This is the world's one sleeping task - the reference's `MapMgr::Update` loop, which is why a map
 /// stops ticking the moment it is unloaded rather than lingering as a task of its own.
-pub async fn run_clock(instances: Instances, updater: Arc<MapUpdater>) {
+pub async fn run_clock(
+    instances: Instances,
+    updater: Arc<MapUpdater>,
+    scripts: Arc<crate::scripts::ScriptMgr>,
+) {
     let mut tick = tokio::time::interval(asura_config::intervals().tick());
     let mut last = Instant::now();
     loop {
@@ -70,6 +74,13 @@ pub async fn run_clock(instances: Instances, updater: Arc<MapUpdater>) {
         let elapsed = last.elapsed();
         last = Instant::now();
         for instance in instances.all() {
+            // The engine's second hook point: content is told the map advanced, before the map is
+            // updated, so an answer can influence this tick. Nothing answers it yet.
+            scripts.on_map_tick(crate::scripts::MapTick {
+                map_id: instance.map().map_id,
+                elapsed,
+                players: instance.len(),
+            });
             updater.schedule(instance, elapsed);
         }
     }
