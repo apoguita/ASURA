@@ -466,7 +466,7 @@ pub async fn handle_request_items(
     let block = match replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Items) => replay.items.clone(),
         _ => items_block(
-            &player.instance().map,
+            player.instance().map(),
             &player.inventory(),
             player.traits().gold,
         ),

@@ -109,7 +109,7 @@ pub struct Slot {
 /// One hosted map: its description, and everyone standing in it.
 pub struct Instance {
     /// The map this instance runs: what a client is told it is entering (`MapEntry`).
-    pub map: MapEntry,
+    map: MapEntry,
     /// Units a second this instance advances its agents by, and the `speed_base` it puts in
     /// `WORLD_CREATE_AGENT`. Copied from the world's `config/World/Vanilla/agent_defaults.json` at
     /// creation, so the number the client is told and the number the tick moves the agent by cannot
@@ -123,6 +123,15 @@ pub struct Instance {
 }
 
 impl Instance {
+    /// The map this instance runs: the catalogue row that describes it.
+    ///
+    /// The instance is a *running* map - its players, their agents and its clock - and this is the
+    /// description it was built from. A caller reads it here rather than at the field, so the row and
+    /// the running object cannot be confused for each other.
+    pub fn map(&self) -> &MapEntry {
+        &self.map
+    }
+
     pub fn new(map: MapEntry, speed_base: f32) -> Instance {
         Instance {
             map,

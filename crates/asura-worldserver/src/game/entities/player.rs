@@ -90,7 +90,7 @@ impl Player {
         if crate::move_trace_on() && self.portal_position != position {
             eprintln!(
                 "move[portal] map {} client segment ({:.1}, {:.1}) -> ({:.1}, {:.1})",
-                self.instance.map.map_id,
+                self.instance.map().map_id,
                 self.portal_position.0,
                 self.portal_position.1,
                 position.0,
@@ -215,7 +215,7 @@ impl Player {
     pub fn standing(&self) -> Standing {
         self.instance
             .standing(self.player_id)
-            .unwrap_or(Standing::from_map(&self.instance.map))
+            .unwrap_or(Standing::from_map(self.instance.map()))
     }
 
     /// `Player.GetAgentID()`: the agent this character drives.
@@ -582,15 +582,15 @@ pub async fn handle_request_players(
     // The instance the character is standing in is reached, so it is unlocked - that is the whole rule
     // (`docs/reference/game-world-model.md`): the walk sets the bit, the bit never gates the walk. The creation
     // instance is not a place a character "reaches", so it sets nothing.
-    let here = player.instance.map.map_id;
+    let here = player.instance.map().map_id;
     // The last outpost this character stood in, kept for the base rule (docs/reference/game-world-model.md): a travel
     // into an explorable must not overwrite it, which is why only an outpost is written here.
-    if player.instance.map.map_type == map_kinds().main_town {
+    if player.instance.map().map_type == map_kinds().main_town {
         if let Err(err) = db_game::remember_outpost(&world.pool, player.character, here).await {
             eprintln!("world: could not remember the outpost {here}: {err}");
         }
     }
-    if player.instance.map.map_type != map_kinds().character_creation {
+    if player.instance.map().map_type != map_kinds().character_creation {
         match db_game::unlock_instance(&world.pool, player.character, here).await {
             Ok(true) => eprintln!(
                 "world: {:?} unlocked instance {here}: first arrival",

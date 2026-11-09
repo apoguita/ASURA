@@ -334,7 +334,7 @@ pub async fn handle_connection(
             "move[spawn] agent {} starts on map {} at (x={:.1}, y={:.1}, plane={}) with speed {} \
              (the client will walk from here)",
             player.GetAgentID(),
-            player.instance().map.map_id,
+            player.instance().map().map_id,
             player.GetXY().0,
             player.GetXY().1,
             player.standing().plane,
@@ -357,7 +357,7 @@ pub async fn handle_connection(
             builders::char_creation_start(),
         ],
         _ => load_block(
-            &player.instance().map,
+            player.instance().map(),
             player.GetName(),
             player.GetAgentID(),
         ),
@@ -410,11 +410,11 @@ pub async fn handle_connection(
     // arrives in the creation map without making a character is one whose client still believes it is
     // there. Saving this map would overwrite the outpost with the instance and strand the character -
     // measured 2026-10-28: every character that entered map 0 came back to map 0 on the next login.
-    if !player.moved() && player.instance().map.map_type != map_kinds().character_creation {
+    if !player.moved() && player.instance().map().map_type != map_kinds().character_creation {
         if let Err(err) = db_game::record_position(
             &world.pool,
             player.character(),
-            player.instance().map.map_id,
+            player.instance().map().map_id,
             left.0,
             left.1,
             left_plane as i16,
@@ -437,7 +437,7 @@ pub async fn handle_connection(
         eprintln!(
             "world: {:?} was moved to map {}; the seat it holds is the destination's",
             player.name(),
-            player.instance().map.map_id
+            player.instance().map().map_id
         );
     } else if let Err(err) = placement::Placement::new(&world.pool)
         .release(transfer.session_id)
@@ -448,7 +448,7 @@ pub async fn handle_connection(
     eprintln!(
         "world: {:?} left map {} from ({:.1}, {:.1}) plane {left_plane}, {}",
         player.name(),
-        player.instance().map.map_id,
+        player.instance().map().map_id,
         left.0,
         left.1,
         if player.moved() {

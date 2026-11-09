@@ -164,8 +164,8 @@ pub fn handle_travel_init(frame: &Frame, player: &Player, _trace: bool) -> Resul
         "world: {:?} touched a travel object in map {} '{}': TRAVEL_INIT agent {agent:#010X}, \
          second {other:#010X}; no portal row names that agent, so no travel starts",
         player.name(),
-        player.instance().map.map_id,
-        player.instance().map.name,
+        player.instance().map().map_id,
+        player.instance().map().name,
     );
     Ok(true)
 }
@@ -247,7 +247,7 @@ pub async fn teleport(
             return Ok(true);
         }
     };
-    if target.map_id == player.instance().map.map_id {
+    if target.map_id == player.instance().map().map_id {
         // `GmCommands.c:198-202`. **The command's own refusal, not a travel policy**: the client-driven
         // requests (`0x80B1`, `0x80C1`) are carried out without this check, because there the client has
         // already decided and a second opinion is a gate (docs/reference/game-world-model.md, "No server-side travel
@@ -293,7 +293,7 @@ pub async fn handle_party_travel(
     eprintln!(
         "world: {:?} asked for instance {map_id} from the world map in map {}",
         player.name(),
-        player.instance().map.map_id
+        player.instance().map().map_id
     );
     let Some(destination) = resolve_instance(world, map_id).await? else {
         // A statement about this server, not about the client's rights: it has no row, no blob, or a
@@ -347,7 +347,7 @@ pub async fn portal_crossed(
     if player.moved() {
         return Ok(true);
     }
-    let instance = player.instance().map.map_id;
+    let instance = player.instance().map().map_id;
     let Some(crossed) = crate::portals::crossed(instance, from, to) else {
         return Ok(true);
     };
@@ -458,7 +458,7 @@ async fn begin_transfer(
     match landing {
         Some((x, y)) => {
             placement::Placement::new(&world.pool)
-                .note_arrival_origin(player_token, player.instance().map.map_id)
+                .note_arrival_origin(player_token, player.instance().map().map_id)
                 .await
                 .map_err(GameError::Database)?;
             if let Err(err) =
@@ -532,7 +532,7 @@ async fn begin_transfer(
         "world: {:?} travelling: map {} -> map {} '{}', player token {player_token:#010X}, \
          redirect to {public}",
         player.name(),
-        player.instance().map.map_id,
+        player.instance().map().map_id,
         to_map,
         destination.label()
     );

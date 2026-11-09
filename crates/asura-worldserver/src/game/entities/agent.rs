@@ -783,7 +783,7 @@ pub async fn handle_move_to_coord(
     ]) as u16;
     let agent_id = player.GetAgentID();
     let instance = Arc::clone(&player.instance());
-    let map_id = instance.map.map_id;
+    let map_id = instance.map().map_id;
     let Some((from, walk_active)) = instance.with_slot(player.player_id(), |slot| {
         (slot.agent.here(), 0.0 < slot.agent.motion.speed)
     }) else {
@@ -1044,7 +1044,7 @@ pub async fn handle_position_update(
             let target = (from.x + offset.0, from.y + offset.1);
             // Provisional, not accepted: owner reports better movement, but not perfect (2026-11-06).
             // Remaining behavior is unresolved; see docs/work/session-handoff.md.
-            let walked = world.graphs.walk_direction(instance.map.map_id, from, offset);
+            let walked = world.graphs.walk_direction(instance.map().map_id, from, offset);
             if move_trace_on() {
                 match &walked {
                     Walk::Found(waypoints) => eprintln!(
@@ -1061,7 +1061,7 @@ pub async fn handle_position_update(
                     ),
                     Walk::NoGraph => eprintln!(
                         "move[manual] this world has no path graph for map {}: nothing is sent",
-                        instance.map.map_id
+                        instance.map().map_id
                     ),
                 }
             }
@@ -1271,7 +1271,7 @@ pub async fn handle_request_spawn(
     let replay = world.replay.as_ref();
     let block = match replay {
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Spawn) => replay.spawn.clone(),
-        _ => spawn_block(&player.instance().map, player.standing()),
+        _ => spawn_block(player.instance().map(), player.standing()),
     };
     send(stream, session, block, trace).await?;
     Ok(true)
