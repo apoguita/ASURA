@@ -1,0 +1,15 @@
+[package]
+name = "asura-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The stores: identity, state and placement, one interface each"
+
+[dependencies]
+sqlx = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

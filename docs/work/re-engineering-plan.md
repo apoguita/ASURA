@@ -73,7 +73,7 @@ and its documents were updated in the same commit.
 |---|---|---|
 | 0 | done | this file, `d7d229d`; the database-holds-state ruling and the action table, `01250ff` |
 | 1 | done by measurement | the client dials its launch address, so one client-visible address is forced (`docs/reference/client-protocol.md:708-712`); the world already sits behind it as a separate program (`crates/asura-gateway/src/relay.rs:9-17`) |
-| 2 | in progress: cut 2a done | `identity/` holds `account` and `portal`, re-exported at their old paths (`crates/asura-db/src/lib.rs:180-186`); workspace builds, `asura-db` 21 unit tests pass, no caller path changed |
+| 2 | in progress: cut 2a done | `crates/asura-store` exists with the identity store written fresh (`Identity::account`, `record_eula`, `portal_for_email`); workspace builds, its two live tests pass; callers still on `asura-db`, which is next (2b) |
 | 3 | not started | |
 | 4 | not started | |
 | 5 | not started | |
@@ -147,14 +147,23 @@ And who calls which module today:
 Two facts matter: `game` is the mixed module (content leftovers beside character state and unlocks), and
 `login` serves both identity (account, session) and state (the character list).
 
+### The decision: a new crate, not a patch
+
+The owner's direction, 2026-11-08: `asura-db` is replaced, not patched. A new crate,
+`crates/asura-store`, holds the three stores and is written fresh; the old crate keeps serving until
+its last store has moved, and every program keeps the name and the connection settings it already has.
+A store moves in one commit: its interface is complete here, its callers move onto it, and its tables
+leave the old crate in that same commit.
+
 ### The cuts, in order
 
 | cut | what lands | what proves it |
 |---|---|---|
-| 2a | `identity/` holds `account` and `portal`, re-exported at their old paths so no caller changes | workspace builds; db unit tests pass |
-| 2b | `state/` holds characters, traits, position, unlocks and inventory; `game` keeps only content | workspace builds; world tests pass; no caller changes its path |
-| 2c | `game` is named for what it holds - content - and frozen, since its three readers have no caller | a search finds the constants and no reader |
-| 2d | `REQUIRED_TABLES` is derived from each store's declared tables instead of being a hand list | the list matches the stores' declarations |
+| 2a | `asura-store` exists with the identity store written fresh: `Identity::account`, `record_eula`, `portal_for_email`, one error type, the SQL unchanged | workspace builds; two live tests skip without a database and pass with one |
+| 2b | the identity callers move onto `asura-store` - webgate, gateway, auth - and `account`, `portal` and the identity half of `login` leave the old crate | webgate answers `who are you?`, login resolves the pair, no caller names the old path |
+| 2c | the state store: characters, traits, position, unlocks and inventory, written fresh; the world's callers move onto it | login, entry, item persistence unchanged; the old module loses its tables |
+| 2d | the placement store: worlds, pools, leases, transfers, written fresh; auth, gateway and webgate move onto it | travel in both directions; a full world refused without disturbing the holder |
+| 2e | `asura-db` is deleted; `config` and the migration runner move to where their remaining users live | build green with the crate gone |
 
 A cut that cannot be done without changing a caller's path is not done: the old path is re-exported
 until the caller moves in a later cut.
