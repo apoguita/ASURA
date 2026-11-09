@@ -109,19 +109,26 @@ pub async fn answer(
         msg::GAME_CMSG_DISCONNECT => Ok(false),
 
         msg::GAME_CMSG_CHAR_CREATION_REQUEST_PLAYER => {
-            creation::handle_request_player(stream, session, player, trace).await
+            crate::game::handlers::creation::handle_request_player(stream, session, player, trace)
+                .await
         }
 
         msg::GAME_CMSG_CHAR_CREATION_REQUEST_ARMORS => {
-            creation::handle_request_armors(stream, session, trace).await
+            crate::game::handlers::creation::handle_request_armors(stream, session, trace).await
         }
 
         msg::GAME_CMSG_CHAR_CREATION_CHANGE_PROF => {
-            creation::handle_change_profession(stream, session, &frame, player, trace).await
+            crate::game::handlers::creation::handle_change_profession(
+                stream, session, &frame, player, trace,
+            )
+            .await
         }
 
         msg::GAME_CMSG_CHAR_CREATION_CONFIRM => {
-            creation::handle_confirm(stream, session, &frame, world, player, trace).await
+            crate::game::handlers::creation::handle_confirm(
+                stream, session, &frame, world, player, trace,
+            )
+            .await
         }
 
         msg::GAME_CMSG_DROP_ITEM => {
