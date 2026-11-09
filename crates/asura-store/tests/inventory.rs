@@ -26,7 +26,7 @@ const MAP: i32 = 146;
 async fn pool() -> Option<PgPool> {
     let url = asura_db::config::database_url()?;
     Some(
-        asura_db::placement::connect(&url, 4)
+        asura_store::placement::connect(&url, 4)
             .await
             .expect("connect pool"),
     )

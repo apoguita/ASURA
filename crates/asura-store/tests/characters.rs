@@ -50,7 +50,7 @@ async fn pool() -> Option<PgPool> {
     // One rule for finding the settings, in `asura_db::config`, shared with the services.
     let url = asura_db::config::database_url()?;
     Some(
-        asura_db::placement::connect(&url, 4)
+        asura_store::placement::connect(&url, 4)
             .await
             .expect("connect pool"),
     )

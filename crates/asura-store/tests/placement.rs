@@ -7,7 +7,7 @@
 //! With no database configured a test prints a skip line and returns; `tools/m2-verify.ps1` is the
 //! one-command way to run them for real.
 
-use asura_db::{placement as db, PgPool, Uuid};
+use asura_store::{placement as db, PgPool, Uuid};
 
 const MAP: i32 = 15; // a placeholder map id; the reservations do not care which map it is
 const STALE_AFTER_SECS: f64 = 60.0;

@@ -24,7 +24,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use asura_db::game as db_map;
-use asura_db::{placement, PgPool, Uuid};
+use asura_db::{PgPool, Uuid};
+use asura_store::placement;
 use asura_protocol::client::game_version::GameVersion;
 use asura_protocol::client::handshake;
 use asura_protocol::client::reference_client::ReferenceClient;

@@ -1,21 +1,12 @@
-//! Placement: registering a world, reserving a slot atomically, and keeping the lease ledger honest.
+//! The placement store: which world serves a map, who holds a seat, and what transfer is pending.
 //!
-//! Every statement that mutates `world`, `world_pool` or `lease` lives here. Callers (the auth
-//! service, a world server, the fake-world harness) get functions whose names say what happens,
-//! never SQL strings - the rule this crate exists to enforce (`src/lib.rs`).
+//! Moved here from `asura-db` in cut 2d with the SQL unchanged. This is the only module that mutates
+//! `t_world`, `t_world_pool`, `t_lease` and `t_transfer`: every statement that changes a counter lives
+//! behind a function whose name says what it does, because a counter that drifts sends a client to a
+//! world that then refuses it.
 //!
-//! AzerothCore parallel: `realmlist` registration, the atomic realm/pool update, and the
-//! `DatabaseWorkerPool`'s asynchronous write discipline. The shape is theirs; the vendor is
-//! PostgreSQL (docs/reference/decisions/0008-postgresql.md).
-//!
-//! The two invariants this module must never break:
-//!
-//! * **No oversell.** A reservation is one `UPDATE ... WHERE leased < capacity RETURNING`, so two
-//!   processes cannot both take the last slot (`docs/guidance/architecture.md`, "Travel, end to end").
-//! * **The ledger and the counter agree.** A lease row is inserted only after the counter increment
-//!   won, and both are released or reaped in one transaction. `count(lease) <= leased <= capacity`
-//!   therefore holds at every commit, which is what makes the reaper safe.
-
+//! What this store must never do: run a map, place an agent, or decide which world a player *should*
+//! prefer. It answers what the caller asks and holds the seat it was told to hold.
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, Transaction};
 

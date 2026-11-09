@@ -18,7 +18,8 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use asura_auth::Trace;
-use asura_db::{placement, PgPool, Uuid};
+use asura_db::{PgPool, Uuid};
+use asura_store::placement;
 use asura_gateway::serve;
 use asura_protocol::client::handshake;
 use asura_protocol::client::messages::{self, RequestResponse};

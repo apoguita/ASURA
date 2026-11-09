@@ -59,7 +59,7 @@ async fn main() -> ExitCode {
     eprintln!("asura-webgate {} starting", env!("CARGO_PKG_VERSION"));
     eprintln!("asura-webgate: database ready, connecting");
 
-    let pool = match asura_db::placement::connect(&database_url, 4).await {
+    let pool = match asura_store::placement::connect(&database_url, 4).await {
         Ok(pool) => pool,
         Err(err) => {
             eprintln!("asura-webgate: could not connect to the database: {err}");

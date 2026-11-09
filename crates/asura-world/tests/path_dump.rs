@@ -174,7 +174,7 @@ async fn the_dump_command_writes_a_loadable_file() {
         eprintln!("skipped: ASURA_DATABASE_URL not set");
         return;
     };
-    let pool = asura_db::placement::connect(&url, 2)
+    let pool = asura_store::placement::connect(&url, 2)
         .await
         .expect("connect the database");
     let out = std::env::temp_dir().join(format!("asura-dump-cli-{}.bin", std::process::id()));

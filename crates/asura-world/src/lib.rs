@@ -41,7 +41,8 @@ use std::time::{Duration, Instant};
 
 // The crate's externals, re-exported at crate visibility so a domain file's `use crate::*;`
 // reaches them the same way it reaches the domains themselves.
-pub use asura_db::{placement, PgPool, Uuid};
+pub use asura_db::{PgPool, Uuid};
+pub use asura_store::placement;
 pub use asura_protocol::client::game_version::GameVersion;
 pub use asura_protocol::client::handshake;
 pub use asura_protocol::client::handshake::{Established, CLIENT_SEED_LEN, MASTER_SECRET_LEN};

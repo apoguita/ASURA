@@ -24,13 +24,16 @@
 
 use std::collections::BTreeMap;
 
-use asura_db::placement;
+
 use serde_json::{json, Value};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url = asura_db::config::database_url().ok_or("ASURA_DATABASE_URL is not configured")?;
-    let pool = placement::connect(&url, 4).await?;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .connect(&url)
+        .await?;
     let pack = pack_root();
 
     // Every integer is cast to `integer` and every coordinate to `float8` here, so the row type does not

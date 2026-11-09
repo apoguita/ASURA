@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use asura_db::migrations::{self, EnsureError};
-use asura_db::placement;
+use asura_store::placement;
 use asura_protocol::Trace;
 use asura_world::{serve, MapEntry, World};
 

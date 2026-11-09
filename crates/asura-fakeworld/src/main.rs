@@ -13,7 +13,7 @@
 //! Exit code 0 means every check passed. It is a harness: a missing database is an error, not a
 //! skipped test.
 
-use asura_db::{placement as db, PgPool, Uuid};
+use asura_store::{placement as db, PgPool, Uuid};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 

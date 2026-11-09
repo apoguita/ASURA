@@ -46,6 +46,7 @@ name = "asura-fakeworld"
 version = "0.1.0"
 dependencies = [
  "asura-db",
+ "asura-store",
  "tokio",
 ]
 
@@ -93,6 +94,7 @@ name = "asura-supervisor"
 version = "0.1.0"
 dependencies = [
  "asura-db",
+ "asura-store",
  "serde",
  "tokio",
  "toml",

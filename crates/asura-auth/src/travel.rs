@@ -28,7 +28,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use asura_db::placement;
+use asura_store::placement;
 use asura_db::PgPool;
 use asura_protocol::client::messages::{self, GameInstanceRequest, RequestResponse, STATUS_OK};
 use asura_protocol::client::Frame;

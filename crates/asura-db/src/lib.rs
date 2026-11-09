@@ -154,10 +154,6 @@ pub const REQUIRED_TABLES: &[&str] = &[
     "t_service",
 ];
 
-/// The queries placement needs: the atomic reservation, the lease ledger, and the reaper. Every
-/// statement that mutates a pool lives in this module, behind a function whose name says what it does.
-pub mod placement;
-
 /// The general service registry (S2): every service kind announces itself like a world server does.
 pub mod catalog;
 

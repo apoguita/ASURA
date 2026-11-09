@@ -64,7 +64,7 @@ async fn main() -> ExitCode {
     eprintln!("asura-auth {} starting", env!("CARGO_PKG_VERSION"));
     eprintln!("asura-gateway: database ready, connecting");
 
-    let pool = match asura_db::placement::connect(&database_url, 8).await {
+    let pool = match asura_store::placement::connect(&database_url, 8).await {
         Ok(pool) => pool,
         Err(err) => {
             eprintln!("asura-gateway: could not connect to the database: {err}");

@@ -17,7 +17,9 @@ async fn pool() -> Option<PgPool> {
     // One rule for finding the settings, in `asura_db::config`, shared with the services.
     let url = asura_db::config::database_url()?;
     Some(
-        asura_db::placement::connect(&url, 4)
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect(&url)
             .await
             .expect("connect pool"),
     )

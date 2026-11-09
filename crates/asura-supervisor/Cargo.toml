@@ -14,6 +14,7 @@ path = "src/main.rs"
 # `signal` on top of what the other services already use.
 tokio = { workspace = true }
 asura-db = { path = "../asura-db" }
+asura-store = { path = "../asura-store" }
 # The list is data, not code: TOML, read with serde. Added with the code that needs it, as the
 # workspace does for every dependency (docs/reference/decisions/0007-whole-stack-rust.md).
 serde = { version = "1", features = ["derive"] }

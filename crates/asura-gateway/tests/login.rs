@@ -38,7 +38,7 @@ struct Harness {
 impl Harness {
     async fn start() -> Option<Harness> {
         let url = asura_db::config::database_url()?;
-        let pool = asura_db::placement::connect(&url, 4)
+        let pool = asura_store::placement::connect(&url, 4)
             .await
             .expect("connect the database");
 
@@ -442,7 +442,7 @@ async fn a_game_connection_is_routed_to_the_world_it_names() {
         .expect("bind a world port");
     let world_address = world.local_addr().expect("world address");
     let world_id = 20_000 + (Uuid::new_v4().as_u128() % 10_000) as i32;
-    asura_db::placement::register_world(
+    asura_store::placement::register_world(
         &harness.pool,
         world_id,
         "relay-test",
@@ -500,7 +500,7 @@ async fn a_game_connection_is_routed_to_the_world_it_names() {
         "the world's bytes are copied back to the client"
     );
 
-    asura_db::placement::remove_world(&harness.pool, world_id)
+    asura_store::placement::remove_world(&harness.pool, world_id)
         .await
         .expect("remove the world");
     harness.stop();

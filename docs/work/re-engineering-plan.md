@@ -73,7 +73,7 @@ and its documents were updated in the same commit.
 |---|---|---|
 | 0 | done | this file, `d7d229d`; the database-holds-state ruling and the action table, `01250ff` |
 | 1 | done by measurement | the client dials its launch address, so one client-visible address is forced (`docs/reference/client-protocol.md:708-712`); the world already sits behind it as a separate program (`crates/asura-gateway/src/relay.rs:9-17`) |
-| 2 | in progress: cuts 2a, 2b and 2c done | `asura-store::identity` owns account, portal and session; `asura-store::state` owns characters, character facts and inventory (`State::new(pool)`). The world reaches them through its `db_game` / `db_inventory` re-exports, so no call site moved; auth, webgate and the gateway tests call the store directly. `asura-db` lost `login`, `inventory` and the state half of `game`, and keeps only the content rows that die in phase 6. Tests moved with the facts: store 22 across four files, world 90 unit, db 23. `cargo check --workspace --all-targets` exits 0 |
+| 2 | in progress: cuts 2a-2d done | `asura-store::identity` owns account, portal and session; `asura-store::state` owns characters, character facts and inventory (`State::new(pool)`). The world reaches them through its `db_game` / `db_inventory` re-exports, so no call site moved; auth, webgate and the gateway tests call the store directly. `asura-db` lost `login`, `inventory`, `placement` and the state half of `game`, and keeps only the content rows that die in phase 6. Cut 2d moved placement the same way: `asura_store::placement` holds the world registry, pools, leases and transfers, and auth, gateway, webgate, supervisor, fakeworld and the world call it. Tests moved with the facts. `cargo check --workspace --all-targets` exits 0; store 6 unit plus 21 integration, world 90, db 15, auth 3, webgate 6, gateway 4, rules 9, protocol 90 |
 | 3 | not started | |
 | 4 | not started | |
 | 5 | not started | |
@@ -87,11 +87,14 @@ tests, `asura-world` 90 unit tests, `cargo check --workspace` exits 0.
 
 - `cargo fmt --all --check` flags 15 files this plan has not touched (`asura-auth/src/travel.rs`,
   `asura-config`, `asura-db`, and eight world files). CI's format job is red for that reason alone.
+- `asura-config`'s `the_committed_movement_file_states_the_ceiling` fails: the committed
+  `config/Server/movement.json` says 250 while the test asserts 150. Neither was touched by this plan;
+  the file's own doc still says the owner decided 150 on 2026-11-04, and `fbaca61` changed the file.
 - The `end_to_end` test and the whole `load` suite fail on `outpost 146 has no configured random spawn
   list`: the tests build map 146 as an outpost with no spawns, while the pack has it as an explorable
   with no `spawns.json`. The refusal landed in `301a97a` (2026-11-06), after the tests were written.
 
-Neither is fixed by this plan. A phase that changes either of them says so in its commit.
+None of these is fixed by this plan. A phase that changes any of them says so in its commit.
 
 ## Resuming
 

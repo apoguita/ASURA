@@ -8,4 +8,5 @@ description = "The fake-world harness: registers, heartbeats, reserves, goes sil
 
 [dependencies]
 asura-db = { path = "../asura-db" }
+asura-store = { path = "../asura-store" }
 tokio = { workspace = true }

@@ -15,6 +15,7 @@
 //! moved; every caller moves with its own commit, so nothing is ever half-migrated.
 
 pub mod identity;
+pub mod placement;
 pub mod state;
 
 /// The pool the stores ask their questions through. Callers build it once and lend it.

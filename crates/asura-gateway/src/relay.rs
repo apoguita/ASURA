@@ -28,7 +28,7 @@
 
 use std::net::SocketAddr;
 
-use asura_db::placement;
+use asura_store::placement;
 use asura_db::PgPool;
 use asura_protocol::client::game_version::GameVersion;
 use asura_protocol::client::version::GAME_CMSG_VERSION_LEN;

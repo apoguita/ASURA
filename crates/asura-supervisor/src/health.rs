@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use tokio::net::TcpStream;
 
-use asura_db::placement;
+use asura_store::placement;
 use asura_db::PgPool;
 
 use crate::config::Health;
