@@ -24,11 +24,6 @@ pub fn intervals() -> &'static asura_config::Intervals {
     asura_config::intervals()
 }
 
-/// How often the world's clock is sent, as this machine's file states it.
-pub fn tick_interval() -> Duration {
-    intervals().tick()
-}
-
 /// How often the server asks the client whether it is still there.
 pub fn ping_interval() -> Duration {
     intervals().ping()

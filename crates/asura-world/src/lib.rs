@@ -321,7 +321,7 @@ mod tests {
         // The ping is the reference's own constant; the tick cadence is the measured 100 ms (the frame is
         // the reference's 6-byte form either way). Both now arrive from `config/Server/intervals.json`
         // (`asura_config`, D33), whose own test pins the file to those defaults.
-        assert_eq!(connection::tick_interval(), Duration::from_millis(100));
+        assert_eq!(asura_config::intervals().tick(), Duration::from_millis(100));
         assert_eq!(connection::ping_interval(), Duration::from_secs(5));
         assert_eq!(connection::ping_value(), 20);
     }

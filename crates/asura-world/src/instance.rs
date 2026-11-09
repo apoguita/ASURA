@@ -387,8 +387,12 @@ impl Instance {
     }
 
     /// The instance's clock: one task per map, ticking while the instance exists.
+    ///
+    /// The cadence is this machine's (`config/Server/intervals.json`) and is read from the configuration
+    /// crate, not from the socket module: a simulation that asks a socket layer how fast to tick has the
+    /// dependency backwards.
     pub async fn run(self: Arc<Self>) {
-        let mut tick = tokio::time::interval(crate::connection::tick_interval());
+        let mut tick = tokio::time::interval(asura_config::intervals().tick());
         let mut last_tick = Instant::now();
         loop {
             tick.tick().await;
