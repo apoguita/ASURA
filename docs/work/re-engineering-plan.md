@@ -55,6 +55,12 @@ player token placement carries.
 3. **One phase, one commit, green.** Build succeeds, unit tests pass, and the real client logs in, is
    redirected, and enters a map with byte-identical frames. No phase carries a feature.
 4. **A phase that cannot be built beside what runs is split again** rather than forced.
+5. **This plan is the server's structure, and says nothing about what the game does.** No step, commit
+   message or answer in a phase of this plan names a map, a spawn, an agent, a walk, a tick or any
+   other in-game noun. An acceptance suite that fails on a game value stays red, and the reason is said
+   to be the mechanics workstream's; repairing it here is how a structural cut turns into a content
+   edit and stops being reviewable. Owner, 2026-11-09: "we should not even mention any in game nouns
+   in this phase".
 
 ## The skeleton, and what populating it means
 
