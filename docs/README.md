@@ -60,6 +60,7 @@ Lookup facts, models and catalogues; source qualifications remain in each docume
 Investigations, source comparisons, measurements and unresolved findings.
 
 - [What the GW2 microservices talk changes in this design](research/gw2-service-design-lessons.md)
+- [The reference server's structure, read from its own tree](research/azerothcore-structure.md)
 - [Multi-machine capability, proven on one machine (S6)](research/multi-host-routing-experiment.md)
 - [Rurik: the feature gap, and the port queue](research/rurik-capabilities-and-gaps.md)
 - [The surrounding packets: what a live stream carries that this tree ignores](research/client-session-packet-analysis.md)
