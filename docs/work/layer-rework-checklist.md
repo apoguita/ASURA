@@ -218,11 +218,18 @@ ids 36/41/42/43, speed modes 1/9, agent types 1/4, `CHAR_CLASS_PLAYER_BASE`).
      removed, the crate description no longer claims "internal control messages",
      `cargo test -p asura-protocol` 90 pass, `cargo check --workspace` exits 0, and a search for
      `INTERNAL_*` or `Kind::*` over every crate returns nothing.
-- [ ] Two character stats compiled here: `PLAYER_HEALTH_MAX = 400` and `PLAYER_ENERGY_MAX = 25`
-      (`crates/asura-protocol/src/game/mod.rs:356-358`), read by the world
-      (`crates/asura-world/src/player.rs:344-349`). No config file holds them;
-      `config/World/Vanilla/character_defaults.json` carries level, gold, appearance and secondary
-      profession only. Under `AGENTS.md` 4a these are values describing the world.
+- [x] The player agent's numbers are the pack's now, and the cluster was four, not two:
+      `PLAYER_SPEED_BASE = 288.0` (read in six places - `connection.rs:345`, `instance.rs:125`,
+      `:275`, `:279`, `:408`, `player.rs:331`), `PLAYER_HEALTH_MAX = 400` and
+      `PLAYER_ENERGY_MAX = 25` (`crates/asura-world/src/player.rs:344-349`), and
+      `PLAYER_ENERGY_REGEN = 0.033`, which nothing read - the 0.0 the load block sent was a separate
+      literal. All four were compiled in `crates/asura-protocol/src/game/mod.rs:352-360`, and the
+      speed also drove the simulation's movement expectation, not only a message field. Commit
+      `d140f37`: they are `config/World/Vanilla/agent_defaults.json`, read once at start-up into
+      `World::agent` (refused at start without the file, `crates/asura-world/src/main.rs:293`), passed
+      to `player_block`, `introduction`, `Instance::new` and `instances.for_map`, and the constants
+      are deleted. Values unchanged, so the bytes are unchanged: `asura-protocol` 90 tests,
+      `asura-world` 95, `cargo check --workspace` exits 0.
 - [ ] Two account facts compiled in a builder: the campaign mask `H0016` and the feature block whose
       third `u16` is the character-slot count (`crates/asura-protocol/src/client/messages.rs:600-605`).
       The call site passes request, account, character and EULA only
