@@ -85,7 +85,9 @@ pub async fn answer(
         // The client's own travel announcement: the player touched a travel object. Named rather than
         // left to the fallthrough, because the line it prints is the measurement a portal table is
         // built from - see `travel::handle_travel_init` for what it carries and what is still missing.
-        msg::GAME_CMSG_TRAVEL_INIT => travel::handle_travel_init(&frame, player, trace),
+        msg::GAME_CMSG_TRAVEL_INIT => {
+            crate::game::handlers::travel::handle_travel_init(&frame, player, trace)
+        }
 
         // The world map's request. The client has already decided which instance it wants; this carries
         // the decision out with the same cycle `/tp` uses.
@@ -94,7 +96,10 @@ pub async fn answer(
         }
 
         msg::GAME_CMSG_SEND_CHAT_MESSAGE => {
-            chat::handle_chat_message(stream, session, &frame, world, player, trace).await
+            crate::game::handlers::chat::handle_chat_message(
+                stream, session, &frame, world, player, trace,
+            )
+            .await
         }
 
         // The client is going away.

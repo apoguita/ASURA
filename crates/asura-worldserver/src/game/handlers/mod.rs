@@ -8,6 +8,8 @@
 // handler from a rule. They leave when the rules do (the agent split, 4d's second half).
 
 pub mod agent;
+pub mod chat;
 pub mod item;
+pub mod travel;
 
 use crate::*;
