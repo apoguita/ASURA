@@ -38,6 +38,7 @@ pub const RIFF_SIGNATURE: &[u8] = b"ffna";
 
 /// `RIFF_MAP1` / `RIFF_MAP2` (`GmMapDataImport.h:24`): the two container types `GmImportMap` accepts.
 pub const RIFF_MAP1: u8 = 1;
+/// The second map container type: the reference's `RIFF_MAP2`.
 pub const RIFF_MAP2: u8 = 3;
 
 /// `RIFF_TYPES`: a type byte at or above this is not a container at all (`RiffCheckHeader`).
@@ -67,22 +68,39 @@ const NODE_TYPE_SINK: u8 = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum ChunkId {
+    /// The container header: `RIFF_MAP1` and the chunk table.
     Header = 0,
+    /// The old editor record, kept by the file format and unused here.
     EditorOld = 1,
+    /// The terrain record: the height field the client draws.
     Terrain = 2,
+    /// The zone and area map.
     Zones = 3,
+    /// Placed props: the static scenery.
     Props = 4,
+    /// A record the reference keeps a name for and never reads.
     Obsolete1 = 5,
+    /// The water surfaces.
     Water = 6,
+    /// The mission record of a mission map.
     Mission = 7,
+    /// The path graph: trapezoids, portals and the node trees this module imports.
     Path = 8,
+    /// Environment and lighting settings.
     Environment = 9,
+    /// Named locations inside the map, used for the world map.
     Locations = 10,
+    /// A second record the reference names and never reads.
     Obsolete2 = 11,
+    /// Map parameters: type, parties and the instance value.
     MapParameters = 12,
+    /// The editor record.
     Editor = 13,
+    /// The collision data.
     Collision = 14,
+    /// Light sources.
     Light = 15,
+    /// The shore line used for water edges.
     Shore = 16,
 }
 
@@ -95,23 +113,38 @@ pub enum ImportError {
     /// The first five bytes are not `"ffna"` plus a type below `RIFF_TYPES` (`RiffCheckHeader`).
     Header,
     /// The container's type byte is a known container but not one of the two map types.
-    NotAMap { found: u8 },
+    NotAMap {
+        /// The type byte the header named.
+        found: u8,
+    },
     /// A record claims more bytes than the blob holds (`RiffParseChunks`).
     ChunkPastTheEnd,
     /// The container has no stage-2 path chunk (`GmImportMap`): no graph, so no walking.
     NoPathChunk,
     /// A section did not begin with the tag its reader requires. `found` is `None` when fewer than five
     /// bytes were left, which is how `ParseTaggedChunk` fails first.
-    Tag { expected: u8, found: Option<u8> },
+    Tag {
+        /// The tag the reference wanted at this point.
+        /// The tag the reference wanted at this point.
+        expected: u8,
+        /// The tag the bytes carried, when there were any left.
+        found: Option<u8>,
+    },
     /// A section's header claims more payload than the blob has left (`ParseTaggedChunk`).
-    TagPastTheEnd { tag: u8 },
+    TagPastTheEnd {
+        /// The tag of the section that ran past the end.
+        tag: u8,
+    },
     /// A field past the end of the bytes that were there.
     Truncated(&'static str),
     /// A payload does not have the shape its reader measured it against; the string says which.
     Shape(&'static str),
     /// An index does not name an element the plane has. The reference would read past its array here;
     /// this refuses instead of reading someone else's memory.
-    Index { what: &'static str },
+    Index {
+        /// Which table the index failed against.
+        what: &'static str,
+    },
 }
 
 impl std::fmt::Display for ImportError {
@@ -146,7 +179,9 @@ impl std::error::Error for ImportError {}
 /// One record of a map container: an id and the bytes it holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MapChunk<'a> {
+    /// The chunk's own id: the stage in its top nibble, the `ChunkId` in the rest.
     pub chunk_id: u32,
+    /// The chunk's payload bytes, as the container holds them.
     pub data: &'a [u8],
 }
 
@@ -160,7 +195,9 @@ pub struct Chunks<'a> {
 /// A 2-D position, the reference's `Vec2f`.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Vec2f {
+    /// The x coordinate.
     pub x: f32,
+    /// The y coordinate.
     pub y: f32,
 }
 
@@ -183,31 +220,42 @@ impl Vec2f {
 /// index is what the reference's node id encodes, so this is the same identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeRef {
+    /// A reference to an x node, by index into the plane's `xnodes`.
     X(usize),
+    /// A reference to a y node, by index into the plane's `ynodes`.
     Y(usize),
+    /// A reference to a sink node, by index into the plane's `sink_nodes`.
     Sink(usize),
 }
 
 /// `XNode`: a split along a line, `left`/`right` being the halves.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct XNode {
+    /// Where the node's split point stands.
     pub pos: Vec2f,
+    /// The direction the split runs in.
     pub dir: Vec2f,
+    /// The subtree on the node's left, when it has one.
     pub left: Option<NodeRef>,
+    /// The subtree on the node's right, when it has one.
     pub right: Option<NodeRef>,
 }
 
 /// `YNode`: a split along the horizontal, `above`/`bellow` being the halves (the reference's spelling).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct YNode {
+    /// Where the vertical split starts.
     pub pos: Vec2f,
+    /// The subtree above the split, when it has one.
     pub above: Option<NodeRef>,
+    /// The subtree below the split, when it has one.
     pub bellow: Option<NodeRef>,
 }
 
 /// `SinkNode`: a leaf, which is a trapezoid.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SinkNode {
+    /// The trapezoid this tree ends in: an index into the plane's `trapezoids`.
     pub trap: usize,
 }
 
@@ -217,17 +265,29 @@ pub struct SinkNode {
 pub struct Trapezoid {
     /// `trap_id`: unique across **all** planes, because it comes from the static data's counter.
     pub trap_id: u32,
+    /// The trapezoid to the top-left, when the edge leads to one.
     pub top_left: Option<usize>,
+    /// The trapezoid to the top-right, when the edge leads to one.
     pub top_right: Option<usize>,
+    /// The trapezoid to the bottom-left, when the edge leads to one.
     pub bottom_left: Option<usize>,
+    /// The trapezoid to the bottom-right, when the edge leads to one.
     pub bottom_right: Option<usize>,
+    /// The portal on the left edge, when the data names one.
     pub portal_left: u16,
+    /// The portal on the right edge, when the data names one.
     pub portal_right: u16,
+    /// The trapezoid's top edge, as the reference's `yt`.
     pub yt: f32,
+    /// The trapezoid's bottom edge, as the reference's `yb`.
     pub yb: f32,
+    /// Top-left corner x.
     pub xtl: f32,
+    /// Top-right corner x.
     pub xtr: f32,
+    /// Bottom-left corner x.
     pub xbl: f32,
+    /// Bottom-right corner x.
     pub xbr: f32,
 }
 
@@ -239,47 +299,69 @@ impl Trapezoid {
 /// `Portal`: the way out of a plane, and the way back in on the other side (`pair`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Portal {
+    /// The plane this portal belongs to.
     pub portal_plane_id: u16,
+    /// The plane across it: where a walk leaves this plane.
     pub neighbor_plane_id: u16,
+    /// The portal's flag byte, as the path data holds it.
     pub flags: u8,
     /// The portal on the other plane with the same shared id, as `(plane, portal)`.
+    /// The trapezoid this side of the portal meets, when the data names one.
     pub pair: Option<(u16, usize)>,
+    /// How many trapezoids the side lists, or how many the map has - see the field's own struct.
     pub traps_count: u32,
     /// A position in the plane's `portals_traps`, which is a list of trapezoids.
+    /// The offset of the trapezoid list in `portals_traps`.
     pub traps: usize,
 }
 
 /// `PathPlane`: one plane of a map's geometry.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Plane {
+    /// The plane's own id: what a position's `plane` field means.
     pub plane_id: u16,
+    /// The plane's vector table, which the trapezoid corners index.
     pub vectors: Vec<Vec2f>,
+    /// The trapezoids: the walkable cells the path finder walks between.
     pub trapezoids: Vec<Trapezoid>,
+    /// The x-node trees that split the trapezoids horizontally.
     pub xnodes: Vec<XNode>,
+    /// The y-node trees that split them vertically.
     pub ynodes: Vec<YNode>,
+    /// The sink nodes: where the trees end in a trapezoid.
     pub sink_nodes: Vec<SinkNode>,
+    /// The portals: the edges a walk crosses to another plane.
     pub portals: Vec<Portal>,
     /// The reference's `h000C`: a count of records the tag-11 section holds, eight bytes each.
+    /// The reference's `h000c`: a field the importer reads and never uses.
     pub h000c: u32,
     /// The trapezoids a portal leads to, `None` where the reference would store a NULL.
+    /// For each portal side, the trapezoid it meets, when the data names one.
     pub portals_traps: Vec<Option<usize>>,
     /// Where walking the splits starts (`None` where the reference's pointer would be NULL).
+    /// The root of the plane's node tree: where a lookup starts.
     pub root_node: Option<NodeRef>,
 }
 
 /// `PathStaticData`: every plane of one map, and the trapezoid counter they share.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PathStaticData {
+    /// The planes, as the path section lists them.
     pub planes: Vec<Plane>,
+    /// How many trapezoids the side lists, or how many the map has - see the field's own struct.
     pub traps_count: u32,
 }
 
 /// The box a plane's trapezoids occupy: the `worldDims` the client checks an agent against.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bounds {
+    /// The western bound of the map's path data.
     pub x0: f32,
+    /// The southern bound of the map's path data.
     pub y0: f32,
+    /// The eastern bound of the map's path data.
     pub x1: f32,
+    /// The northern bound of the map's path data.
     pub y1: f32,
 }
 
@@ -443,10 +525,12 @@ impl<'a> Chunks<'a> {
         self.sorted.iter()
     }
 
+    /// How many bytes this reader has left to consider.
     pub fn len(&self) -> usize {
         self.sorted.len()
     }
 
+    /// Whether it has none left.
     pub fn is_empty(&self) -> bool {
         self.sorted.is_empty()
     }
