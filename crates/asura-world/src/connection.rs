@@ -264,7 +264,9 @@ pub async fn handle_connection(
     let saved = db_game::position(&world.pool, character)
         .await
         .map_err(GameError::Database)?;
-    let origin = transfer.arrival_from_map_id.filter(|_| character == transfer.character_id);
+    let origin = transfer
+        .arrival_from_map_id
+        .filter(|_| character == transfer.character_id);
     let standing = Standing::arrival(&map, saved, origin)?;
 
     eprintln!(
@@ -303,7 +305,7 @@ pub async fn handle_connection(
     let (outbox, mut inbox) = tokio::sync::mpsc::unbounded_channel();
     // The map as a running object, not a row: the instance keeps who is in it, owns each player's
     // agent, and starts its clock the first time somebody joins (`Instance::run`).
-    let instance = world.instances.for_map(&map);
+    let instance = world.instances.for_map(&map, world.agent.speed());
     let (player_id, agent_id) = instance.join(name.clone(), standing, equipped, outbox);
     let (portal_outbox, mut portal_inbox) = tokio::sync::mpsc::unbounded_channel();
     instance.watch_portals(player_id, portal_outbox);
@@ -342,7 +344,7 @@ pub async fn handle_connection(
             player.GetXY().0,
             player.GetXY().1,
             player.standing().plane,
-            game::PLAYER_SPEED_BASE
+            world.agent.speed()
         );
     }
 

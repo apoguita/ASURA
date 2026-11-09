@@ -18,34 +18,68 @@ use std::time::{Duration, Instant};
 mod portal_tests {
     use super::*;
 
+    /// The committed agent defaults, parsed the way the world parses the pack's file.
+    fn committed_agent_defaults() -> crate::agent_defaults::AgentDefaults {
+        crate::agent_defaults::AgentDefaults::from_json(include_str!(
+            "../../../config/World/Vanilla/agent_defaults.json"
+        ))
+        .expect("the committed agent defaults parse")
+    }
+
     #[test]
     fn simulation_crossing_notifies_connection_without_a_client_report() {
         let arch = crate::portals::pack_arches(148).unwrap()[0];
-        let midpoint = ((arch.from.0 + arch.to.0) / 2.0, (arch.from.1 + arch.to.1) / 2.0);
+        let midpoint = (
+            (arch.from.0 + arch.to.0) / 2.0,
+            (arch.from.1 + arch.to.1) / 2.0,
+        );
         let dx = arch.to.0 - arch.from.0;
         let dy = arch.to.1 - arch.from.1;
         let length = dx.hypot(dy);
         let normal = (-dy / length, dx / length);
         let from = (midpoint.0 + normal.0 * 5.0, midpoint.1 + normal.1 * 5.0);
         let to = (midpoint.0 - normal.0 * 5.0, midpoint.1 - normal.1 * 5.0);
-        let instance = Instance::new(MapEntry {
-            map_id: 148, map_file_id: 0, map_type: 0, spawn: from, spawn_plane: 0,
-            spawns: Vec::new(), name: String::new(), capacity: 1,
-        });
+        let instance = Instance::new(
+            MapEntry {
+                map_id: 148,
+                map_file_id: 0,
+                map_type: 0,
+                spawn: from,
+                spawn_plane: 0,
+                spawns: Vec::new(),
+                name: String::new(),
+                capacity: 1,
+            },
+            committed_agent_defaults().speed(),
+        );
         let (frames, _inbox) = tokio::sync::mpsc::unbounded_channel();
-        let (player_id, _) = instance.join(String::new(), Standing {
-            position: from, plane: 0, direction: normal,
-        }, [0; 9], frames);
+        let (player_id, _) = instance.join(
+            String::new(),
+            Standing {
+                position: from,
+                plane: 0,
+                direction: normal,
+            },
+            [0; 9],
+            frames,
+        );
         let (events, mut crossings) = tokio::sync::mpsc::unbounded_channel();
         instance.watch_portals(player_id, events);
         instance.loaded(player_id);
         instance.with_slot(player_id, |slot| {
             slot.agent.begin_walk(vec![pathfind::Waypoint {
-                pos: pathfind::Pos { x: to.0, y: to.1, plane: 0 }, trap_id: 0,
+                pos: pathfind::Pos {
+                    x: to.0,
+                    y: to.1,
+                    plane: 0,
+                },
+                trap_id: 0,
             }]);
         });
         instance.step(Duration::from_millis(100));
-        let (start, end) = crossings.try_recv().expect("travel event without a position report");
+        let (start, end) = crossings
+            .try_recv()
+            .expect("travel event without a position report");
         assert_eq!(start, from);
         assert!(arch.crossed_by(start, end));
     }
@@ -76,6 +110,11 @@ pub struct Slot {
 pub struct Instance {
     /// The map this instance runs: what a client is told it is entering (`MapEntry`).
     pub map: MapEntry,
+    /// Units a second this instance advances its agents by, and the `speed_base` it puts in
+    /// `WORLD_CREATE_AGENT`. Copied from the world's `config/World/Vanilla/agent_defaults.json` at
+    /// creation, so the number the client is told and the number the tick moves the agent by cannot
+    /// drift apart.
+    speed_base: f32,
     /// The players in it, by player id. The lock is the std one: the critical sections are a scan
     /// and a send into an unbounded channel, never an await point.
     slots: Mutex<HashMap<u32, Slot>>,
@@ -84,9 +123,10 @@ pub struct Instance {
 }
 
 impl Instance {
-    pub fn new(map: MapEntry) -> Instance {
+    pub fn new(map: MapEntry, speed_base: f32) -> Instance {
         Instance {
             map,
+            speed_base,
             slots: Mutex::new(HashMap::new()),
             next_agent_id: Mutex::new(2),
         }
@@ -122,7 +162,7 @@ impl Instance {
                     standing.position,
                     standing.plane,
                     standing.direction,
-                    game::PLAYER_SPEED_BASE,
+                    self.speed_base,
                 ),
                 name,
                 equipped,
@@ -141,7 +181,11 @@ impl Instance {
     }
 
     /// Connect simulation crossings to this player's connection before loading finishes.
-    pub fn watch_portals(&self, player_id: u32, outbox: tokio::sync::mpsc::UnboundedSender<PortalStep>) {
+    pub fn watch_portals(
+        &self,
+        player_id: u32,
+        outbox: tokio::sync::mpsc::UnboundedSender<PortalStep>,
+    ) {
         self.with_slot(player_id, |slot| slot.portal_outbox = Some(outbox));
     }
 
@@ -259,7 +303,8 @@ impl Instance {
             let before_plane = slot.agent.plane;
             let cross = slot.agent.advance(delta);
             let after = slot.agent.position;
-            if before != after && crate::portals::crossed(self.map.map_id, before, after).is_some() {
+            if before != after && crate::portals::crossed(self.map.map_id, before, after).is_some()
+            {
                 if let Some(outbox) = &slot.portal_outbox {
                     let _ = outbox.send((before, after));
                 }
@@ -272,11 +317,11 @@ impl Instance {
                         let dy = slot.agent.position.1 - before.1;
                         (dx * dx + dy * dy).sqrt()
                     };
-                    let expected = game::PLAYER_SPEED_BASE * delta;
+                    let expected = self.speed_base * delta;
                     eprintln!(
                         "move[tick] walked {moved:.1} units (expected {expected:.1} at \
                          {:.0}/s), agent (x={:.1}, y={:.1}, plane={})",
-                        game::PLAYER_SPEED_BASE,
+                        self.speed_base,
                         slot.agent.position.0,
                         slot.agent.position.1,
                         slot.agent.plane
@@ -386,7 +431,10 @@ impl From<&Slot> for PeerView {
 /// `GmAgent.c` also sends `BroadcastAddPlayerToPlayerParty` rather than the unicast sender, because
 /// the party of a joining player is news to everyone already there. Here it is the same frame either
 /// way.
-pub fn introduction(peer: &PeerView) -> Vec<Frame> {
+///
+/// `agent` is the world's `config/World/Vanilla/agent_defaults.json`: the introduction states the same
+/// walking speed the instance advances the same body by.
+pub fn introduction(peer: &PeerView, agent: &crate::agent_defaults::AgentDefaults) -> Vec<Frame> {
     vec![
         game::player_create(
             peer.player_id,
@@ -405,7 +453,7 @@ pub fn introduction(peer: &PeerView) -> Vec<Frame> {
             position: peer.standing.position,
             plane: peer.standing.plane,
             direction: peer.standing.direction,
-            speed_base: game::PLAYER_SPEED_BASE,
+            speed_base: agent.speed(),
             player_team_token: PLAYER_TEAM_TOKEN,
         }),
     ]
@@ -432,11 +480,14 @@ impl Instances {
     }
 
     /// The running instance for a map, created - with its clock running - on first use.
-    pub fn for_map(&self, map: &MapEntry) -> Arc<Instance> {
+    ///
+    /// `speed_base` is the world's `agent_defaults.json` speed, carried into the instance so every
+    /// agent it ever creates moves at the number the client was told.
+    pub fn for_map(&self, map: &MapEntry, speed_base: f32) -> Arc<Instance> {
         if let Some(instance) = self.locked().get(&map.map_id) {
             return instance.clone();
         }
-        let instance = Arc::new(Instance::new(map.clone()));
+        let instance = Arc::new(Instance::new(map.clone(), speed_base));
         let ticking = Arc::clone(&instance);
         tokio::spawn(async move { ticking.run().await });
         self.locked().insert(map.map_id, instance.clone());

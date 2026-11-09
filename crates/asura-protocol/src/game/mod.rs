@@ -349,18 +349,11 @@ pub const AGENT_PROPERTY_HEALTH: u32 = 42;
 /// See [`AGENT_PROPERTY_PUBLIC_LEVEL`].
 pub const AGENT_PROPERTY_ENERGY_REGEN: u32 = 43;
 
-/// `GameSrv_CreatePlayerAgent`'s defaults: a player agent is a living agent that moves at 288 units a
-/// second, with 400 health and 25 energy. The reference hardcodes them and so does this.
-pub const PLAYER_SPEED_BASE: f32 = 288.0;
-/// See [`PLAYER_SPEED_BASE`].
-pub const PLAYER_HEALTH_MAX: u32 = 400;
-/// See [`PLAYER_SPEED_BASE`].
-pub const PLAYER_ENERGY_MAX: u32 = 25;
-/// See [`PLAYER_SPEED_BASE`]; `energy_per_sec`.
-pub const PLAYER_ENERGY_REGEN: f32 = 0.033;
-
 /// `CHAR_CLASS_PLAYER_BASE`: the top nibble of a player agent's model id. A player agent's model id
 /// is this bit-or'd with the player id (`GameSrv_CreatePlayerAgent`).
+///
+/// The agent's speed, health and energy are not here: they describe a world, so they are the pack's
+/// (`config/World/Vanilla/agent_defaults.json`) and reach this crate as arguments.
 pub const CHAR_CLASS_PLAYER_BASE: u32 = 0x3000_0000;
 /// `AgentType_Living`: the agent type of a player (`GmAgent.h`).
 pub const AGENT_TYPE_LIVING: u8 = 1;

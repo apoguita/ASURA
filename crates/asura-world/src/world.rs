@@ -46,6 +46,10 @@ pub struct World {
     pub capacity: i32,
     /// The client archive path, kept so a demand-loaded map can import its path graph.
     pub archive: String,
+    /// What every player agent is created with: walking speed, health, energy and the regeneration the
+    /// load block states (`config/World/Vanilla/agent_defaults.json`). Read once at start-up, so a
+    /// world cannot advance two agents at two speeds and nobody creates one at a speed nobody chose.
+    pub agent: crate::agent_defaults::AgentDefaults,
 }
 
 impl World {

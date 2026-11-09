@@ -36,6 +36,13 @@ use asura_world::{serve, MapEntry, World};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+/// The committed agent defaults, parsed the way the world parses the pack's file.
+fn agent_defaults() -> asura_world::agent_defaults::AgentDefaults {
+    asura_world::agent_defaults::AgentDefaults::from_json(include_str!(
+        "../../../config/World/Vanilla/agent_defaults.json"
+    ))
+    .expect("the committed agent defaults parse")
+}
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 fn skip() -> bool {
@@ -198,6 +205,7 @@ impl Harness {
             load_on_demand: false,
             capacity: 2,
             archive: gw_dat_path().unwrap_or_default(),
+            agent: agent_defaults(),
         });
         let server = tokio::spawn({
             let world = world.clone();
@@ -1982,6 +1990,7 @@ async fn a_travel_to_an_unhosted_map_is_loaded_on_demand() {
         load_on_demand: true,
         capacity: 2,
         archive: gw_dat_path().unwrap_or_default(),
+        agent: agent_defaults(),
     });
     let server = tokio::spawn({
         let world = world.clone();
@@ -2222,6 +2231,7 @@ async fn a_connection_to_an_unhosted_map_is_loaded_on_demand() {
         load_on_demand: true,
         capacity: 2,
         archive: gw_dat_path().unwrap_or_default(),
+        agent: agent_defaults(),
     });
     let server = tokio::spawn({
         let world = world.clone();

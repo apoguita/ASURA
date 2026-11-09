@@ -177,7 +177,10 @@ async fn main() -> ExitCode {
 
     let catalogue: Vec<i32> = match asura_config::world::catalogue() {
         Ok(maps) => maps.keys().copied().collect(),
-        Err(err) => { eprintln!("asura-world: map catalogue: {err}"); return ExitCode::FAILURE; }
+        Err(err) => {
+            eprintln!("asura-world: map catalogue: {err}");
+            return ExitCode::FAILURE;
+        }
     };
     if catalogue.is_empty() {
         eprintln!("asura-world: the selected pack contains no configured maps");
@@ -210,13 +213,20 @@ async fn main() -> ExitCode {
         match asura_world::catalogue::entry(*map_id, capacity) {
             Ok(Some(map)) => {
                 let kinds = asura_world::map_kinds();
-                if map.map_type == kinds.main_town || map.map_type == kinds.main_explorable
-                    || map.map_type == kinds.character_creation {
+                if map.map_type == kinds.main_town
+                    || map.map_type == kinds.main_explorable
+                    || map.map_type == kinds.character_creation
+                {
                     maps.push(map);
                 }
             }
-            Ok(None) => eprintln!("asura-world: pack map {map_id} has no loadable description; skipped"),
-            Err(err) => { eprintln!("asura-world: {err}"); return ExitCode::FAILURE; }
+            Ok(None) => {
+                eprintln!("asura-world: pack map {map_id} has no loadable description; skipped")
+            }
+            Err(err) => {
+                eprintln!("asura-world: {err}");
+                return ExitCode::FAILURE;
+            }
         }
     }
     if maps.is_empty() && !load_on_demand {
@@ -295,6 +305,14 @@ async fn main() -> ExitCode {
         eprintln!("asura-world: refusing to start without the character defaults");
         return ExitCode::from(4);
     }
+    let agent_defaults = match asura_world::agent_defaults::current() {
+        Ok(defaults) => defaults.clone(),
+        Err(err) => {
+            eprintln!("asura-world: {err}");
+            eprintln!("asura-world: refusing to start without the agent defaults");
+            return ExitCode::from(4);
+        }
+    };
     if let Err(err) = asura_world::spawns::current() {
         eprintln!("asura-world: {err}");
         eprintln!("asura-world: refusing to start without the character spawn table");
@@ -380,6 +398,7 @@ async fn main() -> ExitCode {
         load_on_demand,
         capacity,
         archive,
+        agent: agent_defaults,
     });
 
     // The heartbeat, and the drain (docs/history/service-supervisor-delivery-plan.md, S3). The heartbeat says the world

@@ -59,12 +59,17 @@ impl Player {
     /// Preserve the full reported movement even when simulation ticks advanced the agent meanwhile.
     pub fn record_portal_step(&mut self, position: (f32, f32)) {
         if crate::move_trace_on() && self.portal_position != position {
-            eprintln!("move[portal] map {} client segment ({:.1}, {:.1}) -> ({:.1}, {:.1})",
-                self.instance.map.map_id, self.portal_position.0, self.portal_position.1,
-                position.0, position.1);
+            eprintln!(
+                "move[portal] map {} client segment ({:.1}, {:.1}) -> ({:.1}, {:.1})",
+                self.instance.map.map_id,
+                self.portal_position.0,
+                self.portal_position.1,
+                position.0,
+                position.1
+            );
         }
-        self.last_step = (self.portal_position != position)
-            .then_some((self.portal_position, position));
+        self.last_step =
+            (self.portal_position != position).then_some((self.portal_position, position));
         self.portal_position = position;
     }
 
@@ -185,6 +190,9 @@ pub struct PlayerBlock<'a> {
     pub traits: db_game::Traits,
     /// The unlocked-map bitmap, in the client's own encoding.
     pub unlocked: &'a [u32],
+    /// The world's agent values (`config/World/Vanilla/agent_defaults.json`): the speed the agent is
+    /// created with and walks at, and the health, energy and regeneration the block states.
+    pub agent: &'a crate::agent_defaults::AgentDefaults,
 }
 
 /// Everything the client is told about the players in the instance, in the reference's order
@@ -204,6 +212,7 @@ pub fn player_block(block: &PlayerBlock<'_>) -> Vec<Frame> {
         agent_id,
         traits,
         unlocked,
+        agent,
     } = *block;
     let mut frames = Vec::with_capacity(30);
 
@@ -328,7 +337,7 @@ pub fn player_block(block: &PlayerBlock<'_>) -> Vec<Frame> {
         position: standing.position,
         plane: standing.plane,
         direction: standing.direction,
-        speed_base: game::PLAYER_SPEED_BASE,
+        speed_base: agent.speed(),
         player_team_token: PLAYER_TEAM_TOKEN,
     }));
     // The agent's own morale record, which the party panel's morale icon is drawn from. A live server
@@ -336,22 +345,22 @@ pub fn player_block(block: &PlayerBlock<'_>) -> Vec<Frame> {
     // paints a morale penalty the character does not have.
     frames.push(game::agent_update_morale(agent_id, MORALE_FULL));
     // Health and energy in the reference's order, then the regeneration rate and the public level.
-    // The reference's own values, read off its send log: energy 25, health 400, regeneration 0.0 and
-    // level 0 (it never sets `energy_per_sec` or `level` on a fresh agent).
+    // The numbers are the pack's (`config/World/Vanilla/agent_defaults.json`); the reference's own
+    // send log shows energy 25, health 400, regeneration 0.0 and level 0 on a fresh agent.
     frames.push(game::agent_property_update_int(
         game::AGENT_PROPERTY_ENERGY,
         agent_id,
-        game::PLAYER_ENERGY_MAX,
+        agent.energy(),
     ));
     frames.push(game::agent_property_update_int(
         game::AGENT_PROPERTY_HEALTH,
         agent_id,
-        game::PLAYER_HEALTH_MAX,
+        agent.health(),
     ));
     frames.push(game::agent_property_update_float(
         game::AGENT_PROPERTY_ENERGY_REGEN,
         agent_id,
-        0.0,
+        agent.energy_regen(),
     ));
     // The agent's level, which the party window draws. It is not a field of the create message: it
     // arrives as agent int-property 36 (`PublicLevel`), which is what the client stores in
@@ -475,6 +484,7 @@ pub async fn handle_request_players(
             agent_id: player.agent_id,
             traits: player.traits,
             unlocked: &unlocked,
+            agent: &world.agent,
         }),
     };
     let others = player.instance.others(player.player_id);
@@ -487,7 +497,7 @@ pub async fn handle_request_players(
         load_started.elapsed().as_millis()
     );
     for peer in &others {
-        block.extend(introduction(peer));
+        block.extend(introduction(peer, &world.agent));
     }
     let me = PeerView {
         player_id: player.player_id,
@@ -501,7 +511,7 @@ pub async fn handle_request_players(
         // `GameSrv_BroadcastPlayerEquippedItems` (`GmItem.c:129-160`, the *unnamed* item form),
         // then `GameSrv_BroadcastUpdateAgentVisualEquipment` and `GameSrv_BroadcastAgentDisplayCape`
         // - the reference's own order in the same handler (`GameSrv.c:1643-1650`).
-        let mut mine = introduction(&me);
+        let mut mine = introduction(&me, &world.agent);
         let equipped_bag = player
             .inventory
             .bags

@@ -61,6 +61,11 @@ fn main() {
         secondary_profession: 0,
         level: 1,
     };
+    // The pack's own agent values, read the way the world reads them.
+    let agent = asura_world::agent_defaults::AgentDefaults::from_json(include_str!(
+        "../../../config/World/Vanilla/agent_defaults.json"
+    ))
+    .expect("the committed agent defaults parse");
     dump(&player_block(&asura_world::player::PlayerBlock {
         name: &name,
         standing,
@@ -70,6 +75,7 @@ fn main() {
         agent_id: asura_world::AGENT_ID,
         traits,
         unlocked: asura_world::player::UNLOCKED_MAP_ZEROS,
+        agent: &agent,
     }));
 }
 

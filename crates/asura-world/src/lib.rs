@@ -65,6 +65,8 @@ pub use tokio::net::{TcpListener, TcpStream};
 // module.
 // -------------------------------------------------------------------------------------------
 
+/// What every player agent is created with, from the world pack (`config/World/Vanilla/`).
+pub mod agent_defaults;
 /// The map catalogue: one entry per map, and the questions a server answers about it.
 pub mod catalogue;
 /// What a new character is given, from the world pack (`config/World/Vanilla/`).
@@ -292,6 +294,14 @@ fn random_u32() -> Result<u32, GameError> {
 mod tests {
     use super::*;
 
+    /// The committed agent defaults, parsed the way the world parses the pack's file.
+    fn agent_defaults() -> crate::agent_defaults::AgentDefaults {
+        crate::agent_defaults::AgentDefaults::from_json(include_str!(
+            "../../../config/World/Vanilla/agent_defaults.json"
+        ))
+        .expect("the committed agent defaults parse")
+    }
+
     /// Lakeside County, with the reference's verified blob and spawn.
     fn test_map() -> MapEntry {
         MapEntry {
@@ -435,6 +445,7 @@ mod tests {
             agent_id: AGENT_ID,
             traits,
             unlocked: crate::player::UNLOCKED_MAP_ZEROS,
+            agent: &agent_defaults(),
         });
         let created = frames
             .iter()
@@ -462,6 +473,7 @@ mod tests {
             agent_id: AGENT_ID,
             traits: db_game::Traits::default(),
             unlocked: crate::player::UNLOCKED_MAP_ZEROS,
+            agent: &agent_defaults(),
         });
         let created = fallback
             .iter()
@@ -493,6 +505,7 @@ mod tests {
             agent_id: AGENT_ID,
             traits: db_game::Traits::default(),
             unlocked: crate::player::UNLOCKED_MAP_ZEROS,
+            agent: &agent_defaults(),
         });
         assert_eq!(
             frames.last().expect("a block").header(),
@@ -623,6 +636,7 @@ mod tests {
             agent_id: AGENT_ID,
             traits: db_game::Traits::default(),
             unlocked: crate::player::UNLOCKED_MAP_ZEROS,
+            agent: &agent_defaults(),
         });
         let named: Vec<u16> = frames
             .iter()
@@ -771,8 +785,7 @@ mod tests {
             } else if from_second <= crate::spawn_scatter() + 0.5 {
                 seen[1] = true;
                 assert!(
-                    standing.direction.1.abs() < 1e-6
-                        && (standing.direction.0 + 1.0).abs() < 1e-6,
+                    standing.direction.1.abs() < 1e-6 && (standing.direction.0 + 1.0).abs() < 1e-6,
                     "half a turn faces -x: {:?}",
                     standing.direction
                 );
@@ -816,9 +829,12 @@ mod tests {
             plane: 0,
         };
         let login = Standing::arrival(&map, Some(saved), None).expect("random spawn on login");
-        assert!((login.position.0 - 1.0).hypot(login.position.1 - 2.0) <= spawn_scatter() + 0.5,
-            "a saved doorway coordinate must not override the random spawn on login or map travel");
-        let standing = Standing::arrival(&map, Some(saved), Some(arrival.from)).expect("an arrival");
+        assert!(
+            (login.position.0 - 1.0).hypot(login.position.1 - 2.0) <= spawn_scatter() + 0.5,
+            "a saved doorway coordinate must not override the random spawn on login or map travel"
+        );
+        let standing =
+            Standing::arrival(&map, Some(saved), Some(arrival.from)).expect("an arrival");
         assert_eq!(
             standing.position,
             (arrival.x, arrival.y),
@@ -841,8 +857,10 @@ mod tests {
         };
         // An ordinary outpost entry cannot resume a saved position or invent a spawn list.
         let outpost = test_map();
-        assert!(Standing::arrival(&outpost, Some(saved), None).is_err(),
-            "an outpost without a spawn list refuses ordinary entry");
+        assert!(
+            Standing::arrival(&outpost, Some(saved), None).is_err(),
+            "an outpost without a spawn list refuses ordinary entry"
+        );
 
         // An explorable with a list is not randomised either: its arrival is the doorway's landing,
         // which arrives as the saved position, or the map's own spawn.
@@ -885,6 +903,7 @@ mod tests {
             agent_id: AGENT_ID,
             traits: db_game::Traits::default(),
             unlocked: crate::player::UNLOCKED_MAP_ZEROS,
+            agent: &agent_defaults(),
         });
         let agent = frames
             .iter()
@@ -1131,7 +1150,7 @@ mod tests {
         // A player's agent and a dropped item's are told apart: two agents sharing an id is one agent the
         // client draws and one it does not. The instance hands both out.
         let map = test_map();
-        let instance = Instance::new(map.clone());
+        let instance = Instance::new(map.clone(), agent_defaults().speed());
         let (outbox, _inbox) = tokio::sync::mpsc::unbounded_channel();
         let (_, player_agent) =
             instance.join("test".to_string(), Standing::from_map(&map), [0; 9], outbox);

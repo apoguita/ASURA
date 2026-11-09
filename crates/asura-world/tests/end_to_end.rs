@@ -34,6 +34,13 @@ use asura_world::{serve as serve_world, MapEntry, World};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
+/// The committed agent defaults, parsed the way the world parses the pack's file.
+fn agent_defaults() -> asura_world::agent_defaults::AgentDefaults {
+    asura_world::agent_defaults::AgentDefaults::from_json(include_str!(
+        "../../../config/World/Vanilla/agent_defaults.json"
+    ))
+    .expect("the committed agent defaults parse")
+}
 const TIMEOUT: Duration = Duration::from_secs(10);
 const LOGIN_REQUEST: u32 = 0x1111;
 const TRAVEL_REQUEST: u32 = 0x2222;
@@ -136,6 +143,7 @@ async fn a_client_logs_in_travels_and_reaches_its_map() {
         load_on_demand: false,
         capacity: 2,
         archive: String::new(),
+        agent: agent_defaults(),
     });
     let world_task = tokio::spawn(async move {
         let _ = serve_world(world_listener, world, true).await;

@@ -1,0 +1,19 @@
+{
+  "note": "The numbers every player agent is created with. They reach the client in the player block - the agent's create message carries the speed, and health and energy go out as agent properties - and the simulation advances the agent by the same speed. The reference hardcodes them in GameSrv_CreatePlayerAgent; here they are a file so the world states what it runs on.",
+  "speed": {
+    "value": 288.0,
+    "doc": "How fast a player agent walks, in units a second. The client walks the model at the speed it is told, and the simulation advances the agent by the same number."
+  },
+  "health": {
+    "value": 400,
+    "doc": "The health a player agent starts with, sent as agent int-property 42 at load."
+  },
+  "energy": {
+    "value": 25,
+    "doc": "The energy a player agent starts with, sent as agent int-property 41 at load."
+  },
+  "energy_regen": {
+    "value": 0.0,
+    "doc": "The energy regeneration sent as agent float-property 43 at load. Zero is what the reference's own capture shows for a fresh agent: it never sets energy_per_sec."
+  }
+}
