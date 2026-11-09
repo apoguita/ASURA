@@ -71,6 +71,7 @@ Investigations, source comparisons, measurements and unresolved findings.
 Recorded status, session context and intended work. Plans are not claims of implementation.
 
 - [Features](work/project-status.md)
+- [Re-engineering plan: the target server, phase by phase](work/re-engineering-plan.md)
 - [Session handoff](work/session-handoff.md)
 - [Documentation consistency task](work/documentation-consistency.md)
 - [Project roadmap](work/project-roadmap.md)

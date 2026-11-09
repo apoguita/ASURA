@@ -11,6 +11,7 @@ Latest task update: 2026-11-08. Gameplay notes below retain their recorded accep
 | Earlier delivery/status records | [Infrastructure history](../history/infrastructure-milestones.md) |
 | Server operations | [Running the server](../operations/running-the-server.md) |
 | Planned work | [Project roadmap](project-roadmap.md) |
+| The server being built, phase by phase | [Re-engineering plan](re-engineering-plan.md) |
 
 ## Completed documentation task
 
