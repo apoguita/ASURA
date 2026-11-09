@@ -17,31 +17,34 @@ is how the documents came to contradict each other.
 
 ## The target composition
 
-**One client-visible address, several programs behind it.** This is the client's rule, measured rather
-than chosen: after the redirect the client dials the address the game was *launched* with, and a client
-handed a different address still dials the launch address (build 39112,
-`docs/reference/client-protocol.md:708-712`). AzerothCore's two client-facing ports are therefore not
-available to us, and the door split is by **program**, not by port: the login program owns the one
-address and hands the gameplay connection to a separate world program, which is what the reference does
-in the same position (`crates/asura-gateway/src/relay.rs:1-17`).
+**The server is cloned from the reference's structure, which was read from its own tree on 2026-11-08**
+(`docs/research/azerothcore-structure.md`, checkout `C:\Users\Apo\Documents\GitHub\WowWarband` at
+`30a36ec4d`). The parts, in the reference's terms:
 
-The client walks in through the login address, is told where to play, and walks in again at that same
-address; the login program recognises the second connection and copies it to the world it names.
-
-| part | what it is | owns |
+| part | what it is | the reference's shape |
 |---|---|---|
-| login program | `asura-gateway` plus `asura-auth` | the client's one address, file check, version, key exchange, account, character list, select, redirect, and the handoff of a gameplay connection |
-| world program | `asura-world`'s listener and everything behind it | the gameplay connection, maps, instances, players |
-| registry | the database row per world | which world serves a map, its capacity, its freshness |
-| identity store | accounts, credentials, sessions | who this is |
-| state store | characters, items, leases, transfers | what happened to whom |
-| content | `config/World/<pack>/` files | what the world is made of |
+| login program | a program of its own: config file, log, its own pool | `apps/authserver/Main.cpp`: config, log, auth pool, secrets, realm list, then `AuthSocketMgr.StartNetwork(3724)` |
+| world program | a program of its own: config file, log, its own pool | `apps/worldserver/Main.cpp`: config, log, thread pool, scripts, metrics, secrets, world settings, then `WorldSocketMgr.StartWorldNetwork` |
+| shared core | sockets, packets, realms, secrets - libraries both programs use | `shared/Network`, `Packets`, `Realms`, `Secrets` |
+| database layer | the pools, the loader and the SQL updater | `database/DatabaseEnv`, `Updater/DBUpdater` + `UpdateFetcher` |
+| game library | one directory per game noun, the simulation and its socket layer inside it | `game/`, 43 subsystem directories, 325 files; `WorldSocket`/`WorldSession` live in `game/Server` |
+| scripts | behaviour against engine hooks, never named by the engine | `game/Scripting/ScriptMgr` (345 hooks), `scripts/` (598 files), `modules/` out of tree |
+| content | the world's own data, updated by a tool | `data/sql/{base,updates,archive,custom}` |
+| configuration | one file per program, sections, unknown keys refused | `env/dist/etc/worldserver.conf.dist`, `authserver.conf.dist` |
 
-Deliberate deviations from AzerothCore, each already decided: the client asks a portal web service who
-it is before login; it begins with a file check and a version exchange; content is JSON files rather
-than SQL (D20, D21, D24); placement carries a player token. Unresolved and not decided here: whether
-the token survives, whether the login door keeps a relay switch, and how a script dispatcher reaches
-mechanics.
+**One client-visible address.** This is the client's rule, measured rather than chosen: after the
+redirect the client dials the address the game was *launched* with, and a client handed a different
+address still dials the launch address (build 39112, `docs/reference/client-protocol.md:708-712`).
+The reference's two client-facing ports are therefore not available to us; the split stays by **program**,
+and the login program owns the one address and hands the gameplay connection to the world program.
+
+**What does not carry over, because Guild Wars has no such noun:** battlegrounds, arena spectator,
+warden, auction house, mail, vehicles, pets, totems, corpses. Checked in the reference tree: the first
+five are directories there and the last four sit inside `Entities/` or are absent.
+
+**What is ours and has no reference equivalent:** the portal web service for identity, the file check
+and version exchange before login, content as a JSON pack rather than SQL rows (D20, D21, D24), and the
+player token placement carries.
 
 ## The rules for every phase
 
@@ -55,14 +58,15 @@ mechanics.
 
 ## The skeleton, and what populating it means
 
-- **The skeleton is two programs and the registry they share.** The login door is its own program,
-  with its own configuration file and its own log; the world door is the existing world program, which
-  stops being fed by a relay and accepts the client itself. Building the skeleton is therefore small.
+- **The skeleton is the reference's two programs, built as new programs.** The login program and the
+  world program are each their own crate, with their own configuration file and their own log; the
+  existing programs keep serving until the client runs on the new ones, and are then deleted. Building
+  the skeleton is small because it is mostly directories and `main` functions.
 - **Populating a layer means moving working code into it unchanged.** The sockets, the login
   conversation, the load block and the movement answers are what the real client taught this project;
   they move rather than being rewritten. What changes is where the code sits and what it may touch.
-- **The old path stays alive until the client proves the new one:** login, a redirect to the world's
-  own address, a character in a map, and byte-identical frames. Only then is the old door deleted.
+- **The old path stays alive until the client proves the new one:** login, a redirect, a character in a
+  map, and byte-identical frames. Only then is the old program deleted.
 
 ## Where the work stands
 
@@ -75,7 +79,7 @@ and its documents were updated in the same commit.
 | 1 | done by measurement | the client dials its launch address, so one client-visible address is forced (`docs/reference/client-protocol.md:708-712`); the world already sits behind it as a separate program (`crates/asura-gateway/src/relay.rs:9-17`) |
 | 2 | done (2a-2e) | **a real client loads after the split (owner, 2026-11-08)**; `asura-store::identity` owns account, portal and session; `asura-store::state` owns characters, character facts and inventory (`State::new(pool)`). The world reaches them through its `db_game` / `db_inventory` re-exports, so no call site moved; auth, webgate and the gateway tests call the store directly. Cut 2d moved placement the same way, and cut 2e finished the emptying: the service catalogue moved too, the database URL moved to `asura-config` (its old path is a door in `asura-db`), and every today-document's citations were rewritten to the new homes. What remains in `asura-db` is the schema and the migration runner, plus the content rows that have no caller and die in phase 6 - so the crate itself is deleted with that content, as phase 6's first step, not here. `cargo check --workspace --all-targets` exits 0; store 6 unit plus 21 integration, world 90, db 12, auth 3, webgate 6, gateway 4, rules 9, protocol 90 |
 | 3 | done | `asura_store::placement::Placement::new(pool)` exposes the four operations - find worlds (candidates and endpoint), reserve, release, record a transfer (begin, claim, note destination, note arrival origin). The login program, the world program and the gateway relay call it and nothing else: a search over those four files finds 7 interface calls and 0 raw placement calls. Same SQL; `cargo check --workspace --all-targets` exits 0; auth 3, world 90, gateway 4, store 6 |
-| 4 | not started | |
+| 4 | not started, re-cut 2026-11-08 | the target is now the reference tree's shape (`docs/research/azerothcore-structure.md`): a new world crate with `shared`, `database`, `game/` by noun and `scripts`, populated by moving `asura-world` into it |
 | 5 | not started | |
 | 6 | not started | |
 
@@ -114,9 +118,9 @@ None of these is fixed by this plan. A phase that changes any of them says so in
 | 1 | the door split, re-cut by measurement: one client-visible address, and the programs behind it named for what they are. The login program owns that address and the handoff; the world program owns its own listener and accepts the handoff as a client connection. No second client-facing port is created, because the client would not use it | nothing new runs; this phase closes on the measurement at `docs/reference/client-protocol.md:708-712`, which is what forced it | this file; `guidance/architecture.md` (today) |
 | 2 | three stores by owner: identity, state, content stop sharing one access path; one interface per store | login, travel, item persistence, a full world refused cleanly; migrations unchanged | `config/Server/README.md`, the storage section of `guidance/architecture.md` |
 | 3 | placement as one responsibility: four operations - find worlds, reserve, release, record a transfer - and both doors call them | travel in both directions; a full world refused without disturbing the holder | `guidance/architecture.md`, the entry and travel rows of `reference/game-world-model.md` |
-| 4 | the world's inside split: listener, sessions, simulation, mechanics as separate files with private data; the reference's bounded parallel map update replaces one task per map | real client in-world; ping and tick cadence measured; two clients see each other | `work/layer-rework-checklist.md`, `work/world-simulation-plan.md` |
-| 5 | hosting: per-daemon configuration and logs; the supervisor owns start, stop, deploy, health and nothing about players | supervisor start path; a draining deploy with a player present | `operations/running-the-server.md`, `operations/running-on-linux.md`, `config/*/README.md` |
-| 6 | game sealed on content: mechanics read values from files only; behaviour reaches them through a dispatcher in AzerothCore's script-manager position | a JSON edit changes behaviour after restart, with no rebuild | `guidance/scripting-and-behavior.md`, `work/world-simulation-plan.md`, `guidance/game-packs.md` |
+| 4 | the world program, built as a new crate with the reference's library shape: `shared` (sockets, packets, secrets), `database`, `game/` by game noun, `scripts`, one config file. `asura-world` moves into it cut by cut - listener, sessions, entities and maps, mechanics by noun, scripts - and is deleted when empty. The reference's bounded parallel map update comes with the map cut, not before it | real client in a map after each cut; a drop, a move and a travel as the mechanics land; ping and tick cadence measured; two clients see each other | `work/layer-rework-checklist.md`, `work/world-simulation-plan.md`, `guidance/architecture.md` |
+| 5 | hosting against the reference's shape: one config file per program, each read by its own program only; the supervisor owns start, stop, deploy, health and nothing about players | supervisor start path; a draining deploy with a player present | `operations/running-the-server.md`, `operations/running-on-linux.md`, `config/*/README.md` |
+| 6 | game sealed on content: mechanics read values from files only; behaviour reaches them through a dispatcher in the reference's script-manager position (345 hooks in its tree) | a JSON edit changes behaviour after restart, with no rebuild | `guidance/scripting-and-behavior.md`, `work/world-simulation-plan.md`, `guidance/game-packs.md` |
 
 ## Phase 2 - three stores by owner
 
