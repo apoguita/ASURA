@@ -22,7 +22,8 @@ pub async fn answer(
 ) -> Result<bool, GameError> {
     match frame.header() {
         msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_ITEMS => {
-            item::handle_request_items(stream, session, world, player, trace).await
+            crate::game::handlers::item::handle_request_items(stream, session, world, player, trace)
+                .await
         }
 
         msg::GAME_CMSG_INSTANCE_LOAD_REQUEST_SPAWN => {
@@ -101,17 +102,25 @@ pub async fn answer(
             creation::handle_confirm(stream, session, &frame, world, player, trace).await
         }
 
-        msg::GAME_CMSG_DROP_ITEM => item::handle_drop_item(&frame, world, player).await,
+        msg::GAME_CMSG_DROP_ITEM => {
+            crate::game::handlers::item::handle_drop_item(&frame, world, player).await
+        }
 
         msg::GAME_CMSG_ITEM_MOVE => {
-            item::handle_item_move(stream, session, &frame, world, player, trace).await
+            crate::game::handlers::item::handle_item_move(
+                stream, session, &frame, world, player, trace,
+            )
+            .await
         }
 
         msg::GAME_CMSG_EQUIP_ITEM => {
-            item::handle_equip_item(stream, session, &frame, world, player, trace).await
+            crate::game::handlers::item::handle_equip_item(
+                stream, session, &frame, world, player, trace,
+            )
+            .await
         }
 
-        msg::GAME_CMSG_UNEQUIP_ITEM => item::handle_unequip_item(),
+        msg::GAME_CMSG_UNEQUIP_ITEM => crate::game::handlers::item::handle_unequip_item(),
 
         // The client answered one of our pings (`GAME_CMSG_PING_REPLY`, `0x8009`, 10 bytes). Nothing to
         // do: the reference discards it. Named rather than ignored, because a trace that says "ignored"

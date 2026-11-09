@@ -9,6 +9,7 @@
 //! while the tree is grouped: the grouping is the map, the alias is the road.
 pub mod content;
 pub mod entities;
+pub mod handlers;
 pub mod maps;
 pub mod mechanics;
 pub mod server;
