@@ -17,7 +17,7 @@ pub async fn handle_request_items(
         Some(replay) if replay.pick.wants(crate::replay::BlockName::Items) => replay.items.clone(),
         _ => items_block(
             player.instance().map(),
-            &player.inventory(),
+            player.inventory(),
             player.traits().gold,
         ),
     };

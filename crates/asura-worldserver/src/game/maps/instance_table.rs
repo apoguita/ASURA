@@ -135,11 +135,7 @@ pub fn table_for(pack: &Path) -> (InstanceTable, Vec<String>) {
     let (records, notes) = walk(pack);
     let pairs = records
         .into_iter()
-        .filter_map(|record| {
-            u16::try_from(record.map_id)
-                .ok()
-                .and_then(|map_id| record.instance_value.map(|value| (map_id, value)))
-        })
+        .filter_map(|record| u16::try_from(record.map_id).ok().zip(record.instance_value))
         .collect();
     (InstanceTable { pairs }, notes)
 }

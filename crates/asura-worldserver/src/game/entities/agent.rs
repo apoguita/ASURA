@@ -699,7 +699,7 @@ impl Standing {
         }
         if saved
             .as_ref()
-            .is_none_or(|position| position.map_id != map.map_id)
+            .map_or(true, |position| position.map_id != map.map_id)
             && map.spawns.is_empty()
             && map.map_type != map_kinds().character_creation
         {

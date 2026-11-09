@@ -63,9 +63,9 @@ pub async fn handle_request_players(
             replay.players.clone()
         }
         _ => player_block(&crate::player::PlayerBlock {
-            name: &player.name(),
+            name: player.name(),
             standing: player.standing(),
-            inventory: &player.inventory(),
+            inventory: player.inventory(),
             started: player.started(),
             player_id: player.player_id(),
             agent_id: player.agent_id(),

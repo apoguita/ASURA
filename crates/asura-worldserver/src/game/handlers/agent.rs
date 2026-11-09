@@ -46,7 +46,7 @@ pub async fn handle_last_position(
         frame.body()[10],
         frame.body()[11],
     ]) as u16;
-    let instance = Arc::clone(&player.instance());
+    let instance = Arc::clone(player.instance());
     let Some(correction) = instance.with_slot(player.player_id(), |slot| {
         slot.agent_mut().adopt_correction_point(position, plane)
     }) else {
@@ -117,7 +117,7 @@ pub async fn handle_cancel_movement(
     trace: bool,
 ) -> Result<bool, GameError> {
     let _ = world;
-    let instance = Arc::clone(&player.instance());
+    let instance = Arc::clone(player.instance());
     let Some((cancelled, stop)) = instance.with_slot(player.player_id(), |slot| {
         let cancelled = slot.agent_mut().cancel_walk();
         let stop = builders::agent_stop_moving(slot.agent().agent_id());
@@ -186,7 +186,7 @@ pub async fn handle_move_to_coord(
         frame.body()[11],
     ]) as u16;
     let agent_id = player.GetAgentID();
-    let instance = Arc::clone(&player.instance());
+    let instance = Arc::clone(player.instance());
     let map_id = instance.map().map_id;
     let Some((from, walk_active)) = instance.with_slot(player.player_id(), |slot| {
         (slot.agent().here(), 0.0 < slot.agent().motion_speed())
@@ -343,7 +343,6 @@ pub async fn handle_request_spawn(
     Ok(true)
 }
 /// The client reports where it moved to; the budget decides and the walk is answered.
-
 pub async fn handle_position_update(
     stream: &mut TcpStream,
     session: &mut Session,
@@ -389,7 +388,7 @@ pub async fn handle_position_update(
     }
     let now = Instant::now();
     let before = player.standing();
-    let instance = Arc::clone(&player.instance());
+    let instance = Arc::clone(player.instance());
     let Some(outcome) = instance.with_slot(player.player_id(), |slot| {
         let report = slot.agent_mut().accept_report(position, plane, now);
         let since = report.since;

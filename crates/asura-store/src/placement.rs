@@ -510,6 +510,17 @@ pub async fn note_session_world(
     Ok(done.rows_affected() > 0)
 }
 
+/// The columns a claimed transfer returns, in the order the query names them.
+type TransferRow = (
+    i64,
+    i32,
+    i32,
+    uuid::Uuid,
+    uuid::Uuid,
+    uuid::Uuid,
+    Option<i32>,
+);
+
 /// A pending travel: what the auth service issued, and what a world server must match before it
 /// believes a connecting client.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -580,15 +591,7 @@ pub async fn claim_transfer(
     world_id: i32,
     player_token: u32,
 ) -> sqlx::Result<Option<Transfer>> {
-    let row: Option<(
-        i64,
-        i32,
-        i32,
-        uuid::Uuid,
-        uuid::Uuid,
-        uuid::Uuid,
-        Option<i32>,
-    )> = sqlx::query_as(
+    let row: Option<TransferRow> = sqlx::query_as(
         "UPDATE t_transfer SET claimed_at = now()
           WHERE player_token = $1 AND world_id = $2
           RETURNING player_token, world_id, map_id, session_id, account_id, character_id,
