@@ -91,21 +91,85 @@ pub type PortalStep = ((f32, f32), (f32, f32));
 /// One player in one instance: the agent it drives, what the client is told about it, and the
 /// channel that reaches its connection.
 pub struct Slot {
-    pub player_id: u32,
-    pub agent: AgentState,
-    pub name: String,
-    pub equipped: [u32; 9],
-    pub outbox: tokio::sync::mpsc::UnboundedSender<Vec<Frame>>,
+    player_id: u32,
+    agent: AgentState,
+    name: String,
+    equipped: [u32; 9],
+    outbox: tokio::sync::mpsc::UnboundedSender<Vec<Frame>>,
     /// Crossing events go to the connection that owns the transfer, without waiting for a report.
-    pub portal_outbox: Option<tokio::sync::mpsc::UnboundedSender<PortalStep>>,
+    portal_outbox: Option<tokio::sync::mpsc::UnboundedSender<PortalStep>>,
     /// Movement counters, for the trace's closing summary.
-    pub move_stats: MoveStats,
+    move_stats: MoveStats,
     /// Set at join and cleared when the connecting player has its load block, so the clock does not
     /// put a tick inside the block: the reference finishes the load with `INSTANCE_LOAD_FINISH`
     /// (`GameSrv_HandleInstanceLoadRequestPlayers`) before it starts announcing the world clock.
-    pub loading: bool,
+    loading: bool,
 }
 
+/// What a slot publishes: its player, its agent, its counters and the two channels that reach the
+/// connection. The fields stay the instance's own - closing them is what makes `game::entities::agent`
+/// ask the instance for the agent rather than reach into its bookkeeping.
+impl Slot {
+    /// The player id this slot is keyed by.
+    pub fn player_id(&self) -> u32 {
+        self.player_id
+    }
+
+    /// The agent the player drives, for reading.
+    pub fn agent(&self) -> &AgentState {
+        &self.agent
+    }
+
+    /// The agent the player drives, for the movement rules in `game::entities::agent`.
+    pub fn agent_mut(&mut self) -> &mut AgentState {
+        &mut self.agent
+    }
+
+    /// The character's name, as the load block sends it.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The nine equipped item ids, as the visual-equipment message wants them.
+    pub fn equipped(&self) -> [u32; 9] {
+        self.equipped
+    }
+
+    /// Where this player's frames go.
+    pub fn outbox(&self) -> &tokio::sync::mpsc::UnboundedSender<Vec<Frame>> {
+        &self.outbox
+    }
+
+    /// Where doorway crossings are reported, when the connection asked for them.
+    pub fn portal_outbox(&self) -> Option<&tokio::sync::mpsc::UnboundedSender<PortalStep>> {
+        self.portal_outbox.as_ref()
+    }
+
+    /// Start reporting doorway crossings to the connection that owns this slot.
+    pub fn set_portal_outbox(&mut self, outbox: tokio::sync::mpsc::UnboundedSender<PortalStep>) {
+        self.portal_outbox = Some(outbox);
+    }
+
+    /// The movement counters the trace reports.
+    pub fn move_stats(&self) -> &MoveStats {
+        &self.move_stats
+    }
+
+    /// The movement counters, for the tick to advance.
+    pub fn move_stats_mut(&mut self) -> &mut MoveStats {
+        &mut self.move_stats
+    }
+
+    /// Whether the client has finished loading the map.
+    pub fn loading(&self) -> bool {
+        self.loading
+    }
+
+    /// Record that the load finished.
+    pub fn set_loading(&mut self, loading: bool) {
+        self.loading = loading;
+    }
+}
 /// One hosted map: its description, and everyone standing in it.
 pub struct Instance {
     /// The map this instance runs: what a client is told it is entering (`MapEntry`).

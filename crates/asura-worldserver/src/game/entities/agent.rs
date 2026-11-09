@@ -785,7 +785,7 @@ pub async fn handle_move_to_coord(
     let instance = Arc::clone(&player.instance());
     let map_id = instance.map().map_id;
     let Some((from, walk_active)) = instance.with_slot(player.player_id(), |slot| {
-        (slot.agent.here(), 0.0 < slot.agent.motion.speed)
+        (slot.agent_mut().here(), 0.0 < slot.agent_mut().motion.speed)
     }) else {
         eprintln!("world: agent {agent_id} asked to walk but has no slot in its instance");
         return Ok(true);
@@ -797,7 +797,7 @@ pub async fn handle_move_to_coord(
     };
     if move_trace_on() {
         instance.with_slot(player.player_id(), |slot| {
-            slot.move_stats.walk_requests += 1
+            slot.move_stats_mut().walk_requests += 1
         });
         eprintln!(
             "move[pathfind] agent {agent_id} asked to walk to (x={:.1}, y={:.1}, plane={plane}) \
@@ -856,16 +856,17 @@ pub async fn handle_move_to_coord(
             // business, not this server's.
             let begun = instance
                 .with_slot(player.player_id(), |slot| {
-                    let speed = (slot.agent.move_type != 1 || slot.agent.move_speed != 1.0)
+                    let speed = (slot.agent_mut().move_type != 1
+                        || slot.agent_mut().move_speed != 1.0)
                         .then(|| builders::agent_update_speed(agent_id, 1.0, 1));
-                    slot.agent.move_type = 1;
-                    slot.agent.move_speed = 1.0;
-                    let first = slot.agent.begin_walk(waypoints)?;
+                    slot.agent_mut().move_type = 1;
+                    slot.agent_mut().move_speed = 1.0;
+                    let first = slot.agent_mut().begin_walk(waypoints)?;
                     Some((
                         first,
-                        slot.agent.plane,
-                        slot.agent.motion.waypoints.len(),
-                        slot.agent.position,
+                        slot.agent_mut().plane,
+                        slot.agent_mut().motion.waypoints.len(),
+                        slot.agent_mut().position,
                         speed,
                     ))
                 })
@@ -904,7 +905,9 @@ pub async fn handle_move_to_coord(
             if trace {
                 eprintln!("world: path finding failed for agent {agent_id}; standing still");
             }
-            instance.with_slot(player.player_id(), |slot| slot.agent.cancel_movement());
+            instance.with_slot(player.player_id(), |slot| {
+                slot.agent_mut().cancel_movement()
+            });
             let standing = player.standing();
             // **Nothing goes on the wire.** The reference answers a refused walk with
             // `AGENT_UPDATE_POSITION` (`0x002C`, `GmAgent.c:391-394`), and that message carries
@@ -976,27 +979,27 @@ pub async fn handle_position_update(
     let before = player.standing();
     let instance = Arc::clone(&player.instance());
     let Some(outcome) = instance.with_slot(player.player_id(), |slot| {
-        let since = slot.agent.since_last_report(now);
-        let walk_was_running = 0.0 < slot.agent.motion.speed;
-        let adopted = slot.agent.adopt_report(position, plane, now);
+        let since = slot.agent_mut().since_last_report(now);
+        let walk_was_running = 0.0 < slot.agent_mut().motion.speed;
+        let adopted = slot.agent_mut().adopt_report(position, plane, now);
         let standing = Standing {
-            position: slot.agent.position,
-            plane: slot.agent.plane,
-            direction: slot.agent.facing,
+            position: slot.agent_mut().position,
+            plane: slot.agent_mut().plane,
+            direction: slot.agent_mut().facing,
         };
         if move_trace_on() {
-            slot.move_stats.reports += 1;
+            slot.move_stats_mut().reports += 1;
             match adopted {
-                Adopted::Accepted => slot.move_stats.accepted += 1,
-                Adopted::Clamped => slot.move_stats.clamped += 1,
-                Adopted::Refused => slot.move_stats.refused += 1,
+                Adopted::Accepted => slot.move_stats_mut().accepted += 1,
+                Adopted::Clamped => slot.move_stats_mut().clamped += 1,
+                Adopted::Refused => slot.move_stats_mut().refused += 1,
             }
             let distance = {
                 let dx = position.0 - before.position.0;
                 let dy = position.1 - before.position.1;
                 (dx * dx + dy * dy).sqrt()
             };
-            slot.move_stats.max_drift = slot.move_stats.max_drift.max(distance);
+            slot.move_stats_mut().max_drift = slot.move_stats_mut().max_drift.max(distance);
             eprintln!(
                 "move[manual] report (x={:.1}, y={:.1}, plane={plane}) against the server's \
                  (x={:.1}, y={:.1}, plane={}) - d={distance:.1}, {} ms since the last report, \
@@ -1014,7 +1017,7 @@ pub async fn handle_position_update(
                 frame.body().len() + 2
             );
             if adopted == Adopted::Accepted && plane != before.plane {
-                slot.move_stats.plane_changes += 1;
+                slot.move_stats_mut().plane_changes += 1;
                 eprintln!(
                     "move[jump] the client's report changed the plane {before_plane} -> {plane} \
                      at (x={:.1}, y={:.1}){note}",
@@ -1037,7 +1040,7 @@ pub async fn handle_position_update(
             }
         }
         let reply = if adopted != Adopted::Refused {
-            let from = slot.agent.here();
+            let from = slot.agent_mut().here();
             // Manual input is a direction. Trace it through connected cells and surface portals;
             // do not route around an obstacle or choose a distant overlapping plane as a destination.
             // Live bridge report 278 -> reply 281 in northlands-live-20261106-014922.jsonl.
@@ -1071,7 +1074,7 @@ pub async fn handle_position_update(
             };
             let norm = (offset.0 * offset.0 + offset.1 * offset.1).sqrt();
             let direction = if norm > 0.0 { (offset.0 / norm, offset.1 / norm) } else { (0.0, 0.0) };
-            slot.agent.begin_manual_walk(waypoints, direction, move_type)
+            slot.agent_mut().begin_manual_walk(waypoints, direction, move_type)
         } else {
             Vec::new()
         };
@@ -1115,16 +1118,16 @@ pub async fn handle_cancel_movement(
     let _ = world;
     let instance = Arc::clone(&player.instance());
     let Some((was_walking, stop, stood)) = instance.with_slot(player.player_id(), |slot| {
-        let was_walking = 0.0 < slot.agent.motion.speed;
-        slot.agent.cancel_movement();
+        let was_walking = 0.0 < slot.agent_mut().motion.speed;
+        slot.agent_mut().cancel_movement();
         let stood = Standing {
-            position: slot.agent.position,
-            plane: slot.agent.plane,
-            direction: slot.agent.facing,
+            position: slot.agent_mut().position,
+            plane: slot.agent_mut().plane,
+            direction: slot.agent_mut().facing,
         };
         (
             was_walking,
-            builders::agent_stop_moving(slot.agent.agent_id),
+            builders::agent_stop_moving(slot.agent_mut().agent_id),
             stood,
         )
     }) else {
@@ -1192,21 +1195,21 @@ pub async fn handle_last_position(
     let instance = Arc::clone(&player.instance());
     let Some((taken, reply, believed, distance)) = instance.with_slot(player.player_id(), |slot| {
         let believed = Standing {
-            position: slot.agent.position,
-            plane: slot.agent.plane,
-            direction: slot.agent.facing,
+            position: slot.agent_mut().position,
+            plane: slot.agent_mut().plane,
+            direction: slot.agent_mut().facing,
         };
-        let taken = slot.agent.adopt_correction(position, plane);
+        let taken = slot.agent_mut().adopt_correction(position, plane);
         let distance = {
             let dx = position.0 - believed.position.0;
             let dy = position.1 - believed.position.1;
             (dx * dx + dy * dy).sqrt()
         };
         let reply = if taken {
-            slot.agent.stop_manual_walk()
+            slot.agent_mut().stop_manual_walk()
         } else {
             // Refused: the agent stops, and no position is named, so the client is not moved.
-            slot.agent.stand_still();
+            slot.agent_mut().stand_still();
             Vec::new()
         };
         (taken, reply, believed, distance)
